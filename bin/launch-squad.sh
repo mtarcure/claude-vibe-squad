@@ -43,6 +43,11 @@ echo ""
 # enable mouse for trackpad scrolling, refresh status every 5s.
 tmux set-option -g history-limit 50000
 tmux set-option -g mouse on
+
+# One-key recovery: Ctrl-b SPACE refreshes the client display AND parks you
+# back on the chrono coordinator pane. Cures any stale-frame visual issue and
+# restores focus to the place you actually want to type.
+tmux bind-key Space run-shell 'tmux refresh-client \; tmux select-window -t squad:chrono \; tmux select-pane -t squad:chrono.0'
 # Push tmux selections to the macOS clipboard automatically so you can ⌘V into
 # Slack, Twitter, browser, etc. without bouncing through `tmux save-buffer`.
 tmux set-option -g set-clipboard on
