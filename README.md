@@ -267,7 +267,7 @@ Two YAML files in `_state/`:
 - **`feed-config.yaml`** — RSS URLs, expected cadences, processors per source. Add your own podcasts / blogs here.
 - **`dream-config.yaml`** — what paths the dream system can scan, exclusion patterns (secrets, finance, private journal), thresholds, mode (`shadow` / `propose` / `aggressive`).
 
-The squad uses chrono MCPs (vault, research-arsenal, content-engineer) if you have them installed at `~/chrono/plugins/`. If you don't, `bin/bootstrap-mcps.sh` skips silently — the squad runs fine without them. The MCPs add web search, content generation, and KG tooling; without them, Leads use built-in CLI tools.
+The squad runs fine on each CLI's built-in tools. If you have your own MCP servers (e.g., a vault MCP, research MCP, content generation MCP), `bin/bootstrap-mcps.sh` registers them across Codex / Gemini / Kimi in one command. Without that registration, Leads still work — they just won't have MCP-mediated capabilities. The MCP integration is opt-in; the script gracefully exits when no MCP source is found.
 
 ---
 
@@ -285,14 +285,12 @@ The squad uses chrono MCPs (vault, research-arsenal, content-engineer) if you ha
 
 ## 📜 License
 
-[AGPL-3.0](LICENSE) — same as [chrono](https://github.com/mtarcure/chrono), the Specialist Plugin Architecture this is a sister project to.
+[AGPL-3.0](LICENSE).
 
 ---
 
 <div align="center">
 
 **Built for operators who want to run AI like a control panel, not a chatbot.**
-
-[chrono](https://github.com/mtarcure/chrono) · claude-vibe-squad
 
 </div>
