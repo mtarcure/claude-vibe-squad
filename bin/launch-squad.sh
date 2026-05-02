@@ -57,7 +57,8 @@ tmux set-option -g status-right-length 110
 # Status bar shows squad state at a glance from any pane: doctor verdict +
 # inbox backlog + clock. Doctor verdict is read from today's summary JSON.
 tmux set-option -g status-left "#[fg=cyan,bold]squad #[fg=white]│ "
-tmux set-option -g status-right "#[fg=yellow]#(cat ${VAULT_ROOT}/_state/doctor-logs/\$(date +%%Y-%%m-%%d)-summary.json 2>/dev/null | jq -r 'if .issue_count>0 then \"🔔 \"+(.issue_count|tostring)+\" issues\" elif .warning_count>0 then \"⚠ \"+(.warning_count|tostring)+\" warn\" else \"✓ healthy\" end' 2>/dev/null || echo '? doctor') #[fg=white]│ #[fg=magenta]inbox: #(find ${VAULT_ROOT}/departments/*/inbox -name 'TASK-*.md' 2>/dev/null | wc -l | tr -d ' ') #[fg=white]│ #[fg=green]%H:%M"
+tmux set-option -g status-right-length 140
+tmux set-option -g status-right "#[fg=yellow]#(cat ${VAULT_ROOT}/_state/doctor-logs/\$(date +%%Y-%%m-%%d)-summary.json 2>/dev/null | jq -r 'if .issue_count>0 then \"🔔 \"+(.issue_count|tostring)+\" issues\" elif .warning_count>0 then \"⚠ \"+(.warning_count|tostring)+\" warn\" else \"✓ healthy\" end' 2>/dev/null || echo '? doctor') #[fg=white]│ #[fg=cyan]#(bash ${VAULT_ROOT}/bin/squad-health.sh) #[fg=white]│ #[fg=green]%H:%M"
 
 # Per-pane log dir — pipe-pane writes pane stdout here for grep-able audit
 TMUX_LOG_DIR="${VAULT_ROOT}/_state/tmux-logs"
