@@ -126,16 +126,37 @@ tmux send-keys -t "${SESSION}:research" "echo '   Read LEAD.md and follow it as 
 tmux send-keys -t "${SESSION}:research" "echo 'Start with: kimi --yolo --add-dir ${VAULT_ROOT}'" C-m
 tmux send-keys -t "${SESSION}:research" "echo '  (--yolo = auto-approve all tool calls; --add-dir trusts whole vault — operator-authorized 2026-05-02)'" C-m
 
+# Window 6: watchers — one inbox-watcher.sh process per Lead, tiled.
+# These fire `tmux send-keys` to the corresponding Lead pane the moment a new
+# TASK-*.md lands in its inbox/. Closes the gap where the dispatch-time nudge
+# from send-task.sh races with a busy CLI and gets eaten.
+if command -v fswatch >/dev/null 2>&1; then
+    tmux new-window -t "${SESSION}" -n "watchers" -c "${VAULT_ROOT}"
+    sleep 0.3
+    tmux send-keys -t "${SESSION}:watchers" "bash ${VAULT_ROOT}/bin/inbox-watcher.sh coding" Enter
+    sleep 0.3
+    for next_lead in security content sysmgmt research; do
+        tmux split-window -v -t "${SESSION}:watchers"
+        sleep 0.3
+        tmux send-keys -t "${SESSION}:watchers" "bash ${VAULT_ROOT}/bin/inbox-watcher.sh ${next_lead}" Enter
+        sleep 0.3
+    done
+    tmux select-layout -t "${SESSION}:watchers" tiled
+else
+    echo "(fswatch not installed — skipping inbox-watchers window. Install with: brew install fswatch)"
+fi
+
 # Switch back to chrono window for first attachment
 tmux select-window -t "${SESSION}:chrono"
 
-echo "✓ Session '${SESSION}' created with 6 windows:"
+echo "✓ Session '${SESSION}' created:"
 echo "  0: chrono     (~/Obsidian-Claude-Vibe-Squad/chrono)"
 echo "  1: coding     (departments/coding)"
 echo "  2: security   (departments/security)"
 echo "  3: content    (departments/content)"
 echo "  4: sysmgmt    (departments/sysmgmt)"
 echo "  5: research   (departments/research)"
+echo "  6: watchers   (5 fswatch processes — one per Lead's inbox)"
 echo ""
 echo "Each window has shown its prompt-line and is ready for you to:"
 echo "  1. Switch into the window (Ctrl-b + <num>)"

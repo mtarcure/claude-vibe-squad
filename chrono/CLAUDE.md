@@ -47,6 +47,16 @@ When you've sent a task and are waiting:
 - At the start of every operator turn, scan recent outboxes for pending tasks you sent (track in `./current.md` under "Pending replies")
 - When a response lands, synthesize it into operator's next reply
 
+**Do NOT block on `until` polling loops.** Burning your token budget shell-spinning while a Lead works is wasteful and surfaces nothing useful to the operator. The pattern is:
+
+1. Dispatch via `send-task.sh` → returns immediately with the task-id
+2. Tell the operator "Sent TASK-XYZ to <lead>; will surface when done"
+3. **Yield control back to the operator**
+4. On their NEXT turn, scan outboxes for any new responses to tasks you've dispatched
+5. If found, synthesize and surface
+
+If the operator says "wait for it" explicitly, you can poll — but with a timeout (e.g., 60s) and a clean exit message, never an unbounded loop. The squad has fswatch-based inbox watchers that fire pane nudges automatically when tasks land; you don't need to manually orchestrate the pickup.
+
 ## Operating model — operator stays in window 0
 
 The operator only talks to you. They do NOT switch panes to interact with Leads. Your job is the only conversational interface to the whole squad. Leads work asynchronously in their own panes, prompted by `send-task.sh` (which auto-nudges their pane via `tmux send-keys`).
