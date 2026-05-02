@@ -193,16 +193,14 @@ while true; do
         counts_outbox=$(ls "${DEPT}/outbox" 2>/dev/null | grep -v '^\.' | wc -l | tr -d ' ')
         state=$(detect_state)
 
-        # Newest mtime across all mailbox dirs + log → "age" header
+        # "Age" = time since last MEANINGFUL squad activity (a TASK file moved,
+        # response written, etc.) — NOT log mtime, because pipe-pane logs update
+        # constantly from TUI redraw bytes even when the Lead is idle.
         newest=0
         for sub in inbox active outbox archive; do
             t=$(newest_mtime_in_dir "${DEPT}/${sub}")
             [[ -n "$t" && "$t" -gt $newest ]] && newest=$t
         done
-        if [[ -f "${LOG}" ]]; then
-            t=$(stat -f '%m' "${LOG}" 2>/dev/null || echo 0)
-            [[ "$t" -gt $newest ]] && newest=$t
-        fi
         if [[ $newest -gt 0 ]]; then
             age_str="$(human_age $newest)"
         else
@@ -225,6 +223,32 @@ while true; do
         last_text=$(read_last)
         pulse=$(build_pulse)
         sparkline="${pulse: -5}"  # last 5 chars as mini sparkline for header
+
+        # GPT-5.5 v3 design: per-tile run-health line — surfaces deliverable
+        # health rather than just activity. Resolves run-id from active task,
+        # falls back to most recent archive task; reads vibecoding verdict from
+        # _state/vibecoding-check/<run-id>.md if present.
+        run_id_short=""
+        vc_verdict=""
+        latest_task=$(find "${DEPT}/active" "${DEPT}/archive" -maxdepth 1 -type f -name 'TASK-*.md' 2>/dev/null \
+                      ! -name '*-response.md' \
+                      | xargs -I{} stat -f '%m %N' {} 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
+        if [[ -n "${latest_task}" ]]; then
+            run_id=$(basename "${latest_task}" .md)
+            run_id_short="${run_id##*-}"  # last 8 chars after last dash
+            vc_file="${VAULT_ROOT}/_state/vibecoding-check/${run_id}.md"
+            if [[ -f "${vc_file}" ]]; then
+                verdict=$(awk -F': ' '/^verdict:/{print $2; exit}' "${vc_file}" 2>/dev/null)
+                case "${verdict}" in
+                    PASS|PASS-AFTER-AUTOFIX) vc_verdict='ok' ;;
+                    RETRY-NEEDED) vc_verdict='retry' ;;
+                    OPERATOR-SURFACE) vc_verdict='surf' ;;
+                    *) vc_verdict='?' ;;
+                esac
+            else
+                vc_verdict='—'  # no vibecoding check yet
+            fi
+        fi
         # Status word
         case "$state" in
             error)   status_word="${ERR}error${RST}" ;;
@@ -279,10 +303,25 @@ while true; do
         "${TXT}" "${l_padded}" "${RST}" \
         "${BORD}" "${RST}" "${CLR_EOL}"
 
-    # Line 4: Mail counts + SLA
+    # Line 4: Mail counts + SLA + Run / VC verdict (deliverable health)
     out_color="${LBL}"
     [[ ${counts_outbox} -gt 0 ]] && out_color="${ON}"
-    mail_plain=$(printf "Mail  i:%02d  a:%02d  o:%02d   SLA %s" "${counts_inbox}" "${counts_active}" "${counts_outbox}" "${sla_str}")
+    # Build with VC verdict color depending on outcome
+    case "${vc_verdict}" in
+        ok)    vc_col="${ON}"  ; vc_label="ok"   ;;
+        retry) vc_col="${BLOCK}"; vc_label="retry" ;;
+        surf)  vc_col="${ERR}" ; vc_label="surf"  ;;
+        '—'|'') vc_col="${LBL}" ; vc_label="${vc_verdict:-—}" ;;
+        *)     vc_col="${LBL}" ; vc_label="${vc_verdict}" ;;
+    esac
+    if [[ -n "${run_id_short}" ]]; then
+        mail_plain=$(printf "i:%02d a:%02d o:%02d  Run %s  VC %s  SLA %s" \
+            "${counts_inbox}" "${counts_active}" "${counts_outbox}" \
+            "${run_id_short}" "${vc_label}" "${sla_str}")
+    else
+        mail_plain=$(printf "Mail  i:%02d  a:%02d  o:%02d   SLA %s" \
+            "${counts_inbox}" "${counts_active}" "${counts_outbox}" "${sla_str}")
+    fi
     mail_padded=$(fit "${mail_plain}" $((WIDTH - 4)))
     printf "%s│%s %s%s%s %s│%s%s\n" \
         "${BORD}" "${RST}" "${LBL}" "${mail_padded}" "${RST}" \
