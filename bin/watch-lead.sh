@@ -115,16 +115,22 @@ read_last() {
 detect_state() {
     # Mailbox is the source of truth — squad's operator-only-talks-to-chrono
     # model means a Lead is "working" iff there's a task in active/.
-    # We DON'T use log mtime as a working signal because all 4 CLIs emit
-    # constant TUI redraw bytes to their pipe-pane logs even when idle.
     if [[ ${counts_active} -gt 0 ]]; then echo "working"; return; fi
     if [[ ${counts_inbox}  -gt 0 ]]; then echo "pending"; return; fi
-    # Error keywords in newest outbox response → error
+    # Error state ONLY if the newest outbox response's frontmatter declares it
+    # (e.g., `status: failed` or `status: error`). Don't grep the body — it
+    # produces false positives on legitimate work like threat modeling that
+    # naturally discusses error scenarios.
     local of
     of=$(find "${DEPT}/outbox" -maxdepth 1 -type f -name 'TASK-*-response.md' 2>/dev/null \
          | xargs -I{} stat -f '%m %N' {} 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
-    if [[ -n "$of" ]] && grep -qiE '\b(error|failed|exception|timeout|blocked)\b' "$of" 2>/dev/null; then
-        echo "error"; return
+    if [[ -n "$of" ]]; then
+        # Read only the frontmatter (between the first two `---` lines)
+        local frontmatter
+        frontmatter=$(awk '/^---$/{c++; if(c==2) exit; next} c==1' "$of" 2>/dev/null)
+        if echo "$frontmatter" | grep -qiE '^status:[[:space:]]*(failed|error|blocked)\b'; then
+            echo "error"; return
+        fi
     fi
     echo "idle"
 }
