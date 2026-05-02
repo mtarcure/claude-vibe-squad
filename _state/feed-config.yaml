@@ -1,0 +1,72 @@
+# Feed configuration — sources auto-checked nightly by feed-sweep.sh
+# All RSS URLs verified 2026-05-02. HTML-scrape sources flagged.
+
+feeds:
+  # === PODCASTS (all RSS verified) ===
+  - name: "The Artificial Intelligence Show"
+    type: podcast
+    rss: https://feeds.megaphone.fm/marketingai
+    expected_cadence: weekly
+    expected_day: tuesday
+    processor: gemini-transcribe + kimi-synthesize
+    output_dir: _state/podcast-briefs/
+
+  - name: "The AI Daily Brief"
+    type: podcast
+    rss: https://anchor.fm/s/f7cac464/podcast/rss
+    expected_cadence: daily
+    expected_days: [mon, tue, wed, thu, fri]
+    processor: gemini-transcribe + kimi-synthesize
+    output_dir: _state/podcast-briefs/
+
+  - name: "Latent Space"
+    type: podcast
+    rss: https://api.substack.com/feed/podcast/1084089.rss
+    expected_cadence: weekly
+    expected_day: any  # varies — sometimes Wed, sometimes Thu/Fri
+    processor: gemini-transcribe + kimi-synthesize
+    output_dir: _state/podcast-briefs/
+
+  # === VENDOR BLOGS (RSS-verified) ===
+  - name: "OpenAI Blog"
+    type: rss-text
+    rss: https://openai.com/news/rss.xml
+    expected_cadence: irregular
+    processor: kimi-summarize
+    output_dir: _state/blog-summaries/
+
+  - name: "Google DeepMind Blog"
+    type: rss-text
+    rss: https://deepmind.google/blog/rss.xml
+    expected_cadence: irregular
+    processor: kimi-summarize
+    output_dir: _state/blog-summaries/
+
+  # === VENDOR BLOGS (HTML-scrape needed; no RSS exposed) ===
+  - name: "Anthropic Blog"
+    type: html-scrape
+    url: https://www.anthropic.com/news
+    link_pattern: '/news/[a-z0-9][a-z0-9-]*$'
+    expected_cadence: irregular
+    processor: kimi-summarize
+    output_dir: _state/blog-summaries/
+    notes: |
+      Anthropic exposes no RSS. We scrape the news index for /news/<slug>
+      links and treat each as an article. Implemented 2026-05-02.
+
+  - name: "xAI Blog"
+    type: html-scrape
+    url: https://x.ai/news
+    link_pattern: '/news/[a-z0-9][a-z0-9-]*$'
+    expected_cadence: irregular
+    processor: kimi-summarize
+    output_dir: _state/blog-summaries/
+    notes: |
+      Same pattern as Anthropic. Implemented 2026-05-02.
+
+# Cadence audit: feed-sweep.sh tags each new item:
+#   - "on-schedule" if matches expected pattern
+#   - "off-schedule" if extra release (highlighted in brief)
+#   - "skipped" if expected release missed (only flag if 2+ consecutive misses)
+
+# Idempotent: only processes items not in _state/processed-ids.json
