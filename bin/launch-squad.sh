@@ -43,6 +43,13 @@ echo ""
 # enable mouse for trackpad scrolling, refresh status every 5s.
 tmux set-option -g history-limit 50000
 tmux set-option -g mouse on
+# Push tmux selections to the macOS clipboard automatically so you can ⌘V into
+# Slack, Twitter, browser, etc. without bouncing through `tmux save-buffer`.
+tmux set-option -g set-clipboard on
+# When dragging to select: on release, copy to pbcopy and exit copy-mode.
+# Also: ⌥ Option-drag in iTerm/Terminal bypasses tmux entirely for native selection.
+tmux bind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "pbcopy" 2>/dev/null || true
+tmux bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "pbcopy" 2>/dev/null || true
 tmux set-option -g status-interval 5
 tmux set-option -g status-left-length 40
 tmux set-option -g status-right-length 110
