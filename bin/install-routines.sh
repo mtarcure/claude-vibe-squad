@@ -20,6 +20,21 @@ fi
 
 # Make scripts executable
 chmod +x "${VAULT_ROOT}/bin/"*.sh 2>/dev/null || true
+chmod +x "${VAULT_ROOT}/scripts/python/"*.py 2>/dev/null || true
+chmod +x "${VAULT_ROOT}/scripts/"*.sh 2>/dev/null || true
+
+# Pre-warm the uv ephemeral env cache for vibecoding-check + content-processing.
+# Without this, the first run from a sandboxed CLI (Codex's workspace-write,
+# launchd's restricted env) hangs on DNS while uv tries to fetch deps.
+# Operator can override the cache location with $UV_CACHE_DIR.
+echo "Pre-warming uv cache..."
+if command -v uv >/dev/null 2>&1; then
+    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run --quiet --no-project \
+        --with pyyaml --with httpx --with feedparser --with trafilatura \
+        python -c "import yaml, httpx, feedparser, trafilatura" 2>/dev/null \
+        && echo "  ✓ pyyaml, httpx, feedparser, trafilatura cached" \
+        || echo "  ⚠ uv cache pre-warm failed (network issue?) — first script run will fetch"
+fi
 
 # Ensure LaunchAgents dir exists
 mkdir -p "${HOME}/Library/LaunchAgents"
