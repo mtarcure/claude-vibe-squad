@@ -1,0 +1,124 @@
+---
+name: smart-contract
+extends: bounty
+status: active
+---
+
+# Bounty Profile: Smart Contract
+
+For Solidity / Vyper / Rust smart contract audits (Code4rena, Immunefi, etc.).
+
+## Auto-detection signals
+
+- URL on code4rena.com OR immunefi.com
+- Files ending in .sol, .vy, .rs (with Anchor / Solana / contract patterns)
+- Mention of "audit contest", "DeFi protocol", "EVM", "Solana"
+- Repository structure with `contracts/`, `programs/`, `src/lib.rs`
+
+## Phase customizations
+
+### Phase 1: Intelligence (smart-contract additions)
+
+Additional specialists:
+- smart-contract-engineer (primary) — reads protocol architecture
+- pre-audit-threat-model — chrono skill, x-ray of permission graph + protocol classification
+
+Additional outputs:
+- `contracts.md` — deployments, addresses, source links, chain
+- `protocol-architecture.md` — control flow, key functions, accepted vuln classes per program
+- `oracle-integrations.md` (if relevant)
+- `bridge-architecture.md` (if relevant)
+
+Tools added:
+- chain-explorer MCPs (Etherscan, Solscan, etc.)
+- contract address parser
+- ABI reader
+
+### Phase 2: Recon (smart-contract additions)
+
+Specialists:
+- smart-contract-engineer
+- exploit-developer (multi-model)
+
+Tools:
+- Slither (Solidity static analysis)
+- Mythril (symbolic execution)
+- Aderyn (Rust-based Solidity static analysis)
+- Local fork (foundry / hardhat)
+
+Multi-model: yes — chrono's `multi-stance-audit-fanout` (8 specialist stances)
+
+### Phase 3: Threat Modeling (smart-contract additions)
+
+Focus areas:
+- Access control (msg.sender, ownable, roles)
+- Reentrancy (CEI pattern violations)
+- Oracle manipulation (price feeds, single-source dependencies)
+- Integer over/underflow (still relevant in unchecked blocks)
+- Economic invariants (slippage, fee accumulation, MEV)
+- Cross-contract assumptions
+
+### Phase 5/6/7: Exploitation (smart-contract additions)
+
+Test infrastructure:
+- foundry test scripts as PoCs (Solidity)
+- hardhat scenarios (TypeScript)
+- LiteSVM unit tests for Solana
+- Anchor scenarios
+
+Each PoC IS a foundry/hardhat/anchor test — reproduces deterministically.
+
+### Phase 7: Chain Construction (smart-contract specific)
+
+Specialists:
+- chain-construct-smart-contract (chrono skill)
+- skeptic (chain-atomicity-verify)
+
+Output:
+- `chain-attack.sol` — multi-call exploit
+- `chain-impact.md` — TVL at risk, attacker profit calculation
+
+### Phase 9: Validation (smart-contract additions)
+
+Specialists:
+- defi-invariant-check (chrono skill)
+- impact-validator with chain-impact-rescore
+
+Tools:
+- SI/SLI mapping
+- Money-flow analysis (where do funds end up after exploit)
+- TVL calculation at exploit time
+
+Output:
+- `financial-impact.md` — quantified attacker profit, victim loss
+- `severity-justification.md` — Code4rena severity (High/Medium/Low) per their rubric
+
+### Phase 10: Report (smart-contract additions)
+
+Specialists:
+- technical-writer
+- smart-contract-engineer (final review)
+
+Submission format:
+- Code4rena: severity / attack scenario / impact / proof of concept / recommended mitigation
+- Immunefi: severity / vulnerability type / target / steps to reproduce / impact / proposed solution
+
+Output: per-platform submission package, populated via persistent browser session
+
+## KG writes (smart-contract specific)
+
+```yaml
+- vault/security/findings/F-NN-<title>.md (with Solidity/protocol context)
+- vault/security/protocols/<protocol-name>.md (architecture intel for re-targeting)
+- vault/security/sc-techniques/<technique>.md (e.g., "oracle manipulation via price-pump")
+```
+
+## Specialists active in this profile
+
+- smart-contract-engineer (primary, Coding Lead — but Security Lead orchestrates)
+- exploit-developer (Codex + Claude multi-model)
+- skeptic (cross-cutting, multi-model)
+- impact-validator (cross-cutting, multi-model)
+- threat-modeler (Security)
+- defensive-pattern-discovery (chrono skill — what defenses ARE in place?)
+- gptscan-prompt-templates (chrono skill — vuln-class-aware LLM scaffolding)

@@ -1,0 +1,61 @@
+# Dream configuration — controls what dreaming routine analyzes
+# Privacy: dreaming respects this manifest (no scanning outside allowlist)
+
+inputs:
+  # Allowed paths to scan
+  include:
+    - "departments/*/inbox/**"
+    - "departments/*/active/**"
+    - "departments/*/outbox/**"
+    - "departments/*/archive/**"
+    - "departments/*/current.md"
+    - "departments/*/memory.md"
+    - "shared/mailbox/**"
+    - "runs/**"
+    - "_state/doctor-logs/**"
+    - "_state/cleanup-logs/**"
+    - "_state/morning-briefs/**"
+
+  # Explicit exclusions (sensitive)
+  exclude:
+    - "secrets"
+    - ".env"
+    - "**/credentials/**"
+    - "**/api_keys/**"
+    - "vault/personal/journal/**"  # operator's private journal
+    - "vault/finance/**"            # financial data
+    - "**/raw_email_bodies/**"
+
+# Operator can opt in to additional paths
+operator_opt_in:
+  - "vault/finance/**"  # set to true to allow finance analysis in dreams
+  - "vault/personal/journal/**"
+
+opt_in_paths: []  # currently no opt-ins
+
+# Mode of operation
+mode: shadow  # shadow | propose | aggressive
+              # shadow = journal only (default)
+              # propose = also generate diff-format proposals
+              # aggressive = also auto-apply proposals (NOT recommended)
+
+# Anti-hallucination thresholds
+min_signal_instances: 3        # pattern must appear N times to surface
+min_signal_strength: 25        # cumulative score (per Gemini's design)
+max_proposals_per_night: 3     # cap to prevent spam
+
+# Proposal expiry
+proposal_ttl_days: 30          # auto-expire pending proposals after N days
+
+# Skip conditions (don't run if)
+skip_if:
+  - operator_active_within_minutes: 30   # skip if operator was active recently
+  - previous_run_still_running: true     # skip if previous dream PID alive
+  - on_battery: true                      # skip on battery (laptop)
+  - low_disk: true                        # skip if <10% disk
+
+# Multi-model split
+journaler: gemini-3.1-pro          # 1M context, cheap retrospective synthesis
+adversarial_reviewer: codex        # opposite-family check on proposals
+final_consolidator: claude         # only one with brain-trio context
+weekly_cross_check: kimi-k2        # Sunday deep run

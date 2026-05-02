@@ -1,0 +1,40 @@
+# Runtime state — regenerated daily by nightly automation.
+# Config YAMLs at the top of _state/ ship with the repo; everything else is
+# operator-specific runtime data.
+_state/**
+!_state/
+!_state/feed-config.yaml
+!_state/dream-config.yaml
+!_state/.gitkeep
+
+# Per-Lead transient mailbox state (archive/ contains audit trail; commit if desired)
+departments/*/inbox/*.md
+departments/*/active/*.md
+departments/*/outbox/*.md
+!departments/*/inbox/.gitkeep
+!departments/*/active/.gitkeep
+!departments/*/outbox/.gitkeep
+
+# Temp files from atomic writes
+**/*.tmp
+**/*.tmp.*
+
+# Python / uv ephemeral envs
+.venv/
+__pycache__/
+*.pyc
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Claude Code per-project local settings (path allowlists, etc — operator-specific)
+**/.claude/settings.local.json
+
+# Obsidian local UI state
+.obsidian/workspace*
+.obsidian/cache
+.obsidian/plugins/*/data.json
