@@ -10,6 +10,16 @@
 # (usually WebFetch). With this, every Lead sees the full toolkit on every
 # dispatch and can pick the right tool.
 #
+# Per-pane MCP enumeration is sourced from:
+#   _state/capability-inventory-2026-05-02.md (verified per-pane install state)
+#   _state/incident-2026-05-03-claude-mcp-tilde.md (post-fix Claude MCP set)
+#   gemini mcp list -d (post-Hybrid-Path-A install on 2026-05-03)
+#
+# `chrono-research-arsenal` is intentionally listed ONLY in the research section.
+# The Research Lead owns multi-source web research; other Leads route research
+# through Research, not directly. Eliminates the "every Lead reaches for
+# perplexity" tool-collision noise.
+#
 # Usage:  bash shared/dispatch-toolkit.sh <lead-name>
 
 LEAD="${1:-}"
@@ -35,10 +45,16 @@ case "${LEAD}" in
 - `systems-engineer` · cross-arch builds, NUMA/SIMD
 - `e2e-runner` · Playwright suites, visual diffs, flaky-test hunting
 
-**MCPs you should prefer over generic WebFetch / Bash:**
+**MCPs verified installed in this pane (codex CLI per capability-inventory-2026-05-02):**
 - `chrono-vault` — KG read/write for project memory
-- `chrono-research-arsenal` — Perplexity / Brave / Serper / Apify (multi-source web research)
+- `chrono-kg` — KG namespace direct access
+- `chrono-obsidian` — Obsidian vault REST API
+- `chrono-catalog` — capability/MCP catalog queries
+- `chrono-content-engineer` — only when generating content artifacts (rare for coding)
+- `sequential-thinking` — multi-step reasoning helper
 - Native Bash for git, npm, cargo, docker, etc.
+
+**Routing reminder:** for OSINT / vendor research / library exploration, hand off to Research Lead — they own `chrono-research-arsenal` (Perplexity / Brave / Serper / Apify). Don't reach for WebFetch yourself; route the research task.
 
 **Required:** Dispatch to at least one specialist before drafting your own response. If none of the above fits, surface to operator instead of inventing a freeform answer.
 EOF
@@ -56,15 +72,22 @@ EOF
 - `impact-validator` · CVSS v4 scoring, sanity check on findings, dedup vs CVE/known-issue DBs
 - `privacy-steward` · PII / data-flow concerns, GDPR/CCPA review
 
-**MCPs you should prefer over generic WebFetch / Bash:**
-- `chrono-research-arsenal` — Perplexity (synthesis), Brave/Serper (raw search) — for OSINT, vendor research
-- `playwright` (CDP) — attach to operator's persistent Chrome at port 9222 for bounty platform navigation. Tabs already 2FA'd: HackerOne, Bugcrowd, Intigriti, HackenProof, Code4rena
+**MCPs verified installed in this pane (claude CLI, post-2026-05-03 tilde fix):**
 - `chrono-vault` — KG read/write for finding/program memory
+- `chrono-kg` — KG namespace direct access
+- `chrono-obsidian` — Obsidian vault REST API
+- `chrono-catalog` — capability/MCP catalog queries
+- `playwright` (CDP) — attach to operator's persistent Chrome at port 9222 for bounty platform navigation. Tabs already 2FA'd: HackerOne, Bugcrowd, Intigriti, HackenProof, Code4rena
+- `chrome-devtools` — DOM-level CDP attach for read-only inspection
+- `context7` — library/API documentation lookup
+- `sequential-thinking` — multi-step reasoning helper
 
 **Bounty platform context:**
 - `HACKERONE_API_TOKEN` available in env for direct REST API queries
 - 4 other platforms (Bugcrowd, Intigriti, HackenProof, Code4rena) are browser-only; use Playwright CDP attach
 - Operator's allowed platforms ONLY: HackerOne, Bugcrowd, Intigriti, HackenProof, Code4rena. Do NOT suggest Cantina, Immunefi, Sherlock, YesWeHack.
+
+**Routing reminder:** for OSINT / vendor research that doesn't fit `scout`'s platform-intel scope, hand off to Research Lead — they own `chrono-research-arsenal` (Perplexity for synthesis, Brave/Serper for raw search). Don't WebFetch directly.
 
 **Required:** Dispatch to at least one specialist before drafting your own response. For "find a bounty" tasks, that's `scout`. For "audit this code" tasks, that's `security-analyst`. For "model the threats here" tasks, that's `threat-modeler`.
 EOF
@@ -82,10 +105,18 @@ EOF
 - `brand-voice` · operator voice consistency check
 - `video-editor` · video trim/edit/captions
 
-**MCPs you should prefer over generic WebFetch / Bash:**
+**MCPs verified installed in this pane (gemini CLI, post-Hybrid-Path-A install 2026-05-03):**
 - `chrono-content-engineer` — ElevenLabs Scribe (transcription), text-to-speech, image generation, music composition
-- `chrono-research-arsenal` — for fact-finding, citation hunting
 - `chrono-vault` — brand-voice memory, prior content recall
+- `chrono-kg` — KG namespace direct access
+- `chrono-obsidian` — direct vault REST API for content output
+- `chrono-catalog` — capability/MCP catalog queries
+- `sequential-thinking` — multi-step reasoning helper
+- `stitch` (gemini extension) — Figma/UI-design generation; natural-language commands inside the gemini session
+
+**Native Gemini grounding:** `gemini-3.1-pro-preview` carries Google Search grounding implicitly — use it for fact-finding / citation hunting in-session. (No `chrono-research-arsenal` on the gemini pane by design — Hybrid Path A relies on native grounding for content-pane research.)
+
+**Routing reminder:** for deeper multi-source synthesis beyond a quick grounded check, hand off to Research Lead.
 
 **Required:** Dispatch to at least one specialist. For drafts, that's `writer` or `technical-writer`. For final pass, `editor`. For visuals, `designer` + `chrono-content-engineer`.
 EOF
@@ -106,10 +137,16 @@ EOF
 - `personal-ops` · operator's daily routines + reminders
 - `loop-operator` · long-running iteration with checkpoints + stall detection
 
-**MCPs you should prefer:**
+**MCPs verified installed in this pane (claude CLI, post-2026-05-03 tilde fix):**
 - `chrono-vault` — for any state read/write
+- `chrono-kg` — KG namespace direct access
 - `chrono-obsidian` — direct vault REST API
+- `chrono-catalog` — capability/MCP catalog queries
+- `context7` — library/API documentation lookup
+- `sequential-thinking` — multi-step reasoning helper
 - Native Bash for `pmset`, `df`, `launchctl`, etc.
+
+**Routing reminder:** for any external research (CLI changelogs, vendor docs, frontier-tool freshness checks), hand off to Research Lead — they own `chrono-research-arsenal`.
 
 **Required:** Dispatch to at least one specialist before drafting your own response. For system health: `doctor`. For KG operations: `memory-curator` or `knowledge-librarian`. For squad configuration audits: `harness-optimizer`.
 EOF
@@ -127,10 +164,16 @@ EOF
 - `learner` · study plans, drills, spaced repetition, reading ladders
 - `data-extraction-engineer` · PDF parsing, table extraction, dataset wrangling
 
-**MCPs you should prefer over generic WebFetch / Bash:**
+**MCPs verified installed in this pane (kimi CLI per capability-inventory-2026-05-02):**
 - `chrono-research-arsenal` — **PRIMARY for web research.** Perplexity for synthesis, Brave/Serper for raw search, Apify for scraping. ALWAYS prefer over WebFetch.
 - `chrono-vault` — KG for cross-domain pattern recall
+- `chrono-kg` — KG namespace direct access
 - `chrono-obsidian` — vault navigation for prior research
+- `chrono-catalog` — capability/MCP catalog queries
+- `chrono-content-engineer` — only when research output needs media artifacts
+- `sequential-thinking` — multi-step reasoning helper
+
+**This Lead is the squad's web-research home.** Other Leads route research tasks here; you own `chrono-research-arsenal`.
 
 **WebFetch is a fallback ONLY** — use it when chrono-research-arsenal can't reach a specific URL or for quick single-page reads. Never as your primary research tool.
 
