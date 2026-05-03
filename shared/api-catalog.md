@@ -898,7 +898,7 @@ Per-pane verification matrix for each chrono-* family MCP. Claude pane verificat
   - security pane (claude): yes — same (claude global config)
   - sysmgmt pane (claude): yes — same
   - coding pane (codex): yes — `codex mcp list` shows enabled in chrono-* config (ENV: CHRONO_VAULT_ROOT, OBSIDIAN_REST_API_KEY, OBSIDIAN_VAULT_ROOT)
-  - content pane (gemini): no — currently NOT configured on Gemini; install via Task 6 (Hybrid Path A)
+  - content pane (gemini): yes — verified post-Task 6 (gemini mcp list -d shows configured + Connected); paths absolute
   - research pane (kimi): yes — `kimi mcp list` shows configured
 - last_checked: 2026-05-03 for claude panes; 2026-05-02 for codex/kimi; 2026-05-02 for gemini (absent)
 
@@ -910,7 +910,7 @@ Per-pane verification matrix for each chrono-* family MCP. Claude pane verificat
   - security pane (claude): yes — same
   - sysmgmt pane (claude): yes — same
   - coding pane (codex): yes — `codex mcp list` shows enabled (same binary as chrono-vault, `--namespace kg`)
-  - content pane (gemini): no — currently NOT configured on Gemini; install via Task 6 (Hybrid Path A)
+  - content pane (gemini): yes — verified post-Task 6
   - research pane (kimi): yes — `kimi mcp list` shows configured
 - last_checked: 2026-05-03 for claude panes; 2026-05-02 for codex/kimi; 2026-05-02 for gemini (absent)
 
@@ -922,7 +922,7 @@ Per-pane verification matrix for each chrono-* family MCP. Claude pane verificat
   - security pane (claude): yes — same
   - sysmgmt pane (claude): yes — same
   - coding pane (codex): yes — `codex mcp list` shows enabled (ENV: OBSIDIAN_REST_API_KEY, OBSIDIAN_VAULT_ROOT)
-  - content pane (gemini): no — currently NOT configured on Gemini; install via Task 6 (Hybrid Path A)
+  - content pane (gemini): yes — verified post-Task 6
   - research pane (kimi): yes — `kimi mcp list` shows configured
 - last_checked: 2026-05-03 for claude panes; 2026-05-02 for codex/kimi; 2026-05-02 for gemini (absent)
 
@@ -934,7 +934,7 @@ Per-pane verification matrix for each chrono-* family MCP. Claude pane verificat
   - security pane (claude): yes — same
   - sysmgmt pane (claude): yes — same
   - coding pane (codex): yes — `codex mcp list` shows enabled (same binary, `--namespace catalog`)
-  - content pane (gemini): no — currently NOT configured on Gemini; out of Hybrid Path A scope (catalog query needs are filled by Claude panes for now)
+  - content pane (gemini): yes — verified post-Task 6
   - research pane (kimi): yes — `kimi mcp list` shows configured
 - last_checked: 2026-05-03 for claude panes; 2026-05-02 for codex/kimi; 2026-05-02 for gemini (absent)
 
@@ -958,7 +958,7 @@ Per-pane verification matrix for each chrono-* family MCP. Claude pane verificat
   - security pane (claude): yes — same
   - sysmgmt pane (claude): yes — same
   - coding pane (codex): yes — `codex mcp list` shows enabled (ENV: GEMINI_API_KEY, OPENAI_API_KEY, XAI_API_KEY)
-  - content pane (gemini): no — currently NOT configured on Gemini; install via Task 6 (Hybrid Path A)
+  - content pane (gemini): yes — verified post-Task 6 (ElevenLabs voice/transcription)
   - research pane (kimi): yes — `kimi mcp list` shows configured
 - last_checked: 2026-05-03 for claude panes; 2026-05-02 for codex/kimi; 2026-05-02 for gemini (absent)
 
@@ -970,7 +970,7 @@ Per-pane verification matrix for each chrono-* family MCP. Claude pane verificat
   - security pane (claude): yes — same
   - sysmgmt pane (claude): yes — same
   - coding pane (codex): yes — `codex mcp list` shows enabled (stdio, npx)
-  - content pane (gemini): no — currently NOT configured on Gemini; install via Task 6 (Hybrid Path A)
+  - content pane (gemini): yes — verified post-Task 6
   - research pane (kimi): yes — `kimi mcp list` shows configured (stdio, npx)
 - last_checked: 2026-05-02 (claude/codex/kimi); 2026-05-02 (gemini absent)
 
