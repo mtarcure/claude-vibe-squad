@@ -7,13 +7,17 @@ _state/**
 !_state/dream-config.yaml
 !_state/.gitkeep
 
-# Per-Lead transient mailbox state (archive/ contains audit trail; commit if desired)
+# Per-Lead transient mailbox state — operator-local, regenerated at runtime.
 departments/*/inbox/*.md
 departments/*/active/*.md
 departments/*/outbox/*.md
+departments/*/archive/
 !departments/*/inbox/.gitkeep
 !departments/*/active/.gitkeep
 !departments/*/outbox/.gitkeep
+
+# Per-CLI local state (Gemini, etc)
+.gemini/
 
 # Temp files from atomic writes
 **/*.tmp

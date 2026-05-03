@@ -5,8 +5,11 @@
 # Behavior:
 #   1. If the squad session doesn't exist → launch it
 #   2. Force a full client refresh (cures stale buffer drift)
-#   3. Select window 0 (chrono) and pane 0 (chrono main, not sidebar)
+#   3. Select window 0 (chrono) and pane 0
 #   4. Attach
+#
+# Sidebar (split-view of all 5 Leads as live tiles) is OPT-IN, not default.
+# Toggle with `bash bin/sidebar.sh`. Disable with `bash bin/sidebar-off.sh`.
 #
 # Usage (local or SSH):
 #   bash ~/Obsidian-Claude-Vibe-Squad/bin/connect.sh
@@ -34,12 +37,15 @@ if ! tmux has-session -t "${SESSION}" 2>/dev/null; then
     sleep 2
 fi
 
-# 2. Refresh the tmux client (clears stale rendering on any client connected)
+# 2. Sidebar is OPT-IN, not default — toggle with `bash bin/sidebar.sh`.
+# (Auto-enabling caused navigation chaos when keyboard prefix is unreliable.)
+
+# 3. Refresh the tmux client (clears stale rendering on any client connected)
 tmux refresh-client -t "${SESSION}" 2>/dev/null || true
 
-# 3. Park focus on chrono pane (window 0, pane 0)
+# 4. Park focus on chrono pane (window 0, pane 0 — main Chrono, not a sidebar tile)
 tmux select-window -t "${SESSION}:chrono" 2>/dev/null
 tmux select-pane -t "${SESSION}:chrono.0" 2>/dev/null
 
-# 4. Attach
+# 5. Attach
 exec tmux attach-session -t "${SESSION}"
