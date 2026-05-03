@@ -52,7 +52,7 @@ Each bullet leads with **what you get in plain terms**. The technical detail fol
 
 - **Persistent terminal sessions, never fresh starts** — All 5 Lead CLIs live in a single named tmux session. Detach with `Ctrl-b d`, reattach when you're back. Sessions survive overnight and across days — only a Mac reboot kills them. *Implementation: `bin/launch-squad.sh` creates a 6-window tmux session named `squad`; each window pre-configured with PATH + auth env + intro hint.*
 
-- **Nightly while you sleep** — A launchd job runs doctor health checks, RSS + HTML-scrape feed sweep across podcasts and vendor blogs, kimi-summarized blog briefs, podcast headline cards, multi-model dream pass (gemini journals → codex adversarially reviews), brain cleanup KG sweep, browser CDP keep-alive across 5 bounty platforms, and synthesizes a morning brief. *Implementation: `bin/run-nightly.sh` orchestrates 8 phases via `launchd/com.claudevibesquad.nightly.plist`; `bin/run-weekly.sh` extends Sunday with deep dream + cross-source synthesis + weekly brief.*
+- **Nightly while you sleep** — A launchd job runs doctor health checks, RSS feed sweep across podcasts and vendor blogs, kimi-summarized blog briefs, podcast headline cards, multi-model dream pass (gemini journals → codex adversarially reviews), brain cleanup KG sweep, browser CDP keep-alive across 5 bounty platforms, and synthesizes a morning brief. (HTML-scrape and full audio transcription are partially implemented — RSS path is the live one today.) *Implementation: `bin/run-nightly.sh` orchestrates 8 phases via `launchd/com.claudevibesquad.nightly.plist`; `bin/run-weekly.sh` extends Sunday with deep dream + cross-source synthesis + weekly brief.*
 
 - **Doctor surfaces what actually matters** — CLI presence, MCP registrations, secrets sourced, vault accessible, browser CDP up, disk free, tmux state, token-bleed proxy (artifact volume vs 7-day average), MCP retry-storm detection, stale `.tmp` fragments, dispatch volume + inbox backlog, long-running CLI processes. Issues bubble up to the morning brief; warnings stay in the doctor log. *Implementation: `bin/doctor.sh` 12-section report + JSON summary at `_state/doctor-logs/<date>-summary.json`.*
 
@@ -146,7 +146,7 @@ brew install tmux uv jq          # core tooling
 
 # Clone the squad into your Obsidian vault directory
 cd ~
-git clone https://github.com/<you>/claude-vibe-squad.git Obsidian-Claude-Vibe-Squad
+git clone https://github.com/mtarcure/claude-vibe-squad.git Obsidian-Claude-Vibe-Squad
 cd Obsidian-Claude-Vibe-Squad
 
 # (Optional) Install nightly automation
@@ -159,14 +159,14 @@ bash bin/launch-squad.sh
 tmux attach -t squad
 ```
 
-You'll land in window 0 (chrono pane). Type `claude` and start talking. Try *"where are we"* — Chrono reads `chrono/current.md`, the morning brief, and each Lead's `current.md` to summarize state.
+The launcher auto-starts every CLI. You'll land in window 0 (chrono pane) with Claude Code already running — start talking. Try *"where are we"* — Chrono reads `chrono/current.md`, the morning brief, and each Lead's `current.md` to summarize state.
 
-In each other pane, run the indicated CLI (the launcher prints the right command):
-- Window 1 (coding): `codex --sandbox workspace-write`
-- Window 2 (security): `claude`
-- Window 3 (content): `gemini`
-- Window 4 (sysmgmt): `claude`
-- Window 5 (research): `kimi`, then paste *"Read LEAD.md and follow it as your role identity."*
+The other windows already have their CLIs running too:
+- Window 1 (coding): Codex
+- Window 2 (security): Claude
+- Window 3 (content): Gemini
+- Window 4 (sysmgmt): Claude
+- Window 5 (research): Kimi — paste *"Read LEAD.md and follow it as your role identity."* once when you first switch to it (Kimi has no per-cwd auto-load convention).
 
 Detach with `Ctrl-b d`. The session keeps running.
 

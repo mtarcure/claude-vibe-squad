@@ -31,8 +31,8 @@ The repo IS its own working vault — there's no separate "dev" copy. Editing fi
 
 ## What's likely to land
 
-- **New specialists** under `shared/specialists/` or `departments/<lead>/specialists/` (markdown role files with `multi_model` flag)
-- **New mode profiles** under `shared/mode-profiles/<mode>/` for new target types (e.g., a new bounty profile for a specific platform)
+- **New specialists.** Use `shared/specialists/` only for cross-cutting roles callable by any Lead (e.g. `skeptic`, `triage`, `vibecoding-check`). Use `departments/<lead>/specialists/` for Lead-owned roles. Markdown role files with `multi_model` flag.
+- **New mode profiles** under `shared/mode-profiles/<mode>/` for new target types (e.g., a new bounty profile for a specific platform). Mode profiles are narrow target-type overlays on existing modes — they don't add new modes.
 - **HTML-scrape configs** for additional vendor blogs (`_state/feed-config.yaml` — link patterns + processor)
 - **Doctor checks** that catch new failure modes (process pathologies, MCP retry storms, quota anomalies)
 - **Mailbox protocol extensions** that stay backward-compatible with existing send-task.sh

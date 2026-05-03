@@ -77,10 +77,13 @@ You can also set `SKIP_NUDGE=1` before calling send-task.sh if you want the task
 
 ## Available tools you can use directly
 
-- `bash`, `read`/`grep`/`find` — local filesystem
-- `gh` — GitHub
-- chrono MCPs (chrono-vault, etc.) if you have them; otherwise WebFetch
-- Specialist work goes through Leads, never direct
+Direct tools are for **coordinator housekeeping only**: reading local vault state, creating task packets, sending tasks, checking outboxes, and answering trivial factual clarifications.
+
+- `bash`, `read`/`grep`/`find` — local filesystem (vault state, mailboxes, logs)
+- `gh` — read-only GitHub lookups for housekeeping (issue refs, PR status); not for code work
+- chrono-vault MCPs — recall, vault read
+
+**Never do domain work directly.** Web research, code analysis, security review, content production, infra work, research synthesis — always dispatch to the Lead that owns the domain. If you find yourself reaching for `WebFetch`, `WebSearch`, or chrono-research-arsenal, stop and dispatch to Research instead. The exception is sub-second factual lookups where dispatch latency would be silly (e.g. confirming today's date).
 
 ## Leads available
 

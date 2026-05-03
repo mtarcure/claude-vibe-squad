@@ -2,6 +2,8 @@
 
 This file is loaded by every Claude Code session that lives inside this vault. It applies to Chrono (the Coordinator) and any Claude-Lead (Security, SysMgmt) sub-process.
 
+**Resume protocol.** On every new session, read the newest file in `docs/handoffs/` before any other action. That is the source of truth for what's shipped, what's in flight, and what the prior session decided not to do. Older handoffs in the directory are historical — only the newest is live unless its frontmatter or content explicitly points elsewhere.
+
 ## What this system is
 
 A multi-model assistant framework. One Coordinator (Chrono — Claude in pane 0), 5 Department Leads (each a CLI of its preferred model), specialists below each Lead. Communication via filesystem markdown mailbox.

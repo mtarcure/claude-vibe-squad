@@ -71,7 +71,8 @@ These are tool-utilization and instrumentation problems, not architecture proble
 | Specialist subprocess pattern | unchanged |
 | Per-CLI subscription auth (env-drop pattern) | unchanged |
 | Multi-model verification (writer ≠ reviewer family) | unchanged |
-| 5 modes (Project, Bounty, Freelance, Research, Browse) | unchanged |
+| 7 modes (Bounty, Project, Research, Content, Incident, Maintenance, Triage) | unchanged |
+| Mode profiles under `shared/mode-profiles/{bounty,project}/` | unchanged — target-type overlays for existing modes; v1.1 does not expand or rewrite them |
 | Topology B (direct-with-CC) | unchanged; chaser logic added in this spec |
 | 4-tier model assignment | unchanged |
 | 39 specialist files | unchanged (no roster expansion) |
