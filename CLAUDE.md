@@ -129,3 +129,16 @@ Single-model:
 ## Privacy
 
 When dreaming or routine processes scan vault state, redact emails, secrets, API keys. Manifest at `_state/dream-config.yaml` lists allowed paths.
+
+## v1.1 references
+
+- `shared/lifecycle.md` — lifecycle rules + per-pane effort tiers (referenced by every Lead)
+- `shared/api-catalog.md` — verified API/feature catalog (specialist files cite verified: yes only)
+
+## Tightened rule on tool selection
+
+Specialists must use named MCPs / native CLI features from their identity.md FIRST. WebFetch is fallback ONLY when no better tool fits.
+
+Example: a specialist needing web research should call `chrono-research-arsenal/perplexity` (or its scoped equivalent for that Lead's pane) — NOT WebFetch as default. If the specialist's pane has no chrono-research-arsenal (e.g. Content pane uses Gemini Search grounding instead), the identity.md will document the substitute.
+
+Validator (`bin/validate-specialists.sh`) catches specialists citing unverified MCPs at file-edit time.

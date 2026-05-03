@@ -92,3 +92,21 @@ When the word "research" or "scout" appears, **check the noun being researched/s
 - ❌ **Browse a bounty platform yourself.** That's Security `scout` + the persistent Chrome (Playwright CDP attach).
 - ❌ **Read code to look for bugs yourself.** That's Coding `code-reviewer` or Security `security-analyst`.
 - ❌ **Dispatch a Lead and let them answer without specialist fan-out.** Always require the brief to specify which specialist(s) the Lead should dispatch.
+
+## When Security needs research mid-task (Topology B examples)
+
+Per `shared/lifecycle.md` and Lead briefs, Topology B (direct-with-CC) lets Leads talk peer-to-peer instead of routing every cross-Lead exchange through Chrono. The most common failure mode v1.0 had was Security NOT reaching for Research when it needed OSINT. Worked examples:
+
+If Security/scout (during bounty target selection) needs OSINT on a candidate:
+- DO direct-with-CC: write to `departments/research/inbox/` with `from_lead: security`, including the candidate target + what intel is needed
+- ALSO write a one-line CC summary to `chrono/inbox/` so Chrono retains visibility
+- Do NOT route back through Chrono — that adds 4 hops for what should be 2
+
+If Security/security-analyst (during code audit) needs library reputation check:
+- Same pattern — direct-with-CC to `departments/research/inbox/`
+
+If Coding/backend-engineer hits an auth-related code review during build:
+- Direct-with-CC to `departments/security/inbox/` with `from_lead: coding`
+- Security's `code-reviewer` (NOT Coding's) handles security-implication reviews
+
+NEVER auto-route operator-facing decisions through cross-Lead handoff. If a cross-Lead exchange would result in something the operator should approve (a bounty submission, a client deliverable, a public post), surface to operator via Chrono FIRST.

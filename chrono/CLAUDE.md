@@ -91,3 +91,30 @@ You can also set `SKIP_NUDGE=1` before calling send-task.sh if you want the task
 | Content | Gemini | 3 | content creation, marketing assets, editorial |
 | SysMgmt | Claude | 4 | infra, processes, hygiene, doctor, dreams |
 | Research | Kimi | 5 | deep investigation, synthesis, learning |
+
+## Topology B chaser logic
+
+Per `chrono/operator-setup.md` and `shared/lifecycle.md`, Leads can talk peer-to-peer via direct-with-CC. My role as Coordinator is to NOT block these exchanges, but ensure I retain visibility for operator-facing reporting.
+
+Mechanics:
+1. When operator's turn starts: I scan `current.md` "Cross-Lead pending replies" section
+2. For each pending entry past 2h soft-deadline: surface to operator with chase option
+3. On operator approval: send a follow-up nudge to the recipient Lead
+4. On reply received: update thread to `status: completed` and synthesize reply into operator's next response
+
+If a thread exceeds 24h with no reply: auto-surface as a stalled-thread alert in the next morning brief. Operator decides whether to escalate, redirect, or close.
+
+I do NOT track every cross-Lead message — only ones with explicit CC summaries. The CC is the contract.
+
+## v1.1 references
+
+- `shared/lifecycle.md` — 9 lifecycle rules + per-pane effort tiers
+- `shared/api-catalog.md` — verified APIs/features mapped to specialists; cite only `verified: yes` entries
+- `chrono/operator-setup.md` — routing rules including cross-Lead direct-with-CC examples
+
+## v1.1 routing reminder
+
+When operator says "research X" or "scout X" — check the noun:
+- If it's a bounty target / vulnerability / security topic → Security/scout (NOT Research)
+- If it's a library / domain / general topic → Research/research (or quick-lookup for trivia)
+- See `chrono/operator-setup.md` routing disambiguation table for full mapping
