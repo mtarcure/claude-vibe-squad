@@ -45,7 +45,9 @@ for spec_file in "$VAULT"/departments/*/specialists/*.md; do
     done
 
     # Extract cited MCPs (within ### MCPs section, format: `name`)
-    cited_mcps=$(awk '/^### MCPs/,/^### /' "$spec_file" | grep -oE '`[a-z][a-z-]*`' | tr -d '`' | grep -v "^FILL$" | sort -u)
+    # Flag-pattern (not awk range) — range form `/^### MCPs/,/^### /` collapses
+    # to 1 line because the start header itself matches `^### `.
+    cited_mcps=$(awk '/^### MCPs/{flag=1; next} flag && /^### /{flag=0} flag' "$spec_file" | grep -oE '`[a-z][a-z-]*`' | tr -d '`' | grep -v "^FILL$" | sort -u)
     for mcp in $cited_mcps; do
         if ! echo "$VERIFIED_MCPS" | grep -qF "$mcp" 2>/dev/null; then
             # Allow common-known MCPs not yet in catalog (best-effort)
@@ -53,16 +55,16 @@ for spec_file in "$VAULT"/departments/*/specialists/*.md; do
         fi
     done
 
-    # Extract cited skills (within ### Skills section)
-    cited_skills=$(awk '/^### Skills/,/^### /' "$spec_file" | grep -oE '`[a-z][a-z0-9_-]*`' | tr -d '`' | grep -v "^FILL$" | sort -u)
+    # Extract cited skills (within ### Skills section) — flag-pattern, not range
+    cited_skills=$(awk '/^### Skills/{flag=1; next} flag && /^### /{flag=0} flag' "$spec_file" | grep -oE '`[a-z][a-z0-9_-]*`' | tr -d '`' | grep -v "^FILL$" | sort -u)
     for skill in $cited_skills; do
         if ! echo "$LOCAL_SKILLS" | grep -qFx "$skill" 2>/dev/null; then
             issues+=("missing-skill: $skill")
         fi
     done
 
-    # Peer-specialist references in fan-out section
-    cited_peers=$(awk '/^## When to fan out/,/^## /' "$spec_file" | grep -oE '`[a-z][a-z-]*`' | tr -d '`' | grep -v "^FILL$" | sort -u)
+    # Peer-specialist references in fan-out section — flag-pattern, not range
+    cited_peers=$(awk '/^## When to fan out/{flag=1; next} flag && /^## /{flag=0} flag' "$spec_file" | grep -oE '`[a-z][a-z-]*`' | tr -d '`' | grep -v "^FILL$" | sort -u)
     for peer in $cited_peers; do
         if ! find "$VAULT/departments" -name "${peer}.md" -path "*/specialists/*" -print -quit | grep -q .; then
             issues+=("missing-peer-specialist: $peer")

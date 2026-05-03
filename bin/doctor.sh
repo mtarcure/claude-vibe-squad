@@ -179,6 +179,21 @@ if [[ ${WEEKLY_AVG} -ge 3 ]] && [[ ${TODAY_ARTIFACTS} -gt $((WEEKLY_AVG * 3)) ]]
     WARNINGS+=("token-bleed suspect: today=${TODAY_ARTIFACTS} vs weekly_avg=${WEEKLY_AVG}")
 fi
 
+# Primary token-spend signal: dispatch count from dispatch-log.jsonl (last 24h).
+# Catches retry loops with single-artifact output (which the artifact-count
+# proxy above misses). finance-daily.sh provides per-pane breakdown + baseline
+# comparison; this is just a high-water-mark check.
+if [[ -f "${VAULT_ROOT}/_state/dispatch-log.jsonl" ]] && command -v jq >/dev/null 2>&1; then
+    yesterday_iso=$(date -u -v-1d +%FT%TZ 2>/dev/null || date -u -d '1 day ago' +%FT%TZ 2>/dev/null)
+    DISPATCHES_LAST_24H=$(jq -r --arg t "$yesterday_iso" 'select(.ts > $t) | .to_lead' \
+        "${VAULT_ROOT}/_state/dispatch-log.jsonl" 2>/dev/null | wc -l | tr -d ' ')
+    echo "- Total dispatches last 24h: ${DISPATCHES_LAST_24H} (see _state/finance-daily/ for per-pane breakdown)" >> "${DOCTOR_LOG}"
+    if [[ ${DISPATCHES_LAST_24H} -gt 200 ]]; then
+        echo "- ⚠️ High dispatch volume (>200/day) — possible runaway loop. Cross-check finance-daily." >> "${DOCTOR_LOG}"
+        WARNINGS+=("dispatch volume ${DISPATCHES_LAST_24H} exceeds 200/24h baseline")
+    fi
+fi
+
 # --- 9. Specialist dispatch volume ---
 echo "" >> "${DOCTOR_LOG}"
 echo "## Dispatch Activity (last 24h)" >> "${DOCTOR_LOG}"
@@ -212,14 +227,20 @@ if [[ -n "${runaway}" ]]; then
     ISSUES+=("CLI process consuming >80% CPU — kill if stuck in retry loop")
 fi
 
-# Pathology: MCP retry storms — search recent script stderr for retry-pattern
-RETRY_STORM_LOG=$(grep -rE 'retry|reconnect|RETRY' "${VAULT_ROOT}/_state/cleanup-logs" \
-    --include='*.md' -h 2>/dev/null | tail -200 | wc -l | tr -d ' ')
-if [[ ${RETRY_STORM_LOG} -gt 50 ]]; then
-    echo "- ⚠️ Possible MCP retry storm: ${RETRY_STORM_LOG} retry/reconnect lines in recent logs" >> "${DOCTOR_LOG}"
-    WARNINGS+=("MCP retry storm suspect — ${RETRY_STORM_LOG} retry mentions in recent logs")
+# Pathology: MCP retry storms — search recent CLI stdout for connection-failure patterns.
+# tmux-logs are pane stdout (where CLIs actually log connection issues), not
+# cleanup-logs (which are short structured docs that don't reflect real retry
+# spam). Time-windowed to last hour; pattern targets MCP-specific failures.
+RETRY_STORM_LOG=$(find "${VAULT_ROOT}/_state/tmux-logs" -name '*.log' -mmin -60 2>/dev/null \
+    | xargs grep -hcE 'Failed to connect|connection refused|retrying.*MCP|MCP.*timeout|reconnect attempt' 2>/dev/null \
+    | awk -F: '{sum+=$1} END {print sum+0}')
+if [[ ${RETRY_STORM_LOG} -gt 100 ]]; then
+    echo "- ⚠️ Possible MCP retry storm: ${RETRY_STORM_LOG} connection-failure lines in last hour of tmux-logs" >> "${DOCTOR_LOG}"
+    WARNINGS+=("MCP retry storm suspect — ${RETRY_STORM_LOG} connection failures in last hour")
+elif [[ ${RETRY_STORM_LOG} -gt 30 ]]; then
+    echo "- 🟡 Elevated MCP retry activity: ${RETRY_STORM_LOG} connection-failure lines in last hour" >> "${DOCTOR_LOG}"
 else
-    echo "- ✓ No retry-storm pattern detected (${RETRY_STORM_LOG} retry mentions in recent logs)" >> "${DOCTOR_LOG}"
+    echo "- ✓ No retry-storm pattern detected (${RETRY_STORM_LOG} connection-failure lines in last hour)" >> "${DOCTOR_LOG}"
 fi
 
 # Pathology: stale tmp files in _state (signal of crashed atomic writes)
