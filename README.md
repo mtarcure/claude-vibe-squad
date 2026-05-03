@@ -159,16 +159,16 @@ bash bin/launch-squad.sh
 tmux attach -t squad
 ```
 
-The launcher auto-starts every CLI. You'll land in window 0 (chrono pane) with Claude Code already running — start talking. Try *"where are we"* — Chrono reads `chrono/current.md`, the morning brief, and each Lead's `current.md` to summarize state.
+The launcher auto-starts every CLI. You'll land in window 0 (chrono) with Claude Code already running and a **5-tile sidebar** showing every Lead's live status (current focus, last delivery, mailbox counts, activity pulse, SLA). Start talking to Chrono on the left — the right side updates on its own. Try *"where are we"* — Chrono reads `chrono/current.md`, the morning brief, and each Lead's `current.md` to summarize state.
 
-The other windows already have their CLIs running too:
+Each Lead also has its own dedicated tmux window with the full CLI, accessible via `Ctrl-b + <num>`:
 - Window 1 (coding): Codex
 - Window 2 (security): Claude
 - Window 3 (content): Gemini
 - Window 4 (sysmgmt): Claude
 - Window 5 (research): Kimi — paste *"Read LEAD.md and follow it as your role identity."* once when you first switch to it (Kimi has no per-cwd auto-load convention).
 
-Detach with `Ctrl-b d`. The session keeps running.
+Detach with `Ctrl-b d`. The session keeps running. Toggle the sidebar off with `bash bin/sidebar-off.sh` if you want the chrono window full-width.
 
 ---
 

@@ -2,6 +2,35 @@
 
 All notable changes documented per [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [1.1.2] - 2026-05-03 — Daily-Driver Readiness
+
+Fixes a broken first-run experience and tightens UI on the live sidebar. Codex (peer-gpt) reviewed the full repo before this pass; full review captured at `~/Obsidian-Chrono/chrono/reviews/2026-05-03/eea2fdb3-peer-gpt-output.md`.
+
+### Fixed
+
+- **`bin/launch-squad.sh` now runs the CLIs.** Previously echoed `'Start with: <cli>'` instead of executing — every Lead pane landed at a bash prompt. Replaced echoes with bare CLI commands so the launcher actually launches. (commit `5c03c33`)
+- **`tmux set-option -g` calls now apply.** Added `tmux start-server` before the global option block so options don't silently fail when the server isn't yet up (e.g. after `kill-server`). Status bar + mouse mode + scrollback now apply on every launch. (commit `5c03c33`)
+- **Chrono dispatch-first rule clarified.** `chrono/CLAUDE.md` and `chrono/SOUL.md` had a WebFetch fallback that let the Coordinator drift into specialist work. Tightened to: direct tools = housekeeping only; web research, code, security, content, infra, synthesis ALWAYS dispatch to the owning Lead. (commit `5c03c33`)
+- **README quick-start.** Clone URL was `<you>` placeholder → `mtarcure`. Quick-start said "type claude / run the indicated CLI" → now reflects auto-start. Nightly automation softened (HTML scrape + full audio transcription are partially-implemented, not live). (commit `5c03c33`)
+- **`bin/connect.sh` header comments.** Stale "sidebar-on by default" claims from rolled-back tmux experiment → updated. (commit `5c03c33`)
+
+### Changed
+
+- **Sidebar default-on.** `bin/launch-squad.sh` and `bin/connect.sh` now invoke `bin/sidebar.sh` automatically. Operator preference reversal — once the windows-vs-sidebar distinction is understood, the 5-Lead live mirror tiles are useful by default. Toggle off with `bin/sidebar-off.sh`. (commit `66ad1e4`)
+- **Per-Lead accent colors on sidebar tiles.** `bin/watch-lead.sh` colors each Lead's UPPER label distinctly: CODING amber, SECURITY coral, CONTENT pink, SYSMGMT mint, RESEARCH sky. (commit `de8fedc`)
+- **Cleaner `Last:` extraction on sidebar tiles.** Was: first non-empty body line, often truncated mid-sentence ("This TASK is byte-identical (in spec, asks, and success criteria) to…"). Now: prefers the response file's H1 heading; falls back to non-meta paragraph line. Real result on the squad's responses: "STRIDE-lite threat model — POST /api/squad/submit-task" instead of meta-prose. (commit `de8fedc`)
+- **Spec ↔ reality sync.** `docs/specs/...v1.1`: "5 modes (Project/Bounty/Freelance/Research/Browse)" → "7 modes (Bounty/Project/Research/Content/Incident/Maintenance/Triage)". Added one-line acknowledgment of `shared/mode-profiles/{bounty,project}/`. (commit `5c03c33`)
+- **CONTRIBUTING.md.** Clarified `shared/specialists/` is for cross-cutting roles callable by any Lead; `departments/<lead>/specialists/` for Lead-owned. Mode profiles are target-type overlays, not new modes. (commit `5c03c33`)
+- **CHANGELOG terminology.** "39 specialist files" → "39 direct specialist identity files" (recursive find finds 41 if bundled skill docs are counted). (commit `5c03c33`)
+
+### Removed
+
+- 4 stray `.bak*` files from sed `-i.bak` artifacts (no functional impact).
+
+### Repo hygiene
+
+- `.gitignore` now excludes `departments/*/archive/` (operator-local task history) and `.gemini/` (per-CLI local state with absolute MCP paths). No leaked secrets in tracked files (verified by Codex scan).
+
 ## [1.1.0] - 2026-05-03 — Tool Utilization & Discipline
 
 Multi-model reviewed (Codex GPT-5.5 + Gemini 3.1 — both GREEN after revision 2). Spec at `docs/specs/2026-05-02-vibe-squad-v1.1-tool-utilization.md`. Plan at `docs/plans/2026-05-02-vibe-squad-v1.1-tool-utilization-plan.md`.
