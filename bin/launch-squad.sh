@@ -85,7 +85,7 @@ tmux send-keys -t "${SESSION}:chrono" "${PATH_PREFIX}" C-m
 tmux send-keys -t "${SESSION}:chrono" "${AUTH_PREFIX}" C-m
 tmux send-keys -t "${SESSION}:chrono" "clear; echo '=== CHRONO COORDINATOR (Claude Code) ==='" C-m
 tmux send-keys -t "${SESSION}:chrono" "echo 'Auto-loads: ./CLAUDE.md (which references SOUL.md + vault rules)'" C-m
-tmux send-keys -t "${SESSION}:chrono" "echo 'Start with: claude --permission-mode acceptEdits --add-dir ${VAULT_ROOT}'" C-m
+tmux send-keys -t "${SESSION}:chrono" "echo 'Start with: claude --permission-mode acceptEdits --model opus --effort xhigh --add-dir ${VAULT_ROOT}'" C-m
 tmux send-keys -t "${SESSION}:chrono" "echo '  (use /auto inside the session for full autonomous mode)'" C-m
 
 # Window 1: coding (Codex — auto-loads AGENTS.md)
@@ -95,7 +95,7 @@ tmux send-keys -t "${SESSION}:coding" "${PATH_PREFIX}" C-m
 tmux send-keys -t "${SESSION}:coding" "${AUTH_PREFIX}" C-m
 tmux send-keys -t "${SESSION}:coding" "clear; echo '=== CODING LEAD (Codex) ==='" C-m
 tmux send-keys -t "${SESSION}:coding" "echo 'Auto-loads: AGENTS.md (symlinked to LEAD.md)'" C-m
-tmux send-keys -t "${SESSION}:coding" "echo 'Start with: codex --sandbox workspace-write --ask-for-approval never'" C-m
+tmux send-keys -t "${SESSION}:coding" "echo 'Start with: codex --sandbox workspace-write --ask-for-approval never -c model_reasoning_effort=high'" C-m
 tmux send-keys -t "${SESSION}:coding" "echo '  (workspace-write = outbox writes; ask-for-approval never = full auto)'" C-m
 
 # Window 2: security (Claude Code — auto-loads CLAUDE.md)
@@ -105,7 +105,7 @@ tmux send-keys -t "${SESSION}:security" "${PATH_PREFIX}" C-m
 tmux send-keys -t "${SESSION}:security" "${AUTH_PREFIX}" C-m
 tmux send-keys -t "${SESSION}:security" "clear; echo '=== SECURITY LEAD (Claude) ==='" C-m
 tmux send-keys -t "${SESSION}:security" "echo 'Auto-loads: CLAUDE.md (symlinked to LEAD.md)'" C-m
-tmux send-keys -t "${SESSION}:security" "echo 'Start with: claude --permission-mode bypassPermissions --add-dir ${VAULT_ROOT}'" C-m
+tmux send-keys -t "${SESSION}:security" "echo 'Start with: claude --permission-mode bypassPermissions --model opus --effort xhigh --add-dir ${VAULT_ROOT}'" C-m
 tmux send-keys -t "${SESSION}:security" "echo '  (bypassPermissions = full async autonomy; trusted vault context, no adversarial input — operator-authorized 2026-05-02)'" C-m
 
 # Window 3: content (Gemini — auto-loads GEMINI.md)
@@ -115,7 +115,7 @@ tmux send-keys -t "${SESSION}:content" "${PATH_PREFIX}" C-m
 tmux send-keys -t "${SESSION}:content" "${AUTH_PREFIX}" C-m
 tmux send-keys -t "${SESSION}:content" "clear; echo '=== CONTENT LEAD (Gemini) ==='" C-m
 tmux send-keys -t "${SESSION}:content" "echo 'Auto-loads: GEMINI.md (symlinked to LEAD.md)'" C-m
-tmux send-keys -t "${SESSION}:content" "echo 'Start with: gemini --yolo --include-directories ${VAULT_ROOT}'" C-m
+tmux send-keys -t "${SESSION}:content" "echo 'Start with: gemini --yolo --model gemini-3.1-pro-preview --include-directories ${VAULT_ROOT}'" C-m
 tmux send-keys -t "${SESSION}:content" "echo '  (--yolo = auto-approve all tool calls; trusted vault context — operator-authorized 2026-05-02)'" C-m
 
 # Window 4: sysmgmt (Claude Code — auto-loads CLAUDE.md)
@@ -125,7 +125,7 @@ tmux send-keys -t "${SESSION}:sysmgmt" "${PATH_PREFIX}" C-m
 tmux send-keys -t "${SESSION}:sysmgmt" "${AUTH_PREFIX}" C-m
 tmux send-keys -t "${SESSION}:sysmgmt" "clear; echo '=== SYSMGMT LEAD (Claude) ==='" C-m
 tmux send-keys -t "${SESSION}:sysmgmt" "echo 'Auto-loads: CLAUDE.md (symlinked to LEAD.md)'" C-m
-tmux send-keys -t "${SESSION}:sysmgmt" "echo 'Start with: claude --permission-mode bypassPermissions --add-dir ${VAULT_ROOT}'" C-m
+tmux send-keys -t "${SESSION}:sysmgmt" "echo 'Start with: claude --permission-mode bypassPermissions --model sonnet --effort high --add-dir ${VAULT_ROOT}'" C-m
 tmux send-keys -t "${SESSION}:sysmgmt" "echo '  (bypassPermissions = full async autonomy; trusted vault context, no adversarial input — operator-authorized 2026-05-02)'" C-m
 
 # Window 5: research (Kimi — NO per-cwd auto-load convention)
@@ -136,7 +136,7 @@ tmux send-keys -t "${SESSION}:research" "${AUTH_PREFIX}" C-m
 tmux send-keys -t "${SESSION}:research" "clear; echo '=== RESEARCH LEAD (Kimi) ==='" C-m
 tmux send-keys -t "${SESSION}:research" "echo 'Kimi has no per-cwd auto-load. After kimi starts, paste:'" C-m
 tmux send-keys -t "${SESSION}:research" "echo '   Read LEAD.md and follow it as your role identity. Then check inbox/.'" C-m
-tmux send-keys -t "${SESSION}:research" "echo 'Start with: kimi --yolo --add-dir ${VAULT_ROOT}'" C-m
+tmux send-keys -t "${SESSION}:research" "echo 'Start with: kimi --yolo --thinking --add-dir ${VAULT_ROOT}'" C-m
 tmux send-keys -t "${SESSION}:research" "echo '  (--yolo = auto-approve all tool calls; --add-dir trusts whole vault — operator-authorized 2026-05-02)'" C-m
 
 # Window 6: watchers — one inbox-watcher.sh process per Lead, tiled.
