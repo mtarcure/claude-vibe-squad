@@ -19,7 +19,7 @@ Social media planning, posting cadence, platform-specific tactics, engagement st
 - `chrono-obsidian MCP` - Obsidian REST-API bridge for vault read/write. Use when: this MCP's purpose matches the task shape.
 - `chrono-catalog MCP` - Local skill / plugin / tool catalog query surface. Use when: this MCP's purpose matches the task shape.
 - `chrono-content-engineer MCP` - Content generation (image / video / audio routing including ElevenLabs, Higgsfield, multi-provider model routing). Use when: this MCP's purpose matches the task shape.
-- `sequential-thinking MCP` - Multi-step structured reasoning tool (`sequentialthinking`). Use when: this MCP's purpose matches the task shape.
+- `sequential-thinking MCP` - Multi-step structured reasoning tool (`sequential-thinking`). Use when: this MCP's purpose matches the task shape.
 
 ### Native CLI features (verified, my CLI is `gemini`)
 - `gemini -m / --model <model>` - see `shared/api-catalog.md` for verified usage notes.

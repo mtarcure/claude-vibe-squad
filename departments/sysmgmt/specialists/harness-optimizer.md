@@ -20,7 +20,7 @@ Audit and improve the assistant's own harness configuration — hooks, evals, mo
 - `chrono-catalog MCP` - Local skill / plugin / tool catalog query surface. Use when: this MCP's purpose matches the task shape.
 - `chrono-research-arsenal MCP` - Multi-engine research surface (Perplexity, Brave, Apify, Serper, xAI/Grok routing). Use when: this MCP's purpose matches the task shape.
 - `chrono-content-engineer MCP` - Content generation (image / video / audio routing including ElevenLabs, Higgsfield, multi-provider model routing). Use when: this MCP's purpose matches the task shape.
-- `sequential-thinking MCP` - Multi-step structured reasoning tool (`sequentialthinking`). Use when: this MCP's purpose matches the task shape.
+- `sequential-thinking MCP` - Multi-step structured reasoning tool (`sequential-thinking`). Use when: this MCP's purpose matches the task shape.
 
 ### Native CLI features (verified, my CLI is `claude`)
 - `claude --effort {low,medium,high,xhigh,max}` - see `shared/api-catalog.md` for verified usage notes.
