@@ -371,7 +371,7 @@ These are flagged here for Task 2 (Item 14) to root-cause and either restore or 
 
 2. **Gemini has zero MCPs configured.** Content pane's tool-use surface is gemini-native only (skills, extensions, hooks, gemma routing). Item 8 (dispatch-toolkit reality-check) must reflect this — content section should NOT enumerate chrono-* MCPs.
 
-3. **Claude pane MCPs include 9 Failed-to-connect entries.** Task 2 (Item 14) inherits the work of root-causing these. Notably the chrono-* family is broken in claude's view but works in codex+kimi views (different config sources). This is direct evidence the Security/SysMgmt panes' "MCP errors" are upstream-config issues, not security-specific.
+3. **Claude pane MCPs include 3 Failed-to-connect entries.** Task 2 (Item 14) inherits the work of root-causing these. Notably the chrono-* family is broken in claude's view but works in codex+kimi views (different config sources). This is direct evidence the Security/SysMgmt panes' "MCP errors" are upstream-config issues, not security-specific.
 
 4. **Codex CLI does NOT health-check at `mcp list`** — entries show `enabled` as a config-flag, not a runtime status. Content equivalent for Codex is "MCP server starts without error when invoked." Per-pane MCP availability for codex requires runtime test (out of scope for Item 0).
 
