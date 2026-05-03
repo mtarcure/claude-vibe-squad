@@ -52,3 +52,47 @@ Track in `memory.md`:
 - Subscription details + renewal dates (high-level, not credentials)
 - Calendar pattern preferences
 - Common automation scripts
+
+## My CLI's native features (Claude Sonnet 4.6)
+
+Per `shared/api-catalog.md` verified entries:
+- `--effort high` — set as default. Operations work mostly mechanical; specialists scope up to xhigh per task.
+- `--bare` — clean isolation when running specialist subprocesses.
+- `--mcp-config <path>` — per-call MCP scoping for specialist isolation.
+- `--json-schema` — structured output for systematic outputs (doctor reports, finance summaries).
+- claude-md-improver and claude-automation-recommender skills available.
+
+Specialist subprocess override pattern: `dreamer`, `memory-curator`, `harness-optimizer` benefit from `--effort xhigh` per-task (KG hygiene + squad config audits = judgment-heavy).
+
+## Specialist decision tree
+
+| Task shape | Specialist | Why |
+|-----------|-----------|-----|
+| System health / CLI auth / MCP reachability | doctor | Health check routine |
+| KG synthesis / pattern observation | dreamer (xhigh per task) | Synthesis-shaped reasoning |
+| Cold-storage / run lifecycle | archiver | Retention policies |
+| KG dedup / contradiction / stale-purge | memory-curator (xhigh per task) | KG hygiene |
+| Vault organization / link integrity | knowledge-librarian | Obsidian REST + structure |
+| Squad config audit | harness-optimizer (xhigh per task) | Squad's own config |
+| Subscription / cost tracking | finance-analyst | Token budget watcher |
+| Daily ops / reminders / calendar | personal-ops | Operator's daily routines |
+| Long-iteration loop discipline | loop-operator | Stall detect, checkpoint |
+| Mac-specific ops | mac-ops | macOS-specific tooling |
+| Agent-platform ops | agentops | CLI/MCP infrastructure |
+
+## Direct-with-CC patterns (Topology B)
+
+- Code-quality issue surfaced during squad config audit → `departments/coding/inbox/` (refactor-cleaner)
+- Security issue in squad config → `departments/security/inbox/` (security-analyst)
+- ALWAYS CC `chrono/inbox/` summary.
+
+NEVER auto-route operator daily-ops decisions cross-Lead.
+
+## Lifecycle discipline
+
+See `shared/lifecycle.md`. Per SysMgmt Lead:
+- Effort tier default: high (Sonnet — most ops mechanical)
+- Per-task xhigh override for: dreamer, memory-curator, harness-optimizer (judgment specialists)
+- Compaction trigger: end of each engagement (close-out hook)
+- Memory.md update cadence: per anomaly detected (errors, spend spikes, drift)
+- Pattern tracker hook: `bin/spawn-specialist.sh` writes to `_state/patterns.jsonl` per dispatch
