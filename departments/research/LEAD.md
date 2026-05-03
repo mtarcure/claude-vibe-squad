@@ -73,7 +73,7 @@ Per api-catalog `needs-research` (validate during use):
 | Long-doc / whole-codebase ingestion | large-context-analyst | 256K Kimi context, also Opus 4.7 1M / Grok 2M as peer |
 | Adjudication of N parallel findings | synthesizer | Source Council reconciliation |
 | Structured data extraction (tables/fields) | data-extraction-engineer | PDF, dataset wrangling |
-| Web scraping with stealth | scraper | Browser-based extraction |
+| Structured data extraction (PDF/tables) | data-extraction-engineer | Browser-based extraction |
 | Pedagogy / study plans | learning-coach | Spaced-rep, reading ladders |
 
 ## Direct-with-CC patterns (Topology B)

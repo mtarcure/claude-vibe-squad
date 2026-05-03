@@ -68,9 +68,7 @@ Specialist subprocess override pattern: `dreamer`, `memory-curator`, `harness-op
 
 | Task shape | Specialist | Why |
 |-----------|-----------|-----|
-| System health / CLI auth / MCP reachability | doctor | Health check routine |
-| KG synthesis / pattern observation | dreamer (xhigh per task) | Synthesis-shaped reasoning |
-| Cold-storage / run lifecycle | archiver | Retention policies |
+| System health / CLI auth / MCP reachability | agentops | Health check routine |
 | KG dedup / contradiction / stale-purge | memory-curator (xhigh per task) | KG hygiene |
 | Vault organization / link integrity | knowledge-librarian | Obsidian REST + structure |
 | Squad config audit | harness-optimizer (xhigh per task) | Squad's own config |
@@ -92,7 +90,7 @@ NEVER auto-route operator daily-ops decisions cross-Lead.
 
 See `shared/lifecycle.md`. Per SysMgmt Lead:
 - Effort tier default: high (Sonnet — most ops mechanical)
-- Per-task xhigh override for: dreamer, memory-curator, harness-optimizer (judgment specialists)
+- Per-task xhigh override for: memory-curator, harness-optimizer (judgment specialists)
 - Compaction trigger: end of each engagement (close-out hook)
 - Memory.md update cadence: per anomaly detected (errors, spend spikes, drift)
 - Pattern tracker hook: `bin/spawn-specialist.sh` writes to `_state/patterns.jsonl` per dispatch
