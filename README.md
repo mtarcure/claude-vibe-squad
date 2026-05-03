@@ -6,9 +6,31 @@
 
 **A multi-model AI command center. One conversation partner ("Chrono") routes work to 5 Department Leads — each a different CLI of a different model — running persistently in their own terminal panes. Mailbox-mediated, subscription-billed, vibecoder-friendly.**
 
-`5 Department Leads` · `4 Model Families` · `Filesystem Mailbox` · `Subscription Auth (No API Keys)` · `Multi-Model Adversarial Review` · `AGPL-3.0`
+`v1.1` · `5 Department Leads` · `4 Model Families` · `Filesystem Mailbox` · `Subscription Auth (No API Keys)` · `Multi-Model Adversarial Review` · `AGPL-3.0`
 
 </div>
+
+---
+
+## v1.1 — Tool Utilization & Discipline (2026-05-03)
+
+See [CHANGELOG.md](./CHANGELOG.md) for full v1.1 changes. Highlights:
+
+- **Specialist tool-awareness** — every one of the 39 specialist files now enumerates verified MCPs / native CLI features / skills / APIs, with per-Lead-CLI verification matrices. No more WebFetch-as-default. Validator (`bin/validate-specialists.sh`) catches drift.
+- **Per-pane effort/thinking tier defaults** — `bin/launch-squad.sh` now sets `--model opus --effort xhigh` for chrono+security panes, `-c model_reasoning_effort=high` for coding, `--model gemini-3.1-pro-preview` for content (implicit thinking), `--model sonnet --effort high` for sysmgmt, `--thinking` for research.
+- **Capability inventory** at `_state/capability-inventory-2026-05-02.md` — live-verified inventory of every CLI flag + MCP + feature. Specialist files cite only `verified: yes` entries.
+- **Topology B chaser logic** — Chrono now tracks pending CC'd cross-Lead threads in `current.md` and surfaces stalls past 2h.
+- **MCP graduation N=3 instinct loop** — `bin/spawn-specialist.sh` writes routine signatures to `_state/patterns.jsonl`; `bin/graduation-scan.sh` (weekly) surfaces routines hitting ≥3 distinct engagements as candidates for custom MCP creation. Operator-gated, no auto-scaffold.
+- **4 new log streams** — `specialist-log.jsonl` (per-spawn metadata, full fidelity), `tool-calls.jsonl` (best-effort stdout-grep), `errors.jsonl` (nightly aggregator), `patterns.jsonl` (routine signatures).
+- **2 new skills (REMAKE policy)** — `smart-contract-audit-checklist` (sources: tamjid0x01 + cryptofinlabs), `bounty-platform-report-format` (HackerOne / Bugcrowd / Code4rena).
+
+### Reference docs
+
+- [Lifecycle rules](./shared/lifecycle.md) — 9 canonical rules + per-pane effort defaults
+- [API catalog](./shared/api-catalog.md) — verified APIs/features mapped to specialists
+- [Operator setup](./chrono/operator-setup.md) — routing rules incl. cross-Lead direct-with-CC examples
+- [Spec](./docs/specs/2026-05-02-vibe-squad-v1.1-tool-utilization.md) — multi-model GREEN, revision 2
+- [Implementation plan](./docs/plans/2026-05-02-vibe-squad-v1.1-tool-utilization-plan.md) — 24 tasks across 11 phases
 
 ---
 
