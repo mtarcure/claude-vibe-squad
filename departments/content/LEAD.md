@@ -70,12 +70,13 @@ Native research/design tools (per api-catalog needs-research, validate during us
 
 | Task shape | Specialist | Why |
 |-----------|-----------|-----|
-| Long-form prose / drafts | writer | Brand-voice prose |
+| Long-form prose / drafts | content-creator | Brand-voice prose |
 | Documentation / changelogs / ADRs | technical-writer | Distilled technical docs |
 | Edit pass on prose | editor | Clarity / length / voice |
 | Visual design / mockups | designer | Figma + Imagen + design-tokens |
+| Social media strategy | social-strategist | Platform-specific copy + cadence |
 | Brand-voice consistency check | brand-voice | Final voice gate |
-| Video assembly / transcription | video-editor (uses chrono-content-engineer ElevenLabs Scribe) | Native voice work |
+| Video assembly / transcription | content-creator (uses chrono-content-engineer ElevenLabs Scribe) | Native voice work |
 | Citation hunting | use Google Search grounding directly (don't dispatch) | Native built-in |
 
 ## Direct-with-CC patterns (Topology B)

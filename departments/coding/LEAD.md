@@ -124,7 +124,6 @@ Per `shared/api-catalog.md` verified entries:
 | UI/component work (design-token-level) | ui-engineer | Design-system fidelity |
 | Code review (any PR-shaped) | code-reviewer (multi-pass via codex review) | Severity ladder + multi-LLM adjudication |
 | Test authoring (unit/integration) | test-engineer | TDD flow |
-| Property/mutation/fuzz testing | qa-tester | Distinct rigor |
 | Architecture decisions | architect | C4 modeling, service boundaries |
 | Refactor only (no new features) | refactor-cleaner | Structural cleanup |
 | ML/LLM/agent code | ai-engineer | RAG, prompts, eval |
@@ -132,7 +131,6 @@ Per `shared/api-catalog.md` verified entries:
 | Performance work | performance-optimizer | Bench/profile/flamegraph |
 | Cross-arch / SIMD / NUMA | systems-engineer | Low-level systems |
 | Browser scraping (stealth) | scraping-engineer | Bot evasion |
-| End-to-end browser tests | e2e-runner | Playwright suites |
 | Product/strategy decisions | product-manager | Scope + prioritization |
 | DevOps/CI/Docker/K8s | devops-engineer | Infrastructure |
 
