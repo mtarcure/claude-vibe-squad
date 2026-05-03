@@ -34,13 +34,14 @@ DEPT="${VAULT_ROOT}/departments/${LEAD}"
 LOG="${VAULT_ROOT}/_state/tmux-logs/${LEAD}.log"
 
 case "${LEAD}" in
-    coding)   CLI="Codex"  ;;
-    security) CLI="Claude" ;;
-    content)  CLI="Gemini" ;;
-    sysmgmt)  CLI="Claude" ;;
-    research) CLI="Kimi"   ;;
+    coding)   CLI="Codex" ; ACCENT_FG=214 ;;  # amber  — build/code
+    security) CLI="Claude"; ACCENT_FG=203 ;;  # coral  — alert/security
+    content)  CLI="Gemini"; ACCENT_FG=213 ;;  # pink   — creative
+    sysmgmt)  CLI="Claude"; ACCENT_FG=84  ;;  # mint   — ops/healthy
+    research) CLI="Kimi"  ; ACCENT_FG=117 ;;  # sky    — deep/analytic
     *) echo "unknown lead: ${LEAD}"; exit 1 ;;
 esac
+ACCENT=$'\033[1;38;5;'${ACCENT_FG}$'m'  # bold + lead-specific 256-color
 UPPER=$(echo "${LEAD}" | tr '[:lower:]' '[:upper:]')
 
 [[ -z "${WIDTH}" ]] && WIDTH=$(tput cols 2>/dev/null || echo 42)
@@ -102,14 +103,37 @@ read_focus() {
     awk '/^---$/{c++; if(c==2){flag=1; next}} flag && NF{print; exit}' "$f"
 }
 
-# Parse newest outbox response for Last line
+# Parse newest outbox response for Last line.
+# Strategy: take first non-meta body line. Meta openers (e.g. "This TASK is...",
+# "This response leads with...", "Our inter-departmental workflows now...") are
+# filler that gets truncated mid-sentence and tells the operator nothing useful.
+# Prefer a real H1 if present, else first non-filler paragraph line.
 read_last() {
     local f
     f=$(find "${DEPT}/outbox" "${DEPT}/archive" -maxdepth 1 -type f -name 'TASK-*-response.md' 2>/dev/null \
         | xargs -I{} stat -f '%m %N' {} 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
     [[ -z "$f" || ! -f "$f" ]] && { echo ""; return; }
-    awk '/^---$/{c++; if(c==2){flag=1; next}} flag && /^[A-Za-z0-9]/{print; exit}' "$f" \
-        | sed 's/^# *//; s/[`*_]//g'
+
+    # First pass: prefer a real H1 (# Heading) — it's authored as a summary.
+    local h1
+    h1=$(awk '/^---$/{c++; if(c==2){flag=1; next}} flag && /^# /{sub(/^# */,""); print; exit}' "$f" \
+        | sed 's/[`*_]//g')
+    if [[ -n "${h1}" ]]; then
+        echo "${h1}"
+        return
+    fi
+
+    # Second pass: first non-filler paragraph line. Skip lines that begin with
+    # known meta openers — they're verbose context, not deliverable summaries.
+    awk '
+        /^---$/{c++; if(c==2){flag=1; next}}
+        flag && NF && !/^#/ {
+            line=$0
+            if (line ~ /^(This TASK|This response|Our inter-departmental|The following|Below is|Here is the response|I have completed|I will|I am)/) next
+            sub(/^[`*_]+/,"",line); sub(/[`*_]+$/,"",line)
+            print line; exit
+        }
+    ' "$f"
 }
 
 detect_state() {
@@ -280,7 +304,7 @@ while true; do
     fill_dashes=$(printf '─%.0s' $(seq 1 $fill_count))
     printf "%s┌%s %s %s%-8s%s %s%s%s %s   %s%s%s %s%s%s%s\n" \
         "${BORD}" "${RST}" \
-        "${dot}" "${B}" "${UPPER}" "${RST}" \
+        "${dot}" "${ACCENT}" "${UPPER}" "${RST}" \
         "${state_col}" "${state_label}" "${RST}" "${age_str}" \
         "${DIM}" "${sparkline:0:5}" "${RST}" \
         "${BORD}${fill_dashes}┐${RST}" "${RST}" "${RST}" "${CLR_EOL}"
