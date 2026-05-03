@@ -22,6 +22,33 @@
 
 - (track to avoid repetition; rotate out as items age)
 
+## Internal Notes
+
+- 2026-05-02: Completed Editorial Domain Test (Repeat) (`TASK-2026-05-02-1354-4bb9b237`).
+  - Work: Produced a second 105-word announcement draft for the mailbox protocol.
+  - Confirmed: Atomic write and archiving protocol followed.
+- 2026-05-02: Completed Editorial Domain Test (`TASK-2026-05-02-1333-1ac82665`).
+
+  - Work: Produced a 98-word announcement for the mailbox protocol.
+  - Confirmed: Atomic write and archiving protocol followed.
+- 2026-05-02: Completed PING TEST (`TASK-2026-05-02-1323-46104a8f`).
+
+  - Confirmed: Task arrived successfully in `inbox/`.
+  - Confirmed: Atomic write and archiving protocol followed.
+- 2026-05-02: Completed PING TEST (`TASK-2026-05-02-1008-bcc2bfdb`).
+  - Note: Task file was missing from `inbox/` at start; body recovered from `/tmp/task-ping-test.md`.
+  - Confirmed: Atomic write (temp+rename) used for response.
+  - CLI: Gemini 0.40.1.
+
 ---
 
 *Curated, not appended. When something becomes wrong, REMOVE.*
+
+## v1.1 update — 2026-05-03
+
+The squad shipped v1.1 with explicit tool catalogs in every specialist file,
+per-pane effort/thinking tier defaults, capability inventory, and Topology B
+direct-with-CC patterns. When dispatching a specialist now, trust that its
+identity.md enumerates available MCPs / native CLI features / skills / APIs
+— no need to remind it. Lead-to-Lead direct-with-CC patterns are documented
+in this LEAD.md. See shared/lifecycle.md for lifecycle rules.
