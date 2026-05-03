@@ -1,15 +1,16 @@
 #!/bin/bash
 # connect.sh — single-command entry into the squad. Drops you straight into
-# the chrono pane ready to talk to the Coordinator. No tmux keystrokes needed.
+# the chrono pane (with sidebar showing all 5 Lead live mirrors) ready to
+# talk to the Coordinator. No tmux keystrokes needed.
 #
 # Behavior:
 #   1. If the squad session doesn't exist → launch it
-#   2. Force a full client refresh (cures stale buffer drift)
-#   3. Select window 0 (chrono) and pane 0
-#   4. Attach
+#   2. Ensure sidebar is on (idempotent — sidebar.sh exits early if already on)
+#   3. Force a full client refresh (cures stale buffer drift)
+#   4. Select window 0 (chrono) and pane 0 (chrono main, not a sidebar tile)
+#   5. Attach
 #
-# Sidebar (split-view of all 5 Leads as live tiles) is OPT-IN, not default.
-# Toggle with `bash bin/sidebar.sh`. Disable with `bash bin/sidebar-off.sh`.
+# Sidebar is default-on. Disable with `bash bin/sidebar-off.sh`.
 #
 # Usage (local or SSH):
 #   bash ~/Obsidian-Claude-Vibe-Squad/bin/connect.sh
@@ -37,8 +38,8 @@ if ! tmux has-session -t "${SESSION}" 2>/dev/null; then
     sleep 2
 fi
 
-# 2. Sidebar is OPT-IN, not default — toggle with `bash bin/sidebar.sh`.
-# (Auto-enabling caused navigation chaos when keyboard prefix is unreliable.)
+# 2. Ensure sidebar is on (idempotent — sidebar.sh detects existing splits and exits early).
+bash "${VAULT_ROOT}/bin/sidebar.sh" >/dev/null 2>&1 || true
 
 # 3. Refresh the tmux client (clears stale rendering on any client connected)
 tmux refresh-client -t "${SESSION}" 2>/dev/null || true

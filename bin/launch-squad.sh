@@ -152,8 +152,17 @@ else
     echo "(fswatch not installed — skipping inbox-watchers window. Install with: brew install fswatch)"
 fi
 
+# Give the Lead CLIs a moment to initialize so the sidebar's first capture
+# shows their welcome screens instead of empty shells.
+sleep 1
+
+# Sidebar — split chrono window into chrono main + 5 Lead live mirror tiles.
+# Default-on per operator preference. Toggle off with bin/sidebar-off.sh.
+bash "${VAULT_ROOT}/bin/sidebar.sh" >/dev/null 2>&1 || true
+
 # Switch back to chrono window for first attachment
 tmux select-window -t "${SESSION}:chrono"
+tmux select-pane -t "${SESSION}:chrono.0"
 
 echo "✓ Session '${SESSION}' created:"
 echo "  0: chrono     (~/Obsidian-Claude-Vibe-Squad/chrono)"
@@ -164,7 +173,8 @@ echo "  4: sysmgmt    (departments/sysmgmt)"
 echo "  5: research   (departments/research)"
 echo "  6: watchers   (5 fswatch processes — one per Lead's inbox)"
 echo ""
-echo "Each window auto-started its CLI. Switch between them with Ctrl-b + <num>."
+echo "Each window auto-started its CLI. Switch with Ctrl-b + <num>."
+echo "Chrono window has a 5-Lead sidebar (live mirrors). Toggle off: bin/sidebar-off.sh"
 echo ""
 echo "To attach now:           tmux attach -t squad"
 echo "To detach (keep alive):  Ctrl-b + d"
