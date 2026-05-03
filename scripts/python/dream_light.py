@@ -10,7 +10,11 @@
 Phases:
   1. Skip-condition check (low disk, prior run alive, battery)
   2. Activity collection — files modified in past 24h within allowlist paths
-  3. Privacy redaction — strip emails, API keys, common secret patterns
+  3. Privacy redaction — strip emails + specific known-secret formats
+     (OpenAI/Anthropic/xAI/Perplexity/Google API keys, GitHub PATs, AWS access
+     keys, Slack tokens, JWTs, HuggingFace, Stripe, Apify, bearer-in-URL).
+     Does NOT redact arbitrary 32+ char strings — that pattern over-matched
+     git SHAs / UUIDs / base64 chunks and mangled journals (v1.1.1 fix).
   4. Gemini journal pass — drafts structured insights
   5. Codex adversarial review — flags hallucinations, over-reach, sensitive content
   6. Write `_state/dream-logs/<date>.md` (journal + review verdict)
@@ -244,13 +248,39 @@ def collect_activity(cfg: dict, hours: int = 24) -> list[ActivityFile]:
 
 
 SECRET_PATTERNS = [
-    re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"),  # emails
-    re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b"),                            # OpenAI-style
-    re.compile(r"\b[A-Za-z0-9]{32,}\b"),                                  # generic 32+ hex
-    re.compile(r"\bxai-[A-Za-z0-9_-]{20,}\b"),                            # xAI
-    re.compile(r"\bpplx-[A-Za-z0-9_-]{20,}\b"),                           # Perplexity
-    re.compile(r"\bAIza[A-Za-z0-9_-]{20,}\b"),                            # Google API
-    re.compile(r"\bapify_api_[A-Za-z0-9]{20,}\b"),                        # Apify
+    # Email
+    re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"),
+    # OpenAI (project + classic)
+    re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b"),
+    # Anthropic (specifically — distinct from generic sk-)
+    re.compile(r"\bsk-ant-[A-Za-z0-9_-]{20,}\b"),
+    # xAI
+    re.compile(r"\bxai-[A-Za-z0-9_-]{20,}\b"),
+    # Perplexity
+    re.compile(r"\bpplx-[A-Za-z0-9]{20,}\b"),
+    # Apify
+    re.compile(r"\bapify_api_[A-Za-z0-9]{20,}\b"),
+    # Google API key (39 chars total: AIza + 35)
+    re.compile(r"\bAIza[A-Za-z0-9_-]{35}\b"),
+    # GitHub Personal Access Token (classic + fine-grained)
+    re.compile(r"\bghp_[A-Za-z0-9]{36}\b"),
+    re.compile(r"\bgithub_pat_[A-Za-z0-9_]{82}\b"),
+    # AWS Access Key ID (long-term + temporary)
+    re.compile(r"\bAKIA[A-Z0-9]{16}\b"),
+    re.compile(r"\bASIA[A-Z0-9]{16}\b"),
+    # Slack tokens
+    re.compile(r"\bxox[bpoars]-[A-Za-z0-9-]{10,}\b"),
+    # JWT (3 dot-separated base64url segments, header begins eyJ)
+    re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"),
+    # Bearer/api-key tokens passed in URL query strings
+    re.compile(r"[?&](?:access_token|bearer|api_key|apikey|token)=[A-Za-z0-9._-]+", re.IGNORECASE),
+    # HuggingFace
+    re.compile(r"\bhf_[A-Za-z0-9]{30,}\b"),
+    # Stripe (live + test)
+    re.compile(r"\b(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{24,}\b"),
+    # Discord/Telegram bot token (rough heuristic — 24-28.6-8.27-40 dotted)
+    re.compile(r"\b[A-Za-z0-9]{24,28}\.[A-Za-z0-9_-]{6,8}\.[A-Za-z0-9_-]{27,40}\b"),
+    # NB: no `\b[A-Za-z0-9]{32,}\b` — over-matched git SHAs/UUIDs/base64 chunks.
 ]
 
 

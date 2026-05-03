@@ -267,19 +267,186 @@ def check_project_tests_pass(manifest: dict[str, Any]) -> CheckResult:
                        detail=f"`{cmd}` exit 0")
 
 
+def check_project_git_clean(manifest: dict[str, Any]) -> CheckResult:
+    """Verify working tree is clean OR only whitespace-trivial changes pending.
+
+    For project mode, declaring 'done' with uncommitted changes likely means
+    'incomplete'. Allow operator to override via manifest['allow_dirty_tree']: true.
+    """
+    if manifest.get("allow_dirty_tree"):
+        return CheckResult(name="git_clean", passed=True,
+                           detail="dirty tree allowed by manifest override")
+
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            capture_output=True, text=True, cwd=str(VAULT_ROOT), timeout=10,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        return CheckResult(name="git_clean", passed=False, tier=TIER_RETRY,
+                           detail=f"git status failed: {e}")
+
+    if result.returncode != 0:
+        return CheckResult(name="git_clean", passed=False, tier=TIER_RETRY,
+                           detail=f"git exit {result.returncode}: {result.stderr.strip()[:200]}")
+
+    dirty_lines = [l for l in result.stdout.splitlines() if l.strip()]
+    # Filter out runtime-state files that are gitignored or expected-dirty.
+    runtime_paths = ("_state/", "departments/", "chrono/current.md", ".gemini/")
+    blocking = [l for l in dirty_lines if not any(p in l for p in runtime_paths)]
+
+    if blocking:
+        return CheckResult(name="git_clean", passed=False, tier=TIER_RETRY,
+                           detail=f"{len(blocking)} uncommitted non-runtime changes: {blocking[0][:120]}")
+    return CheckResult(name="git_clean", passed=True,
+                       detail=f"{len(dirty_lines)} runtime-only changes (allowed)")
+
+
+def check_project_new_code_has_tests(manifest: dict[str, Any]) -> CheckResult:
+    """Verify new code (.py/.ts/.js/.go/.rs files added in this run's diff) has corresponding test changes.
+
+    Heuristic: if N new source files added since the run's base ref, expect at
+    least N/2 test files added/modified. Manifest must include `base_ref`
+    (defaults to v1.0-pre-1.1).
+    """
+    base_ref = manifest.get("base_ref", "v1.0-pre-1.1")
+    try:
+        result = subprocess.run(
+            ["git", "diff", "--name-status", f"{base_ref}..HEAD"],
+            capture_output=True, text=True, cwd=str(VAULT_ROOT), timeout=10,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        return CheckResult(name="new_code_has_tests", passed=False, tier=TIER_RETRY,
+                           detail=f"git diff failed: {e}")
+
+    if result.returncode != 0:
+        return CheckResult(name="new_code_has_tests", passed=False, tier=TIER_RETRY,
+                           detail=f"git diff exit {result.returncode}")
+
+    src_exts = (".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".rs", ".sol", ".java", ".rb")
+    new_src: list[str] = []
+    test_changes: list[str] = []
+    for line in result.stdout.splitlines():
+        parts = line.split(maxsplit=1)
+        if len(parts) != 2:
+            continue
+        status, path = parts
+        is_test = any(t in path for t in ("test_", "_test.", "/tests/", "/test/", "spec_", "_spec."))
+        if path.endswith(src_exts):
+            if status == "A" and not is_test:
+                new_src.append(path)
+            if is_test:
+                test_changes.append(path)
+
+    if not new_src:
+        return CheckResult(name="new_code_has_tests", passed=True,
+                           detail="no new source files since base_ref — vacuously satisfied")
+
+    if len(test_changes) >= max(1, len(new_src) // 2):
+        return CheckResult(name="new_code_has_tests", passed=True,
+                           detail=f"{len(new_src)} new src files, {len(test_changes)} test files modified")
+
+    return CheckResult(
+        name="new_code_has_tests", passed=False, tier=TIER_RETRY,
+        detail=f"{len(new_src)} new src files but only {len(test_changes)} test files modified",
+    )
+
+
+def check_project_no_destructive_ops(manifest: dict[str, Any]) -> CheckResult:
+    """Verify no destructive ops (rm -rf, git reset --hard, drop database, etc.) were
+    declared as part of this run's actions.
+
+    Looks at manifest['actions'] (list of action records, each with 'cmd' field).
+    Operator can override per-action via 'authorized_destructive': true.
+    """
+    actions = manifest.get("actions", [])
+    if not isinstance(actions, list):
+        return CheckResult(name="no_destructive_ops", passed=True,
+                           detail="no actions logged in manifest — vacuously satisfied")
+
+    destructive_patterns = (
+        "rm -rf", "rm -fr", "git reset --hard", "git push --force", "git push -f",
+        "DROP TABLE", "DROP DATABASE", "TRUNCATE",
+        "git clean -fd", "git clean -fx",
+        "kubectl delete", "terraform destroy",
+        "docker system prune -a",
+    )
+
+    found: list[str] = []
+    for act in actions:
+        if not isinstance(act, dict):
+            continue
+        if act.get("authorized_destructive"):
+            continue
+        cmd = act.get("cmd", "")
+        for pat in destructive_patterns:
+            if pat in cmd:
+                found.append(f"{pat} in: {cmd[:120]}")
+                break
+
+    if found:
+        return CheckResult(
+            name="no_destructive_ops", passed=False, tier=TIER_OPERATOR,
+            detail=f"{len(found)} unauthorized destructive op(s): {found[0]}",
+        )
+    return CheckResult(name="no_destructive_ops", passed=True,
+                       detail=f"checked {len(actions)} actions — none destructive")
+
+
+CVSS_V4_VECTOR_RE = re.compile(
+    r"^CVSS:4\.0"
+    r"(?:/AV:[NALP])"   # Attack Vector
+    r"(?:/AC:[LH])"     # Attack Complexity
+    r"(?:/AT:[NP])"     # Attack Requirements
+    r"(?:/PR:[NLH])"    # Privileges Required
+    r"(?:/UI:[NPA])"    # User Interaction
+    r"(?:/VC:[HLN])"    # Vulnerable Confidentiality
+    r"(?:/VI:[HLN])"    # Vulnerable Integrity
+    r"(?:/VA:[HLN])"    # Vulnerable Availability
+    r"(?:/SC:[HLN])"    # Subsequent Confidentiality
+    r"(?:/SI:[HLN])"    # Subsequent Integrity
+    r"(?:/SA:[HLN])"    # Subsequent Availability
+    r"(?:/[A-Z][A-Z]?:[A-Z]+)*"  # optional Threat / Environmental / Supplemental
+    r"$"
+)
+
+
 def check_bounty_cvss(manifest: dict[str, Any]) -> CheckResult:
     findings = manifest.get("findings") or []
     if not findings:
         return CheckResult(name="cvss_recorded", passed=False, tier=TIER_RETRY,
-                           detail="bounty mode but no findings declared")
-    missing = [f.get("title", "?") for f in findings if not f.get("cvss_v4")]
-    if missing:
+                           detail="no findings in manifest")
+
+    issues: list[str] = []
+    for f in findings:
+        title = f.get("title", "?")
+        vec = f.get("cvss_v4")
+        if not vec:
+            issues.append(f"{title}: missing cvss_v4")
+            continue
+        if not isinstance(vec, str):
+            issues.append(f"{title}: cvss_v4 not a string")
+            continue
+        if not CVSS_V4_VECTOR_RE.match(vec):
+            issues.append(f"{title}: cvss_v4 not a valid CVSS:4.0 vector")
+            continue
+        # Optional cvss_v4_score field — if present, must be numeric in [0, 10].
+        score = f.get("cvss_v4_score")
+        if score is not None:
+            try:
+                score_f = float(score)
+                if not (0.0 <= score_f <= 10.0):
+                    issues.append(f"{title}: cvss_v4_score {score_f} out of [0.0, 10.0]")
+            except (TypeError, ValueError):
+                issues.append(f"{title}: cvss_v4_score not numeric")
+
+    if issues:
         return CheckResult(
             name="cvss_recorded", passed=False, tier=TIER_RETRY,
-            detail=f"{len(missing)} findings missing cvss_v4: {missing[0]}",
+            detail=f"{len(issues)} CVSS validation issue(s): {issues[0]}",
         )
     return CheckResult(name="cvss_recorded", passed=True,
-                       detail=f"all {len(findings)} findings have CVSS v4")
+                       detail=f"validated CVSS:4.0 vectors on {len(findings)} findings")
 
 
 def check_content_no_placeholder(manifest: dict[str, Any]) -> CheckResult:
@@ -300,7 +467,12 @@ def check_content_no_placeholder(manifest: dict[str, Any]) -> CheckResult:
 
 
 MODE_CHECKS = {
-    "project": [check_project_tests_pass],
+    "project": [
+        check_project_tests_pass,
+        check_project_git_clean,
+        check_project_new_code_has_tests,
+        check_project_no_destructive_ops,
+    ],
     "bounty": [check_bounty_cvss],
     "content": [check_content_no_placeholder],
 }
