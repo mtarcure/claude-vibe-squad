@@ -24,7 +24,7 @@ VERIFIED_MCPS=$(awk '
     /verified per pane:/ { in_pane_matrix=1; next }
     in_pane_matrix && /yes/ { print current_entry; in_pane_matrix=0 }
     /^### / { in_pane_matrix=0 }
-' "$CATALOG" | grep -oE "chrono-[a-z-]+|sequential-thinking|playwright|chrome-devtools|context7|perplexity|elevenlabs|figma|firebase|sentry|linear|search|computer-use" | sort -u)
+' "$CATALOG" | grep -oE "chrono-[a-z-]+|sequential-?thinking|playwright|chrome-devtools|context7|perplexity|elevenlabs|figma|firebase|sentry|linear|search|computer-use" | sort -u)
 
 # Build local skill set
 LOCAL_SKILLS=$(find "${HOME}/.claude/plugins/cache" -path "*/skills/*" -name "SKILL.md" 2>/dev/null | sed 's|.*/skills/||; s|/SKILL.md$||' | sort -u)
