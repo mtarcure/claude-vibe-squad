@@ -65,6 +65,12 @@ parent_msg_id: none
 
 EOF
     cat "${BODY_FILE}"
+    # Auto-inject the destination Lead's specialist roster + MCP toolkit so the
+    # Lead's CLI can't default to WebFetch. Implements the chrono dispatch rule:
+    # "every brief must enumerate MCPs."
+    if [[ -x "${VAULT_ROOT}/shared/dispatch-toolkit.sh" ]]; then
+        bash "${VAULT_ROOT}/shared/dispatch-toolkit.sh" "${TO_LEAD}"
+    fi
 } > "${TMP}"
 
 # Sync + rename (atomic on POSIX)
