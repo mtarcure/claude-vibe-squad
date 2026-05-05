@@ -10,7 +10,7 @@ Markdown remains the interface. Chrono writes task packets; model leads execute 
 
 ## Source Namespace Versus Model Lane
 
-- `source_namespace`: where the specialist markdown and mailbox live.
+- `source_namespace`: where the specialist markdown/source files live.
 - `compatibility_namespace`: which `departments/<namespace>/` mailbox stores the task packet.
 - `to_model`: which model lead/window executes the task.
 - Folder location never determines model choice.

@@ -1,6 +1,6 @@
 <svg width="1400" height="620" viewBox="0 0 1400 620" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
   <title id="title">Vibe Squad mailbox flow</title>
-  <desc id="desc">Chrono writes task packets to source namespace inboxes and model leads return markdown responses.</desc>
+  <desc id="desc">Chrono writes task packets to compatibility mailbox namespaces and model leads return markdown responses.</desc>
   <rect width="1400" height="620" fill="#0a0f1e"/>
   <text x="80" y="82" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="42" font-weight="800">Mailbox Dispatch</text>
   <text x="80" y="120" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="22">Markdown task packets move through durable filesystem rails.</text>
@@ -16,7 +16,7 @@
     <line x1="335" y1="290" x2="455" y2="290" stroke="#64748b" stroke-width="4" marker-end="url(#arrow)"/>
 
     <rect x="470" y="205" width="270" height="170" rx="16" fill="#111827" stroke="#f59e0b" stroke-width="2"/>
-    <text x="605" y="252" text-anchor="middle" fill="#fbbf24" font-size="25" font-weight="800">source namespace</text>
+    <text x="605" y="252" text-anchor="middle" fill="#fbbf24" font-size="25" font-weight="800">mailbox namespace</text>
     <text x="605" y="288" text-anchor="middle" fill="#cbd5e1" font-size="18">departments/*/inbox</text>
     <text x="605" y="320" text-anchor="middle" fill="#94a3b8" font-size="17">storage only</text>
     <text x="605" y="348" text-anchor="middle" fill="#94a3b8" font-size="17">not model ownership</text>
