@@ -24,6 +24,12 @@ Execute the named `specialist:` in this lane. Use the Kimi subagent registered
 in `main.yaml` when it exists, for example `Agent(subagent_type=research)`.
 If the adapter is missing, execute inline and report `capability_gap`.
 
+Current Kimi CLI behavior: MCP tools are available to the main Kimi lane, but
+not inside Kimi `Agent(...)` subagents. If a task requires an MCP call such as
+`arxiv_search`, `xai_search`, vault tools, or sequential thinking, run that MCP
+call in the main Kimi lane and report `subagent_mcp_gap` instead of retrying the
+subagent path.
+
 Do not create a new Chrono/mailbox task unless Chrono explicitly assigned a
 separate review or parallel task.
 
