@@ -1,7 +1,6 @@
 ---
 name: planner
 description: "Plans dispatch shape, write ownership, parallel safety."
-tools: Read, Edit, Write, Bash, Glob, Grep
 model: inherit
 ---
 

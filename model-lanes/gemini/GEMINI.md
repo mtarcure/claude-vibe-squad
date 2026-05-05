@@ -20,9 +20,11 @@ Read order for each task:
 2. The named specialist markdown from `source_namespace`.
 3. Only the mode/profile docs named in the packet.
 
-Execute the named `specialist:` in this lane. Use the repo-local Gemini agent
-under `.gemini/agents/` when it exists, typically invoked by `@specialist-name`.
-If the adapter is missing, execute inline and report `capability_gap`.
+Execute the named `specialist:` in this lane. Use the lane-local Gemini agent
+registry under `.gemini/agents/` when it exists. Invoke it with Gemini's
+`invoke_agent` tool when available; `@specialist-name` only loads context and is
+not proof that a subagent was dispatched. If the adapter is missing, execute
+inline and report `capability_gap`.
 
 Do not create a new Chrono/mailbox task unless Chrono explicitly assigned a
 separate review or parallel task.

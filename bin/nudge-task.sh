@@ -34,12 +34,12 @@ if ! tmux list-windows -t "$SESSION" -F '#{window_name}' 2>/dev/null | grep -qx 
     exit 1
 fi
 
-agent_prefix=""
+native_hint="Use your native specialist/subagent adapter for ${specialist} if it is registered in this lane; otherwise execute inline and report the capability gap."
 if [[ "$to_model" == "gemini" && "$specialist" != "none" && "$specialist" != "unknown" ]]; then
-    agent_prefix="@${specialist} "
+    native_hint="Use Gemini invoke_agent with agent_name '${specialist}' if it is registered in this lane; do not treat @${specialist} context loading as subagent dispatch. If invoke_agent is unavailable, execute inline and report the capability gap."
 fi
 
-msg="${agent_prefix}TASK READY: open and process this exact task packet: ${TASK_PATH}. You are the ${to_model} model lead executing specialist ${specialist}. Use your native specialist/subagent adapter for ${specialist} if it is registered in this lane; otherwise execute inline and report the capability gap. Do not create another Chrono/mailbox task unless the packet explicitly asks for cross-lane review or parallel work. Read only the files named in the packet unless it explicitly allows more. Write the final response to: ${return_artifact}."
+msg="TASK READY: open and process this exact task packet: ${TASK_PATH}. You are the ${to_model} model lead executing specialist ${specialist}. ${native_hint} Do not create another Chrono/mailbox task unless the packet explicitly asks for cross-lane review or parallel work. Read only the files named in the packet unless it explicitly allows more. Write the final response to: ${return_artifact}."
 
 tmux send-keys -l -t "${SESSION}:${target_win}" "$msg"
 sleep 0.3

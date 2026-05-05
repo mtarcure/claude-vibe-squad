@@ -1,7 +1,6 @@
 ---
 name: vibecoding-check
 description: "Scope, artifact quality, acceptance check, drift detection."
-tools: Read, Edit, Write, Bash, Glob, Grep
 model: inherit
 ---
 

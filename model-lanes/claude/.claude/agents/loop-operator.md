@@ -1,7 +1,6 @@
 ---
 name: loop-operator
 description: "Bounded autonomous loops, checkpoints, stall detection."
-tools: Read, Edit, Write, Bash, Glob, Grep
 model: inherit
 ---
 

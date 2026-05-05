@@ -1,7 +1,6 @@
 ---
 name: skeptic
 description: "Independent challenge/review; exclude writer family where possible."
-tools: Read, Edit, Write, Bash, Glob, Grep
 model: inherit
 ---
 

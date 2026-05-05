@@ -1,7 +1,6 @@
 ---
 name: technical-writer
 description: "Docs, changelogs, ADRs, handoffs; Codex reviews code-derived docs."
-tools: Read, Edit, Write, Bash, Glob, Grep
 model: inherit
 ---
 

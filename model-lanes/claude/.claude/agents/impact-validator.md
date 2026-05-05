@@ -1,7 +1,6 @@
 ---
 name: impact-validator
 description: "Severity, CVSS, dedupe, bounty impact judgment."
-tools: Read, Edit, Write, Bash, Glob, Grep
 model: inherit
 ---
 

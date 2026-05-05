@@ -137,7 +137,6 @@ def write_claude(rows: list[dict[str, str]]) -> None:
             "---\n"
             f"name: {name}\n"
             f'description: "{description(row)}"\n'
-            "tools: Read, Edit, Write, Bash, Glob, Grep\n"
             "model: inherit\n"
             "---\n\n"
             f"# Specialist Adapter: {title}\n\n"
@@ -148,6 +147,9 @@ def write_claude(rows: list[dict[str, str]]) -> None:
 def write_gemini(rows: list[dict[str, str]]) -> None:
     out = LANE_DIRS["gemini"]
     clean_dir(out, (".md",))
+    root_gemini_agents = ROOT / ".gemini" / "agents"
+    if root_gemini_agents.exists():
+        shutil.rmtree(root_gemini_agents)
     for row in rows:
         if row["model"] != "gemini":
             continue
@@ -214,12 +216,6 @@ def main() -> None:
     write_claude(rows)
     write_gemini(rows)
     write_kimi(rows)
-
-    # Root-level Gemini adapters were a transitional location. Keep the model
-    # lane as the only runtime registration surface.
-    root_gemini_agents = ROOT / ".gemini" / "agents"
-    if root_gemini_agents.exists():
-        shutil.rmtree(root_gemini_agents)
 
 
 if __name__ == "__main__":

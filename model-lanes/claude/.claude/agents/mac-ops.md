@@ -1,7 +1,6 @@
 ---
 name: mac-ops
 description: "Local Mac/process hygiene, launchd, tmux, shell environment."
-tools: Read, Edit, Write, Bash, Glob, Grep
 model: inherit
 ---
 

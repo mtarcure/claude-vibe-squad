@@ -1,7 +1,6 @@
 ---
 name: personal-ops
 description: "Bounded routines, notifications, reminders, operator personal ops."
-tools: Read, Edit, Write, Bash, Glob, Grep
 model: inherit
 ---
 

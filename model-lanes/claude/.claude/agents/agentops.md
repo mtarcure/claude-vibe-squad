@@ -1,7 +1,6 @@
 ---
 name: agentops
 description: "Runtime/doctor/status drift and agent operations."
-tools: Read, Edit, Write, Bash, Glob, Grep
 model: inherit
 ---
 
