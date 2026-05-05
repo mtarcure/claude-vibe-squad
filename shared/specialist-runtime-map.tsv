@@ -1,0 +1,47 @@
+# specialist	best_model_lane	review_model	source_namespace	required_tools_mcp_api	safety_level	notes
+ai-engineer	gpt-codex	claude	coding	chrono-vault,chrono-kg,chrono-catalog	high	Agent apps, RAG, tool wiring, eval harnesses; routing changes require review.
+architect	claude	gpt-codex	coding	chrono-vault,chrono-kg,sequential-thinking	high	System design and tradeoff judgment; Codex reviews implementation feasibility.
+backend-engineer	gpt-codex	claude	coding	chrono-vault,chrono-kg	medium	Server code, APIs, data flows, async workers.
+code-reviewer	gpt-codex	claude	coding	chrono-vault,chrono-kg	high	Diff review primary in Codex; high-risk changes add Gemini/Kimi read-only reviewers.
+devops-engineer	gpt-codex	claude	coding	chrono-vault,chrono-kg	high	CI, Docker, infra-as-code, release rails.
+frontend-engineer	gpt-codex	gemini	coding	chrono-vault,chrome-devtools,playwright	medium	Frontend implementation; Gemini reviews visual/design fidelity when needed.
+performance-optimizer	gpt-codex	claude	coding	chrono-vault	medium	Profiling, benchmarking, hot path changes.
+product-manager	claude	gemini	coding	chrono-vault	medium	Product shape, requirements, scope, acceptance criteria.
+refactor-cleaner	gpt-codex	claude	coding	chrono-vault,chrono-kg	high	Mechanical cleanup and behavior-preserving refactors; deletes require explicit operator approval.
+scraping-engineer	gpt-codex	kimi	coding	chrono-vault,playwright,chrome-devtools	high	Browser extraction implementation; Kimi handles source-heavy target research.
+smart-contract-engineer	gpt-codex	claude	coding	chrono-vault,chrono-kg	high	Smart contract implementation/audit mechanics; Claude reviews risk and impact.
+systems-engineer	gpt-codex	claude	coding	chrono-vault	medium	Low-level systems, cross-arch, build/runtime behavior.
+test-engineer	gpt-codex	claude	coding	chrono-vault	medium	Test design, fixtures, regression coverage.
+ui-engineer	gpt-codex	gemini	coding	chrono-vault,chrome-devtools	medium	Component implementation; Gemini handles visual/design review.
+brand-voice	gemini	claude	content	chrono-vault,chrono-content-engineer	low	Voice consistency and audience fit.
+content-creator	gemini	kimi	content	chrono-vault,chrono-content-engineer	medium	Copy, campaigns, scripts, content drafts; Kimi supports research-heavy claims.
+designer	gemini	gpt-codex	content	chrono-vault,chrono-content-engineer	medium	Visual/product design; Codex implements UI when code changes are needed.
+editor	claude	gemini	content	chrono-vault	low	Clarity, length, voice, final content pass.
+media-producer	gemini	claude	content	chrono-content-engineer	high	Images, audio, video, ElevenLabs/Higgsfield/provider media; auth-pending providers must be reported as blocked.
+social-strategist	gemini	kimi	content	chrono-vault,chrono-content-engineer	medium	Social/content strategy with research support.
+technical-writer	claude	gpt-codex	content	chrono-vault,chrono-kg	medium	Docs, changelogs, ADRs, handoffs; Codex reviews code-derived docs.
+data-extraction-engineer	kimi	gpt-codex	research	chrono-research-arsenal,chrono-vault	medium	PDF/table/dataset extraction; Codex helps with parser code.
+large-context-analyst	kimi	claude	research	chrono-research-arsenal,chrono-vault	medium	Long-context corpus/codebase reading and synthesis.
+learning-coach	claude	kimi	research	chrono-vault	low	Study plans, drills, learning paths.
+research	kimi	claude	research	chrono-research-arsenal,chrono-vault	medium	Web/source-heavy research and claim validation.
+synthesizer	kimi	claude	research	chrono-vault,chrono-kg	medium	Aggregate findings, preserve outliers, produce concise synthesis.
+exploit-developer	gpt-codex	claude	security	chrono-vault,chrono-kg,playwright	high	PoC construction and repro harnesses; Claude mandatory safety/impact review.
+impact-validator	claude	gpt-codex	security	chrono-vault,chrono-kg	high	Severity, CVSS, dedupe, bounty impact judgment.
+privacy-steward	claude	gpt-codex	security	chrono-vault,chrono-kg	high	Privacy, PII/data-flow, regulatory risk.
+scout	kimi	claude	security	chrono-research-arsenal,playwright,chrome-devtools	high	Bounty target selection support, platform intel, OSINT-heavy reconnaissance.
+security-analyst	claude	gpt-codex	security	chrono-vault,chrono-kg	high	SAST, supply-chain, vulnerability reasoning; Codex assists code tracing.
+threat-modeler	claude	gemini	security	chrono-vault,chrono-kg	high	Attack trees, STRIDE, abuse cases, risk ranking.
+agentops	claude	gpt-codex	sysmgmt	chrono-vault,chrono-catalog	high	Runtime/doctor/status drift and agent operations.
+finance-analyst	kimi	claude	sysmgmt	chrono-vault,chrono-research-arsenal	medium	Subscription/cost tracking and finance research summaries.
+harness-optimizer	claude	gpt-codex	sysmgmt	chrono-vault,chrono-catalog	high	Prompt/tool/script drift and squad harness audits.
+knowledge-librarian	claude	kimi	sysmgmt	chrono-vault,chrono-kg	medium	Vault organization, links, durable knowledge hygiene.
+loop-operator	claude	gpt-codex	sysmgmt	chrono-vault	high	Bounded autonomous loops, checkpoints, stall detection.
+mac-ops	claude	gpt-codex	sysmgmt	chrono-vault	high	Local Mac/process hygiene, launchd, tmux, shell environment.
+memory-curator	claude	kimi	sysmgmt	chrono-vault,chrono-kg	high	Memory/vault/brain-map hygiene and public-private boundary checks.
+personal-ops	claude	gemini	sysmgmt	chrono-vault	high	Bounded routines, notifications, reminders, operator personal ops.
+planner	claude	gpt-codex	shared	chrono-vault,sequential-thinking	high	Plans dispatch shape, write ownership, parallel safety.
+prompt-engineer	claude	gemini	shared	chrono-vault	medium	Prompt quality, instruction adapters, model fit.
+skeptic	claude	gpt-codex	shared	chrono-vault,chrono-kg	high	Independent challenge/review; exclude writer family where possible.
+summarizer	kimi	claude	shared	chrono-vault	low	Condensed state summaries, long-thread compression.
+triage	claude	kimi	shared	chrono-vault	medium	Initial classification, mode suggestion, risk triage.
+vibecoding-check	claude	gpt-codex	shared	chrono-vault,chrono-catalog	high	Scope, artifact quality, acceptance check, drift detection.

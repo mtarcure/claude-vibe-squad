@@ -1,0 +1,5 @@
+version: 1
+agent:
+  name: large-context-analyst
+  extend: ./main.yaml
+  system_prompt_path: ./prompts/large-context-analyst.md

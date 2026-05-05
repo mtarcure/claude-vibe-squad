@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# bin/validate-specialists.sh — Validate v1.1 schema across all 39 specialist files.
+# bin/validate-specialists.sh — Validate specialist schema and routing references.
 # - Required sections present
 # - Cited MCPs are in api-catalog verified-yes entries
 # - Cited skills exist in local catalog
@@ -8,6 +8,7 @@
 set -uo pipefail
 VAULT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
 CATALOG="${VAULT}/shared/api-catalog.md"
+RUNTIME_MAP="${VAULT}/shared/specialist-runtime-map.tsv"
 
 REQUIRED_SECTIONS=(
     "## Tools available to me"
@@ -26,12 +27,61 @@ VERIFIED_MCPS=$(awk '
     /^### / { in_pane_matrix=0 }
 ' "$CATALOG" | grep -oE "chrono-[a-z-]+|sequential-?thinking|playwright|chrome-devtools|context7|perplexity|elevenlabs|figma|firebase|sentry|linear|search|computer-use" | sort -u)
 
-# Build local skill set
-LOCAL_SKILLS=$(find "${HOME}/.claude/plugins/cache" -path "*/skills/*" -name "SKILL.md" 2>/dev/null | sed 's|.*/skills/||; s|/SKILL.md$||' | sort -u)
+# Build local skill set from both Claude plugin cache and repo-owned squad
+# skills. Specialist files are validated against the repo first because this
+# public repo must be self-describing even when a developer's personal plugin
+# cache is empty.
+LOCAL_SKILLS=$(
+    {
+        find "${VAULT}/shared/skills" -maxdepth 1 -type f -name "*.md" -exec basename {} .md \; 2>/dev/null
+        find "${HOME}/.claude/plugins/cache" -path "*/skills/*" -name "SKILL.md" 2>/dev/null | sed 's|.*/skills/||; s|/SKILL.md$||'
+    } | sort -u
+)
 
 # Validate each specialist
 EXIT_CODE=0
 TOTAL=0; PASSED=0; FAILED=0
+
+specialist_exists() {
+    local name="$1"
+    [[ -z "$name" ]] && return 1
+    find "$VAULT/departments" -path "*/specialists/${name}.md" -type f -print -quit | grep -q . && return 0
+    find "$VAULT/shared/specialists" -maxdepth 1 -name "${name}.md" -type f -print -quit 2>/dev/null | grep -q . && return 0
+    return 1
+}
+
+map_has_specialist() {
+    local name="$1"
+    [[ -f "$RUNTIME_MAP" ]] || return 1
+    awk -F '\t' -v s="$name" '$1 == s {found=1} END {exit(found ? 0 : 1)}' "$RUNTIME_MAP"
+}
+
+# Canonical model-lane map validation.
+if [[ ! -f "$RUNTIME_MAP" ]]; then
+    printf '{"file":"%s","status":"fail","issues":["missing-runtime-map"]}\n' "$RUNTIME_MAP"
+    FAILED=$((FAILED + 1))
+    EXIT_CODE=1
+else
+    while IFS=$'\t' read -r specialist best_model review_model source_namespace required_tools safety_level notes; do
+        [[ "$specialist" == \#* || -z "$specialist" ]] && continue
+        map_issues=()
+        [[ -z "$notes" ]] && map_issues+=("malformed-runtime-map-row")
+        case "$best_model" in gpt-codex|claude|gemini|kimi) ;; *) map_issues+=("invalid-best-model:${best_model}") ;; esac
+        case "$review_model" in gpt-codex|claude|gemini|kimi|none) ;; *) map_issues+=("invalid-review-model:${review_model}") ;; esac
+        case "$source_namespace" in coding|security|content|sysmgmt|research|shared) ;; *) map_issues+=("invalid-source-namespace:${source_namespace}") ;; esac
+        case "$safety_level" in low|medium|high) ;; *) map_issues+=("invalid-safety-level:${safety_level}") ;; esac
+        specialist_exists "$specialist" || map_issues+=("map-specialist-file-missing:${specialist}")
+        if [[ "$safety_level" == "high" && "$review_model" == "none" ]]; then
+            map_issues+=("high-safety-missing-review-model:${specialist}")
+        fi
+        if [ ${#map_issues[@]} -gt 0 ]; then
+            issues_json=$(printf '"%s",' "${map_issues[@]}" | sed 's/,$//')
+            printf '{"file":"%s","status":"fail","issues":[%s]}\n' "$RUNTIME_MAP:$specialist" "$issues_json"
+            FAILED=$((FAILED + 1))
+            EXIT_CODE=1
+        fi
+    done < "$RUNTIME_MAP"
+fi
 
 for spec_file in "$VAULT"/departments/*/specialists/*.md; do
     TOTAL=$((TOTAL + 1))
@@ -43,6 +93,15 @@ for spec_file in "$VAULT"/departments/*/specialists/*.md; do
             issues+=("missing-section: $section")
         fi
     done
+
+    if grep -q '<FILL:' "$spec_file"; then
+        issues+=("fill-placeholder-present")
+    fi
+
+    spec_name="$(basename "$spec_file" .md)"
+    if ! map_has_specialist "$spec_name"; then
+        issues+=("missing-runtime-map-entry:${spec_name}")
+    fi
 
     # Extract cited MCPs (within ### MCPs section, format: `name`)
     # Flag-pattern (not awk range) — range form `/^### MCPs/,/^### /` collapses
@@ -66,7 +125,10 @@ for spec_file in "$VAULT"/departments/*/specialists/*.md; do
     # Peer-specialist references in fan-out section — flag-pattern, not range
     cited_peers=$(awk '/^## When to fan out/{flag=1; next} flag && /^## /{flag=0} flag' "$spec_file" | grep -oE '`[a-z][a-z-]*`' | tr -d '`' | grep -v "^FILL$" | sort -u)
     for peer in $cited_peers; do
-        if ! find "$VAULT/departments" -name "${peer}.md" -path "*/specialists/*" -print -quit | grep -q .; then
+        if ! {
+            find "$VAULT/departments" -name "${peer}.md" -path "*/specialists/*" -print -quit
+            find "$VAULT/shared/specialists" -maxdepth 1 -name "${peer}.md" -print -quit 2>/dev/null
+        } | grep -q .; then
             issues+=("missing-peer-specialist: $peer")
         fi
     done
@@ -78,6 +140,114 @@ for spec_file in "$VAULT"/departments/*/specialists/*.md; do
     else
         issues_json=$(printf '"%s",' "${issues[@]}" | sed 's/,$//')
         printf '{"file":"%s","status":"fail","issues":[%s]}\n' "$spec_file" "$issues_json"
+        FAILED=$((FAILED + 1))
+        EXIT_CODE=1
+    fi
+done
+
+for spec_file in "$VAULT"/shared/specialists/*.md; do
+    [[ -f "$spec_file" ]] || continue
+    spec_name="$(basename "$spec_file" .md)"
+    if ! map_has_specialist "$spec_name"; then
+        printf '{"file":"%s","status":"fail","issues":["missing-runtime-map-entry:%s"]}\n' "$spec_file" "$spec_name"
+        FAILED=$((FAILED + 1))
+        EXIT_CODE=1
+    fi
+done
+
+# Validate route/invocation references in canonical instruction surfaces.
+# This catches mode docs dispatching fake subagents even when every specialist
+# file individually validates.
+ROUTE_FILES=(
+    "$VAULT"/shared/modes/*.md
+    "$VAULT"/chrono/CLAUDE.md
+    "$VAULT"/chrono/operator-setup.md
+    "$VAULT"/chrono/SPECIALIST-INDEX.md
+    "$VAULT"/departments/*/LEAD.md
+)
+
+STALE_ROUTE_NAMES=(
+    quick-lookup
+    scope-checker
+    legal-guard
+    code-auditor
+    variant-analyst
+    chain-constructor
+    cvss-scorer
+    product-analyst
+    repo-scout
+)
+
+for route_file in "${ROUTE_FILES[@]}"; do
+    [[ -f "$route_file" ]] || continue
+    route_issues=()
+
+    for stale in "${STALE_ROUTE_NAMES[@]}"; do
+        if grep -qE "(subagent_type=${stale}|@${stale}\\b|\\b${stale}\\b)" "$route_file"; then
+            route_issues+=("stale-route-reference:${stale}")
+        fi
+    done
+
+    if [[ "$route_file" == "$VAULT"/shared/modes/*.md ]]; then
+        if ! grep -q "vibecoding-check" "$route_file"; then
+            route_issues+=("mode-missing-vibecoding-check")
+        fi
+    fi
+
+    while IFS= read -r ref; do
+        [[ -n "$ref" ]] || continue
+        canonical="${ref//_/-}"
+        specialist_exists "$canonical" || route_issues+=("missing-subagent-reference:${ref}")
+    done < <(grep -oE 'subagent_type=[A-Za-z0-9_-]+' "$route_file" 2>/dev/null | sed 's/subagent_type=//' | sort -u)
+
+    while IFS= read -r ref; do
+        [[ -n "$ref" ]] || continue
+        canonical="${ref//_/-}"
+        specialist_exists "$canonical" || route_issues+=("missing-at-reference:${ref}")
+    done < <(grep -oE '@[a-z][a-z0-9-]+' "$route_file" 2>/dev/null | tr -d '@' | sort -u)
+
+    if [ ${#route_issues[@]} -gt 0 ]; then
+        issues_json=$(printf '"%s",' "${route_issues[@]}" | sed 's/,$//')
+        printf '{"file":"%s","status":"fail","issues":[%s]}\n' "$route_file" "$issues_json"
+        FAILED=$((FAILED + 1))
+        EXIT_CODE=1
+    fi
+done
+
+# Generated Kimi prompt consistency: these prompts are derived adapter
+# surfaces. They must exist for every Research/shared YAML agent and point at
+# prompt files that still identify the same specialist name.
+for adapter_readme in \
+    "$VAULT/.claude/agents/README.md" \
+    "$VAULT/departments/coding/.codex/agents/README.md" \
+    "$VAULT/departments/research/.kimi/agents/README.md"; do
+    if [[ ! -f "$adapter_readme" ]]; then
+        printf '{"file":"%s","status":"fail","issues":["missing-generated-adapter-source-marker"]}\n' "$adapter_readme"
+        FAILED=$((FAILED + 1))
+        EXIT_CODE=1
+    elif ! grep -q "Source:" "$adapter_readme" || ! grep -q "Validator:" "$adapter_readme"; then
+        printf '{"file":"%s","status":"fail","issues":["incomplete-generated-adapter-source-marker"]}\n' "$adapter_readme"
+        FAILED=$((FAILED + 1))
+        EXIT_CODE=1
+    fi
+done
+
+for yaml_file in "$VAULT"/departments/research/.kimi/agents/*.yaml; do
+    [[ -f "$yaml_file" ]] || continue
+    agent_name=$(awk '/^[[:space:]]*name:/ {print $2; exit}' "$yaml_file" | tr -d '"')
+    prompt_path=$(awk '/system_prompt_path:/ {print $2; exit}' "$yaml_file")
+    [[ -n "$agent_name" && -n "$prompt_path" ]] || continue
+    prompt_file="$VAULT/departments/research/.kimi/agents/${prompt_path#./}"
+    if [[ ! -f "$prompt_file" ]]; then
+        printf '{"file":"%s","status":"fail","issues":["missing-kimi-generated-prompt:%s"]}\n' "$yaml_file" "$prompt_path"
+        FAILED=$((FAILED + 1))
+        EXIT_CODE=1
+        continue
+    fi
+    prompt_h1=$(grep -m1 '^# Specialist:' "$prompt_file" | tr '[:upper:]' '[:lower:]' || true)
+    agent_words=$(echo "$agent_name" | tr '-' ' ' | tr '[:upper:]' '[:lower:]')
+    if [[ -n "$prompt_h1" ]] && ! echo "$prompt_h1" | grep -qF "$agent_words"; then
+        printf '{"file":"%s","status":"fail","issues":["kimi-generated-prompt-name-mismatch:%s"]}\n' "$prompt_file" "$agent_name"
         FAILED=$((FAILED + 1))
         EXIT_CODE=1
     fi

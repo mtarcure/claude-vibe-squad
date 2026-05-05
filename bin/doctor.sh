@@ -74,6 +74,101 @@ else
     WARNINGS+=("MCP status indeterminate")
 fi
 
+if [[ -x "${VAULT_ROOT}/bin/mcp-audit.sh" ]]; then
+    if MCP_AUDIT_OUTPUT=$("${VAULT_ROOT}/bin/mcp-audit.sh" 2>/dev/null | tail -1); then
+        echo "- ✓ MCP usability audit passed (${MCP_AUDIT_OUTPUT})" >> "${DOCTOR_LOG}"
+        HEALTHY+=("MCP usability audit passed")
+    else
+        echo "- ⚠️ MCP usability audit reported issues (${MCP_AUDIT_OUTPUT:-no summary})" >> "${DOCTOR_LOG}"
+        WARNINGS+=("MCP usability audit reported registered/unusable drift")
+    fi
+else
+    echo "- ⚠️ bin/mcp-audit.sh missing or not executable" >> "${DOCTOR_LOG}"
+    WARNINGS+=("mcp-audit missing")
+fi
+
+# --- 2b. Product hygiene + memory discipline ---
+echo "" >> "${DOCTOR_LOG}"
+echo "## Product Hygiene" >> "${DOCTOR_LOG}"
+if [[ -x "${VAULT_ROOT}/bin/product-hygiene.sh" ]]; then
+    if HYGIENE_OUTPUT=$("${VAULT_ROOT}/bin/product-hygiene.sh" --public-export 2>/dev/null | tail -2 | tr '\n' ' '); then
+        echo "- ✓ Public export has no tracked runtime/private blockers (${HYGIENE_OUTPUT})" >> "${DOCTOR_LOG}"
+        HEALTHY+=("public export hygiene clean")
+    else
+        echo "- ⚠️ Public export hygiene found tracked blockers (${HYGIENE_OUTPUT})" >> "${DOCTOR_LOG}"
+        WARNINGS+=("public export hygiene blockers present — run bin/product-hygiene.sh --public-export")
+    fi
+else
+    WARNINGS+=("product-hygiene missing")
+fi
+
+echo "" >> "${DOCTOR_LOG}"
+echo "## Instruction Drift" >> "${DOCTOR_LOG}"
+DRIFT_HITS=0
+if command -v grep >/dev/null 2>&1; then
+    DRIFT_HITS=$(grep -RInE '45 specialists|all 45 specialists|scripts/send-req\.sh|currently has FILL placeholders|<FILL:|docs/handoffs/[0-9]{4}-|docs/specs/spec-[0-9]|docs/plans/[0-9]{4}-' \
+        "${VAULT_ROOT}/README.md" "${VAULT_ROOT}/CLAUDE.md" "${VAULT_ROOT}/chrono" \
+        "${VAULT_ROOT}/docs" "${VAULT_ROOT}/shared" 2>/dev/null \
+        | grep -v 'bin/upgrade-specialists.py' \
+        | wc -l | tr -d ' ')
+fi
+if [[ "${DRIFT_HITS:-0}" -eq 0 ]]; then
+    echo "- ✓ No stale count/FILL/script/spec-handoff references in public instruction surfaces" >> "${DOCTOR_LOG}"
+    HEALTHY+=("instruction drift clean")
+else
+    echo "- ⚠️ ${DRIFT_HITS} stale instruction-reference hit(s); run bin/product-hygiene.sh --public-export for details" >> "${DOCTOR_LOG}"
+    WARNINGS+=("instruction drift hits: ${DRIFT_HITS}")
+fi
+
+if [[ -x "${VAULT_ROOT}/bin/validate-specialists.sh" ]]; then
+    if VALIDATE_OUTPUT=$("${VAULT_ROOT}/bin/validate-specialists.sh" >/tmp/vibe-squad-validate-specialists.out 2>&1); then
+        echo "- ✓ Specialist, routing, and generated-adapter validation passed" >> "${DOCTOR_LOG}"
+        HEALTHY+=("specialist/routing validation passed")
+    else
+        echo "- ⚠️ Specialist/routing validation failed; see bin/validate-specialists.sh output" >> "${DOCTOR_LOG}"
+        WARNINGS+=("specialist/routing validation failed")
+    fi
+else
+    WARNINGS+=("validate-specialists missing")
+fi
+
+if [[ -f "${VAULT_ROOT}/docs/brain-map.md" ]]; then
+    echo "- ✓ Brain map present" >> "${DOCTOR_LOG}"
+    HEALTHY+=("brain map present")
+else
+    echo "- 🔔 docs/brain-map.md missing" >> "${DOCTOR_LOG}"
+    ISSUES+=("brain map missing")
+fi
+
+MISSING_SCRIPT_REFS=0
+while IFS= read -r script_ref; do
+    [[ -n "$script_ref" ]] || continue
+    [[ -e "${VAULT_ROOT}/${script_ref}" ]] || MISSING_SCRIPT_REFS=$((MISSING_SCRIPT_REFS + 1))
+done < <(grep -RhoE '(bin|scripts|shared)/[A-Za-z0-9._/-]+\.(sh|py)' \
+    "${VAULT_ROOT}/README.md" "${VAULT_ROOT}/CLAUDE.md" "${VAULT_ROOT}/chrono" \
+    "${VAULT_ROOT}/docs" "${VAULT_ROOT}/shared" 2>/dev/null | sort -u)
+if [[ "${MISSING_SCRIPT_REFS}" -eq 0 ]]; then
+    echo "- ✓ Referenced scripts exist" >> "${DOCTOR_LOG}"
+    HEALTHY+=("referenced scripts exist")
+else
+    echo "- ⚠️ ${MISSING_SCRIPT_REFS} referenced script path(s) are missing" >> "${DOCTOR_LOG}"
+    WARNINGS+=("missing referenced scripts: ${MISSING_SCRIPT_REFS}")
+fi
+
+echo "" >> "${DOCTOR_LOG}"
+echo "## Memory Discipline" >> "${DOCTOR_LOG}"
+if [[ -x "${VAULT_ROOT}/bin/memory-audit.sh" ]]; then
+    if MEMORY_OUTPUT=$("${VAULT_ROOT}/bin/memory-audit.sh" 2>/dev/null | tail -1); then
+        echo "- ✓ Memory audit passed (${MEMORY_OUTPUT})" >> "${DOCTOR_LOG}"
+        HEALTHY+=("memory audit passed")
+    else
+        echo "- 🔔 Memory audit found issues (${MEMORY_OUTPUT:-no summary})" >> "${DOCTOR_LOG}"
+        ISSUES+=("memory audit found missing discipline cite or secret-like pattern")
+    fi
+else
+    WARNINGS+=("memory-audit missing")
+fi
+
 # --- 3. Secrets ---
 echo "" >> "${DOCTOR_LOG}"
 echo "## Secrets" >> "${DOCTOR_LOG}"
@@ -209,12 +304,14 @@ fi
 # --- 10. Process audit (with pathology detection) ---
 echo "" >> "${DOCTOR_LOG}"
 echo "## Process Audit" >> "${DOCTOR_LOG}"
-# Long-running claude/codex/gemini/kimi processes (>1 day)
+# Long-running claude/codex/gemini/kimi processes are expected for the
+# daily-driver tmux model. Report them as informational; runaway CPU and retry
+# storms below are the actual warning signals.
 long_procs=$(ps -eo pid,etime,pcpu,comm | awk '$4 ~ /(claude|codex|gemini|kimi)/ && $2 ~ /^[0-9]+-[0-9]+/ {print}' | head -5)
 if [[ -n "${long_procs}" ]]; then
-    echo "- ⚠️ Long-running CLI processes (>1 day):" >> "${DOCTOR_LOG}"
+    echo "- ℹ️ Long-running CLI processes (>1 day, expected for daily-driver panes):" >> "${DOCTOR_LOG}"
     echo "${long_procs}" | sed 's/^/  /' >> "${DOCTOR_LOG}"
-    WARNINGS+=("long-running CLI processes — review for stuck loops")
+    HEALTHY+=("persistent CLI panes present")
 else
     echo "- ✓ No long-running CLI processes detected" >> "${DOCTOR_LOG}"
 fi

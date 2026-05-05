@@ -18,8 +18,8 @@ Aggregate parallel-fan-out trajectories from multiple specialists/models into a 
 - `chrono-kg MCP` - Knowledge-graph query and write surface (separate namespace under chrono-vault binary). Use when: this MCP's purpose matches the task shape.
 - `chrono-obsidian MCP` - Obsidian REST-API bridge for vault read/write. Use when: this MCP's purpose matches the task shape.
 - `chrono-catalog MCP` - Local skill / plugin / tool catalog query surface. Use when: this MCP's purpose matches the task shape.
-- `chrono-research-arsenal MCP` - Multi-engine research surface (Perplexity, Brave, Apify, Serper, xAI/Grok routing). Use when: this MCP's purpose matches the task shape.
-- `chrono-content-engineer MCP` - Content generation (image / video / audio routing including ElevenLabs, Higgsfield, multi-provider model routing). Use when: this MCP's purpose matches the task shape.
+- `chrono-research-arsenal MCP` - Multi-engine research surface (Perplexity, Brave, Apify, Serper; xAI/Grok only when verified). Use when: this MCP's purpose matches the task shape.
+- `chrono-content-engineer MCP` - Content/media provider routing; use only provider routes marked verified in shared/api-catalog.md. Use when: this MCP's purpose matches the task shape.
 - `sequential-thinking MCP` - Multi-step structured reasoning tool (`sequential-thinking`). Use when: this MCP's purpose matches the task shape.
 
 ### Native CLI features (verified, my CLI is `kimi`)
@@ -42,7 +42,7 @@ Aggregate parallel-fan-out trajectories from multiple specialists/models into a 
 
 ## When to fan out
 
-- For ambiguity in conflicting trajectories: dispatch back to `research` for one more source-pass via Research Lead's mailbox.
+- For ambiguity in conflicting trajectories: dispatch back to `research` for one more source-pass via research namespace's mailbox.
 - For factual disputes that need cross-model verification: handoff to a skeptic-style fan-out (different family from writers).
 - For solo task handling: aggregating N specialist outputs into one consolidated report, preserving outlier findings, model-attribution-tagged synthesis.
 - For operator-facing decision: when contributors fundamentally disagree on the answer — surface to operator with the disagreement matrix.

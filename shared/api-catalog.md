@@ -1,6 +1,6 @@
 # Squad API & Feature Catalog
 
-Verified-from-Capability-Inventory list of every API, native CLI feature, and MCP available to the squad. Specialist files (`departments/*/specialists/*.md`) may only cite entries marked `verified: yes` here. Entries marked `needs-research` are for v1.1 within-build research backlog tasks (run by harness-optimizer; do NOT block specialist authoring).
+Verified-from-Capability-Inventory list of every API, native CLI feature, and MCP available to the squad. Specialist files (`departments/*/specialists/*.md`) may only cite entries marked `verified: yes` here. Entries marked `needs-research` are current research backlog tasks for harness-optimizer and do not block specialist authoring.
 
 Last full inventory: 2026-05-02 (`_state/capability-inventory-2026-05-02.md`)
 Tilde-path fix applied to claude chrono-* MCPs: 2026-05-03 (`_state/incident-2026-05-03-claude-mcp-tilde.md`)
@@ -550,7 +550,7 @@ Gemini CLI flags — verified live via `gemini --help` capture on 2026-05-02. Su
 ### Nano Banana Pro / Nano Banana 2
 - url: https://aistudio.google.com (likely)
 - access: Subscription (uncertain)
-- specialists: designer, content-engineer (potential)
+- specialists: designer, media-producer (potential)
 - verified: needs-research
 - last_checked: 2026-05-02
 - research_task: identify whether accessed via `gemini` CLI subcommand, via Google AI Studio web only, or via API
@@ -559,7 +559,7 @@ Gemini CLI flags — verified live via `gemini --help` capture on 2026-05-02. Su
 ### Veo 3
 - url: https://veo.google
 - access: Subscription (uncertain)
-- specialists: content-engineer (video)
+- specialists: media-producer (video)
 - verified: needs-research
 - last_checked: 2026-05-02
 - research_task: identify access path — gemini CLI vs API vs web only
@@ -568,7 +568,7 @@ Gemini CLI flags — verified live via `gemini --help` capture on 2026-05-02. Su
 ### Imagen
 - url: https://imagen.research.google
 - access: Subscription (uncertain)
-- specialists: designer, content-engineer
+- specialists: designer, media-producer
 - verified: needs-research
 - last_checked: 2026-05-02
 - research_task: identify access path
@@ -577,7 +577,7 @@ Gemini CLI flags — verified live via `gemini --help` capture on 2026-05-02. Su
 ### Google Search grounding
 - url: N/A (model-side)
 - access: Subscription (likely implicit per model)
-- specialists: research, content-engineer, fact-checking specialists
+- specialists: research, media-producer, fact-checking specialists
 - verified: needs-research
 - last_checked: 2026-05-02
 - research_task: confirm built into `gemini-3.1-pro-preview` by default; verify with sample grounded query
@@ -595,7 +595,7 @@ Gemini CLI flags — verified live via `gemini --help` capture on 2026-05-02. Su
 ### Flow (Google video tool)
 - url: https://flow.google
 - access: Subscription (uncertain)
-- specialists: content-engineer (video)
+- specialists: media-producer (video)
 - verified: needs-research
 - last_checked: 2026-05-02
 - research_task: investigate scope and integration paths
@@ -839,7 +839,7 @@ Kimi CLI flags — verified live via `kimi --help` capture on 2026-05-02. Subscr
 ### Grok-X integration
 - url: https://x.ai
 - access: API
-- specialists: research, content-engineer (potential)
+- specialists: research, media-producer (potential)
 - verified: needs-research
 - last_checked: 2026-05-02
 - research_task: investigate full integration surface
@@ -865,8 +865,8 @@ Kimi CLI flags — verified live via `kimi --help` capture on 2026-05-02. Subscr
 ### ElevenLabs MCP — Scribe transcription, TTS, sound effects, music composition, voice cloning
 - url: https://elevenlabs.io
 - access: API (ELEVENLABS_API_KEY)
-- specialists: content-engineer, audio-producer, podcast-producer
-- verified: yes
+- specialists: media-producer
+- verified: yes for Claude child MCP; needs-research for Gemini/content-pane use through chrono-content-engineer
 - last_checked: 2026-05-02
 - test_reference: `claude mcp list` shows `plugin:chrono-content-engineer:elevenlabs` ✓ Connected via `uvx elevenlabs-mcp` (Capability Inventory)
 - notes: Full surface: speech-to-text, text-to-speech, sound effects, music composition, voice cloning, voice library search, conversational agents. See `mcp__plugin_chrono-content-engineer_elevenlabs__*` tool list.
@@ -878,7 +878,7 @@ Kimi CLI flags — verified live via `kimi --help` capture on 2026-05-02. Subscr
 ### Higgsfield MCP — image/video generation
 - url: https://higgsfield.ai
 - access: HTTP MCP (auth required)
-- specialists: content-engineer, designer (image/video)
+- specialists: media-producer, designer (image/video)
 - verified: no
 - last_checked: 2026-05-02
 - test_reference: `claude mcp list` shows `plugin:chrono-content-engineer:higgsfield` ⚠ Needs authentication
@@ -892,7 +892,7 @@ Per-pane verification matrix for each chrono-* family MCP. Claude pane verificat
 
 ### chrono-vault MCP
 - purpose: KG read/write, durable memory across Leads
-- specialists: brand-voice (Content), memory-curator (SysMgmt), dreamer (SysMgmt), all Leads' memory.md persistence
+- specialists: brand-voice (Content), memory-curator (SysMgmt), memory-curator (SysMgmt), all Leads' memory.md persistence
 - verified per pane:
   - chrono pane (claude): yes — test_reference: `claude mcp list` post-2026-05-03 tilde-fix shows ✓ Connected
   - security pane (claude): yes — same (claude global config)
@@ -904,7 +904,7 @@ Per-pane verification matrix for each chrono-* family MCP. Claude pane verificat
 
 ### chrono-kg MCP
 - purpose: Knowledge-graph query and write surface (separate namespace under chrono-vault binary)
-- specialists: memory-curator, dreamer, kg-integrity-gate workflows, all Leads writing durable findings
+- specialists: memory-curator, memory-curator, kg-integrity-gate workflows, all Leads writing durable findings
 - verified per pane:
   - chrono pane (claude): yes — test_reference: `claude mcp list` post-2026-05-03 tilde-fix shows ✓ Connected
   - security pane (claude): yes — same
@@ -951,16 +951,16 @@ Per-pane verification matrix for each chrono-* family MCP. Claude pane verificat
 - last_checked: 2026-05-03 for claude panes; 2026-05-02 for codex/kimi; 2026-05-02 for gemini (intentional-skip)
 
 ### chrono-content-engineer MCP
-- purpose: Content generation (image / video / audio routing including ElevenLabs, Higgsfield, multi-provider model routing)
-- specialists: content-engineer, designer, podcast-producer, brand-voice
+- purpose: Content/media provider routing. Provider-specific availability still depends on each child route's verification status.
+- specialists: media-producer, designer, content-creator only for non-media content support
 - verified per pane:
   - chrono pane (claude): yes — test_reference: `claude mcp list` post-2026-05-03 tilde-fix shows ✓ Connected (top-level wrapper); child `elevenlabs` independently ✓ Connected
   - security pane (claude): yes — same
   - sysmgmt pane (claude): yes — same
   - coding pane (codex): yes — `codex mcp list` shows enabled (ENV: GEMINI_API_KEY, OPENAI_API_KEY, XAI_API_KEY)
-  - content pane (gemini): yes — verified post-Task 6 (ElevenLabs voice/transcription)
+  - content pane (gemini): needs-research — wrapper presence claimed in prior docs, but proof log is missing locally; do not claim provider-level success without rerun
   - research pane (kimi): yes — `kimi mcp list` shows configured
-- last_checked: 2026-05-03 for claude panes; 2026-05-02 for codex/kimi; 2026-05-02 for gemini (absent)
+- last_checked: 2026-05-03 for claude panes; 2026-05-02 for codex/kimi; gemini requires rerun/proof log
 
 ### sequential-thinking MCP
 - purpose: Multi-step structured reasoning tool (`sequentialthinking`)
@@ -976,24 +976,57 @@ Per-pane verification matrix for each chrono-* family MCP. Claude pane verificat
 
 ---
 
-## 10. Out-of-scope failed MCPs (separate plugin issues)
+## 10. Personal Ops, Outreach, and Notifications
+
+### Gmail / email triage
+- access: Claude connected app / Gmail MCP where configured
+- specialists: personal-ops, privacy-steward, Outreach Mode approval gate
+- verified: partial
+- last_checked: 2026-05-02 inventory shows Claude Gmail connected; current live MCP audit does not catalog it yet
+- notes: Read/triage/draft workflows are allowed only when the active pane has verified access. Sending requires explicit per-message operator approval.
+
+### Google Calendar / reminders / todos
+- access: Calendar/Todo MCPs where configured
+- specialists: personal-ops
+- verified: auth-pending
+- last_checked: 2026-05-02 inventory marked Calendar auth-pending
+- notes: Specialists must return a missing-auth report instead of claiming calendar/todo writes when auth is absent.
+
+### Outreach pipeline bridge
+- access: private/local `<private-outreach-repo>`
+- specialists: research, data-extraction-engineer, privacy-steward, content-creator, brand-voice, editor, personal-ops
+- verified: dry-run bridge only
+- last_checked: 2026-05-04 local inspection
+- test_reference: `bin/outreach-dry-run.sh` runs `python -m outreach.runner --dry-run` in the private package when present
+- notes: No live sends. Public repo must not track private lead DBs, raw emails, credentials, or operator-specific voice files.
+
+### Morning / weekly summary notifications
+- access: local markdown morning brief and terminal/status commands
+- specialists: loop-operator, memory-curator, agentops, personal-ops
+- verified: local only
+- last_checked: 2026-05-04
+- notes: Telegram or other external notification sinks are future send-only adapters. They must not accept coding/editing commands unless separately designed and approved.
+
+---
+
+## 11. Out-of-scope failed MCPs (separate plugin issues)
 
 These show `Failed to connect` in `claude mcp list` post-2026-05-03 tilde fix and are NOT chrono-* family. Specialists must NOT cite them.
 
 ### plugin:goodmem:goodmem
 - verified: no
 - last_checked: 2026-05-03
-- notes: separate plugin issue, out of v1.1 scope. Likely missing dep or upstream package issue. Worth investigating in v1.2.
+- notes: separate plugin issue. Likely missing dep or upstream package issue. Worth investigating in the next compatibility pass.
 
 ### plugin:github:github (HTTP)
 - verified: no
 - last_checked: 2026-05-03
-- notes: separate plugin issue, out of v1.1 scope. HTTP MCP — possibly auth or endpoint change. Worth investigating in v1.2.
+- notes: separate plugin issue. HTTP MCP — possibly auth or endpoint change. Worth investigating in the next compatibility pass.
 
 ### plugin:greptile:greptile (HTTP)
 - verified: no
 - last_checked: 2026-05-03
-- notes: separate plugin issue, out of v1.1 scope. HTTP MCP — same root-cause class as github MCP.
+- notes: separate plugin issue. HTTP MCP — same root-cause class as github MCP.
 
 ---
 
@@ -1014,9 +1047,9 @@ Specialist files cite skills by exact name; validator (Task 9) verifies skill ex
 
 ---
 
-## Within-v1.1 research backlog
+## Research backlog
 
-These entries are flagged `verified: needs-research` above. They run as harness-optimizer sub-tasks during v1.1 build window. They do NOT block v1.1 ship gates — specialist files ignore `needs-research` entries until verified.
+These entries are flagged `verified: needs-research` above. They run as harness-optimizer sub-tasks during compatibility work. Specialist files ignore `needs-research` entries until verified.
 
 Backlog (8 categories):
 1. **Gemini ecosystem** (Nano Banana / Veo 3 / Imagen / Search grounding / Jules / Flow / NotebookLM / Antigravity)

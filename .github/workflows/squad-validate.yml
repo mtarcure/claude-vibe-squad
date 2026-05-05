@@ -1,0 +1,69 @@
+name: Squad Validate
+
+# Spec 1.5 Item 10 — GitHub Actions CI
+# Remote: https://github.com/mtarcure/claude-vibe-squad.git
+# Security note: no user-controlled inputs used in run: blocks — safe from injection.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate-specialists:
+    name: Validate specialists
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run specialist validator
+        env:
+          VAULT_ROOT: ${{ github.workspace }}
+        run: bash bin/validate-specialists.sh
+
+  shellcheck:
+    name: Shell and Python syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell syntax
+        run: bash -n bin/*.sh scripts/*.sh shared/*.sh
+      - name: Python compile
+        run: python3 -m py_compile scripts/python/*.py bin/*.py
+      - name: Install shellcheck
+        run: sudo apt-get install -y shellcheck
+      - name: Warn on bin/*.sh issues
+        run: shellcheck bin/*.sh || true
+      - name: Hard-fail on send-task.sh issues
+        run: shellcheck bin/send-task.sh
+
+  dispatch-safety-checks:
+    name: Dispatch safety
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify no-delete rule in dispatch-toolkit.sh
+        run: |
+          if ! grep -q 'spec-1.5-no-delete-rule' shared/dispatch-toolkit.sh; then
+            echo "ERROR: dispatch-toolkit.sh missing Spec 1.5 no-delete rule block."
+            exit 1
+          fi
+          echo "OK: no-delete rule present."
+      - name: Validate active-tasks.json schema (if present)
+        run: |
+          if [ -f "_state/active-tasks.json" ]; then
+            python3 -c 'import json, sys; registry=json.load(open("_state/active-tasks.json")); errors=[f"{tid} missing field: {field}" for tid, entry in registry.items() for field in ("to_lead", "dispatched_at", "write_scope", "status") if field not in entry]; [print(f"ERROR: {e}") for e in errors]; print(f"OK: {len(registry)} entries valid.") if not errors else None; sys.exit(1 if errors else 0)'
+          else
+            echo "OK: no active-tasks.json (clean state)."
+          fi
+      - name: Validate sample active registry
+        run: python3 -c 'import json; data=json.load(open("examples/active-tasks.sample.json")); assert isinstance(data, dict); print("OK: sample active registry parses")'
+      - name: Block private runtime artifacts
+        run: |
+          bad="$(git ls-files | grep -E '(^_state/(tmux-logs|doctor-logs|cleanup-logs|morning-briefs|nightly-failures|active-tasks\.json)|^departments/[^/]+/(inbox|active|outbox)/.+\.md$|^departments/[^/]+/archive/.+\.md$|__pycache__|\.pyc$)' || true)"
+          if [ -n "$bad" ]; then
+            echo "ERROR: private/runtime files are tracked:"
+            echo "$bad"
+            exit 1
+          fi
+          echo "OK: no blocked private/runtime files tracked."

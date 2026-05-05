@@ -10,6 +10,15 @@ phases: 4
 
 For urgent reactive triage when something is broken. Primary Lead: SysMgmt. Time-bounded with checkpoint, but no hard wall-clock termination.
 
+## Phase ownership at a glance
+
+| Phase | Name | Lead | Specialists / dispatch |
+|---|---|---|---|
+| 1 | Stabilize | SysMgmt / Claude | `mac-ops` or owning specialist for affected system |
+| 2 | Diagnose | SysMgmt + relevant Lead | Relevant Lead specialist plus `skeptic` |
+| 3 | Patch | SysMgmt + Coding if code | Coding implementation specialist; `code-reviewer` for review |
+| 4 | Postmortem | SysMgmt + Content | Content `technical-writer` |
+
 ## Triggers
 
 ```yaml
@@ -23,36 +32,58 @@ file_types: []
 ## Phases (4)
 
 ### Phase 1: Stabilize
-Owner: SysMgmt Lead. Specialist: mac-ops or whoever owns the affected system.
+Owner: sysmgmt namespace. Specialist: mac-ops or whoever owns the affected system.
 Activity: capture state (don't lose evidence), identify safe state to retreat to, snapshot anything volatile.
 Output: `incident-state.md`.
 Multi-model: no (speed > consensus).
+Advance when: volatile evidence is captured, immediate blast radius is contained, and a rollback/safe-state option is identified.
 
 ### Phase 2: Diagnose
-Owner: SysMgmt Lead. Specialists: relevant Lead's diagnosis specialist + skeptic (multi-model for hypothesis diversity).
+Owner: sysmgmt namespace. Specialists: relevant Lead's diagnosis specialist + skeptic (multi-model for hypothesis diversity).
 Activity: systematic-debugging workflow, root-cause hypotheses, evidence gathering.
 Output: `diagnosis.md` with ranked hypotheses.
 Multi-model: YES (root-cause disagreement matters).
-Cross-Lead: Security Lead auto-paged if incident touches auth/secrets/network.
+Cross-Lead: security namespace auto-paged if incident touches auth/secrets/network.
+Advance when: top hypothesis is evidence-backed, affected component is named, and patch owner is clear.
 
 ### Phase 3: Patch
-Owner: SysMgmt Lead. Specialists: relevant fix-developer (Coding cross-Lead if code).
+Owner: sysmgmt namespace. Specialists: relevant fix-developer (Coding cross-Lead if code).
 Activity: minimal-change fix first; root-cause perfection second.
 Output: patch + verification of fix.
 Operator gate: HARD before patch applied.
 Multi-model: yes for code review (code-reviewer cross-cutting).
+Advance when: operator approves the patch, the fix is applied, and targeted verification passes.
 
 ### Phase 4: Postmortem (mandatory)
-Owner: SysMgmt Lead. Specialist: technical-writer (Content cross-Lead).
+Owner: sysmgmt namespace. Specialist: technical-writer (Content cross-Lead).
 Activity: timeline, root cause, contributing factors, mitigations applied, follow-up actions.
 Output: `postmortem.md` saved to vault — feeds the dreaming system as instinct entries.
 
 Even tiny incidents get a postmortem. Per chrono memory: insight capture is first-class learning.
+Advance when: postmortem is saved, follow-up actions are assigned or explicitly deferred, and durable learnings are written.
 
 ## Hard gates
 
 ```yaml
-- phase_3_to_4: HARD before applying patch (operator confirms fix is right)
+- phase_patch_apply_gate: HARD before applying patch (operator confirms fix is right)
+```
+
+## Cleanup declarations
+
+Durable / ephemeral declarations are inherited from `shared/mode-cleanup.md` Incident Mode defaults.
+
+```yaml
+durable_artifacts:
+  - postmortem.md
+  - fix commits
+  - verification notes
+  - runbook updates
+  - learnings under vault/incidents/
+
+ephemeral_artifacts:
+  - stack-trace scratch files
+  - ruled-out hypothesis docs
+  - raw trace dumps
 ```
 
 ## Time
@@ -64,6 +95,7 @@ NO wall-clock timeout. The phase 1 (Stabilize) might be 5 minutes; complex root-
 ```yaml
 completion: "patch applied + verified + postmortem written"
 explicit_stop: "operator says stop"
+pre_completion: "vibecoding-check universal + incident extension"
 ```
 
 ## Cross-mode escalation

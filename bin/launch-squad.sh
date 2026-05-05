@@ -1,18 +1,20 @@
 #!/bin/bash
-# Launch the full Claude-Vibe-Squad tmux session with 6 windows.
-# Each window runs one Lead's CLI in its dedicated working directory.
+# Launch the full Claude-Vibe-Squad tmux session with 6 visible windows.
+# Each visible window uses a model-led name while keeping compatibility
+# Lead folders/mailboxes stable under departments/.
 #
 # Usage:
 #   bash ~/Obsidian-Claude-Vibe-Squad/bin/launch-squad.sh
+#   bash ~/Obsidian-Claude-Vibe-Squad/bin/launch-squad.sh --safe
 #
 # After launch:
 #   tmux attach -t squad     # attach to the session
 #   Ctrl-b + 0  → chrono (Coordinator, your conversation)
-#   Ctrl-b + 1  → coding (Codex CLI)
-#   Ctrl-b + 2  → security (Claude Code)
-#   Ctrl-b + 3  → content (Gemini CLI)
-#   Ctrl-b + 4  → sysmgmt (Claude Code)
-#   Ctrl-b + 5  → research (Kimi CLI)
+#   Ctrl-b + 1  → gpt-codex  (departments/coding)
+#   Ctrl-b + 2  → claude     (security + sysmgmt compatibility namespaces)
+#   Ctrl-b + 3  → gemini     (departments/content)
+#   Ctrl-b + 4  → kimi       (departments/research)
+#   Ctrl-b + 5  → watchers/status
 #   Ctrl-b + d  → detach (panes keep running)
 #
 # Re-run this script to re-attach if the session was killed; if a session
@@ -20,16 +22,73 @@
 
 set -uo pipefail
 
-SESSION="squad"
+SESSION="${SQUAD_SESSION:-squad}"
 VAULT_ROOT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
+source "${VAULT_ROOT}/shared/lead-windows.sh"
+for arg in "$@"; do
+    case "$arg" in
+        --safe) SQUAD_UNSAFE_AUTONOMY=0 ;;
+        --autonomous|--unsafe) SQUAD_UNSAFE_AUTONOMY=1 ;;
+        --help|-h)
+            sed -n '2,18p' "$0"
+            exit 0
+            ;;
+    esac
+done
+
+SQUAD_UNSAFE_AUTONOMY="${SQUAD_UNSAFE_AUTONOMY:-1}"
+SQUAD_TRUST_CODEX_MCPS="${SQUAD_TRUST_CODEX_MCPS:-0}"
+
+FIRST_RUN_SENTINEL="${VAULT_ROOT}/_state/.autonomous-launch-ack"
+if [[ "${SQUAD_UNSAFE_AUTONOMY}" == "1" ]]; then
+    mkdir -p "${VAULT_ROOT}/_state"
+    if [[ ! -f "${FIRST_RUN_SENTINEL}" ]]; then
+        echo "WARNING: launching autonomous daily-driver profile."
+        echo "This uses bypass/yolo-style permissions for model-lane panes. Use 'squad up --safe' for conservative permissions."
+        echo "Run 'squad doctor' first if this is a fresh install."
+        date -u +%FT%TZ > "${FIRST_RUN_SENTINEL}"
+        echo ""
+    fi
+fi
 
 # Verify tmux is installed
-if ! command -v tmux >/dev/null 2>&1; then
-    echo "ERROR: tmux not installed. Run: brew install tmux"
+missing=()
+for dep in tmux fswatch jq claude codex gemini kimi; do
+    command -v "$dep" >/dev/null 2>&1 || missing+=("$dep")
+done
+if [[ "${#missing[@]}" -gt 0 ]]; then
+    echo "ERROR: missing required command(s): ${missing[*]}"
+    echo "Fix: install/login the missing CLIs, and install core tools with: brew install jq tmux fswatch"
     exit 1
 fi
 
-# If session already exists, attach to it
+if [[ "${SQUAD_UNSAFE_AUTONOMY}" == "1" ]] && [[ -x "${VAULT_ROOT}/bin/doctor.sh" ]]; then
+    if ! "${VAULT_ROOT}/bin/doctor.sh" >/dev/null 2>&1; then
+        if [[ "${SQUAD_SKIP_DOCTOR:-0}" != "1" ]]; then
+            echo "ERROR: doctor reported issues; autonomous launch blocked."
+            echo "Run: squad doctor"
+            echo "Override only after reviewing with: SQUAD_SKIP_DOCTOR=1 squad up"
+            exit 1
+        fi
+        echo "WARNING: doctor reported issues; continuing because SQUAD_SKIP_DOCTOR=1."
+    fi
+fi
+
+# Ensure tmux server is up before any `set-option -g` calls. Without this,
+# global options silently fail when the server isn't yet running (e.g. just
+# after `kill-server`), leaving status bar + mouse mode at tmux defaults.
+tmux start-server
+
+# Tmux server config — keep 50k scrollback (default 2k truncates active sessions),
+# enable mouse for trackpad scrolling, refresh status every 5s.
+# Applied BEFORE the has-session early-return so reattaches re-assert these
+# globals — otherwise the server can drift back to defaults (mouse off,
+# history-limit 2000) after a kill-server / external session recreate, and
+# subsequent attaches via this script silently leave them at defaults.
+tmux set-option -g history-limit 50000
+tmux set-option -g mouse on
+
+# If session already exists, attach to it (after re-asserting globals above)
 if tmux has-session -t "${SESSION}" 2>/dev/null; then
     echo "Session '${SESSION}' already exists. Attaching..."
     tmux attach -t "${SESSION}"
@@ -39,20 +98,10 @@ fi
 echo "Creating tmux session: ${SESSION}"
 echo ""
 
-# Ensure tmux server is up before any `set-option -g` calls. Without this,
-# global options silently fail when the server isn't yet running (e.g. just
-# after `kill-server`), leaving status bar + mouse mode at tmux defaults.
-tmux start-server
-
-# Tmux server config — keep 50k scrollback (default 2k truncates active sessions),
-# enable mouse for trackpad scrolling, refresh status every 5s.
-tmux set-option -g history-limit 50000
-tmux set-option -g mouse on
-
 # One-key recovery: Ctrl-b SPACE refreshes the client display AND parks you
 # back on the chrono coordinator pane. Cures any stale-frame visual issue and
 # restores focus to the place you actually want to type.
-tmux bind-key Space run-shell 'tmux refresh-client \; tmux select-window -t squad:chrono \; tmux select-pane -t squad:chrono.0'
+tmux bind-key Space run-shell "tmux refresh-client \; tmux select-window -t ${SESSION}:chrono \; tmux select-pane -t ${SESSION}:chrono.0"
 # Push tmux selections to the macOS clipboard automatically so you can ⌘V into
 # Slack, Twitter, browser, etc. without bouncing through `tmux save-buffer`.
 tmux set-option -g set-clipboard on
@@ -83,6 +132,18 @@ PATH_PREFIX='export PATH="$HOME/.local/bin:$PATH"'
 # Interactive launches typically prefer OAuth anyway, but this is belt-and-suspenders.
 AUTH_PREFIX='unset ANTHROPIC_API_KEY OPENAI_API_KEY GEMINI_API_KEY GOOGLE_API_KEY'
 
+if [[ "${SQUAD_UNSAFE_AUTONOMY}" == "1" ]]; then
+    CODEX_CMD='codex --dangerously-bypass-approvals-and-sandbox -c model_reasoning_effort=high'
+    CLAUDE_CMD="claude --permission-mode bypassPermissions --model opus --effort xhigh --add-dir ${VAULT_ROOT}"
+    CONTENT_CMD="gemini --yolo --model gemini-3.1-pro-preview --include-directories ${VAULT_ROOT}"
+    RESEARCH_CMD="kimi --yolo --thinking --agent-file ${VAULT_ROOT}/departments/research/.kimi/agents/main.yaml --add-dir ${VAULT_ROOT}"
+else
+    CODEX_CMD='codex --sandbox workspace-write --ask-for-approval never -c model_reasoning_effort=high'
+    CLAUDE_CMD="claude --permission-mode acceptEdits --model opus --effort xhigh --add-dir ${VAULT_ROOT}"
+    CONTENT_CMD="gemini --model gemini-3.1-pro-preview --include-directories ${VAULT_ROOT}"
+    RESEARCH_CMD="kimi --thinking --agent-file ${VAULT_ROOT}/departments/research/.kimi/agents/main.yaml --add-dir ${VAULT_ROOT}"
+fi
+
 # Window 0: chrono (Coordinator — Claude Code, auto-loads chrono/CLAUDE.md)
 tmux new-session -d -s "${SESSION}" -n "chrono" -c "${VAULT_ROOT}/chrono"
 tmux pipe-pane -t "${SESSION}:chrono" -o "cat >> ${TMUX_LOG_DIR}/chrono.log"
@@ -91,72 +152,71 @@ tmux send-keys -t "${SESSION}:chrono" "${AUTH_PREFIX}" C-m
 tmux send-keys -t "${SESSION}:chrono" "clear; echo '=== CHRONO COORDINATOR (Claude Code) ==='" C-m
 tmux send-keys -t "${SESSION}:chrono" "claude --permission-mode acceptEdits --model opus --effort xhigh --add-dir ${VAULT_ROOT}" C-m
 
-# Window 1: coding (Codex — auto-loads AGENTS.md)
-tmux new-window -t "${SESSION}" -n "coding" -c "${VAULT_ROOT}/departments/coding"
-tmux pipe-pane -t "${SESSION}:coding" -o "cat >> ${TMUX_LOG_DIR}/coding.log"
-tmux send-keys -t "${SESSION}:coding" "${PATH_PREFIX}" C-m
-tmux send-keys -t "${SESSION}:coding" "${AUTH_PREFIX}" C-m
-tmux send-keys -t "${SESSION}:coding" "clear; echo '=== CODING LEAD (Codex) ==='" C-m
-tmux send-keys -t "${SESSION}:coding" "codex --sandbox workspace-write --ask-for-approval never -c model_reasoning_effort=high" C-m
-
-# Window 2: security (Claude Code — auto-loads CLAUDE.md)
-tmux new-window -t "${SESSION}" -n "security" -c "${VAULT_ROOT}/departments/security"
-tmux pipe-pane -t "${SESSION}:security" -o "cat >> ${TMUX_LOG_DIR}/security.log"
-tmux send-keys -t "${SESSION}:security" "${PATH_PREFIX}" C-m
-tmux send-keys -t "${SESSION}:security" "${AUTH_PREFIX}" C-m
-tmux send-keys -t "${SESSION}:security" "clear; echo '=== SECURITY LEAD (Claude) ==='" C-m
-tmux send-keys -t "${SESSION}:security" "claude --permission-mode bypassPermissions --model opus --effort xhigh --add-dir ${VAULT_ROOT}" C-m
-
-# Window 3: content (Gemini — auto-loads GEMINI.md)
-tmux new-window -t "${SESSION}" -n "content" -c "${VAULT_ROOT}/departments/content"
-tmux pipe-pane -t "${SESSION}:content" -o "cat >> ${TMUX_LOG_DIR}/content.log"
-tmux send-keys -t "${SESSION}:content" "${PATH_PREFIX}" C-m
-tmux send-keys -t "${SESSION}:content" "${AUTH_PREFIX}" C-m
-tmux send-keys -t "${SESSION}:content" "clear; echo '=== CONTENT LEAD (Gemini) ==='" C-m
-tmux send-keys -t "${SESSION}:content" "gemini --yolo --model gemini-3.1-pro-preview --include-directories ${VAULT_ROOT}" C-m
-
-# Window 4: sysmgmt (Claude Code — auto-loads CLAUDE.md)
-tmux new-window -t "${SESSION}" -n "sysmgmt" -c "${VAULT_ROOT}/departments/sysmgmt"
-tmux pipe-pane -t "${SESSION}:sysmgmt" -o "cat >> ${TMUX_LOG_DIR}/sysmgmt.log"
-tmux send-keys -t "${SESSION}:sysmgmt" "${PATH_PREFIX}" C-m
-tmux send-keys -t "${SESSION}:sysmgmt" "${AUTH_PREFIX}" C-m
-tmux send-keys -t "${SESSION}:sysmgmt" "clear; echo '=== SYSMGMT LEAD (Claude) ==='" C-m
-tmux send-keys -t "${SESSION}:sysmgmt" "claude --permission-mode bypassPermissions --model sonnet --effort high --add-dir ${VAULT_ROOT}" C-m
-
-# Window 5: research (Kimi — NO per-cwd auto-load convention)
-tmux new-window -t "${SESSION}" -n "research" -c "${VAULT_ROOT}/departments/research"
-tmux pipe-pane -t "${SESSION}:research" -o "cat >> ${TMUX_LOG_DIR}/research.log"
-tmux send-keys -t "${SESSION}:research" "${PATH_PREFIX}" C-m
-tmux send-keys -t "${SESSION}:research" "${AUTH_PREFIX}" C-m
-tmux send-keys -t "${SESSION}:research" "clear; echo '=== RESEARCH LEAD (Kimi) ==='" C-m
-tmux send-keys -t "${SESSION}:research" "echo 'Kimi has no per-cwd auto-load. Once it starts, paste: Read LEAD.md and follow it as your role identity. Then check inbox/.'" C-m
-tmux send-keys -t "${SESSION}:research" "kimi --yolo --thinking --add-dir ${VAULT_ROOT}" C-m
-
-# Window 6: watchers — one inbox-watcher.sh process per Lead, tiled.
-# These fire `tmux send-keys` to the corresponding Lead pane the moment a new
-# TASK-*.md lands in its inbox/. Closes the gap where the dispatch-time nudge
-# from send-task.sh races with a busy CLI and gets eaten.
-if command -v fswatch >/dev/null 2>&1; then
-    tmux new-window -t "${SESSION}" -n "watchers" -c "${VAULT_ROOT}"
-    sleep 0.3
-    tmux send-keys -t "${SESSION}:watchers" "bash ${VAULT_ROOT}/bin/inbox-watcher.sh coding" Enter
-    sleep 0.3
-    for next_lead in security content sysmgmt research; do
-        tmux split-window -v -t "${SESSION}:watchers"
-        sleep 0.3
-        tmux send-keys -t "${SESSION}:watchers" "bash ${VAULT_ROOT}/bin/inbox-watcher.sh ${next_lead}" Enter
-        sleep 0.3
-    done
-    tmux select-layout -t "${SESSION}:watchers" tiled
-else
-    echo "(fswatch not installed — skipping inbox-watchers window. Install with: brew install fswatch)"
+# Optional local convenience: pre-trust chrono MCP servers in Codex config so
+# the coding pane does not prompt for MCP approval mid-task. This mutates
+# ~/.codex/config.toml, so public/default launches never do it implicitly.
+if [[ "${SQUAD_TRUST_CODEX_MCPS}" == "1" ]]; then
+    if python3 "${VAULT_ROOT}/bin/patch-codex-mcp-trust.py" 2>&1; then
+        true  # patch logged its own status
+    else
+        echo "WARNING: codex-mcp-trust patch failed — coding pane may prompt for MCP approvals"
+        echo "Fix manually: python3 ${VAULT_ROOT}/bin/patch-codex-mcp-trust.py"
+    fi
 fi
+
+CODING_WIN="$(lead_window_name coding)"
+SECURITY_WIN="$(lead_window_name security)"
+CONTENT_WIN="$(lead_window_name content)"
+RESEARCH_WIN="$(lead_window_name research)"
+
+# Window 1: GPT/Codex model lane (compatibility folder: coding)
+tmux new-window -t "${SESSION}" -n "${CODING_WIN}" -c "${VAULT_ROOT}/departments/coding"
+tmux pipe-pane -t "${SESSION}:${CODING_WIN}" -o "cat >> ${TMUX_LOG_DIR}/coding.log"
+tmux send-keys -t "${SESSION}:${CODING_WIN}" "${PATH_PREFIX}" C-m
+tmux send-keys -t "${SESSION}:${CODING_WIN}" "${AUTH_PREFIX}" C-m
+tmux send-keys -t "${SESSION}:${CODING_WIN}" "clear; echo '=== GPT/CODEX MODEL LANE (specialist execution) ==='" C-m
+tmux send-keys -t "${SESSION}:${CODING_WIN}" "${CODEX_CMD}" C-m
+
+# Window 2: Claude model lane (compatibility folders: security + sysmgmt)
+tmux new-window -t "${SESSION}" -n "${SECURITY_WIN}" -c "${VAULT_ROOT}"
+tmux pipe-pane -t "${SESSION}:${SECURITY_WIN}" -o "cat >> ${TMUX_LOG_DIR}/claude.log"
+tmux send-keys -t "${SESSION}:${SECURITY_WIN}" "${PATH_PREFIX}" C-m
+tmux send-keys -t "${SESSION}:${SECURITY_WIN}" "${AUTH_PREFIX}" C-m
+tmux send-keys -t "${SESSION}:${SECURITY_WIN}" "clear; echo '=== CLAUDE MODEL LANE (security, privacy, sysmgmt, judgment review) ==='" C-m
+tmux send-keys -t "${SESSION}:${SECURITY_WIN}" "${CLAUDE_CMD}" C-m
+
+# Window 3: Gemini model lane (compatibility folder: content)
+tmux new-window -t "${SESSION}" -n "${CONTENT_WIN}" -c "${VAULT_ROOT}/departments/content"
+tmux pipe-pane -t "${SESSION}:${CONTENT_WIN}" -o "cat >> ${TMUX_LOG_DIR}/content.log"
+tmux send-keys -t "${SESSION}:${CONTENT_WIN}" "${PATH_PREFIX}" C-m
+tmux send-keys -t "${SESSION}:${CONTENT_WIN}" "${AUTH_PREFIX}" C-m
+tmux send-keys -t "${SESSION}:${CONTENT_WIN}" "clear; echo '=== GEMINI MODEL LANE (content + design + media) ==='" C-m
+tmux send-keys -t "${SESSION}:${CONTENT_WIN}" "${CONTENT_CMD}" C-m
+
+# Window 4: Kimi model lane (compatibility folder: research)
+tmux new-window -t "${SESSION}" -n "${RESEARCH_WIN}" -c "${VAULT_ROOT}/departments/research"
+tmux pipe-pane -t "${SESSION}:${RESEARCH_WIN}" -o "cat >> ${TMUX_LOG_DIR}/research.log"
+tmux send-keys -t "${SESSION}:${RESEARCH_WIN}" "${PATH_PREFIX}" C-m
+tmux send-keys -t "${SESSION}:${RESEARCH_WIN}" "${AUTH_PREFIX}" C-m
+tmux send-keys -t "${SESSION}:${RESEARCH_WIN}" "clear; echo '=== KIMI MODEL LANE (research + long context) ==='" C-m
+tmux send-keys -t "${SESSION}:${RESEARCH_WIN}" "echo 'Kimi has no per-cwd auto-load. Once it starts, paste: Read LEAD.md and follow it as your role identity. Then check inbox/.'" C-m
+tmux send-keys -t "${SESSION}:${RESEARCH_WIN}" "${RESEARCH_CMD}" C-m
+
+# Window 6: watchers — inbox + outbox watchers per Lead.
+# Inbox watchers nudge a Lead's pane when a new TASK-*.md arrives (closing the
+# dispatch-time race where send-task.sh's nudge gets eaten by a busy CLI).
+# Outbox watchers nudge the chrono pane when a Lead writes a RESP file
+# (closing the pull-based polling gap so Chrono surfaces responses to the
+# operator without waiting for the operator's next turn).
+WATCHERS_WIN="$(lead_window_name watchers)"
+tmux new-window -t "${SESSION}" -n "${WATCHERS_WIN}" -c "${VAULT_ROOT}"
+tmux send-keys -t "${SESSION}:${WATCHERS_WIN}" "for lead in coding security content sysmgmt research; do bash ${VAULT_ROOT}/bin/inbox-watcher.sh \"\$lead\" & bash ${VAULT_ROOT}/bin/outbox-watcher.sh \"\$lead\" & done; wait" Enter
 
 # Give the Lead CLIs a moment to initialize so the sidebar's first capture
 # shows their welcome screens instead of empty shells.
 sleep 1
 
-# Sidebar — split chrono window into chrono main + 5 Lead live mirror tiles.
+# Sidebar — split chrono window into chrono main + 4 model-lane status tiles.
 # Default-on per operator preference. Toggle off with bin/sidebar-off.sh.
 bash "${VAULT_ROOT}/bin/sidebar.sh" >/dev/null 2>&1 || true
 
@@ -166,19 +226,20 @@ tmux select-pane -t "${SESSION}:chrono.0"
 
 echo "✓ Session '${SESSION}' created:"
 echo "  0: chrono     (~/Obsidian-Claude-Vibe-Squad/chrono)"
-echo "  1: coding     (departments/coding)"
-echo "  2: security   (departments/security)"
-echo "  3: content    (departments/content)"
-echo "  4: sysmgmt    (departments/sysmgmt)"
-echo "  5: research   (departments/research)"
-echo "  6: watchers   (5 fswatch processes — one per Lead's inbox)"
+echo "  1: ${CODING_WIN}  (GPT/Codex lane, coding namespace)"
+echo "  2: ${SECURITY_WIN}     (Claude lane, security + sysmgmt namespaces)"
+echo "  3: ${CONTENT_WIN}     (Gemini lane, content namespace)"
+echo "  4: ${RESEARCH_WIN}       (Kimi lane, research namespace)"
+echo "  5: ${WATCHERS_WIN} (10 fswatch processes — inbox + outbox per namespace)"
 echo ""
 echo "Each window auto-started its CLI. Switch with Ctrl-b + <num>."
-echo "Chrono window has a 5-Lead sidebar (live mirrors). Toggle off: bin/sidebar-off.sh"
+echo "Chrono window has a 4-lane sidebar. Toggle off: bin/sidebar-off.sh"
 echo ""
-echo "To attach now:           tmux attach -t squad"
+echo "To attach now:           tmux attach -t ${SESSION}"
 echo "To detach (keep alive):  Ctrl-b + d"
-echo "To kill the session:     tmux kill-session -t squad"
+echo "To kill the session:     tmux kill-session -t ${SESSION}"
+echo "Unsafe autonomous mode:  SQUAD_UNSAFE_AUTONOMY=1 bash bin/launch-squad.sh"
+echo "Pre-trust Codex MCPs:    SQUAD_TRUST_CODEX_MCPS=1 bash bin/launch-squad.sh"
 echo ""
 read -p "Attach now? (y/n) " -n 1 -r
 echo ""

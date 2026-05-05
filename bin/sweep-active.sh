@@ -26,6 +26,7 @@ Run at: $(date -u +%FT%TZ)
 EOF
 
 moved=0
+closed=0
 for lead in coding security content sysmgmt research; do
     active_dir="${VAULT_ROOT}/departments/${lead}/active"
     outbox_dir="${VAULT_ROOT}/departments/${lead}/outbox"
@@ -40,6 +41,9 @@ for lead in coding security content sysmgmt research; do
         # Response convention: <task-id>-response.md in outbox/ OR archive/
         if [[ -f "${outbox_dir}/${task_id}-response.md" ]] \
            || [[ -f "${archive_dir}/${task_id}-response.md" ]]; then
+            if "${VAULT_ROOT}/bin/send-task.sh" --close-task "${task_id}" >/dev/null 2>&1; then
+                closed=$((closed + 1))
+            fi
             # Idempotent move — silent if already there, no error if source vanishes
             if mv "${task}" "${archive_dir}/" 2>/dev/null; then
                 echo "- ✓ ${lead}/${task_id} → archive (response exists)" >> "${LOG}"
@@ -55,6 +59,7 @@ cat >> "${LOG}" <<EOF
 
 ## Summary
 - Tasks moved: ${moved}
+- Registry close attempts: ${closed}
 EOF
 
-echo "Sweep active complete. Moved ${moved} tasks. Log: ${LOG}"
+echo "Sweep active complete. Moved ${moved} tasks, closed ${closed} registry entries. Log: ${LOG}"

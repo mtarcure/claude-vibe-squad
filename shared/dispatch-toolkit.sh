@@ -1,14 +1,14 @@
 #!/bin/bash
-# dispatch-toolkit.sh — emit the per-Lead specialist + MCP roster as a
+# dispatch-toolkit.sh — emit the per-namespace specialist + MCP roster as a
 # markdown snippet that send-task.sh prepends to every dispatched task.
 #
 # This implements the rule from chrono memory:
 #   "every brief must enumerate chrono MCPs; voices default to WebFetch when
 #    brief omits them."
 #
-# Without this, dispatched Leads default to whatever's first in their head
-# (usually WebFetch). With this, every Lead sees the full toolkit on every
-# dispatch and can pick the right tool.
+# Without this, dispatched model lanes default to whatever is first in their
+# context (usually WebFetch). With this, every lane sees the right toolkit on
+# every dispatch and can pick the right tool.
 #
 # Per-pane MCP enumeration is sourced from:
 #   _state/capability-inventory-2026-05-02.md (verified per-pane install state)
@@ -16,11 +16,13 @@
 #   gemini mcp list -d (post-Hybrid-Path-A install on 2026-05-03)
 #
 # `chrono-research-arsenal` is intentionally listed ONLY in the research section.
-# The Research Lead owns multi-source web research; other Leads route research
-# through Research, not directly. Eliminates the "every Lead reaches for
+# The research namespace owns multi-source web research; other namespaces route research
+# through Research, not directly. Eliminates the "every lane reaches for
 # perplexity" tool-collision noise.
 #
-# Usage:  bash shared/dispatch-toolkit.sh <lead-name>
+# Usage:  bash shared/dispatch-toolkit.sh <source-namespace>
+
+set -euo pipefail
 
 LEAD="${1:-}"
 case "${LEAD}" in
@@ -54,7 +56,7 @@ case "${LEAD}" in
 - `sequential-thinking` — multi-step reasoning helper
 - Native Bash for git, npm, cargo, docker, etc.
 
-**Routing reminder:** for OSINT / vendor research / library exploration, hand off to Research Lead — they own `chrono-research-arsenal` (Perplexity / Brave / Serper / Apify). Don't reach for WebFetch yourself; route the research task.
+**Routing reminder:** for OSINT / vendor research / library exploration, ask Chrono for a research-namespace dispatch — that namespace owns `chrono-research-arsenal` (Perplexity / Brave / Serper / Apify). Don't reach for WebFetch yourself; route the research task.
 
 **Required:** Dispatch to at least one specialist before drafting your own response. If none of the above fits, surface to operator instead of inventing a freeform answer.
 EOF
@@ -87,7 +89,7 @@ EOF
 - 4 other platforms (Bugcrowd, Intigriti, HackenProof, Code4rena) are browser-only; use Playwright CDP attach
 - Operator's allowed platforms ONLY: HackerOne, Bugcrowd, Intigriti, HackenProof, Code4rena. Do NOT suggest Cantina, Immunefi, Sherlock, YesWeHack.
 
-**Routing reminder:** for OSINT / vendor research that doesn't fit `scout`'s platform-intel scope, hand off to Research Lead — they own `chrono-research-arsenal` (Perplexity for synthesis, Brave/Serper for raw search). Don't WebFetch directly.
+**Routing reminder:** for OSINT / vendor research that doesn't fit `scout`'s platform-intel scope, ask Chrono for a research-namespace dispatch — that namespace owns `chrono-research-arsenal` (Perplexity for synthesis, Brave/Serper for raw search). Don't WebFetch directly.
 
 **Required:** Dispatch to at least one specialist before drafting your own response. For "find a bounty" tasks, that's `scout`. For "audit this code" tasks, that's `security-analyst`. For "model the threats here" tasks, that's `threat-modeler`.
 EOF
@@ -116,7 +118,7 @@ EOF
 
 **Native Gemini grounding:** `gemini-3.1-pro-preview` carries Google Search grounding implicitly — use it for fact-finding / citation hunting in-session. (No `chrono-research-arsenal` on the gemini pane by design — Hybrid Path A relies on native grounding for content-pane research.)
 
-**Routing reminder:** for deeper multi-source synthesis beyond a quick grounded check, hand off to Research Lead.
+**Routing reminder:** for deeper multi-source synthesis beyond a quick grounded check, hand off to research namespace.
 
 **Required:** Dispatch to at least one specialist. For drafts, that's `writer` or `technical-writer`. For final pass, `editor`. For visuals, `designer` + `chrono-content-engineer`.
 EOF
@@ -146,7 +148,7 @@ EOF
 - `sequential-thinking` — multi-step reasoning helper
 - Native Bash for `pmset`, `df`, `launchctl`, etc.
 
-**Routing reminder:** for any external research (CLI changelogs, vendor docs, frontier-tool freshness checks), hand off to Research Lead — they own `chrono-research-arsenal`.
+**Routing reminder:** for any external research (CLI changelogs, vendor docs, frontier-tool freshness checks), hand off to research namespace — they own `chrono-research-arsenal`.
 
 **Required:** Dispatch to at least one specialist before drafting your own response. For system health: `doctor`. For KG operations: `memory-curator` or `knowledge-librarian`. For squad configuration audits: `harness-optimizer`.
 EOF
@@ -173,7 +175,7 @@ EOF
 - `chrono-content-engineer` — only when research output needs media artifacts
 - `sequential-thinking` — multi-step reasoning helper
 
-**This Lead is the squad's web-research home.** Other Leads route research tasks here; you own `chrono-research-arsenal`.
+**This namespace is the squad's web-research home.** Other namespaces route research tasks here; you own `chrono-research-arsenal`.
 
 **WebFetch is a fallback ONLY** — use it when chrono-research-arsenal can't reach a specific URL or for quick single-page reads. Never as your primary research tool.
 
@@ -183,6 +185,40 @@ EOF
 EOF
         ;;
     *)
-        echo ""  # unknown lead, no toolkit injection
+        echo ""  # unknown namespace, no toolkit injection
         ;;
 esac
+
+# ── SPEC 1.5 ITEM 4: hard no-delete rule ─────────────────────────────────────
+# Appended to every dispatched brief regardless of namespace.
+# Prevents destructive ops by dispatched agents without operator approval.
+
+cat <<'NODELETE'
+
+---
+
+<!-- spec-1.5-no-delete-rule: do not remove this block -->
+## Hard constraint: no file deletion
+
+You may NOT delete existing files in your write scope or working directory
+without an explicit operator-approved instruction in this task's frontmatter.
+
+**What counts as a destructive op (requires operator approval):**
+- `rm`, `unlink`, or `os.remove` on any tracked or untracked file
+- Overwriting a file wholesale where diff would show net loss of lines
+- Moving a file out of the repo tree (equivalent to deletion)
+- Running `git clean -f` or `git checkout -- .`
+
+**If your task appears to require deletion:**
+1. Do NOT delete. Pause.
+2. Write to your outbox with `status: needs_human`
+3. Include: which files, why deletion seems required, proposed alternative
+4. Wait for operator approval before proceeding.
+
+This constraint fires even if files look like drafts, temp files, or
+prior-run artifacts. The operator decides what's ephemeral.
+
+Violation of this rule is treated as a task failure requiring immediate
+operator review. An auto-snapshot was taken before this task was dispatched —
+the tree is recoverable regardless, but the constraint still applies.
+NODELETE

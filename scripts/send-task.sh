@@ -1,54 +1,91 @@
 #!/bin/bash
-# Mailbox helper — send a TASK message to a Lead's inbox.
+# Compatibility wrapper for Chrono's simple dispatch command.
 #
 # Usage:
-#   bash scripts/send-task.sh <to-lead> <body-file>
-#   bash scripts/send-task.sh coding /tmp/refactor-task.md
+#   bash scripts/send-task.sh <source-namespace> <body-file> <specialist> [to-model]
 #
-# Reads body from <body-file>. Generates frontmatter automatically.
-# Does atomic write (temp + rename) to be safe against partial-write corruption.
+# This wrapper generates standard TASK frontmatter, then routes the packet
+# through bin/send-task.sh so normal Chrono dispatches get the same safety path
+# as prepared task files: auto-snapshot, write-scope checks, toolkit injection,
+# active registry updates, dispatch logging, and optional pane nudging.
 
 set -euo pipefail
 
 VAULT_ROOT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
+HARDENED_DISPATCH="${VAULT_ROOT}/bin/send-task.sh"
+RUNTIME_MAP="${VAULT_ROOT}/shared/specialist-runtime-map.tsv"
+source "${VAULT_ROOT}/shared/lead-windows.sh"
 
-if [[ $# -lt 2 ]]; then
-    echo "usage: $0 <to-lead> <body-file>"
-    echo "  to-lead: coding | security | content | sysmgmt | research"
+if [[ $# -lt 3 ]]; then
+    echo "usage: $0 <source-namespace> <body-file> <specialist> [to-model]"
+    echo "  source-namespace: coding | security | content | sysmgmt | research"
     echo "  body-file: path to markdown file containing task body"
+    echo "  specialist: canonical specialist name, or none only when lead_direct_allowed is intentionally true"
     exit 1
 fi
 
-TO_LEAD="$1"
+SOURCE_NAMESPACE="$1"
 BODY_FILE="$2"
+SPECIALIST="$3"
+TO_MODEL="${4:-}"
 
 if [[ ! -f "${BODY_FILE}" ]]; then
     echo "ERROR: body file not found: ${BODY_FILE}"
     exit 1
 fi
 
-case "${TO_LEAD}" in
+case "${SOURCE_NAMESPACE}" in
     coding|security|content|sysmgmt|research) ;;
-    *) echo "ERROR: invalid to-lead: ${TO_LEAD}"; exit 1 ;;
+    *) echo "ERROR: invalid source namespace: ${SOURCE_NAMESPACE}"; exit 1 ;;
 esac
 
-# Generate ID
+if [[ -z "${TO_MODEL}" ]]; then
+    case "${SOURCE_NAMESPACE}" in
+        coding) TO_MODEL="gpt-codex" ;;
+        security|sysmgmt) TO_MODEL="claude" ;;
+        content) TO_MODEL="gemini" ;;
+        research) TO_MODEL="kimi" ;;
+    esac
+fi
+[[ "${TO_MODEL}" == "codex" ]] && TO_MODEL="gpt-codex"
+
+map_field() {
+    local specialist="$1" field_index="$2"
+    awk -F '\t' -v s="$specialist" -v idx="$field_index" '$1 == s {print $idx; exit}' "${RUNTIME_MAP}"
+}
+
+REVIEW_MODEL="none"
+MANDATORY_REVIEW="false"
+if [[ "${SPECIALIST}" != "none" && -f "${RUNTIME_MAP}" ]]; then
+    mapped_model="$(map_field "${SPECIALIST}" 2)"
+    mapped_review="$(map_field "${SPECIALIST}" 3)"
+    mapped_namespace="$(map_field "${SPECIALIST}" 4)"
+    mapped_safety="$(map_field "${SPECIALIST}" 6)"
+    if [[ -n "${mapped_model}" ]]; then
+        TO_MODEL="${mapped_model}"
+        REVIEW_MODEL="${mapped_review:-none}"
+        SOURCE_NAMESPACE="${mapped_namespace:-${TO_LEAD}}"
+        [[ "${mapped_safety}" == "high" ]] && MANDATORY_REVIEW="true"
+    fi
+fi
+
+if [[ ! -x "${HARDENED_DISPATCH}" ]]; then
+    echo "ERROR: hardened dispatcher not executable: ${HARDENED_DISPATCH}"
+    exit 1
+fi
+
 TIMESTAMP="$(date +%Y-%m-%d-%H%M)"
 TASK_ID="TASK-${TIMESTAMP}-$(uuidgen | head -c 8 | tr 'A-Z' 'a-z')"
-INBOX_DIR="${VAULT_ROOT}/departments/${TO_LEAD}/inbox"
-TARGET="${INBOX_DIR}/${TASK_ID}.md"
-TMP="${TARGET}.tmp"
+STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/squad-task.XXXXXX")"
+TASK_FILE="${STAGING_DIR}/${TASK_ID}.md"
+trap 'rm -rf "${STAGING_DIR}"' EXIT
 
-mkdir -p "${INBOX_DIR}"
-
-# Atomic write
 {
     cat <<EOF
 ---
 id: ${TASK_ID}
 run_id: none
-from_lead: chrono
-to_lead: ${TO_LEAD}
+from: chrono
 mode: none
 phase: none
 type: TASK
@@ -58,51 +95,36 @@ created: $(date -u +%FT%TZ)
 deadline: none
 write_scope: []
 read_context: []
-return_artifact: ${VAULT_ROOT}/departments/${TO_LEAD}/outbox/${TASK_ID}-response.md
+return_artifact: ${VAULT_ROOT}/departments/${SOURCE_NAMESPACE}/outbox/${TASK_ID}-response.md
+compatibility_namespace: ${SOURCE_NAMESPACE}
+specialist: ${SPECIALIST}
+to_model: ${TO_MODEL}
+source_namespace: ${SOURCE_NAMESPACE}
+review_model: ${REVIEW_MODEL}
+mandatory_review: ${MANDATORY_REVIEW}
+success_criteria: []
+out_of_scope: []
+parallel_safe: false
+lead_direct_allowed: false
 operator_approved: true
 parent_msg_id: none
 ---
 
 EOF
     cat "${BODY_FILE}"
-    # Auto-inject the destination Lead's specialist roster + MCP toolkit so the
-    # Lead's CLI can't default to WebFetch. Implements the chrono dispatch rule:
-    # "every brief must enumerate MCPs."
-    if [[ -x "${VAULT_ROOT}/shared/dispatch-toolkit.sh" ]]; then
-        bash "${VAULT_ROOT}/shared/dispatch-toolkit.sh" "${TO_LEAD}"
-    fi
-} > "${TMP}"
+} > "${TASK_FILE}"
 
-# Sync + rename (atomic on POSIX)
-sync "${TMP}" 2>/dev/null || true
-mv "${TMP}" "${TARGET}"
+sync "${TASK_FILE}" 2>/dev/null || true
 
-# Central dispatch log — every send-task.sh invocation appends one JSON line.
-# Easy to grep across days: jq 'select(.to_lead=="security")' < dispatch-log.jsonl
-DISPATCH_LOG="${VAULT_ROOT}/_state/dispatch-log.jsonl"
-mkdir -p "$(dirname "${DISPATCH_LOG}")"
-printf '{"ts":"%s","task_id":"%s","to_lead":"%s","return_artifact":"%s"}\n' \
-    "$(date -u +%FT%TZ)" "${TASK_ID}" "${TO_LEAD}" \
-    "${VAULT_ROOT}/departments/${TO_LEAD}/outbox/${TASK_ID}-response.md" \
-    >> "${DISPATCH_LOG}"
-
-# Nudge the target Lead's tmux pane so Chrono doesn't have to switch panes.
-# Each Lead's idle CLI receives "check inbox" as new user input → processes the
-# task → writes to outbox. Chrono polls outbox for the response.
-NUDGE_MSG="${NUDGE_MSG:-A new task has arrived in inbox/. Pick up the oldest TASK-*.md and process it per protocol.}"
+ARGS=("${TASK_FILE}")
 if [[ -z "${SKIP_NUDGE:-}" ]] && command -v tmux >/dev/null 2>&1 && tmux has-session -t squad 2>/dev/null; then
-    if tmux list-windows -t squad -F '#{window_name}' 2>/dev/null | grep -q "^${TO_LEAD}\$"; then
-        # -l (literal): disables key-name lookup so any special chars in NUDGE_MSG
-        # are sent as raw input rather than interpreted as keys. Then a brief
-        # pause before Enter — some TUIs (Codex, Gemini) need the text fully
-        # buffered before the submit registers.
-        tmux send-keys -l -t "squad:${TO_LEAD}" "${NUDGE_MSG}"
-        sleep 0.3
-        tmux send-keys -t "squad:${TO_LEAD}" Enter
-        echo "  Nudged squad:${TO_LEAD} pane"
+    TARGET_WIN="$(lead_window_name "${SOURCE_NAMESPACE}")"
+    if tmux list-windows -t squad -F '#{window_name}' 2>/dev/null | grep -qx "${TARGET_WIN}"; then
+        ARGS+=("--nudge-pane" "squad:${TARGET_WIN}")
     fi
 fi
 
-echo "✓ Sent ${TASK_ID} to ${TO_LEAD}'s inbox"
-echo "  File: ${TARGET}"
-echo "  Reply expected at: ${VAULT_ROOT}/departments/${TO_LEAD}/outbox/${TASK_ID}-response.md"
+VAULT_ROOT="${VAULT_ROOT}" "${HARDENED_DISPATCH}" "${ARGS[@]}"
+
+echo "  File: ${VAULT_ROOT}/departments/${SOURCE_NAMESPACE}/inbox/${TASK_ID}.md"
+echo "  Reply expected at: ${VAULT_ROOT}/departments/${SOURCE_NAMESPACE}/outbox/${TASK_ID}-response.md"

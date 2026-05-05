@@ -1,17 +1,38 @@
 # Runtime state — regenerated daily by nightly automation.
 # Config YAMLs at the top of _state/ ship with the repo; everything else is
 # operator-specific runtime data.
+#
+# Rule: runtime state is excluded; authored/curated config and product snapshots
+# in _state/ are explicitly unignored below.
+
 _state/**
+
+# ── preserved from original ──────────────────────────────────────────────────
 !_state/
 !_state/feed-config.yaml
 !_state/dream-config.yaml
 !_state/.gitkeep
 
-# Per-Lead transient mailbox state — operator-local, regenerated at runtime.
+# Active-task registry is operator-local runtime truth.
+# Public repos should ship examples/active-tasks.sample.json instead.
+
+# Capability inventory snapshots (authored; not regenerated)
+!_state/capability-inventory-*.md
+!_state/mcp-graduation-candidates.md
+!_state/token-budget-*.md
+!_state/upgrade-specialists-report-*.md
+
+# Incident records (authored; permanent audit trail)
+!_state/incident-*.md
+
+# Per-Lead mailbox state — operator-local, regenerated at runtime.
 departments/*/inbox/*.md
 departments/*/active/*.md
 departments/*/outbox/*.md
 departments/*/archive/
+departments/*/archive/*.md
+!departments/*/archive/
+!departments/*/archive/.gitkeep
 !departments/*/inbox/.gitkeep
 !departments/*/active/.gitkeep
 !departments/*/outbox/.gitkeep

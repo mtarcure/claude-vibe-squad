@@ -5,6 +5,7 @@
 set -uo pipefail
 
 VAULT_ROOT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
+source "${VAULT_ROOT}/shared/lead-windows.sh"
 DATE="$(date +%Y-%m-%d)"
 
 color() { echo -e "\033[${1}m${2}\033[0m"; }
@@ -25,6 +26,22 @@ if [[ -f "${SUM}" ]] && command -v jq >/dev/null 2>&1; then
     jq -r '.issues[]? | "  🔔 " + .' "${SUM}"
 else
     echo "  (no doctor run today — bash bin/doctor.sh to refresh)"
+fi
+echo ""
+
+# Active-task registry
+hr
+color '1;33' '## ACTIVE REGISTRY'
+REGISTRY="${VAULT_ROOT}/_state/active-tasks.json"
+if [[ -f "${REGISTRY}" ]] && command -v jq >/dev/null 2>&1; then
+    in_flight=$(jq '[to_entries[] | select(.value.status == "in-flight")] | length' "${REGISTRY}" 2>/dev/null || echo 0)
+    complete=$(jq '[to_entries[] | select(.value.status == "complete")] | length' "${REGISTRY}" 2>/dev/null || echo 0)
+    echo "  in-flight: ${in_flight} │ complete: ${complete}"
+    jq -r 'to_entries[] | select(.value.status == "in-flight") | "  " + .key + " → " + (.value.to_lead // "?") + " scope=" + ((.value.write_scope // []) | join(","))' "${REGISTRY}" 2>/dev/null
+elif [[ -f "${REGISTRY}" ]]; then
+    echo "  ${REGISTRY} exists; install jq for structured summary"
+else
+    echo "  (no active-task registry yet)"
 fi
 echo ""
 
@@ -53,6 +70,24 @@ for lead in coding security content sysmgmt research; do
         echo "  ${lead}: idle (archive: ${arc})"
     fi
 done
+echo ""
+
+# Pending replies and contradictions
+hr
+color '1;33' '## RESPONSE DRIFT'
+for lead in coding security content sysmgmt research; do
+    outbox_dir="${VAULT_ROOT}/departments/${lead}/outbox"
+    pending=$(find "${outbox_dir}" -maxdepth 1 -name 'TASK-*-response.md' -type f 2>/dev/null | wc -l | tr -d ' ')
+    [[ "${pending}" -gt 0 ]] && color '0;35' "  ${lead}: ${pending} response file(s) awaiting Chrono surfacing"
+done
+if [[ -f "${REGISTRY}" ]] && command -v jq >/dev/null 2>&1; then
+    while IFS=$'\t' read -r task_id lead; do
+        [[ -n "${task_id}" && -n "${lead}" ]] || continue
+        if [[ -f "${VAULT_ROOT}/departments/${lead}/outbox/${task_id}-response.md" ]]; then
+            color '1;31' "  CONTRADICTION: ${task_id} is in-flight in registry but response exists in ${lead}/outbox"
+        fi
+    done < <(jq -r 'to_entries[] | select(.value.status == "in-flight") | [.key, .value.to_lead] | @tsv' "${REGISTRY}" 2>/dev/null)
+fi
 echo ""
 
 # Recent dispatches
@@ -108,9 +143,14 @@ hr
 color '1;33' '## SQUAD TMUX'
 if tmux has-session -t squad 2>/dev/null; then
     color '0;32' '  ✓ session "squad" is up'
-    for w in chrono coding security content sysmgmt research; do
+    for lead in chrono coding security content sysmgmt research watchers; do
+        w="$(lead_window_name "$lead")"
+        if ! tmux list-windows -t squad -F '#{window_name}' 2>/dev/null | grep -qx "$w"; then
+            color '1;31' "    ${w}: missing window"
+            continue
+        fi
         last=$(tmux capture-pane -t "squad:${w}" -p 2>/dev/null | grep -v '^$' | tail -1 | tr -d '\r' | cut -c1-70)
-        echo "    ${w}: ${last}"
+        echo "    $(lead_display_name "$lead") [${w}]: ${last}"
     done
 else
     color '1;31' '  ✗ session "squad" is NOT running — bash bin/launch-squad.sh'

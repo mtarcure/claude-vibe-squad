@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Daily token-spend check during first week of v1.1.
+# Daily token-spend check during first production-readiness week.
 # Reads dispatch-log.jsonl + tmux-logs to estimate per-pane dispatch counts.
 # Compares to baseline; surfaces anomalies in next morning brief.
 

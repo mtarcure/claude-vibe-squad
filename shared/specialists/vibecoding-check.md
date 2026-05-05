@@ -39,6 +39,15 @@ Lean core (start strict on these 5):
 3. **Citations resolve** — URL → 200 OR file exists OR git ref resolves
 4. **No TODO|FIXME|XXX** in modified code (allowlist for genuine inline-doc TODO)
 5. **All declared phase-tags emitted** — sequential check: did each phase fire?
+6. **No unauthorized deletions** — scan run's git diff against auto-snapshot for deleted files; if any found without `APPROVE_DELETIONS` token in `_state/approvals/<run-id>.md`, surface as HARD tier-3 finding. Recovery: `git checkout <snapshot-sha> -- <deleted-path>`. Approval format:
+   ```markdown
+   deletion_approved: true
+   deleted_paths:
+     - path/to/file.md
+   deletion_reason: <required>
+   APPROVE
+   ```
+7. **Completed scaffolding removed** — completed `docs/plans/*.md`, `docs/specs/*.md`, `docs/handoffs/*.md`, `_state/*draft*`, and `_state/*research*` are deleted after durable decisions are folded into canonical docs. Allowed only when intentionally curated under `examples/` or explicitly approved as an active plan.
 
 ## Mode-specific extensions (declared in checks.yaml)
 

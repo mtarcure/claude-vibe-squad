@@ -30,19 +30,20 @@ if [[ -z "${LEAD}" ]]; then
 fi
 
 VAULT_ROOT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
+source "${VAULT_ROOT}/shared/lead-windows.sh"
 DEPT="${VAULT_ROOT}/departments/${LEAD}"
 LOG="${VAULT_ROOT}/_state/tmux-logs/${LEAD}.log"
 
 case "${LEAD}" in
-    coding)   CLI="Codex" ; ACCENT_FG=214 ;;  # amber  — build/code
-    security) CLI="Claude"; ACCENT_FG=203 ;;  # coral  — alert/security
-    content)  CLI="Gemini"; ACCENT_FG=213 ;;  # pink   — creative
-    sysmgmt)  CLI="Claude"; ACCENT_FG=84  ;;  # mint   — ops/healthy
-    research) CLI="Kimi"  ; ACCENT_FG=117 ;;  # sky    — deep/analytic
+    coding)   CLI="GPT/Codex"; ACCENT_FG=214 ;;  # amber  — build/code
+    security) CLI="Claude"; ACCENT_FG=203 ;;      # coral  — alert/security
+    content)  CLI="Gemini"; ACCENT_FG=213 ;;      # pink   — creative
+    sysmgmt)  CLI="Claude"; ACCENT_FG=84  ;;      # mint   — ops/healthy
+    research) CLI="Kimi"; ACCENT_FG=117 ;;        # sky    — deep/analytic
     *) echo "unknown lead: ${LEAD}"; exit 1 ;;
 esac
 ACCENT=$'\033[1;38;5;'${ACCENT_FG}$'m'  # bold + lead-specific 256-color
-UPPER=$(echo "${LEAD}" | tr '[:lower:]' '[:upper:]')
+UPPER="$(lead_display_name "${LEAD}")"
 
 [[ -z "${WIDTH}" ]] && WIDTH=$(tput cols 2>/dev/null || echo 42)
 [[ ${WIDTH} -lt 30 ]] && WIDTH=30
