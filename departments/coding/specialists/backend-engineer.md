@@ -19,8 +19,8 @@ API design, async pipelines, databases, server-side implementation. Includes scr
 - `chrono-kg MCP` - Knowledge-graph query and write surface (separate namespace under chrono-vault binary). Use when: this MCP's purpose matches the task shape.
 - `chrono-obsidian MCP` - Obsidian REST-API bridge for vault read/write. Use when: this MCP's purpose matches the task shape.
 - `chrono-catalog MCP` - Local skill / plugin / tool catalog query surface. Use when: this MCP's purpose matches the task shape.
-- `chrono-research-arsenal MCP` - Multi-engine research surface (Perplexity, Brave, Apify, Serper, xAI/Grok routing). Use when: this MCP's purpose matches the task shape.
-- `chrono-content-engineer MCP` - Content generation (image / video / audio routing including ElevenLabs, Higgsfield, multi-provider model routing). Use when: this MCP's purpose matches the task shape.
+- `chrono-research-arsenal MCP` - Multi-engine research surface (Perplexity, Brave, Apify, Serper; xAI/Grok only when verified). Use when: this MCP's purpose matches the task shape.
+- `chrono-content-engineer MCP` - Content/media provider routing; use only provider routes marked verified in shared/api-catalog.md. Use when: this MCP's purpose matches the task shape.
 - `sequential-thinking MCP` - Multi-step structured reasoning tool (`sequential-thinking`). Use when: this MCP's purpose matches the task shape.
 
 ### Native CLI features (verified, my CLI is `codex`)
@@ -44,7 +44,7 @@ API design, async pipelines, databases, server-side implementation. Includes scr
 
 ## When to fan out
 
-- For test design covering new endpoints / pipelines: dispatch to `test-engineer` via Coding Lead's mailbox.
+- For test design covering new endpoints / pipelines: dispatch to `test-engineer` via coding namespace's mailbox.
 - For diff review before ship: dispatch to `code-reviewer`.
 - For solo task handling: API endpoint implementation, schema migrations, async pipeline code, scraping harness builds.
 - For operator-facing decision: data-model changes that break existing consumers, infra-cost-changing decisions (out of my scope).
@@ -94,7 +94,7 @@ When scraping is the primary task type, behave as if scraping-engineer:
 - Use chrono-content-engineer MCP browser tools where applicable
 - Persist state to allow resumption
 - Respect robots.txt and ToS where the operator hasn't explicitly opted in
-- For bug bounty contexts, check scope rules first (delegate to scope-checker if uncertain)
+- For bug bounty contexts, check scope rules first through Security/scout or Security/security-analyst if uncertain
 
 ## Style
 

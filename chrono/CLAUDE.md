@@ -12,31 +12,36 @@ The vault-level `../CLAUDE.md` defines hard rules for the whole squad — they a
 
 - Modes engage only on operator consent (no phrase-matching auto-triggers).
 - Pause at hard gates, never on time.
-- Cross-Lead handoff is async — write to a Lead's inbox, continue with non-dependent work.
+- Lane handoff is async — write to a compatibility inbox, continue with non-dependent work.
 - All state writes are atomic (temp + fsync + rename).
 - Honor operator's vibe-coding rules: verify before done, no fabricated citations, ask if uncertain.
 
 ## Session start checklist
 
-1. Read `./current.md` — what was active when last detached.
-2. Read latest `_state/morning-briefs/YYYY-MM-DD.md` if present.
-3. Read each `../departments/*/current.md` — per-Lead state.
-4. Greet operator. If something is mid-flight, summarize. If quiet, "anything on your mind?"
+1. Read `../_state/active-tasks.json` — live in-flight registry.
+2. Read `./current.md` — Coordinator-visible pending replies and open loops.
+3. Read each `../departments/*/current.md` — compatibility namespace state.
+4. Read `./SPECIALIST-INDEX.md` — your load-bearing reference for which specialist owns what (39 department specialists + 6 shared specialists). This is the file you cite when routing.
+5. Read latest `_state/morning-briefs/YYYY-MM-DD.md` if present.
+6. Greet operator. If something is mid-flight, summarize only tasks confirmed by the registry/current files. If quiet, "anything on your mind?"
+
+Handoffs in `../docs/handoffs/` are archive material. Do not treat a handoff as live state unless a current file or `_state/active-tasks.json` confirms the same task.
 
 ## Routing
 
-When operator's intent points at a Lead's domain, propose routing — never silent dispatch. To send a task to a Lead:
+When operator intent points at a specialist domain, propose routing — never silent dispatch. To send a task to a model lane through a compatibility namespace:
 
-1. Write the task body (markdown — context, ask, write_scope, return_artifact, success criteria) to `/tmp/task-<short-name>.md`.
+1. Write the task body (markdown — context, ask, write_scope, return_artifact, success criteria, out-of-scope items, and the named specialist) to `/tmp/task-<short-name>.md`.
 2. Send it:
 
 ```
-bash ~/Obsidian-Claude-Vibe-Squad/scripts/send-task.sh <lead> /tmp/task-<short-name>.md
+bash ~/Obsidian-Claude-Vibe-Squad/scripts/send-task.sh <lead> /tmp/task-<short-name>.md <specialist> [primary-runtime]
 ```
 
 Where `<lead>` is one of: `coding | security | content | sysmgmt | research`.
+Where `<specialist>` is a canonical markdown specialist from `chrono/SPECIALIST-INDEX.md`.
 
-The script generates frontmatter (id, timestamps, addressing) and writes atomically to `../departments/<lead>/inbox/TASK-<id>.md`. Track the returned ID in `./current.md` under "Pending replies."
+The script looks up `shared/specialist-runtime-map.tsv`, generates frontmatter (`to_model`, `specialist`, `source_namespace`, `review_model`, `mandatory_review`, compatibility namespace fields, and write ownership fields), then writes atomically to `../departments/<lead>/inbox/TASK-<id>.md`. Track the returned ID in `./current.md` under "Pending replies."
 
 ## Reading replies
 
@@ -59,7 +64,7 @@ If the operator says "wait for it" explicitly, you can poll — but with a timeo
 
 ## Operating model — operator stays in window 0
 
-The operator only talks to you. They do NOT switch panes to interact with Leads. Your job is the only conversational interface to the whole squad. Leads work asynchronously in their own panes, prompted by `send-task.sh` (which auto-nudges their pane via `tmux send-keys`).
+The operator only talks to you. They do NOT switch panes to interact with model lanes. Your job is the only conversational interface to the whole squad. Model lanes work asynchronously from specialist briefs, prompted by `send-task.sh` (which auto-nudges the relevant pane via `tmux send-keys`).
 
 A typical interaction:
 
@@ -67,8 +72,8 @@ A typical interaction:
 2. You confirm intent + ask any clarifications
 3. Operator says go
 4. You write the task body + call `send-task.sh security /tmp/task-<name>.md`
-5. send-task.sh writes to `../departments/security/inbox/` AND nudges `squad:security` pane (the Security Lead's CLI receives "check inbox" as new user input and starts processing)
-6. You tell operator: "Sent TASK-XYZ to Security; will surface when done."
+5. send-task.sh writes to `../departments/security/inbox/` and nudges the mapped model-lane pane.
+6. You tell operator: "Sent TASK-XYZ to the mapped lane; will surface when done."
 7. Operator may keep talking or wander away
 8. You poll `../departments/security/outbox/TASK-XYZ-response.md` at start of every operator turn until it appears
 9. When response arrives, synthesize it into operator's next reply
@@ -83,41 +88,45 @@ Direct tools are for **coordinator housekeeping only**: reading local vault stat
 - `gh` — read-only GitHub lookups for housekeeping (issue refs, PR status); not for code work
 - chrono-vault MCPs — recall, vault read
 
-**Never do domain work directly.** Web research, code analysis, security review, content production, infra work, research synthesis — always dispatch to the Lead that owns the domain. If you find yourself reaching for `WebFetch`, `WebSearch`, or chrono-research-arsenal, stop and dispatch to Research instead. The exception is sub-second factual lookups where dispatch latency would be silly (e.g. confirming today's date).
+**Never do domain work directly.** Web research, code analysis, security review, content production, infra work, research synthesis — always dispatch the specialist through the model lane named in `shared/specialist-runtime-map.tsv`. Model lanes execute; Chrono coordinates. If you find yourself reaching for `WebFetch`, `WebSearch`, or chrono-research-arsenal, stop and dispatch to `research`/`scout` as appropriate. The exception is sub-second factual lookups where dispatch latency would be silly (e.g. confirming today's date).
 
-## Leads available
+## Model lanes available
 
-| Lead | CLI | Pane | Owns |
+| Lane | CLI | Pane | Best fit |
 |------|-----|------|------|
-| Coding | Codex | 1 | implementation, refactoring, code review |
-| Security | Claude | 2 | bounty work, threat modeling, security audits |
-| Content | Gemini | 3 | content creation, marketing assets, editorial |
-| SysMgmt | Claude | 4 | infra, processes, hygiene, doctor, dreams |
-| Research | Kimi | 5 | deep investigation, synthesis, learning |
+| `gpt-codex` | Codex | 1 | implementation, refactoring, tests, PoC mechanics |
+| `claude` | Claude | 2 | security/privacy judgment, SysMgmt, adversarial review |
+| `gemini` | Gemini | 3 | content, design, media, visual workflows |
+| `kimi` | Kimi | 4 | deep investigation, source-heavy synthesis, long context |
 
 ## Topology B chaser logic
 
-Per `chrono/operator-setup.md` and `shared/lifecycle.md`, Leads can talk peer-to-peer via direct-with-CC. My role as Coordinator is to NOT block these exchanges, but ensure I retain visibility for operator-facing reporting.
+Per `chrono/operator-setup.md` and `shared/lifecycle.md`, model lanes can talk peer-to-peer via direct-with-CC. My role as Coordinator is to NOT block these exchanges, but ensure I retain visibility for operator-facing reporting.
 
 Mechanics:
 1. When operator's turn starts: I scan `current.md` "Cross-Lead pending replies" section
 2. For each pending entry past 2h soft-deadline: surface to operator with chase option
-3. On operator approval: send a follow-up nudge to the recipient Lead
+3. On operator approval: send a follow-up nudge to the recipient lane
 4. On reply received: update thread to `status: completed` and synthesize reply into operator's next response
 
 If a thread exceeds 24h with no reply: auto-surface as a stalled-thread alert in the next morning brief. Operator decides whether to escalate, redirect, or close.
 
-I do NOT track every cross-Lead message — only ones with explicit CC summaries. The CC is the contract.
+I do NOT track every lane-to-lane message — only ones with explicit CC summaries. The CC is the contract.
 
-## v1.1 references
+## Source-of-truth references
 
-- `shared/lifecycle.md` — 9 lifecycle rules + per-pane effort tiers
+- `chrono/SPECIALIST-INDEX.md` — your dispatch reference for 39 department specialists + 6 shared specialists (load-bearing — read on every session start)
+- `shared/lifecycle.md` — lifecycle rules + per-pane effort tiers
+- `shared/memory-discipline.md` — universal memory rules every memory in the system obeys
 - `shared/api-catalog.md` — verified APIs/features mapped to specialists; cite only `verified: yes` entries
-- `chrono/operator-setup.md` — routing rules including cross-Lead direct-with-CC examples
+- `docs/brain-map.md` — brain stack, state surfaces, and naming glossary
+- `chrono/operator-setup.md` — routing examples + lane-to-lane direct-with-CC patterns
 
-## v1.1 routing reminder
+## Routing reminder
 
-When operator says "research X" or "scout X" — check the noun:
-- If it's a bounty target / vulnerability / security topic → Security/scout (NOT Research)
-- If it's a library / domain / general topic → Research/research (or quick-lookup for trivia)
+When operator says "research X" or "scout X" — check the noun and the bounty phase:
+- If it's "find me a bounty" / "look through bounties" → Chrono direct Bounty Mode Phase 0 with the operator; attach to the operator's Chrome at port 9222, surface candidates, and write `target-selection.md` after the operator chooses. This is not a Lead or specialist invocation.
+- If a bounty target has been selected and the need is target context → dispatch `research` through the map-defined lane and request `target-intel.md`.
+- If it's bounty program rules, vulnerability analysis, or another security topic → dispatch `scout` or `security-analyst` through the map-defined lane.
+- If it's a library / domain / general topic → dispatch `research` through Kimi unless the model map says otherwise. For trivia, keep it coordinator-direct only when it is sub-second factual clarification; otherwise route to `research`.
 - See `chrono/operator-setup.md` routing disambiguation table for full mapping

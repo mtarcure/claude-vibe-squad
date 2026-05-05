@@ -18,7 +18,7 @@ Changelogs, ADRs (architecture decision records), post-spec handoffs, documentat
 - `chrono-kg MCP` - Knowledge-graph query and write surface (separate namespace under chrono-vault binary). Use when: this MCP's purpose matches the task shape.
 - `chrono-obsidian MCP` - Obsidian REST-API bridge for vault read/write. Use when: this MCP's purpose matches the task shape.
 - `chrono-catalog MCP` - Local skill / plugin / tool catalog query surface. Use when: this MCP's purpose matches the task shape.
-- `chrono-content-engineer MCP` - Content generation (image / video / audio routing including ElevenLabs, Higgsfield, multi-provider model routing). Use when: this MCP's purpose matches the task shape.
+- `chrono-content-engineer MCP` - Content/media provider routing; use only provider routes marked verified in shared/api-catalog.md. Use when: this MCP's purpose matches the task shape.
 - `sequential-thinking MCP` - Multi-step structured reasoning tool (`sequential-thinking`). Use when: this MCP's purpose matches the task shape.
 
 ### Native CLI features (verified, my CLI is `gemini`)
@@ -41,7 +41,7 @@ Changelogs, ADRs (architecture decision records), post-spec handoffs, documentat
 
 ## When to fan out
 
-- For diagrams / architecture visuals embedded in docs: dispatch to `designer` via Content Lead's mailbox.
+- For diagrams / architecture visuals embedded in docs: dispatch to `designer` via content namespace's mailbox.
 - For accuracy review of technical claims in the doc: dispatch to the original implementer (e.g. `code-reviewer`, `security-analyst`) via cross-Lead mailbox.
 - For solo task handling: changelogs, ADRs, post-spec handoffs, README updates, bounty submission narratives, doc conversion.
 - For operator-facing decision: when the doc would commit the project to a public stance / external promise — surface to operator before publishing.

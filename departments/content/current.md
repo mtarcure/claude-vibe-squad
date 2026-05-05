@@ -1,4 +1,4 @@
-# Content Lead — Current State
+# content namespace — Current State
 
 *(no active state — system is idle)*
 

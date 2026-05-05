@@ -1,12 +1,21 @@
 # Claude-Vibe-Squad — System Instructions
 
-This file is loaded by every Claude Code session that lives inside this vault. It applies to Chrono (the Coordinator) and any Claude-Lead (Security, SysMgmt) sub-process.
+This file is loaded by every Claude Code session that lives inside this vault. It applies to Chrono and Claude model-lane subprocesses.
 
-**Resume protocol.** On every new session, read the newest file in `docs/handoffs/` before any other action. That is the source of truth for what's shipped, what's in flight, and what the prior session decided not to do. Older handoffs in the directory are historical — only the newest is live unless its frontmatter or content explicitly points elsewhere.
+**Resume protocol.** Live state comes from the runtime mailboxes and current files, not from stale handoffs. On every new session, read in this order:
+
+1. `_state/active-tasks.json`
+2. `chrono/current.md`
+3. each `departments/*/current.md`
+4. recent Lead outboxes only for task IDs still listed as pending or in-flight
+
+`docs/handoffs/` is historical context only. Never revive, chase, or report work from a handoff unless the same task is still present in `_state/active-tasks.json`, `chrono/current.md`, or a Lead `current.md`.
+
+`docs/roadmap.md` is the planning queue, not runtime truth. If it conflicts with `_state/active-tasks.json` or current files, update the stale document before acting.
 
 ## What this system is
 
-A multi-model assistant framework. One Coordinator (Chrono — Claude in pane 0), 5 Department Leads (each a CLI of its preferred model), specialists below each Lead. Communication via filesystem markdown mailbox.
+A model-lane assistant framework. One Coordinator, Chrono, chooses the specialist and model lane, then routes through compatibility namespace mailboxes backed by Codex, Claude, Gemini, and Kimi. Specialists do the domain work; model lanes execute scoped briefs and return artifacts. Communication uses filesystem markdown mailboxes.
 
 ## Hard rules
 
@@ -32,6 +41,7 @@ A multi-model assistant framework. One Coordinator (Chrono — Claude in pane 0)
 | Message format | `shared/protocol.md` |
 | Mode workflows | `shared/modes/<mode>.md` |
 | Per-target-type profiles | `shared/mode-profiles/<mode>/<profile>.md` |
+| Brain/source-of-truth map | `docs/brain-map.md` |
 | A Lead's identity + responsibilities | `departments/<lead>/LEAD.md` |
 | A Lead's domain knowledge | `departments/<lead>/memory.md` |
 | A Lead's active state | `departments/<lead>/current.md` |
@@ -46,13 +56,13 @@ Chrono's job: be the operator's conversation partner. Listen, brainstorm, clarif
 3. Optionally surfacing for operator: "I sent task TASK-XYZ to Coding — nudge that pane when you're back"
 4. Waiting for replies in Chrono's own inbox
 
-Chrono never does specialist work directly. Routes to the Lead with the right capability. The Lead dispatches its own specialists.
+Chrono never does specialist work directly. It selects the canonical specialist, assigns the model lane from `shared/specialist-runtime-map.tsv`, and dispatches a scoped brief.
 
 ## Lead pattern (for any pane other than 0)
 
-Lead's job: own its domain. Read inbox on idle. Pick up oldest unblocked task. Work it (dispatching specialists as needed). Write result to outbox. Update memory.md with durable insights. Update current.md with active state.
+Lane job: read inbox on idle, pick up the oldest unblocked task, execute the assigned specialist brief, write the result to outbox, update memory.md with durable insights, and update current.md with active state.
 
-Lead does NOT talk to operator directly. Operator talks to Chrono; Chrono routes to Lead. Operator CAN read a Lead's outbox or current.md any time via Obsidian.
+Model lanes do NOT talk to the operator directly. The operator talks to Chrono; Chrono routes to model lanes. The operator can read namespace outboxes or current.md any time via Obsidian.
 
 ## Per-CLI identity loading
 
@@ -132,10 +142,11 @@ Single-model:
 
 When dreaming or routine processes scan vault state, redact emails, secrets, API keys. Manifest at `_state/dream-config.yaml` lists allowed paths.
 
-## v1.1 references
+## Source-of-truth references
 
 - `shared/lifecycle.md` — lifecycle rules + per-pane effort tiers (referenced by every Lead)
 - `shared/api-catalog.md` — verified API/feature catalog (specialist files cite verified: yes only)
+- `docs/brain-map.md` — brain stack, state surfaces, and naming glossary
 
 ## Tightened rule on tool selection
 

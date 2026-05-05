@@ -22,4 +22,7 @@ if ! command -v uv >/dev/null 2>&1; then
     exit 1
 fi
 
-exec uv run --quiet "${VAULT_ROOT}/scripts/python/vibecoding_check.py" "$@"
+UV_CACHE_DIR="${TMPDIR:-/tmp}/uv-cache-vibecoding"
+export UV_CACHE_DIR
+exec uv run --quiet --cache-dir "${UV_CACHE_DIR}" \
+    "${VAULT_ROOT}/scripts/python/vibecoding_check.py" "$@"

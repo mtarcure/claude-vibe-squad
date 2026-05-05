@@ -1,40 +1,39 @@
 # Chrono — Coordinator State
 
-Updated: 2026-05-02 17:05 PDT
+Updated: 2026-05-04 15:38 PDT
 
 ## Active Tasks
 
-- **Bounty target scouting** — TASK-2026-05-02-1705-ff8bedcb dispatched to Research (Kimi). First real engagement target search across H1/Bugcrowd/Intigriti/HackenProof/Code4rena. Pending response.
+Production-readiness audit in progress. Live registry `_state/active-tasks.json` is currently empty; no Lead inbox has an active task.
 
 ## Working Context
 
-Squad fully verified end-to-end (rounds 1-5 today). Now picking the squad's first real workload — a security bounty. Research is scouting; Chrono drifted earlier by doing WebFetch inline, operator caught it, lesson saved.
+The 14:59 task fan-out is no longer pending: Security, Coding, and Content responses landed; the misrouted Codex contrarian task was recalled under `_state/recalled-tasks/`.
+
+No active implementation spec is live in Coordinator state. Durable decisions from the May 4 cleanup are folded into current docs; historical handoffs are not runtime truth.
 
 ## Pending replies
 
-- Research — TASK-2026-05-02-1705-ff8bedcb (bounty scouting; expect ~10-30 min, longer if Perplexity is heavily exercised)
+| Task ID | Lead | Topic | Status |
+|---------|------|-------|--------|
+| TASK-2026-05-04-1459-b1211a1a | security | Browser-bridge retry via raw CDP | done — response landed in `departments/security/outbox/` |
+| TASK-2026-05-04-1459-843ed55d | coding | Spec 1.7 5 HARD format fixes | done — response landed in `departments/coding/outbox/` |
+| TASK-2026-05-04-1459-ce63f61f | coding | Skeptic Phase 5 contrarian stance | recalled — see `_state/recalled-tasks/` |
+| TASK-2026-05-04-1459-82eea8e1 | content | Skeptic Phase 5 first-principles stance | done — response landed in `departments/content/outbox/` |
 
 ## Open Loops
 
-- Awaiting Research's bounty candidate ranking before dispatching any Security Lead engagement
-- Cantina ruled out by operator (not in our 5-platform set)
-- HackerOne/Bugcrowd/Intigriti/HackenProof directories couldn't be enumerated via WebFetch (JS-rendered) — Research has the right tools (Perplexity)
+- **Production readiness audit** — simplify source-of-truth rules, verify dispatch/registry/watchers/MCPs, and identify remaining public-release gates.
+- **Routing-discipline guardrail** — operator flagged routing errors recurring. Current direction: fewer source-of-truth docs and a live active registry, not more spec surfaces.
+- **Bounty mode dry-run** (queued) — operator runs as next-session test.
+- **Per-namespace SSE chrono MCPs** (optional) — split if noise becomes a problem.
 
 ## Last Action
 
-Routed bounty exploration to Research per operator's redirect; saved feedback memory ("route bounty exploration to Research, not Chrono inline").
+Corrected this tracker after audit found stale pending replies from the 14:59 fan-out.
 
 ## Cross-Lead pending replies (CC'd threads)
-
-Thread tracking for Topology B direct-with-CC. Format:
 
 | thread_id | from_lead → to_lead | requested_action | created | deadline | status |
 |-----------|----------------------|-------------------|---------|----------|--------|
 | _no pending threads_ |  |  |  |  |  |
-
-When a Lead sends to peer Lead's inbox + CCs me a one-line summary:
-1. I add a row here with thread_id, owner, deadline (default 2h)
-2. I scan this section at start of every operator turn alongside outboxes
-3. If a pending entry exceeds deadline: surface to operator → "[Lead A] asked [Lead B] about X N hours ago — no reply yet. Want me to chase?"
-4. On operator approval: send a follow-up to recipient Lead
-5. On reply received in to_lead's outbox: update thread to status: completed

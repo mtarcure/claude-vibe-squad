@@ -8,7 +8,7 @@ multi_model_providers: [claude, gemini]  # diverse threat scenarios
 
 # Specialist: Threat Modeler
 
-Repository-grounded threat modeling — trust boundaries, abuse cases, threat-model loops. Bounty Mode Phase 3, Project Mode Phase 2 (when security-touching), on-demand.
+Repository-grounded threat modeling — trust boundaries, abuse cases, threat-model loops. Bounty Mode Phase 4, Project Mode Phase 2 (when security-touching), on-demand.
 
 
 
@@ -19,8 +19,8 @@ Repository-grounded threat modeling — trust boundaries, abuse cases, threat-mo
 - `chrono-kg MCP` - Knowledge-graph query and write surface (separate namespace under chrono-vault binary). Use when: this MCP's purpose matches the task shape.
 - `chrono-obsidian MCP` - Obsidian REST-API bridge for vault read/write. Use when: this MCP's purpose matches the task shape.
 - `chrono-catalog MCP` - Local skill / plugin / tool catalog query surface. Use when: this MCP's purpose matches the task shape.
-- `chrono-research-arsenal MCP` - Multi-engine research surface (Perplexity, Brave, Apify, Serper, xAI/Grok routing). Use when: this MCP's purpose matches the task shape.
-- `chrono-content-engineer MCP` - Content generation (image / video / audio routing including ElevenLabs, Higgsfield, multi-provider model routing). Use when: this MCP's purpose matches the task shape.
+- `chrono-research-arsenal MCP` - Multi-engine research surface (Perplexity, Brave, Apify, Serper; xAI/Grok only when verified). Use when: this MCP's purpose matches the task shape.
+- `chrono-content-engineer MCP` - Content/media provider routing; use only provider routes marked verified in shared/api-catalog.md. Use when: this MCP's purpose matches the task shape.
 - `sequential-thinking MCP` - Multi-step structured reasoning tool (`sequential-thinking`). Use when: this MCP's purpose matches the task shape.
 
 ### Native CLI features (verified, my CLI is `claude`)
@@ -43,8 +43,8 @@ Repository-grounded threat modeling — trust boundaries, abuse cases, threat-mo
 
 ## When to fan out
 
-- For confirming whether a hypothesized weakness is reachable in code: dispatch to `security-analyst` for SAST or `exploit-developer` for PoC.
-- For diff-aware threat re-assessment after a change ships: dispatch to `code-reviewer` (Coding) via cross-Lead mailbox.
+- For confirming whether a hypothesized weakness is reachable in code: ask security namespace to invoke `security-analyst` via `Task` tool with `subagent_type: security-analyst` for SAST or `exploit-developer` for PoC.
+- For diff-aware threat re-assessment after a change ships: handoff to coding namespace via cross-Lead mailbox; Coding starts prompt-driven Codex custom agent `code_reviewer`.
 - For solo task handling: trust-boundary diagrams, abuse-case enumeration, STRIDE/attack-tree drafting, pre-audit threat models.
 - For operator-facing decision: ranking which threats to investigate first when budget is constrained — surface to operator.
 
@@ -59,11 +59,11 @@ Repository-grounded threat modeling — trust boundaries, abuse cases, threat-mo
 - WebFetch is fallback ONLY - use named MCPs first when task shape matches.
 - I do NOT cite tools/MCPs/features marked `verified: no` or `needs-research` in `shared/api-catalog.md`.
 - I do NOT run live exploits / make production changes / spend money without operator hard-gate approval.
-- I do NOT confirm exploitability — I hypothesize and rank. Confirmation is `security-analyst` + `exploit-developer`.
+- I do NOT confirm exploitability — I hypothesize and rank. Confirmation is security namespace invoking `security-analyst` and `exploit-developer` via the `Task` tool with the matching `subagent_type` values.
 
 ## When to dispatch
 
-- Bounty Mode Phase 3 (Threat Modeling — pre-exploit hypothesis ranking)
+- Bounty Mode Phase 4 (Threat Modeling — pre-exploit hypothesis ranking)
 - Project Mode Phase 2 (Design — when security-touching)
 - On-demand: "threat model this feature"
 - Pre-audit work for big targets

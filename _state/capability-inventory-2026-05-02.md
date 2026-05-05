@@ -253,7 +253,7 @@ Source: `codex mcp list`. All entries show `Status: enabled` (codex CLI does NOT
 - `chrono-vault` (stdio) ✅-configured (ENV: CHRONO_VAULT_ROOT, OBSIDIAN_REST_API_KEY, OBSIDIAN_VAULT_ROOT)
 - `sequential-thinking` (stdio, `npx`) ✅-configured
 
-**Note:** Codex's bound MCP set is the chrono suite + sequential-thinking — narrower than claude's plugin-marketplace expanse but matches the spec's expectation that Coding Lead gets chrono-* tools for vault writes/reads. The chrono-vault, chrono-kg, chrono-obsidian, chrono-catalog all point at `/Users/chrono/chrono/plugins/chrono-vault/mcp_server.py` — verify that path exists and is executable in any spawn-specialist scenario.
+**Note:** Codex's bound MCP set is the chrono suite + sequential-thinking — narrower than claude's plugin-marketplace expanse but matches the spec's expectation that Coding Lead gets chrono-* tools for vault writes/reads. The chrono-vault, chrono-kg, chrono-obsidian, chrono-catalog all point at `~/chrono/plugins/chrono-vault/mcp_server.py` — verify that path exists and is executable in any spawn-specialist scenario.
 
 ### security pane (claude)
 
@@ -277,7 +277,7 @@ This is a finding: the spec's Item 8 (`shared/dispatch-toolkit.sh` reality-check
 
 ### research pane (kimi)
 
-Source: `kimi mcp list`. Config file: `/Users/chrono/.kimi/mcp.json`. All entries are stdio.
+Source: `kimi mcp list`. Config file: `~/.kimi/mcp.json`. All entries are stdio.
 
 - `chrono-vault` (stdio) ✅-configured
 - `chrono-research-arsenal` (stdio) ✅-configured

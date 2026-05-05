@@ -1,0 +1,11 @@
+{
+  "TASK-2026-05-04-1200-example": {
+    "to_lead": "coding",
+    "dispatched_at": "2026-05-04T19:00:00Z",
+    "write_scope": [
+      "bin/send-task.sh",
+      "shared/lifecycle.md"
+    ],
+    "status": "in-flight"
+  }
+}

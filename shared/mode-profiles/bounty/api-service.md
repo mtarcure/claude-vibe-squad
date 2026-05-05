@@ -16,17 +16,17 @@ REST / GraphQL API bounties — BOLA (Broken Object Level Auth), rate limits, au
 
 ## Phase customizations
 
-### Phase 1 Intelligence
+### Phase 2 Program Scope
 - Read OpenAPI / GraphQL schema if accessible
 - Map endpoint inventory + auth requirements per endpoint
 - Note API rate limit policies
 
-### Phase 2 Recon
+### Phase 3 Recon
 - Endpoint discovery (often via swagger.json, robots.txt, /api routes)
 - Parameter discovery (paramspider, ffuf with API wordlists)
 - Auth flow mapping (OAuth, JWT, API key, mTLS)
 
-### Phase 3 Threat Modeling
+### Phase 4 Threat Modeling
 - BOLA (object-level auth) — most common API vuln class
 - Rate-limiting bypasses
 - IDOR via predictable IDs
@@ -35,23 +35,23 @@ REST / GraphQL API bounties — BOLA (Broken Object Level Auth), rate limits, au
 - API key in code / git history
 - Mass assignment
 
-### Phase 5/6/7 Exploitation
+### Phase 6/7/8 Exploitation
 - Tools: Burp + extensions (Autorize for BOLA, GraphQL Voyager)
 - Custom scripts for API enumeration
 - BOLA testing: change object IDs systematically, check auth boundaries
 
-### Phase 9 Validation
+### Phase 10 Validation
 - API bounties often pay well for BOLA / IDOR (clear impact)
 - Rate-limit bypasses lower-paying unless DoS-grade
 
-### Phase 10 Report
+### Phase 11 Report
 - HTTP request/response pairs as evidence
 - Specific user IDs / object IDs that demonstrated boundary cross
 - Reproducible curl commands
 
 ## Specialists most active
 
-- exploit-developer (multi-model)
-- security-analyst
-- scout (API endpoint discovery)
+- security namespace invokes `exploit-developer` via `Task` tool with `subagent_type: exploit-developer` (multi-model)
+- security namespace invokes `security-analyst` via `Task` tool with `subagent_type: security-analyst`
+- security namespace invokes `scout` via `Task` tool with `subagent_type: scout` (API endpoint discovery)
 - skeptic (BOLA findings need careful verification)

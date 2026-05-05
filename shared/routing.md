@@ -1,84 +1,97 @@
-# Claude-Vibe-Squad Routing — Mode Triggers and Cross-Lead Rules
+# Claude-Vibe-Squad Routing
 
-How Chrono decides which mode to engage and which Lead to route to.
+Chrono is the only controller. It chooses the mode, specialist, write owner, model lane, and review gate. The visible execution lanes are:
 
-## Mode invocation paths (3 ways, all operator-driven)
+```text
+chrono -> gpt-codex | claude | gemini | kimi -> specialists
+```
 
-### 1. Concrete artifact pasted (suggest, await consent)
+Department folders remain compatibility namespaces for prompts, memory, and mailboxes. Folder location does not determine model choice.
+
+Canonical runtime table: `shared/specialist-runtime-map.tsv`.
+
+## Runtime Defaults
+
+| Model lane | Best for |
+|---|---|
+| `gpt-codex` | implementation, repo edits, tests, refactors, diff review, PoC mechanics |
+| `claude` | coordination, judgment, security reasoning, privacy, SysMgmt, adversarial review |
+| `kimi` | long context, source-heavy research, large corpus synthesis |
+| `gemini` | multimodal content/design, Google-grounded research, visual/media workflows |
+
+## Mode Invocation
+
+Mode engagement is operator-driven.
+
+Concrete artifacts suggest a mode, then Chrono asks for consent:
 
 | Artifact | Suggested mode |
-|----------|---------------|
-| URL on hackerone.com / bugcrowd.com / intigriti.com / hackenproof.com / code4rena.com | Bounty |
-| Sentry alert URL | Triage (Incident if active error) |
+|---|---|
+| HackerOne / Bugcrowd / Intigriti / HackenProof / Code4rena URL | Bounty |
+| Sentry alert URL or active outage evidence | Incident |
 | GitHub Issue URL | Triage |
-| Stack trace + words "broken" / "down" / "failing" | Incident |
-| `.sol` / `.vy` / `.rs` (in audit context) | Bounty (smart-contract profile) |
-| `.swift` / Xcode project | Project (ios-app profile) |
-| `.tsx` / `package.json` (web context) | Project (web-app profile) |
+| stack trace plus broken/down/failing | Incident |
+| `.sol`, `.vy`, `.rs` in audit context | Bounty |
+| app or repo files in build context | Project |
 
-Chrono never auto-engages — always asks "engage X mode?" first. Operator says yes or redirects.
+Slash commands remain: `/bounty`, `/project`, `/content`, `/outreach`, `/maintenance`, `/incident`, `/research`, `/triage`, `/exit`, `/archive`, `/status`.
 
-### 2. Operator says it (engage on explicit signal)
+Chrono never silently switches modes and never auto-engages from a casual phrase.
 
-- "let's go" / "let's do it" / "okay start" → Chrono picks the most relevant mode based on conversation context, asks "Mode X?"
-- "let's hunt this target" → Bounty Mode
-- "let's build X" → Project Mode
-- "let's clean up" → Maintenance Mode
-- "back to that bounty" → resume paused Bounty Mode
-- "we're done" / "let's wrap" → exit current mode (mode goes DORMANT, not deleted)
+## Dispatch Contract
 
-### 3. Slash command (escape hatch, for power users)
+Every complex dispatch must name:
 
-- `/bounty` `/project` `/content` `/maintenance` `/incident` `/research` `/triage`
-- `/exit` — leave current mode (DORMANT)
-- `/archive` — explicit cleanup of completed run
-- `/status` — current mode + active phase + next checkpoint
+- `to_model`: `gpt-codex | claude | gemini | kimi`
+- `specialist`: canonical specialist from `chrono/SPECIALIST-INDEX.md`
+- `source_namespace`: compatibility namespace where the canonical specialist lives
+- `write_scope`: exact writable paths, or `[]` for read-only work
+- `review_model`: read-only reviewer lane, or `none`
+- `mandatory_review`: `true | false`
+- `parallel_safe`: `true | false`
+- `lead_direct_allowed`: default `false`
 
-### What Chrono NEVER does
+`scripts/send-task.sh` and `bin/send-task.sh` fill and enforce these fields against `shared/specialist-runtime-map.tsv`.
 
-- ❌ Auto-engage on conversational phrases ("research", "build", "fix", "clean up")
-- ❌ Switch modes silently mid-conversation
-- ❌ Decide for the operator
+## Safety Gates
 
-## Lead routing (which Lead owns what)
+Dispatch is blocked when:
 
-Once a mode is engaged, Chrono routes work to the Lead that owns the domain:
+- the specialist is unknown
+- the specialist is missing from `shared/specialist-runtime-map.tsv`
+- `to_model` or `review_model` is not a valid lane
+- `to_model` differs from the model map and no `model_override_reason` is present
+- `mandatory_review:true` has `review_model:none`
+- a high-safety specialist is dispatched without mandatory review
+- write scopes overlap active in-flight work
 
-| Mode | Primary Lead | Cross-Lead handoffs |
-|------|--------------|---------------------|
-| Bounty | Security | Coding for PoC harnesses, Research for OSINT |
-| Project | Coding | Security for auth/crypto, Research for unfamiliar libs, Content for docs/UX copy |
-| Content | Content | Research for fact-finding, Coding if technical content |
-| Maintenance | SysMgmt (or Coding) | depends on what's being maintained |
-| Incident | SysMgmt | Security if auth/secrets touched, Coding for the patch |
-| Research | Research | All others can be requested for domain expertise |
-| Triage | Coordinator-only (no Lead) | Routes outward to whichever mode triage suggests |
+Reviewers are read-only unless Chrono serializes a later write pass.
 
-## Cross-Lead handoff rules
+Explicit operator approval is required for deletes, external sends, credential changes, cleanup actions, public release changes, and any live outreach/email send. Outreach stays dry-run by default.
 
-1. **Async by default.** Sender writes to recipient's inbox, continues with non-dependent work.
-2. **One handoff = one message file.** No multi-step nested handoffs in a single file.
-3. **Reply lands in sender's outbox-equivalent.** Each Lead's `inbox/` receives both fresh tasks and replies.
-4. **Operator copy on cross-cutting decisions.** Important cross-Lead decisions get appended to `shared/decisions.md`.
-5. **Handoff must specify return_artifact path.** Otherwise sender can't find the reply.
+Mandatory multi-model review applies to security findings, bounty reports, privacy/PII, auth/credential work, email/outreach sending, public release, filesystem cleanup, and high-blast-radius architecture.
 
-## Pathology safety net
+## Compatibility Namespaces
 
-Beyond hard gates, modes pause if pathology detected:
+| Namespace | Typical specialists | Usual model lane |
+|---|---|---|
+| `coding` | backend-engineer, frontend-engineer, test-engineer, exploit-developer | `gpt-codex` |
+| `security` | security-analyst, impact-validator, privacy-steward, scout | `claude` or `kimi` by map |
+| `content` | media-producer, designer, content-creator, technical-writer | `gemini` or `claude` by map |
+| `sysmgmt` | memory-curator, mac-ops, harness-optimizer | `claude` |
+| `research` | research, synthesizer, large-context-analyst | `kimi` |
+| `shared` | planner, skeptic, triage, vibecoding-check | map-defined |
 
-| Pattern | Detection | Action |
-|---------|-----------|--------|
-| Same specialist dispatched 3x with same prompt | repeat-detector | Pause, surface to operator |
-| Specialist returned errors 3x in a row | error-streak | Pause, surface error |
-| MCP tool retry-loop | retry-spike | Kill the loop, pause, surface |
-| No new artifacts for N specialist turns | no-output | Pause, surface |
-| Same Lead → Lead handoff bouncing 3+ times | bounce-loop | Pause, surface (escalation rule unclear) |
+## Pathology Safety Net
 
-## Nightly autonomous routines
+| Pattern | Action |
+|---|---|
+| same specialist dispatched three times with the same prompt | pause, surface to operator |
+| specialist returns errors three times in a row | pause, surface error |
+| MCP retry loop | stop the loop, pause, surface |
+| no new artifacts after expected specialist turns | pause, surface |
+| lane-to-lane request bouncing repeatedly | pause, surface routing ambiguity |
 
-Triggered by launchd (`launchd/com.claudevibesquad.nightly.plist`):
+## Nightly Routines
 
-- Daily 03:00: doctor + cleanup + dream + content sweep + daily morning brief
-- Sunday 04:00: weekly deep run (deep KG cleanup, deep dream, subscription audit, weekly brief)
-
-These run regardless of whether any tmux panes are active. State is in `_state/`.
+Launchd routines may run doctor, cleanup audits, dream, content sweep, and morning brief generation. They must not perform destructive cleanup, public release changes, external sends, or credential changes without explicit operator approval.

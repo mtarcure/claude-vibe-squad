@@ -54,7 +54,7 @@ Cache copies were already absolute, but Claude was reading the source manifests 
 ## Fix
 
 ```bash
-sed -i.bak 's|"~/chrono/|"/Users/chrono/chrono/|g; s|"~/Obsidian-Chrono|"/Users/chrono/Obsidian-Chrono|g' \
+sed -i.bak 's|"~/chrono/|"~/chrono/|g; s|"~/Obsidian-Chrono|"~/Obsidian-Chrono|g' \
   ~/chrono/plugins/*/.claude-plugin/plugin.json \
   ~/.claude/plugins/cache/chrono/*/*/.claude-plugin/plugin.json
 ```
@@ -66,7 +66,7 @@ sed -i.bak 's|"~/chrono/|"/Users/chrono/chrono/|g; s|"~/Obsidian-Chrono|"/Users/
 `claude mcp list` (post-fix):
 
 ```
-plugin:chrono-vault:chrono-vault: /Users/chrono/chrono/.venv/bin/python ... - ✓ Connected
+plugin:chrono-vault:chrono-vault: ~/chrono/.venv/bin/python ... - ✓ Connected
 plugin:chrono-vault:chrono-kg: ... - ✓ Connected
 plugin:chrono-vault:chrono-obsidian: ... - ✓ Connected
 plugin:chrono-vault:chrono-catalog: ... - ✓ Connected

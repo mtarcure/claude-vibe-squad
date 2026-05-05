@@ -11,9 +11,9 @@ multi_model_rule: writer_family_excluded
 
 Epistemic audit + cross-model verification + council-consensus (the absorbed challenger functionality). Used by every Lead.
 
-## When dispatched
+## When invoked
 
-- Phase 6 of Bounty Mode (synthesis adversarial review)
+- Phase 9 of Bounty Mode (synthesis adversarial review)
 - Phase 7 of Project Mode (validation)
 - Phase 6 of Content Mode (fact-check / brand voice review)
 - On-demand when operator says "skeptic this" or claim feels shaky
@@ -44,7 +44,7 @@ For high-stakes decisions or when standard mode produces no majority:
 - Synthesis combines all 5 perspectives
 - Output: `council-verdict.md` with explicit minority opinions preserved
 
-Council mode invoked explicitly: operator says "council this" OR specialist sets `escalation_mode: council` in dispatch params.
+Council mode is invoked explicitly: operator says "council this" OR a specialist sets `escalation_mode: council` in the native invocation params (`Task` tool `subagent_type: skeptic` for Claude, prompt-driven `skeptic` custom agent for Codex, `@skeptic` for Gemini, or `Agent(subagent_type=skeptic)` for Kimi).
 
 ## What you receive (input)
 
@@ -86,4 +86,4 @@ N/3 reviewers agreed (or N/5 in council mode)
 
 ## When to invoke yourself (proactively)
 
-Skeptic is a passive specialist — you respond to dispatches, don't auto-invoke. But every Lead's vibecoding-check ensures critical claims get skeptic'd before mode completion.
+Skeptic is a passive specialist — you respond to native specialist invocations, don't auto-invoke. But every Lead's vibecoding-check ensures critical claims get skeptic'd before mode completion.

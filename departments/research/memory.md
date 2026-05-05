@@ -1,5 +1,7 @@
 # Research Department — Durable Memory
 
+Governed by `shared/memory-discipline.md`.
+
 ## Authoritative Sources
 
 ### AI / ML
@@ -62,9 +64,73 @@
 
 *Curated, not appended.*
 
-## v1.1 update — 2026-05-03
+## Bounty Workflow — Target Research vs. Program Scope
 
-The squad shipped v1.1 with explicit tool catalogs in every specialist file,
+*Updated 2026-05-03 during TASK-2026-05-03-1952-5363c405 Phase 5 validation.*
+
+**Finding:** Industry-leading audit firms universally separate "understanding the target" from "executing the audit," but they typically combine "target research" and "scope/engagement understanding" into a single pre-audit phase owned by one team. The squad's finer split (research namespace = external OSINT on target; security namespace = authed platform program rules) is divergent but justified by the squad's distributed tool boundaries (`chrono-research-arsenal` vs. port-9222 browser attach) and async mailbox architecture.
+
+**Prior-art sources validated:**
+- Trail of Bits — explicit `audit-context-building` skill separates context-building from vulnerability hunting (Separation of Concerns principle).
+- OpenZeppelin — "Security Assessment" (high-level target understanding) precedes "Security Audit" (deep code review); 7-stage process starts with "Audit Preparation & Scope Definition."
+- Sherlock — 8-step contest lifecycle with steps 1–3 as explicit pre-contest scoping before researcher code access.
+- Code4rena — dedicated "Scout" role ($500 USDC fixed) for pre-audit intelligence and scope estimation before Wardens begin.
+- Least Authority — methodology explicitly separates "investigating details other than the implementation" (docs, deps, prior audits) from manual code review.
+- ISACA/IIA traditional audit frameworks — "Scoping and pre-audit survey" (background reading, web browsing, prior reports) precedes "fieldwork."
+
+**Implication for squad design:** Phase 1 (Target Research) and Phase 2 (Program Intelligence) can run in parallel. Both must complete before Phase 3 (Recon). The Research → Security handoff artifact is `target-intel.md`, consumed primarily at Phase 3, not Phase 2.
+
+## Subagent Architecture — Per-CLI Format Research
+
+*Updated 2026-05-03 during TASK-2026-05-03-2156-070cbdc1 Spec 1 Phase 1.1.*
+
+**Finding:** All four squad CLIs (Claude, Codex, Gemini, Kimi) support real subagents with isolated context, tool restriction, and model override. All enforce single-tier fan-out (subagents cannot spawn subagents). Key differences:
+
+- **Gemini** (content pane): Markdown + YAML frontmatter, auto-discovered in `.gemini/agents/*.md`, dispatched via `@name` syntax. Closest to squad's existing specialist markdown format.
+- **Kimi** (research pane): YAML config + separate markdown prompt template, loaded via `--agent-file`, dispatched via `Agent` tool with `subagent_type`. K2.6's 300-subagent / 4000-step scaling is automatic (model-level, not CLI flag).
+- **Claude** (chrono/security/sysmgmt): `.claude/agents/<name>.md` with frontmatter (`name`, `description`, `tools`, `model`), dispatched via `Task` tool.
+- **Codex** (coding): TOML roles in `config.toml`, `multi_agent` feature, `spawn_agents_on_csv` task tool.
+
+**Smell flags:**
+- Gemini has an active `mcpServers` validation bug in agent frontmatter (GitHub #26015).
+- Kimi custom subagent dispatch syntax is partially unverified — docs show definition but not exact invocation parameter.
+- Third-party comparison tables from March 2026 incorrectly mark Gemini subagents as "experimental preview" — they are stable since April 2026.
+
+**Implication for squad design:** Use Gemini's markdown+frontmatter as the canonical specialist format (single file, readable, version-controllable). Transpile to Kimi YAML+Markdown, Claude `.md`, and Codex TOML during Phase 1.3 conversion.
+
+## Spec 1 Phase 1.3 — Research Specialists Transpiled to Kimi Format
+
+*Updated 2026-05-03 during TASK-2026-05-03-2210-c76b8196.*
+
+**Finding:** All 11 Research-dispatchable specialists (5 own + 6 cross-cutting) have been mechanically transpiled to Kimi CLI's three-file subagent format:
+- `main.yaml` — declares all subagents with paths and descriptions
+- `subagents/<name>.yaml` — per-subagent config (`extend: coder`, `system_prompt_path`, `model: inherit`)
+- `prompts/<name>.md` — body verbatim from source specialist file, frontmatter stripped
+
+**Key smell flags preserved:**
+- Kimi custom subagent dispatch by name is still unverified — all configs use `extend: coder` as fallback.
+- Current specialist files lack canonical frontmatter (`task_shape`, `tools`, `brief_schema`) — transpile was mechanical from old format.
+- Cross-cutting specialists need per-Lead transpilation (other Leads need their own `main.yaml` subsets).
+
+**Implication for squad design:** Use Gemini's markdown+frontmatter as the canonical specialist format (single file). Transpile to Kimi YAML+Markdown split at install time. Live-test custom subagent dispatch before Phase 1.4.
+
+## Subagent Wiring — Verified Working 2026-05-03
+
+*Updated during TASK-2026-05-03-2333-7f2a2afc.*
+
+**Finding:** Kimi custom subagent dispatch via `Agent(subagent_type="research")` is **fully operational** in the research pane.
+
+- No `--agent-file` flag required at launch for discovery
+- `.kimi/agents/*.yaml` configs are auto-resolved relative to working directory
+- `extend: ./main.yaml` + `system_prompt_path: ./prompts/<name>.md` pattern works
+- `model: inherit` resolves correctly to parent model (Kimi K2.6)
+- All 11 custom agents discoverable: `data-extraction-engineer`, `large-context-analyst`, `learning-coach`, `planner`, `prompt-engineer`, `research`, `skeptic`, `summarizer`, `synthesizer`, `triage`, `vibecoding-check`
+
+**Disproven claim:** Prior run (TASK-2026-05-03-2324-b3114dc2) asserted `Unknown model alias: inherit` errors and required `--agent-file .kimi/agents/main.yaml` fix. This was transient; current session validates clean dispatch.
+
+## Tool-catalog update — 2026-05-03
+
+The squad shipped explicit tool catalogs in every specialist file,
 per-pane effort/thinking tier defaults, capability inventory, and Topology B
 direct-with-CC patterns. When dispatching a specialist now, trust that its
 identity.md enumerates available MCPs / native CLI features / skills / APIs

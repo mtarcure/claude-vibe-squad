@@ -4,20 +4,20 @@
 
 # claude-vibe-squad
 
-**A multi-model AI command center. One conversation partner ("Chrono") routes work to 5 Department Leads — each a different CLI of a different model — running persistently in their own terminal panes. Mailbox-mediated, subscription-billed, vibecoder-friendly.**
+**A model-led AI command center. One conversation partner ("Chrono") plans work, chooses the right specialist, then routes it to the best model runtime — GPT/Codex, Claude, Gemini, or Kimi — through persistent terminal panes. Mailbox-mediated, subscription-billed, vibecoder-friendly.**
 
-`v1.1` · `5 Department Leads` · `4 Model Families` · `Filesystem Mailbox` · `Subscription Auth (No API Keys)` · `Multi-Model Adversarial Review` · `AGPL-3.0`
+`v1` · `4 Model Lanes` · `46 Specialists` · `Filesystem Mailbox` · `Subscription Auth (No API Keys)` · `Multi-Model Adversarial Review` · `AGPL-3.0`
 
 </div>
 
 ---
 
-## v1.1 — Tool Utilization & Discipline (2026-05-03)
+## v1 — Daily-Driver Release
 
-See [CHANGELOG.md](./CHANGELOG.md) for full v1.1 changes. Highlights:
+Current release focus: reliable local daily-driver operation, clean public repo shape, verified MCP/tool availability, and markdown-first routing. Highlights:
 
-- **Specialist tool-awareness** — every one of the 39 specialist files now enumerates verified MCPs / native CLI features / skills / APIs, with per-Lead-CLI verification matrices. No more WebFetch-as-default. Validator (`bin/validate-specialists.sh`) catches drift.
-- **Per-pane effort/thinking tier defaults** — `bin/launch-squad.sh` now sets `--model opus --effort xhigh` for chrono+security panes, `-c model_reasoning_effort=high` for coding, `--model gemini-3.1-pro-preview` for content (implicit thinking), `--model sonnet --effort high` for sysmgmt, `--thinking` for research.
+- **Specialist tool-awareness** — every department specialist file now enumerates verified MCPs / native CLI features / skills / APIs, with per-runtime verification matrices. No more WebFetch-as-default. Validator (`bin/validate-specialists.sh`) catches drift across specialists, mode routing, and generated adapters.
+- **Per-pane effort/thinking tier defaults** — `bin/launch-squad.sh` sets `--model opus --effort xhigh` for chrono+security panes, `-c model_reasoning_effort=high` for coding, `--model gemini-3.1-pro-preview` for content, `--model sonnet --effort high` for sysmgmt, `--thinking` for research. Unsafe/yolo-style autonomy is opt-in with `SQUAD_UNSAFE_AUTONOMY=1`.
 - **Capability inventory** at `_state/capability-inventory-2026-05-02.md` — live-verified inventory of every CLI flag + MCP + feature. Specialist files cite only `verified: yes` entries.
 - **Topology B chaser logic** — Chrono now tracks pending CC'd cross-Lead threads in `current.md` and surfaces stalls past 2h.
 - **MCP graduation N=3 instinct loop** — `bin/spawn-specialist.sh` writes routine signatures to `_state/patterns.jsonl`; `bin/graduation-scan.sh` (weekly) surfaces routines hitting ≥3 distinct engagements as candidates for custom MCP creation. Operator-gated, no auto-scaffold.
@@ -26,11 +26,13 @@ See [CHANGELOG.md](./CHANGELOG.md) for full v1.1 changes. Highlights:
 
 ### Reference docs
 
-- [Lifecycle rules](./shared/lifecycle.md) — 9 canonical rules + per-pane effort defaults
+- [Lifecycle rules](./shared/lifecycle.md) — canonical lifecycle, cleanup, memory, and effort rules
 - [API catalog](./shared/api-catalog.md) — verified APIs/features mapped to specialists
 - [Operator setup](./chrono/operator-setup.md) — routing rules incl. cross-Lead direct-with-CC examples
-- [Spec](./docs/specs/2026-05-02-vibe-squad-v1.1-tool-utilization.md) — multi-model GREEN, revision 2
-- [Implementation plan](./docs/plans/2026-05-02-vibe-squad-v1.1-tool-utilization-plan.md) — 24 tasks across 11 phases
+- [Brain map](./docs/brain-map.md) — canonical source-of-truth layers and naming glossary
+- [State model](./docs/state-model.md) — live truth order and runtime/private boundaries
+- [Model runtime map](./docs/model-runtime-map.md) — Lead/runtime ownership and multi-model review rules
+- [Production readiness](./docs/production-readiness.md) — release checklist and public command surface
 
 ---
 
@@ -38,7 +40,7 @@ See [CHANGELOG.md](./CHANGELOG.md) for full v1.1 changes. Highlights:
 
 Each bullet leads with **what you get in plain terms**. The technical detail follows for the curious.
 
-- **One conversation, five specialists working in the background** — You only ever talk to Chrono. When work calls for a Lead's domain, Chrono dispatches via a filesystem mailbox and your other terminal panes pick it up automatically. No pane-switching, no manual context-passing. *Implementation: `scripts/send-task.sh` writes an atomic `TASK-<id>.md` to the target Lead's `inbox/`, then `tmux send-keys -l` nudges the Lead's CLI pane. The Lead processes, writes to `outbox/`, and Chrono polls for the response.*
+- **One conversation, model-lane specialists working in the background** — You only ever talk to Chrono. Chrono names the specialist, model lane, write scope, and success criteria, then dispatches via a filesystem mailbox. No pane-switching, no manual context-passing. *Implementation: `scripts/send-task.sh <source-namespace> <body-file> <specialist> [to-model]` writes an atomic `TASK-<id>.md` to the compatibility namespace inbox, then `tmux send-keys -l` nudges the model-lane window. The lane executes the assigned specialist brief, writes to `outbox/`, and Chrono polls for the response.*
 
 - **Four AI providers, all on subscription billing** — Claude Max, ChatGPT Plus, Gemini Personal OAuth, Kimi login. The launcher unsets `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` / `GOOGLE_API_KEY` per pane so each CLI falls back to its OAuth/keychain path. Pay flat-rate, not per-token. *Implementation: `bin/launch-squad.sh` AUTH_PREFIX exports unset for every pane; `scripts/python/*.py` use `oauth_env()` helper before any subprocess call.*
 
@@ -48,9 +50,9 @@ Each bullet leads with **what you get in plain terms**. The technical detail fol
 
 - **Reviewer family ≠ writer family — adversarial review is built-in** — When a specialist runs verification, the reviewer must be a different model family. If Codex wrote, Claude or Gemini reviews. Catches single-model blind spots that go uncaught in same-family loops. *Implementation: `bin/verify.sh --writer <cli> --output <file>` dispatches to the matching reviewer chain in `scripts/python/verify.py`. Used by `bin/dream-light.sh` (Gemini journals → Codex reviews) and any mode at phase boundaries.*
 
-- **Modes can't declare themselves done** — Vibecoding-check is a mode-exit verifier with a 4-tier severity ladder (PASS → AUTOFIX → RETRY → OPERATOR-SURFACE). Universal checks on every run: operator approval present, declared artifacts exist, citations resolve, no `TODO/FIXME/XXX` in modified code, all phase-tags emitted. *Implementation: `bin/vibecoding-check.sh` wraps `scripts/python/vibecoding_check.py`. Smoke-tested all 4 tiers.*
+- **Modes can't declare themselves done** — Vibecoding-check is a mode-exit verifier with a 4-tier severity ladder (PASS → AUTOFIX → RETRY → OPERATOR-SURFACE). Universal checks include operator approval, declared artifacts, citations, TODO/FIXME/XXX scans, phase tags, deletion approval, and cleanup. *Implementation: `bin/vibecoding-check.sh` wraps `scripts/python/vibecoding_check.py`; mode docs must declare the final gate.*
 
-- **Persistent terminal sessions, never fresh starts** — All 5 Lead CLIs live in a single named tmux session. Detach with `Ctrl-b d`, reattach when you're back. Sessions survive overnight and across days — only a Mac reboot kills them. *Implementation: `bin/launch-squad.sh` creates a 6-window tmux session named `squad`; each window pre-configured with PATH + auth env + intro hint.*
+- **Persistent terminal sessions, never fresh starts** — Chrono plus four visible model-lane windows live in a single named tmux session, with a watcher/status window for mailboxes and health. Routing is specialist-to-model, while compatibility namespaces stay stable for storage. Detach with `Ctrl-b d`, reattach when you're back. *Implementation: `bin/launch-squad.sh` creates a tmux session named `squad`; each window is pre-configured with PATH + auth env + intro hint.*
 
 - **Nightly while you sleep** — A launchd job runs doctor health checks, RSS feed sweep across podcasts and vendor blogs, kimi-summarized blog briefs, podcast headline cards, multi-model dream pass (gemini journals → codex adversarially reviews), brain cleanup KG sweep, browser CDP keep-alive across 5 bounty platforms, and synthesizes a morning brief. (HTML-scrape and full audio transcription are partially implemented — RSS path is the live one today.) *Implementation: `bin/run-nightly.sh` orchestrates 8 phases via `launchd/com.claudevibesquad.nightly.plist`; `bin/run-weekly.sh` extends Sunday with deep dream + cross-source synthesis + weekly brief.*
 
@@ -71,18 +73,17 @@ Each bullet leads with **what you get in plain terms**. The technical detail fol
 Three levels:
 
 1. **You** talk only to **Chrono** (window 0 of the squad)
-2. **Chrono** routes to one of **5 Department Leads** via mailbox
-3. **Leads** dispatch their own **specialists** (sub-roles) and synthesize results
+2. **Chrono** chooses a specialist and model runtime, then routes through the compatibility mailbox
+3. **Leads** coordinate specialist execution and synthesize results; specialists do the domain work
 
-| Department | CLI | Model family | Owns |
-|------------|-----|--------------|------|
-| **Coding** | `codex` | OpenAI | implementation, refactoring, code review, deployment |
-| **Security** | `claude` | Anthropic | bounty hunting, threat modeling, security audits, exploit dev |
-| **Content** | `gemini` | Google | content creation, marketing assets, editorial, multimodal |
-| **SysMgmt** | `claude` | Anthropic | infra, processes, hygiene, doctor, dream curation |
-| **Research** | `kimi` | Moonshot | deep investigation, synthesis, learning, large-context analysis |
+| Model Lead | Compatibility pane | Owns |
+|------------|--------------------|------|
+| **GPT/Codex** | `coding` | implementation, refactoring, tests, code review |
+| **Claude** | `security`, `sysmgmt` | security, privacy, judgment, local operations, harness governance |
+| **Gemini** | `content` | design, multimodal content, media, editorial |
+| **Kimi** | `research` | deep investigation, synthesis, learning, large-context analysis |
 
-Each Lead has 5–14 specialists (`departments/<lead>/specialists/*.md`). Cross-cutting specialists (planner, skeptic, summarizer, vibecoding-check, prompt-engineer, triage) live in `shared/specialists/`.
+Specialists live in `departments/<lead>/specialists/*.md` for compatibility and in `shared/specialists/` for cross-cutting roles. Chrono chooses the specialist first, then the runtime.
 
 ---
 
@@ -94,7 +95,7 @@ Each Lead has 5–14 specialists (`departments/<lead>/specialists/*.md`). Cross-
 You: "let's audit this contract <URL>"
  │
  ▼
-Chrono confirms intent → calls scripts/send-task.sh security /tmp/task.md
+Chrono confirms intent → calls scripts/send-task.sh security /tmp/task.md scout claude
  │
  ▼
 send-task.sh:
@@ -102,8 +103,8 @@ send-task.sh:
   2. tmux send-keys → squad:security pane (auto-nudge)
  │
  ▼
-Security Lead (Claude) picks up:
-  inbox/ → active/ → process → outbox/<task-id>-response.md → archive/
+Security/Claude Lead picks up:
+  inbox/ → active/ → dispatch named specialist → outbox/<task-id>-response.md → archive/
  │
  ▼
 Chrono polls outbox at start of every operator turn
@@ -155,11 +156,17 @@ bash bin/install-routines.sh
 # Launch the squad
 bash bin/launch-squad.sh
 
+# Optional private-machine autonomy. This enables bypass/yolo-style CLI flags.
+SQUAD_UNSAFE_AUTONOMY=1 bash bin/launch-squad.sh
+
+# Optional Codex MCP convenience. This mutates ~/.codex/config.toml.
+SQUAD_TRUST_CODEX_MCPS=1 bash bin/launch-squad.sh
+
 # Attach
 tmux attach -t squad
 ```
 
-The launcher auto-starts every CLI. You'll land in window 0 (chrono) with Claude Code already running and a **5-tile sidebar** showing every Lead's live status (current focus, last delivery, mailbox counts, activity pulse, SLA). Start talking to Chrono on the left — the right side updates on its own. Try *"where are we"* — Chrono reads `chrono/current.md`, the morning brief, and each Lead's `current.md` to summarize state.
+The launcher auto-starts every CLI. You'll land in window 0 (chrono) with Claude Code already running and a **4-lane sidebar** showing model lane, active specialist, task count, last result, and blocked state. Start talking to Chrono on the left; the right side updates on its own. Try *"where are we"* — Chrono reads `chrono/current.md`, the morning brief, and each namespace `current.md` to summarize state.
 
 Each Lead also has its own dedicated tmux window with the full CLI, accessible via `Ctrl-b + <num>`:
 - Window 1 (coding): Codex
@@ -170,21 +177,24 @@ Each Lead also has its own dedicated tmux window with the full CLI, accessible v
 
 Detach with `Ctrl-b d`. The session keeps running. Toggle the sidebar off with `bash bin/sidebar-off.sh` if you want the chrono window full-width.
 
+From inside Chrono, use `/stop` to close the system gracefully and `/status` to show current state. These Claude command adapters run `bin/squad-stop.sh` and `bin/where-are-we.sh` without requiring you to type a shell command in another terminal.
+
 ---
 
 ## 🎯 Modes
 
 Modes are pre-defined workflows that engage on operator consent. None auto-fire on phrase matches.
 
-| Mode | Primary Lead | When to engage |
-|------|--------------|----------------|
-| **bounty** | Security | bug bounty work — hunting, exploiting, validating, submitting findings |
-| **project** | Coding | building or shipping a software project; spec → plan → implement → review |
-| **content** | Content | writing, editing, marketing assets, brand-voice work |
-| **research** | Research | deep investigation, multi-source synthesis, reading-list building |
-| **incident** | SysMgmt | active error or outage that needs immediate triage |
-| **maintenance** | SysMgmt | routine hygiene, KG cleanup, subscription audits |
-| **triage** | (any) | unclear scope — figure out which mode applies |
+| Mode | Compatibility owner | When to engage |
+|------|---------------------|----------------|
+| **bounty** | Security / Claude | bug bounty work — hunting, exploiting, validating, submitting findings |
+| **project** | Coding / GPT-Codex | building or shipping a software project; spec → plan → implement → review |
+| **content** | Content / Gemini | writing, editing, marketing assets, brand-voice work |
+| **outreach** | Research + Content + SysMgmt | find businesses/leads, qualify, draft outreach, approval-gated send prep |
+| **research** | Research / Kimi | deep investigation, multi-source synthesis, reading-list building |
+| **incident** | SysMgmt / Claude | active error or outage that needs immediate triage |
+| **maintenance** | SysMgmt / Claude | routine hygiene, KG cleanup, subscription audits |
+| **triage** | Chrono | unclear scope — figure out which mode applies |
 
 Each mode is `shared/modes/<name>.md` (60–200 lines) and ships with target-type profiles in `shared/mode-profiles/<mode>/<profile>.md` (web app vs. smart contract for bounty, etc.).
 
@@ -230,11 +240,11 @@ You bring your own subscriptions. The squad never bills against API keys unless 
 ~/Obsidian-Claude-Vibe-Squad/
 ├── README.md                 ← you are here
 ├── CLAUDE.md                 ← vault-level system rules (auto-loaded by Claude inside vault)
-├── chrono/                   ← Chrono coordinator pane
+├── chrono/                   ← Vibe Squad chrono/ directory for the Coordinator pane
 │   ├── SOUL.md               ← Chrono's identity
 │   ├── CLAUDE.md             ← auto-loaded by Claude in chrono/
 │   └── current.md            ← runtime state
-├── departments/              ← 5 Department Leads
+├── departments/              ← compatibility panes/folders for model-led routing
 │   ├── coding/               (Codex — AGENTS.md → LEAD.md)
 │   ├── security/             (Claude — CLAUDE.md → LEAD.md)
 │   ├── content/              (Gemini — GEMINI.md → LEAD.md)
@@ -243,7 +253,7 @@ You bring your own subscriptions. The squad never bills against API keys unless 
 ├── shared/                   ← cross-cutting workflows + specialists
 │   ├── protocol.md           ← mailbox message format
 │   ├── routing.md            ← mode triggers + cross-Lead rules
-│   ├── modes/                ← 7 mode workflows
+│   ├── modes/                ← mode workflows
 │   ├── mode-profiles/        ← 15 target-type profiles
 │   ├── specialists/          ← 6 cross-cutting (vibecoding-check, planner, skeptic, etc.)
 │   └── mailbox/              ← cross-Lead message templates
@@ -264,7 +274,7 @@ You bring your own subscriptions. The squad never bills against API keys unless 
 │   └── install-routines.sh   ← installs launchd plist
 ├── scripts/
 │   ├── send-task.sh          ← Chrono's dispatch helper
-│   ├── bootstrap-mcps.sh     ← register chrono MCPs across CLIs (optional)
+│   ├── bootstrap-mcps.sh     ← register Chrono MCPs across CLIs (optional)
 │   └── python/               ← Python implementations (uv + PEP 723 inline deps)
 ├── _state/                   ← runtime artifacts (gitignored)
 │   ├── feed-config.yaml      ← RSS sources + cadence rules
@@ -289,7 +299,7 @@ Two YAML files in `_state/`:
 - **`feed-config.yaml`** — RSS URLs, expected cadences, processors per source. Add your own podcasts / blogs here.
 - **`dream-config.yaml`** — what paths the dream system can scan, exclusion patterns (secrets, finance, private journal), thresholds, mode (`shadow` / `propose` / `aggressive`).
 
-The squad runs fine on each CLI's built-in tools. If you have your own MCP servers (e.g., a vault MCP, research MCP, content generation MCP), `bin/bootstrap-mcps.sh` registers them across Codex / Gemini / Kimi in one command. Without that registration, Leads still work — they just won't have MCP-mediated capabilities. The MCP integration is opt-in; the script gracefully exits when no MCP source is found.
+The squad runs fine on each CLI's built-in tools. If you have your own MCP servers (e.g., a vault MCP, research MCP, content generation MCP), `scripts/bootstrap-mcps.sh` registers them across Codex / Gemini / Kimi in one command. Without that registration, Leads still work — they just won't have MCP-mediated capabilities. The MCP integration is opt-in; the script gracefully exits when no MCP source is found.
 
 ---
 

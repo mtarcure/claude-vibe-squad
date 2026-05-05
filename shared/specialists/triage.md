@@ -37,7 +37,7 @@ Classify incoming work, route to right mode/Lead, surface routing decision to Co
 
 ## Routing recommendation
 - Mode: bounty | project | content | maintenance | incident | research | none
-- Lead: <which Department Lead>
+- Lead: <which compatibility namespace adapter>
 - Specialist (if specific): <name>
 
 ## Reasoning
