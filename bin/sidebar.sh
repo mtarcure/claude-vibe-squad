@@ -33,8 +33,8 @@ WATCH="bash ${VAULT_ROOT}/bin/watch-lane.sh all"
 # terminal resizes.
 tmux split-window -h -p 42 -t "${SESSION}:chrono"
 sleep 0.2
-tmux select-pane -t "${SESSION}:chrono.0" -T "CHRONO" >/dev/null
-tmux select-pane -t "${SESSION}:chrono.1" -T "MODEL LANES" >/dev/null
+tmux select-pane -t "${SESSION}:chrono.0" -T "CHRONO · coordinator" >/dev/null
+tmux select-pane -t "${SESSION}:chrono.1" -T "MODEL LANES · live status" >/dev/null
 tmux send-keys -t "${SESSION}:chrono.1" "${WATCH}" Enter
 
 window_width=$(tmux display-message -p -t "${SESSION}:chrono" '#{window_width}' 2>/dev/null || echo 120)
@@ -44,7 +44,7 @@ tmux set-window-option -t "${SESSION}:chrono" main-pane-width "$main_width" >/de
 tmux select-layout -t "${SESSION}:chrono" main-vertical >/dev/null
 
 tmux set-window-option -t "${SESSION}:chrono" pane-border-status top >/dev/null
-tmux set-window-option -t "${SESSION}:chrono" pane-border-format '#[fg=colour39,bold] #{pane_title} ' >/dev/null
+tmux set-window-option -t "${SESSION}:chrono" pane-border-format '#[fg=colour39,bold] #{pane_title} #[fg=colour238]─' >/dev/null
 tmux set-window-option -t "${SESSION}:chrono" pane-border-style 'fg=colour238' >/dev/null
 tmux set-window-option -t "${SESSION}:chrono" pane-active-border-style 'fg=colour39,bold' >/dev/null
 

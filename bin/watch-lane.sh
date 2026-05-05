@@ -14,6 +14,10 @@ case "${LANE}" in
 esac
 
 color() { printf '\033[%sm%s\033[0m' "$1" "$2"; }
+hide_cursor() { printf '\033[?25l'; }
+show_cursor() { printf '\033[?25h'; }
+home() { printf '\033[H'; }
+clear_to_end() { printf '\033[J'; }
 
 repeat_char() {
     local ch="$1" n="$2" out=""
@@ -162,13 +166,17 @@ draw_card() {
     printf '\n'
 }
 
+trap 'show_cursor; printf "\n"; exit 0' INT TERM EXIT
+hide_cursor
+printf '\033[2J'
+
 while true; do
     cols=$(tput cols 2>/dev/null || echo 70)
     width=$((cols - 1))
     [[ "$width" -lt 34 ]] && width=34
     [[ "$width" -gt 78 ]] && width=78
 
-    clear
+    home
     if [[ "$LANE" == "all" ]]; then
         color "1;37" "MODEL LANES"
         printf '  '
@@ -181,5 +189,6 @@ while true; do
     else
         draw_card "$LANE" "$width"
     fi
+    clear_to_end
     sleep 2
 done
