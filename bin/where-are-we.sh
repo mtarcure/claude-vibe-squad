@@ -37,7 +37,7 @@ if [[ -f "${REGISTRY}" ]] && command -v jq >/dev/null 2>&1; then
     in_flight=$(jq '[to_entries[] | select(.value.status == "in-flight")] | length' "${REGISTRY}" 2>/dev/null || echo 0)
     complete=$(jq '[to_entries[] | select(.value.status == "complete")] | length' "${REGISTRY}" 2>/dev/null || echo 0)
     echo "  in-flight: ${in_flight} │ complete: ${complete}"
-    jq -r 'to_entries[] | select(.value.status == "in-flight") | "  " + .key + " → " + (.value.to_lead // "?") + " scope=" + ((.value.write_scope // []) | join(","))' "${REGISTRY}" 2>/dev/null
+    jq -r 'to_entries[] | select(.value.status == "in-flight") | "  " + .key + " → " + (.value.compatibility_namespace // .value.to_lead // "?") + " / " + (.value.to_model // "?") + " / " + (.value.specialist // "?") + " scope=" + ((.value.write_scope // []) | join(","))' "${REGISTRY}" 2>/dev/null
 elif [[ -f "${REGISTRY}" ]]; then
     echo "  ${REGISTRY} exists; install jq for structured summary"
 else
@@ -86,7 +86,7 @@ if [[ -f "${REGISTRY}" ]] && command -v jq >/dev/null 2>&1; then
         if [[ -f "${VAULT_ROOT}/departments/${lead}/outbox/${task_id}-response.md" ]]; then
             color '1;31' "  CONTRADICTION: ${task_id} is in-flight in registry but response exists in ${lead}/outbox"
         fi
-    done < <(jq -r 'to_entries[] | select(.value.status == "in-flight") | [.key, .value.to_lead] | @tsv' "${REGISTRY}" 2>/dev/null)
+    done < <(jq -r 'to_entries[] | select(.value.status == "in-flight") | [.key, (.value.compatibility_namespace // .value.to_lead)] | @tsv' "${REGISTRY}" 2>/dev/null)
 fi
 echo ""
 

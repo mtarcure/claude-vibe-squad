@@ -98,7 +98,7 @@ fi
         | grep -v 'bin/upgrade-specialists.py'; then
         :
     fi
-    if grep -RInE '^[[:space:]]*(to_lead|owning_lead):' \
+    if grep -RInE '^[[:space:]]*["'\'']?(to_lead|owning_lead)["'\'']?[[:space:]]*:' \
         "${VAULT_ROOT}/README.md" "${VAULT_ROOT}/CLAUDE.md" "${VAULT_ROOT}/chrono" \
         "${VAULT_ROOT}/docs" "${VAULT_ROOT}/shared/protocol.md" "${VAULT_ROOT}/shared/modes" \
         "${VAULT_ROOT}/examples" 2>/dev/null; then
