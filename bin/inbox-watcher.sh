@@ -43,5 +43,5 @@ fswatch -0 --event=Created --event=Renamed --event=MovedTo \
     if ! tmux has-session -t "$SESSION" 2>/dev/null; then continue; fi
     if ! tmux list-windows -t "$SESSION" -F '#{window_name}' 2>/dev/null | grep -qx "${TARGET_WIN}"; then continue; fi
     echo "[$(date '+%H:%M:%S')] new: $(basename "$path") → nudging ${SESSION}:${TARGET_WIN}"
-    VAULT_ROOT="$VAULT_ROOT" SQUAD_SESSION="$SESSION" bash "${VAULT_ROOT}/bin/nudge-task.sh" "$path" || true
+    env VAULT_ROOT="$VAULT_ROOT" SQUAD_SESSION="$SESSION" bash "${VAULT_ROOT}/bin/nudge-task.sh" "$path" || true
 done

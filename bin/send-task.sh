@@ -427,7 +427,7 @@ info "Dispatch log updated"
 # ── nudge model lane pane ─────────────────────────────────────────────────────
 
 if [[ -n "$NUDGE_PANE" ]]; then
-    VAULT_ROOT="$VAULT_ROOT" bash "${VAULT_ROOT}/bin/nudge-task.sh" "$DEST" \
+    env VAULT_ROOT="$VAULT_ROOT" bash "${VAULT_ROOT}/bin/nudge-task.sh" "$DEST" \
         && info "Nudged pane ${NUDGE_PANE}" \
         || echo "WARNING: Failed to nudge pane ${NUDGE_PANE} (dispatch already recorded)" >&2
 fi
