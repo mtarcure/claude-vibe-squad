@@ -58,6 +58,87 @@ map_field() {
     awk -F '\t' -v s="$specialist" -v idx="$field_index" '$1 == s {print $idx; exit}' "$RUNTIME_MAP"
 }
 
+validate_native_adapter() {
+    local model="$1" specialist="$2" adapter agent_name
+    [[ "$specialist" == "none" ]] && return 0
+    case "$model" in
+        gpt-codex)
+            adapter="${VAULT_ROOT}/model-lanes/gpt-codex/.codex/agents/${specialist}.toml"
+            agent_name="${specialist//-/_}"
+            [[ -f "$adapter" ]] || die "predispatch blocked: missing Codex adapter for specialist '${specialist}'"
+            grep -q "name = \"${agent_name}\"" "$adapter" || die "predispatch blocked: Codex adapter name mismatch for specialist '${specialist}'"
+            ;;
+        claude)
+            adapter="${VAULT_ROOT}/model-lanes/claude/.claude/agents/${specialist}.md"
+            [[ -f "$adapter" ]] || die "predispatch blocked: missing Claude adapter for specialist '${specialist}'"
+            [[ "$(head -n 1 "$adapter")" == "---" ]] || die "predispatch blocked: Claude adapter missing YAML frontmatter for specialist '${specialist}'"
+            ;;
+        gemini)
+            adapter="${VAULT_ROOT}/model-lanes/gemini/.gemini/agents/${specialist}.md"
+            [[ -f "$adapter" ]] || die "predispatch blocked: missing Gemini adapter for specialist '${specialist}'"
+            [[ "$(head -n 1 "$adapter")" == "---" ]] || die "predispatch blocked: Gemini adapter missing YAML frontmatter for specialist '${specialist}'"
+            grep -q "^name: ${specialist}$" "$adapter" || die "predispatch blocked: Gemini adapter name mismatch for specialist '${specialist}'"
+            ;;
+        kimi)
+            adapter="${VAULT_ROOT}/model-lanes/kimi/subagents/${specialist}.yaml"
+            [[ -f "$adapter" ]] || die "predispatch blocked: missing Kimi adapter for specialist '${specialist}'"
+            grep -q "^[[:space:]]*${specialist}:" "${VAULT_ROOT}/model-lanes/kimi/main.yaml" || die "predispatch blocked: Kimi main.yaml missing subagent '${specialist}'"
+            ;;
+    esac
+}
+
+validate_task_capabilities() {
+    local task_file="$1" latest_audit
+    latest_audit="$(find "${VAULT_ROOT}/_state/audit-logs" -maxdepth 1 -name '*-mcp-audit.md' -type f -print 2>/dev/null | sort | tail -1 || true)"
+    python3 - "$task_file" "$latest_audit" <<'PYEOF'
+import re
+import sys
+from pathlib import Path
+
+task_path = Path(sys.argv[1])
+audit_path = Path(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2] else None
+text = task_path.read_text(errors="replace")
+
+blocked_names = {
+    "perplexity_search_web": "chrono-research-arsenal currently exposes arxiv_search,xai_search only",
+    "brave_search": "chrono-research-arsenal currently exposes arxiv_search,xai_search only",
+    "serper_search": "chrono-research-arsenal currently exposes arxiv_search,xai_search only",
+    "elevenlabs__check_subscription": "chrono-content-engineer currently exposes generate_audio,generate_image,generate_video only",
+}
+issues = []
+for name, reason in blocked_names.items():
+    if re.search(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])", text):
+        issues.append(f"unavailable-tool:{name} ({reason})")
+
+tools_by_server: dict[str, set[str]] = {}
+if audit_path and audit_path.exists():
+    for line in audit_path.read_text(errors="replace").splitlines():
+        match = re.match(r"- (chrono-[a-z-]+): .* tools=([^ ]+)", line)
+        if not match:
+            continue
+        server, tools_csv = match.groups()
+        tools = {tool for tool in tools_csv.split(",") if tool and tool != "none"}
+        tools_by_server.setdefault(server, set()).update(tools)
+
+patterns = [
+    re.compile(r"`?(chrono-[a-z-]+)`?\s+MCP server's\s+`?([A-Za-z_][A-Za-z0-9_]*)`?\s+tool", re.I),
+    re.compile(r"`?(chrono-[a-z-]+)`?\s+MCP\s+tool\s+`?([A-Za-z_][A-Za-z0-9_]*)`?", re.I),
+]
+for pattern in patterns:
+    for server, tool in pattern.findall(text):
+        if server not in tools_by_server:
+            issues.append(f"unverified-mcp-server:{server} has no tools/list proof in latest audit")
+            continue
+        if tool not in tools_by_server[server]:
+            available = ",".join(sorted(tools_by_server[server])) or "none"
+            issues.append(f"unavailable-tool:{server}.{tool} (available:{available})")
+
+if issues:
+    print("predispatch capability validation failed: " + "; ".join(sorted(set(issues))), file=sys.stderr)
+    raise SystemExit(1)
+PYEOF
+}
+
 # ── sub-command: close task on response landing ───────────────────────────────
 # Called by response-landing hook when a lane writes TASK-*-response.md.
 
@@ -221,6 +302,9 @@ if [[ "$SPECIALIST" != "none" ]]; then
         die "high-safety specialist '${SPECIALIST}' requires mandatory_review:true"
     fi
 fi
+
+validate_native_adapter "$TO_MODEL" "$SPECIALIST"
+validate_task_capabilities "$TASK_FILE" || die "task references unavailable or unverified live capability"
 
 MAILBOX_ROOT="${VAULT_ROOT}/departments/${COMPAT_NAMESPACE}"
 mkdir -p "${MAILBOX_ROOT}/inbox" "${MAILBOX_ROOT}/active" "${MAILBOX_ROOT}/outbox" "${MAILBOX_ROOT}/archive"
