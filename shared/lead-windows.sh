@@ -31,6 +31,17 @@ runtime_display_name() {
     esac
 }
 
+runtime_tagline() {
+    case "$1" in
+        codex|gpt-codex) echo "implementation + tests" ;;
+        claude) echo "judgment + safety" ;;
+        gemini) echo "media + grounding" ;;
+        kimi) echo "long-context analysis" ;;
+        chrono) echo "coordinator" ;;
+        *) echo "specialist execution" ;;
+    esac
+}
+
 runtime_short_name() {
     case "$1" in
         codex|gpt-codex) echo "CODEX" ;;
