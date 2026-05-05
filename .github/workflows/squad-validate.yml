@@ -4,7 +4,7 @@ name: Squad Validate
 # Remote: https://github.com/mtarcure/claude-vibe-squad.git
 # Security note: no user-controlled inputs used in run: blocks — safe from injection.
 
-on:
+"on":
   push:
     branches: [main]
   pull_request:
@@ -52,12 +52,47 @@ jobs:
       - name: Validate active-tasks.json schema (if present)
         run: |
           if [ -f "_state/active-tasks.json" ]; then
-            python3 -c 'import json, sys; registry=json.load(open("_state/active-tasks.json")); errors=[f"{tid} missing field: {field}" for tid, entry in registry.items() for field in ("to_lead", "dispatched_at", "write_scope", "status") if field not in entry]; [print(f"ERROR: {e}") for e in errors]; print(f"OK: {len(registry)} entries valid.") if not errors else None; sys.exit(1 if errors else 0)'
+            python3 - <<'PY'
+          import json
+          import sys
+
+          with open("_state/active-tasks.json") as f:
+              registry = json.load(f)
+
+          required = (
+              "compatibility_namespace",
+              "to_model",
+              "specialist",
+              "source_namespace",
+              "dispatched_at",
+              "write_scope",
+              "status",
+          )
+          errors = [
+              f"{task_id} missing field: {field}"
+              for task_id, entry in registry.items()
+              for field in required
+              if field not in entry
+          ]
+          for error in errors:
+              print(f"ERROR: {error}")
+          if not errors:
+              print(f"OK: {len(registry)} entries valid.")
+          sys.exit(1 if errors else 0)
+          PY
           else
             echo "OK: no active-tasks.json (clean state)."
           fi
       - name: Validate sample active registry
-        run: python3 -c 'import json; data=json.load(open("examples/active-tasks.sample.json")); assert isinstance(data, dict); print("OK: sample active registry parses")'
+        run: |
+          python3 - <<'PY'
+          import json
+
+          with open("examples/active-tasks.sample.json") as f:
+              data = json.load(f)
+          assert isinstance(data, dict)
+          print("OK: sample active registry parses")
+          PY
       - name: Block private runtime artifacts
         run: |
           bad="$(git ls-files | grep -E '(^_state/(tmux-logs|doctor-logs|cleanup-logs|morning-briefs|nightly-failures|active-tasks\.json)|^departments/[^/]+/(inbox|active|outbox)/.+\.md$|^departments/[^/]+/archive/.+\.md$|__pycache__|\.pyc$)' || true)"
