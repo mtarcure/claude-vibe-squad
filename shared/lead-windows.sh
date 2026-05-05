@@ -31,6 +31,40 @@ runtime_display_name() {
     esac
 }
 
+runtime_short_name() {
+    case "$1" in
+        codex|gpt-codex) echo "CODEX" ;;
+        claude) echo "CLAUDE" ;;
+        gemini) echo "GEMINI" ;;
+        kimi) echo "KIMI" ;;
+        chrono) echo "CHRONO" ;;
+        watchers) echo "WATCH" ;;
+        *) echo "$1" ;;
+    esac
+}
+
+runtime_accent_color() {
+    case "$1" in
+        codex|gpt-codex) echo "214" ;; # amber
+        claude) echo "203" ;;         # coral
+        gemini) echo "141" ;;         # violet
+        kimi) echo "45" ;;            # cyan
+        chrono) echo "39" ;;
+        *) echo "250" ;;
+    esac
+}
+
+runtime_terminal_color() {
+    case "$1" in
+        codex|gpt-codex) echo "33" ;; # yellow
+        claude) echo "31" ;;          # red/coral
+        gemini) echo "35" ;;          # magenta
+        kimi) echo "36" ;;            # cyan
+        chrono) echo "34" ;;
+        *) echo "37" ;;
+    esac
+}
+
 namespace_default_model() {
     case "$1" in
         coding) echo "gpt-codex" ;;
