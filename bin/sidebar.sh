@@ -46,7 +46,8 @@ tmux select-layout -t "${SESSION}:chrono" main-vertical >/dev/null
 tmux set-window-option -t "${SESSION}:chrono" pane-border-status top >/dev/null
 tmux set-window-option -t "${SESSION}:chrono" pane-border-format '#[fg=colour39,bold] #{pane_title} #[fg=colour238]─' >/dev/null
 tmux set-window-option -t "${SESSION}:chrono" pane-border-style 'fg=colour238' >/dev/null
-tmux set-window-option -t "${SESSION}:chrono" pane-active-border-style 'fg=colour39,bold' >/dev/null
+tmux set-window-option -t "${SESSION}:chrono" pane-active-border-style 'fg=colour51,bold' >/dev/null
+tmux set-window-option -t "${SESSION}:chrono" window-active-style 'fg=colour255,bg=colour234' >/dev/null
 
 # Focus stays on chrono main pane
 tmux select-pane -t "${SESSION}:chrono.0"
