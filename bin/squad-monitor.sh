@@ -124,6 +124,21 @@ detect_stuck() {
     # Already alerted this episode?
     [[ -f "$alerted_file" ]] && return
 
+    # Liveness check 1: subagent actively writing to a /tmp/cdp_dumps subdir in the last 90s
+    # (long static-analysis tasks legitimately produce no pane output for minutes while
+    # writing intermediate artifacts to disk — these should NOT trip the stuck alarm).
+    if find /tmp/cdp_dumps -mindepth 2 -maxdepth 4 -type f -newermt '90 seconds ago' 2>/dev/null \
+        | head -1 | grep -q .; then
+        return
+    fi
+
+    # Liveness check 2: pane shows an active-subagent indicator. Each runtime CLI emits
+    # a distinctive status line while a Task / Agent subagent is in flight.
+    if tmux capture-pane -t "${pane}" -p 2>/dev/null | tail -10 \
+        | grep -qE 'local agent.*running|✻ (Working|Brewed|Baked|Manifesting|Crunched|Musing|Churned|Cooking) for|⏵⏵.*esc to interrupt'; then
+        return
+    fi
+
     local task_name
     task_name=$(basename "$inbox_tasks")
     local stale_min=$(( stale_secs / 60 ))
