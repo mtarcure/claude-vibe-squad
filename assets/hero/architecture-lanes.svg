@@ -1,0 +1,41 @@
+<svg width="1400" height="720" viewBox="0 0 1400 720" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Vibe Squad architecture</title>
+  <desc id="desc">Operator to Chrono to model leads to specialists.</desc>
+  <rect width="1400" height="720" fill="#0b1020"/>
+  <text x="80" y="82" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="42" font-weight="800">Architecture</text>
+  <text x="80" y="120" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="22">Chrono controls the system. Model leads execute specialist briefs.</text>
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M2 2 L10 6 L2 10 Z" fill="#64748b"/>
+    </marker>
+  </defs>
+  <rect x="70" y="250" width="220" height="116" rx="16" fill="#111827" stroke="#38bdf8" stroke-width="2"/>
+  <text x="180" y="300" text-anchor="middle" fill="#67e8f9" font-family="Inter, Arial, sans-serif" font-size="26" font-weight="800">Operator</text>
+  <text x="180" y="334" text-anchor="middle" fill="#cbd5e1" font-family="Inter, Arial, sans-serif" font-size="18">one conversation</text>
+
+  <line x1="300" y1="308" x2="430" y2="308" stroke="#64748b" stroke-width="4" marker-end="url(#arrow)"/>
+  <rect x="440" y="214" width="250" height="188" rx="18" fill="#082f49" stroke="#22d3ee" stroke-width="2"/>
+  <text x="565" y="286" text-anchor="middle" fill="#e0f2fe" font-family="Inter, Arial, sans-serif" font-size="36" font-weight="900">Chrono</text>
+  <text x="565" y="326" text-anchor="middle" fill="#bae6fd" font-family="Inter, Arial, sans-serif" font-size="20">plans, scopes, routes,</text>
+  <text x="565" y="354" text-anchor="middle" fill="#bae6fd" font-family="Inter, Arial, sans-serif" font-size="20">reviews, reports</text>
+
+  <line x1="700" y1="308" x2="800" y2="308" stroke="#64748b" stroke-width="4" marker-end="url(#arrow)"/>
+  <g transform="translate(820 140)">
+    <rect x="0" y="0" width="210" height="92" rx="14" fill="#1f1608" stroke="#f59e0b"/>
+    <text x="105" y="38" text-anchor="middle" fill="#fbbf24" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="24" font-weight="800">GPT/Codex</text>
+    <text x="105" y="66" text-anchor="middle" fill="#cbd5e1" font-family="Inter, Arial, sans-serif" font-size="16">implementation</text>
+    <rect x="250" y="0" width="210" height="92" rx="14" fill="#260f12" stroke="#fb7185"/>
+    <text x="355" y="38" text-anchor="middle" fill="#fb7185" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="24" font-weight="800">Claude</text>
+    <text x="355" y="66" text-anchor="middle" fill="#cbd5e1" font-family="Inter, Arial, sans-serif" font-size="16">judgment</text>
+    <rect x="0" y="128" width="210" height="92" rx="14" fill="#1b1130" stroke="#c084fc"/>
+    <text x="105" y="166" text-anchor="middle" fill="#d8b4fe" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="24" font-weight="800">Gemini</text>
+    <text x="105" y="194" text-anchor="middle" fill="#cbd5e1" font-family="Inter, Arial, sans-serif" font-size="16">media</text>
+    <rect x="250" y="128" width="210" height="92" rx="14" fill="#062025" stroke="#22d3ee"/>
+    <text x="355" y="166" text-anchor="middle" fill="#67e8f9" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="24" font-weight="800">Kimi</text>
+    <text x="355" y="194" text-anchor="middle" fill="#cbd5e1" font-family="Inter, Arial, sans-serif" font-size="16">long context</text>
+  </g>
+  <line x1="1060" y1="372" x2="1060" y2="470" stroke="#64748b" stroke-width="4" marker-end="url(#arrow)"/>
+  <rect x="810" y="492" width="500" height="116" rx="16" fill="#111827" stroke="#334155"/>
+  <text x="1060" y="540" text-anchor="middle" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="800">46 canonical specialists</text>
+  <text x="1060" y="576" text-anchor="middle" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="20">specialist -> best model lead -> review model -> source namespace</text>
+</svg>

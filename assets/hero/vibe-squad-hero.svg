@@ -1,0 +1,65 @@
+<svg width="1400" height="735" viewBox="0 0 1400 735" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Vibe Squad command center</title>
+  <desc id="desc">Chrono coordinates four model leads: GPT Codex, Claude, Gemini, and Kimi.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1400" y2="735">
+      <stop offset="0" stop-color="#071017"/>
+      <stop offset="0.52" stop-color="#111827"/>
+      <stop offset="1" stop-color="#171123"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="110" y1="150" x2="1290" y2="650">
+      <stop offset="0" stop-color="#101820"/>
+      <stop offset="1" stop-color="#0b1220"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="20" stdDeviation="28" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <rect width="1400" height="735" fill="url(#bg)"/>
+  <rect x="84" y="78" width="1232" height="580" rx="28" fill="url(#panel)" stroke="#2f3b4d" filter="url(#shadow)"/>
+  <rect x="84" y="78" width="1232" height="54" rx="28" fill="#151f2e"/>
+  <circle cx="125" cy="105" r="8" fill="#ff5f57"/>
+  <circle cx="151" cy="105" r="8" fill="#ffbd2e"/>
+  <circle cx="177" cy="105" r="8" fill="#28c840"/>
+  <text x="700" y="113" text-anchor="middle" fill="#cbd5e1" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="18">squad / chrono</text>
+
+  <text x="150" y="206" fill="#67e8f9" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="800">CHRONO</text>
+  <text x="150" y="244" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="56" font-weight="800">One operator.</text>
+  <text x="150" y="306" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="56" font-weight="800">Four model leads.</text>
+  <text x="150" y="368" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="56" font-weight="800">Forty-six specialists.</text>
+  <text x="153" y="424" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="24">A local markdown-first AI command center for bounty,</text>
+  <text x="153" y="458" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="24">project, research, content, ops, and release workflows.</text>
+
+  <rect x="152" y="514" width="124" height="38" rx="8" fill="#082f49" stroke="#38bdf8"/>
+  <text x="214" y="539" text-anchor="middle" fill="#e0f2fe" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="16" font-weight="700">squad up</text>
+  <rect x="292" y="514" width="180" height="38" rx="8" fill="#2b1a08" stroke="#f59e0b"/>
+  <text x="382" y="539" text-anchor="middle" fill="#ffedd5" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="16" font-weight="700">filesystem mailbox</text>
+  <rect x="488" y="514" width="148" height="38" rx="8" fill="#251036" stroke="#c084fc"/>
+  <text x="562" y="539" text-anchor="middle" fill="#f3e8ff" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="16" font-weight="700">review gates</text>
+
+  <g transform="translate(760 190)">
+    <rect x="0" y="0" width="430" height="360" rx="18" fill="#08111f" stroke="#334155"/>
+    <text x="26" y="42" fill="#e2e8f0" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="800">MODEL LANES</text>
+    <text x="174" y="42" fill="#64748b" font-family="Inter, Arial, sans-serif" font-size="15">live status</text>
+    <g transform="translate(26 70)">
+      <rect width="378" height="54" rx="10" fill="#1f1608" stroke="#f59e0b"/>
+      <text x="18" y="34" fill="#fbbf24" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="18" font-weight="800">CODEX</text>
+      <text x="108" y="34" fill="#cbd5e1" font-family="Inter, Arial, sans-serif" font-size="17">implementation + tests</text>
+    </g>
+    <g transform="translate(26 140)">
+      <rect width="378" height="54" rx="10" fill="#260f12" stroke="#fb7185"/>
+      <text x="18" y="34" fill="#fb7185" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="18" font-weight="800">CLAUDE</text>
+      <text x="118" y="34" fill="#cbd5e1" font-family="Inter, Arial, sans-serif" font-size="17">judgment + safety</text>
+    </g>
+    <g transform="translate(26 210)">
+      <rect width="378" height="54" rx="10" fill="#1b1130" stroke="#c084fc"/>
+      <text x="18" y="34" fill="#d8b4fe" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="18" font-weight="800">GEMINI</text>
+      <text x="118" y="34" fill="#cbd5e1" font-family="Inter, Arial, sans-serif" font-size="17">media + grounding</text>
+    </g>
+    <g transform="translate(26 280)">
+      <rect width="378" height="54" rx="10" fill="#062025" stroke="#22d3ee"/>
+      <text x="18" y="34" fill="#67e8f9" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="18" font-weight="800">KIMI</text>
+      <text x="94" y="34" fill="#cbd5e1" font-family="Inter, Arial, sans-serif" font-size="17">long-context analysis</text>
+    </g>
+  </g>
+</svg>

@@ -1,0 +1,37 @@
+<svg width="1400" height="620" viewBox="0 0 1400 620" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Vibe Squad mailbox flow</title>
+  <desc id="desc">Chrono writes task packets to source namespace inboxes and model leads return markdown responses.</desc>
+  <rect width="1400" height="620" fill="#0a0f1e"/>
+  <text x="80" y="82" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="42" font-weight="800">Mailbox Dispatch</text>
+  <text x="80" y="120" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="22">Markdown task packets move through durable filesystem rails.</text>
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M2 2 L10 6 L2 10 Z" fill="#64748b"/>
+    </marker>
+  </defs>
+  <g font-family="Inter, Arial, sans-serif">
+    <rect x="90" y="230" width="230" height="120" rx="16" fill="#082f49" stroke="#22d3ee" stroke-width="2"/>
+    <text x="205" y="276" text-anchor="middle" fill="#e0f2fe" font-size="27" font-weight="800">Chrono</text>
+    <text x="205" y="312" text-anchor="middle" fill="#bae6fd" font-size="18">creates scoped TASK.md</text>
+    <line x1="335" y1="290" x2="455" y2="290" stroke="#64748b" stroke-width="4" marker-end="url(#arrow)"/>
+
+    <rect x="470" y="205" width="270" height="170" rx="16" fill="#111827" stroke="#f59e0b" stroke-width="2"/>
+    <text x="605" y="252" text-anchor="middle" fill="#fbbf24" font-size="25" font-weight="800">source namespace</text>
+    <text x="605" y="288" text-anchor="middle" fill="#cbd5e1" font-size="18">departments/*/inbox</text>
+    <text x="605" y="320" text-anchor="middle" fill="#94a3b8" font-size="17">storage only</text>
+    <text x="605" y="348" text-anchor="middle" fill="#94a3b8" font-size="17">not model ownership</text>
+    <line x1="755" y1="290" x2="875" y2="290" stroke="#64748b" stroke-width="4" marker-end="url(#arrow)"/>
+
+    <rect x="890" y="205" width="240" height="170" rx="16" fill="#1b1130" stroke="#c084fc" stroke-width="2"/>
+    <text x="1010" y="252" text-anchor="middle" fill="#d8b4fe" font-size="25" font-weight="800">model lead</text>
+    <text x="1010" y="288" text-anchor="middle" fill="#cbd5e1" font-size="18">executes specialist</text>
+    <text x="1010" y="320" text-anchor="middle" fill="#94a3b8" font-size="17">active -> outbox</text>
+    <line x1="1145" y1="290" x2="1255" y2="290" stroke="#64748b" stroke-width="4" marker-end="url(#arrow)"/>
+
+    <rect x="1260" y="230" width="90" height="120" rx="16" fill="#062025" stroke="#22d3ee" stroke-width="2"/>
+    <text x="1305" y="278" text-anchor="middle" fill="#67e8f9" font-size="18" font-weight="800">reply</text>
+    <text x="1305" y="310" text-anchor="middle" fill="#cbd5e1" font-size="16">md</text>
+  </g>
+  <rect x="230" y="440" width="940" height="70" rx="12" fill="#111827" stroke="#334155"/>
+  <text x="700" y="484" text-anchor="middle" fill="#cbd5e1" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="20">to_model + specialist + write_scope + review_model + safety level</text>
+</svg>
