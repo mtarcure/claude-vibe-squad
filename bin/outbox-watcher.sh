@@ -1,27 +1,27 @@
 #!/bin/bash
 # Outbox watcher — fires `tmux send-keys` to the chrono (Coordinator) pane the
-# moment a Lead writes a RESP file to its outbox/. Closes the outbox-poller
+# moment a model lane writes a response file to a compatibility outbox/. Closes the outbox-poller
 # gap: chrono's CLAUDE.md says "scan outboxes at start of every operator turn"
 # but that's pull-based and only fires when the operator types. This watcher
 # is push-based — when a Lead finishes work, chrono is notified immediately
 # and can surface to operator (or queue for Telegram via a separate layer).
 #
 # Architectural symmetry with inbox-watcher.sh:
-#   - inbox-watcher: outside-world (Chrono) → Lead inbox → nudge Lead pane
-#   - outbox-watcher: Lead outbox → nudge Chrono pane → Chrono surfaces to operator
+#   - inbox-watcher: outside-world (Chrono) -> namespace inbox -> nudge model lane pane
+#   - outbox-watcher: namespace outbox -> nudge Chrono pane -> Chrono surfaces to operator
 #
-# Per `shared/protocol.md`: response files land in `departments/<lead>/outbox/`
+# Per `shared/protocol.md`: response files land in `departments/<namespace>/outbox/`
 # matching `*-response.md` (the convention used by send-task.sh's reply path)
-# or `RESP-<id>.md` (peer-to-peer cross-Lead replies).
+# or `RESP-<id>.md` (legacy peer replies).
 #
-# Usage:  bash bin/outbox-watcher.sh <lead-name>
+# Usage:  bash bin/outbox-watcher.sh <source-namespace>
 # Typically launched by launch-squad.sh as a background pane alongside
 # inbox-watchers (window 6).
 
 set -uo pipefail
 
-LEAD="${1:-}"
-if [[ -z "${LEAD}" ]]; then
+NAMESPACE="${1:-}"
+if [[ -z "${NAMESPACE}" ]]; then
     echo "usage: $0 <coding|security|content|sysmgmt|research>"
     exit 1
 fi
@@ -33,11 +33,35 @@ fi
 
 VAULT_ROOT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
 SESSION="${SQUAD_SESSION:-squad}"
-OUTBOX="${VAULT_ROOT}/departments/${LEAD}/outbox"
+OUTBOX="${VAULT_ROOT}/departments/${NAMESPACE}/outbox"
 
 mkdir -p "${OUTBOX}"
 
 echo "Watching ${OUTBOX}/ for new responses; will nudge squad:chrono pane on each."
+
+frontmatter_field() {
+    local file="$1" field="$2"
+    awk -v key="$field" '/^---$/{p=!p; next} p && index($0, key ":") == 1 {sub("^[^:]+:[[:space:]]*", ""); print; exit}' "$file"
+}
+
+response_context() {
+    local fname="$1" task_id task_file state to_model specialist
+    if [[ "$fname" == TASK-*-response.md ]]; then
+        task_id="${fname%-response.md}"
+        for state in inbox active archive; do
+            task_file="${VAULT_ROOT}/departments/${NAMESPACE}/${state}/${task_id}.md"
+            if [[ -f "$task_file" ]]; then
+                to_model="$(frontmatter_field "$task_file" to_model)"
+                specialist="$(frontmatter_field "$task_file" specialist)"
+                [[ -n "$to_model" ]] || to_model="unknown-model"
+                [[ -n "$specialist" ]] || specialist="unknown-specialist"
+                printf '%s/%s' "$to_model" "$specialist"
+                return
+            fi
+        done
+    fi
+    printf 'unknown-model/unknown-specialist'
+}
 
 fswatch -0 --event=Created --event=Renamed --event=MovedTo \
         -e '\.tmp$' -e '\.swp$' -e '\.lock$' -e '\.gitkeep$' \
@@ -55,7 +79,8 @@ fswatch -0 --event=Created --event=Renamed --event=MovedTo \
     if ! tmux list-windows -t "$SESSION" -F '#{window_name}' 2>/dev/null | grep -qx "chrono"; then continue; fi
 
     fname="$(basename "$path")"
-    echo "[$(date '+%H:%M:%S')] new: ${fname} from ${LEAD} → nudging squad:chrono"
+    ctx="$(response_context "$fname")"
+    echo "[$(date '+%H:%M:%S')] new: ${fname} from ${ctx} via ${NAMESPACE} namespace -> nudging squad:chrono"
 
     if [[ "$fname" == TASK-*-response.md ]]; then
         task_id="${fname%-response.md}"
@@ -86,10 +111,10 @@ PYEOF
             echo "[$(date '+%H:%M:%S')] warning: failed to close active-task registry entry: ${task_id}" >&2
         fi
         for state in inbox active; do
-            task_file="${VAULT_ROOT}/departments/${LEAD}/${state}/${task_id}.md"
+            task_file="${VAULT_ROOT}/departments/${NAMESPACE}/${state}/${task_id}.md"
             if [[ -f "$task_file" ]]; then
-                mkdir -p "${VAULT_ROOT}/departments/${LEAD}/archive"
-                mv "$task_file" "${VAULT_ROOT}/departments/${LEAD}/archive/${task_id}.md"
+                mkdir -p "${VAULT_ROOT}/departments/${NAMESPACE}/archive"
+                mv "$task_file" "${VAULT_ROOT}/departments/${NAMESPACE}/archive/${task_id}.md"
                 echo "[$(date '+%H:%M:%S')] archived completed task packet: ${state}/${task_id}.md"
             fi
         done
@@ -97,7 +122,7 @@ PYEOF
 
     # Compose the nudge. Chrono receives this in its conversation as if the
     # operator typed it, then chooses to read + surface per its own protocol.
-    NUDGE_MSG="RESP from ${LEAD}: ${fname} landed in departments/${LEAD}/outbox/. Read and surface to operator per chrono/CLAUDE.md protocol."
+    NUDGE_MSG="RESP from model lane ${ctx}: ${fname} landed in compatibility mailbox departments/${NAMESPACE}/outbox/. Read and surface to operator per chrono/CLAUDE.md protocol."
 
     # Match inbox-watcher.sh keystroke pattern: literal text, sleep, then Enter.
     # The 0.3s sleep gives the receiving CLI time to settle before Enter is

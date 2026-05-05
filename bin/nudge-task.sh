@@ -34,7 +34,7 @@ if ! tmux list-windows -t "$SESSION" -F '#{window_name}' 2>/dev/null | grep -qx 
     exit 1
 fi
 
-msg="TASK READY: open and process this exact task packet: ${TASK_PATH}. You are the ${to_model} model lead executing specialist ${specialist}; do not dispatch to another specialist. Read only the files named in the packet unless it explicitly allows more. Write the final response to: ${return_artifact}."
+msg="TASK READY: open and process this exact task packet: ${TASK_PATH}. You are the ${to_model} model lead executing specialist ${specialist}. Use your native specialist/subagent adapter for ${specialist} if it is registered in this lane; otherwise execute inline and report the capability gap. Do not create another Chrono/mailbox task unless the packet explicitly asks for cross-lane review or parallel work. Read only the files named in the packet unless it explicitly allows more. Write the final response to: ${return_artifact}."
 
 tmux send-keys -l -t "${SESSION}:${target_win}" "$msg"
 sleep 0.3

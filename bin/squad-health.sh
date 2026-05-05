@@ -1,11 +1,11 @@
 #!/bin/bash
-# Squad health aggregator — counts state across all 5 Leads. Outputs a
+# Squad health aggregator — counts state across all compatibility namespaces. Outputs a
 # single line for tmux status bar consumption (or operator stdout).
 #
 # Format:  act:N pen:N err:N thru:N/h
-#  - act    = tasks currently in any Lead's active/ (being processed)
-#  - pen    = tasks queued in any Lead's inbox/
-#  - err    = Leads whose newest outbox response declares status: failed
+#  - act    = tasks currently in any namespace active/ (being processed)
+#  - pen    = tasks queued in any namespace inbox/
+#  - err    = namespaces whose newest outbox response declares status: failed
 #  - thru/h = task responses written in last 60 min
 
 set -uo pipefail
@@ -16,8 +16,8 @@ active=0; pending=0; err=0; throughput=0
 now=$(date +%s)
 hour_ago=$((now - 3600))
 
-for lead in coding security content sysmgmt research; do
-    dept="${VAULT_ROOT}/departments/${lead}"
+for namespace in coding security content sysmgmt research; do
+    dept="${VAULT_ROOT}/departments/${namespace}"
     a=$(ls "${dept}/active" 2>/dev/null | grep -v '\.gitkeep' | wc -l | tr -d ' ')
     p=$(ls "${dept}/inbox" 2>/dev/null | grep -v '\.gitkeep' | wc -l | tr -d ' ')
     active=$((active + a))

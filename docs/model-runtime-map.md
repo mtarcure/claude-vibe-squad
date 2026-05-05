@@ -21,7 +21,10 @@ Columns:
 - `best_model_lane`
 - `review_model`
 - `source_namespace`
-- `required_tools_mcp_api`
+- `required_tools_mcp_api` — planning intent only. It says what the specialist
+  should normally need; it does not prove the live lane currently exposes that
+  tool. Live proof comes from `bin/mcp-audit.sh`, lane smoke tests, and the
+  task response's `capability_gap`/fallback reporting.
 - `safety_level`
 - `notes`
 

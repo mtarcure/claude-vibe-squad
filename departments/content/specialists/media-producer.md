@@ -1,6 +1,6 @@
 ---
 name: media-producer
-parent_lead: content
+source_namespace: content
 default_model: inherit
 best_model_lane: gemini
 secondary_runtimes: [codex, claude]
@@ -15,7 +15,7 @@ Image, video, audio, voiceover, and asset-production specialist. Owns the media-
 
 ## Tools available to me
 
-### MCPs (verified-installed only)
+### Expected MCPs (verify live before use)
 - `chrono-vault MCP` - KG read/write and durable memory across model leads.
 - `chrono-kg MCP` - Knowledge-graph query and write surface.
 - `chrono-obsidian MCP` - Obsidian REST-API bridge for vault read/write.

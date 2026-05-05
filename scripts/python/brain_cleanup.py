@@ -114,7 +114,7 @@ def find_orphans(files: list[Path]) -> list[Path]:
 
     # Files referenced by name (not wiki-link) are NOT orphans:
     # - Top-level docs
-    # - Lead identity files (CLI auto-loads them by filename)
+    # - Model-lane identity files (CLI auto-loads them by filename)
     # - Modes, mode-profiles, specialists (dispatched by name from routing tables)
     entry_points: set[Path] = {
         VAULT_ROOT / "README.md",
@@ -125,11 +125,11 @@ def find_orphans(files: list[Path]) -> list[Path]:
         VAULT_ROOT / "shared" / "protocol.md",
         VAULT_ROOT / "shared" / "routing.md",
     }
-    # Per-Lead identity files
+    # Per-namespace state files
     for d in (VAULT_ROOT / "departments").iterdir() if (VAULT_ROOT / "departments").is_dir() else []:
         for name in ("LEAD.md", "AGENTS.md", "CLAUDE.md", "GEMINI.md", "current.md", "memory.md"):
             entry_points.add(d / name)
-        # All specialists in this Lead's specialists/ dir
+        # All specialists in this namespace's specialists/ dir
         for spec in (d / "specialists").glob("*.md") if (d / "specialists").is_dir() else []:
             entry_points.add(spec)
     # All shared modes, mode-profiles, specialists, mailbox templates

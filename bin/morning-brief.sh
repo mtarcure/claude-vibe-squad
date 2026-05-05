@@ -150,7 +150,7 @@ if [[ ${#PENDING_PROPOSALS[@]} -gt 0 ]]; then
     echo "" >> "${BRIEF}"
 fi
 
-# Active modes section (read from chrono/current.md or each Lead's current.md)
+# Active modes section (read from chrono/current.md or each namespace current.md)
 echo "## 🔵 Active modes" >> "${BRIEF}"
 active_count=0
 for current_file in "${VAULT_ROOT}/chrono/current.md" "${VAULT_ROOT}/departments/"*/current.md; do
@@ -165,7 +165,7 @@ for current_file in "${VAULT_ROOT}/chrono/current.md" "${VAULT_ROOT}/departments
     fi
 done
 if [[ ${active_count} -eq 0 ]]; then
-    echo "*(none — all Leads idle)*" >> "${BRIEF}"
+    echo "*(none - all model lanes idle)*" >> "${BRIEF}"
 fi
 echo "" >> "${BRIEF}"
 

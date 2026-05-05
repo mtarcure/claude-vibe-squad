@@ -1,6 +1,6 @@
 ---
 name: test-engineer
-parent_lead: coding
+source_namespace: coding
 default_model: inherit
 multi_model: false
 bundled_skills: [unit, property, e2e, flake-triage]
@@ -14,13 +14,13 @@ Unit + property + e2e + flake-triage. Merged from chrono's qa-tester + e2e-runne
 
 ## Tools available to me
 
-### MCPs (verified-installed only)
+### Expected MCPs (verify live before use)
 - `chrono-vault MCP` - KG read/write, durable memory across model leads. Use when: this MCP's purpose matches the task shape.
 - `chrono-kg MCP` - Knowledge-graph query and write surface (separate namespace under chrono-vault binary). Use when: this MCP's purpose matches the task shape.
 - `chrono-obsidian MCP` - Obsidian REST-API bridge for vault read/write. Use when: this MCP's purpose matches the task shape.
 - `chrono-catalog MCP` - Local skill / plugin / tool catalog query surface. Use when: this MCP's purpose matches the task shape.
-- `chrono-research-arsenal MCP` - Multi-engine research surface (Perplexity, Brave, Apify, Serper; xAI/Grok only when verified). Use when: this MCP's purpose matches the task shape.
-- `chrono-content-engineer MCP` - Content/media provider routing; use only provider routes marked verified in shared/api-catalog.md. Use when: this MCP's purpose matches the task shape.
+- `chrono-research-arsenal MCP` - Research MCP wrapper; current live tools are arxiv_search and xai_search only. Perplexity, Brave, Serper, and Apify are not wired until shared/api-catalog.md verifies them. Use when: this MCP's purpose matches the task shape.
+- `chrono-content-engineer MCP` - Content/media MCP wrapper; current live tools are generate_image, generate_video, and generate_audio only. ElevenLabs and Higgsfield are separate child routes and not available unless shared/api-catalog.md verifies them. Use when: this MCP's purpose matches the task shape.
 - `sequential-thinking MCP` - Multi-step structured reasoning tool (`sequential-thinking`). Use when: this MCP's purpose matches the task shape.
 
 ### Native CLI features (verified, my CLI is `codex`)

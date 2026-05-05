@@ -6,6 +6,7 @@ set -uo pipefail
 
 LANE="${1:-all}"
 VAULT_ROOT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
+SQUAD_WATCH_COMPACT="${SQUAD_WATCH_COMPACT:-0}"
 source "${VAULT_ROOT}/shared/lead-windows.sh"
 
 case "${LANE}" in
@@ -19,6 +20,17 @@ hide_cursor() { printf '\033[?25l'; }
 show_cursor() { printf '\033[?25h'; }
 home() { printf '\033[H'; }
 clear_to_end() { printf '\033[J'; }
+
+pane_cols() {
+    local cols
+    if [[ -n "${TMUX_PANE:-}" ]] && command -v tmux >/dev/null 2>&1; then
+        cols="$(tmux display-message -p -t "${TMUX_PANE}" '#{pane_width}' 2>/dev/null || true)"
+        [[ "$cols" =~ ^[0-9]+$ ]] && { echo "$cols"; return; }
+    fi
+    cols="${COLUMNS:-}"
+    [[ "$cols" =~ ^[0-9]+$ ]] && { echo "$cols"; return; }
+    tput cols 2>/dev/null || echo 70
+}
 
 repeat_char() {
     local ch="$1" n="$2" out=""
@@ -177,25 +189,76 @@ draw_card() {
     printf '\n'
 }
 
+draw_compact_card() {
+    local lane="$1" width="$2"
+    local accent short inbox active outbox blocked specialist last state state_color line max_last rule
+    accent="$(runtime_accent_color "$lane")"
+    short="$(runtime_short_name "$lane")"
+    inbox=$(count_lane_tasks "$lane" inbox)
+    active=$(count_lane_tasks "$lane" active)
+    outbox=$(count_lane_tasks "$lane" outbox)
+    blocked=$(blocked_count "$lane")
+    specialist="$(active_specialist "$lane")"
+    last="$(latest_result "$lane")"
+
+    if [[ "$active" -gt 0 ]]; then
+        state="WORK"; state_color="38;5;118"
+    elif [[ "$inbox" -gt 0 ]]; then
+        state="PEND"; state_color="38;5;214"
+    elif [[ "$blocked" -gt 0 ]]; then
+        state="BLCK"; state_color="38;5;203"
+    else
+        state="IDLE"; state_color="38;5;245"
+    fi
+
+    max_last=$((width - 30))
+    [[ "$max_last" -lt 8 ]] && max_last=8
+    rule="$(repeat_char '─' "$width")"
+    c256 "$accent" "$rule"
+    printf '\n'
+    printf '\033[38;5;%sm●\033[0m ' "$accent"
+    printf '\033[1;38;5;%sm%-6s\033[0m ' "$accent" "$short"
+    color "$state_color" "$(fit "$state" 4)"
+    printf ' q:%s/%s b:%s ' "$inbox" "$active" "$blocked"
+    line="${specialist:-none}"
+    color "38;5;250" "$(fit "$line" "$max_last")"
+    printf '\n'
+    printf '  '
+    color "38;5;245" "last "
+    color "38;5;250" "$(fit "${last:-none}" "$((width - 7))")"
+    printf '\n'
+}
+
 trap 'show_cursor; printf "\n"; exit 0' INT TERM EXIT
 hide_cursor
 printf '\033[2J'
 
 while true; do
-    cols=$(tput cols 2>/dev/null || echo 70)
+    cols=$(pane_cols)
     width=$((cols - 1))
     [[ "$width" -lt 34 ]] && width=34
     [[ "$width" -gt 78 ]] && width=78
 
     home
+    compact=false
+    [[ "$SQUAD_WATCH_COMPACT" == "1" || "$cols" -lt 70 ]] && compact=true
+
     if [[ "$LANE" == "all" ]]; then
         printf '\033[48;5;236;38;5;45;1m MODEL LANES \033[0m'
         printf '  '
-        color "38;5;245" "scroll: mouse / copy: drag or copy-mode"
+        if [[ "$compact" == "true" ]]; then
+            color "38;5;245" "mouse scroll / copy-mode"
+        else
+            color "38;5;245" "scroll: mouse / copy: drag or copy-mode"
+        fi
         printf '\n\n'
         for lane in "${MODEL_LANES[@]}"; do
-            draw_card "$lane" "$width"
-            printf '\n'
+            if [[ "$compact" == "true" ]]; then
+                draw_compact_card "$lane" "$width"
+            else
+                draw_card "$lane" "$width"
+                printf '\n'
+            fi
         done
     else
         draw_card "$LANE" "$width"

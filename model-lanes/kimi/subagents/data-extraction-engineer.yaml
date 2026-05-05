@@ -1,0 +1,5 @@
+version: 1
+agent:
+  name: data-extraction-engineer
+  extend: default
+  system_prompt_path: ../prompts/data-extraction-engineer.md

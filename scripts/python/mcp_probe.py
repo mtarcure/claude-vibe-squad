@@ -46,6 +46,29 @@ def read_frames(proc: subprocess.Popen[bytes], deadline: float) -> list[dict[str
     return messages
 
 
+def result_for(messages: list[dict[str, Any]], message_id: int) -> dict[str, Any]:
+    for message in messages:
+        if isinstance(message, dict) and message.get("id") == message_id:
+            result = message.get("result")
+            return result if isinstance(result, dict) else {}
+    return {}
+
+
+def names_from_result(result: dict[str, Any], key: str) -> list[str]:
+    items = result.get(key)
+    if not isinstance(items, list):
+        return []
+    names: list[str] = []
+    for item in items:
+        if isinstance(item, dict) and isinstance(item.get("name"), str):
+            names.append(item["name"])
+    return sorted(set(names))
+
+
+def csv(names: list[str]) -> str:
+    return ",".join(names) if names else "none"
+
+
 def main() -> int:
     if len(sys.argv) < 2:
         print("usage: mcp_probe.py <command> [args...]", file=sys.stderr)
@@ -93,10 +116,18 @@ def main() -> int:
     if 1 not in ids:
         print("usable=false initialize_response=false")
         return 1
+    tools = names_from_result(result_for(messages, 2), "tools")
+    resources = names_from_result(result_for(messages, 3), "resources")
     if 2 in ids or 3 in ids:
-        print(f"usable=true initialize_response=true list_response=true errors={len(errors)}")
+        print(
+            "usable=true initialize_response=true list_response=true "
+            f"errors={len(errors)} tools={csv(tools)} resources={csv(resources)}"
+        )
         return 0
-    print(f"usable=true initialize_response=true list_response=false errors={len(errors)}")
+    print(
+        "usable=true initialize_response=true list_response=false "
+        f"errors={len(errors)} tools={csv(tools)} resources={csv(resources)}"
+    )
     return 0
 
 

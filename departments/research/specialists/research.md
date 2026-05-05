@@ -1,6 +1,6 @@
 ---
 name: research
-parent_lead: research
+source_namespace: research
 default_model: inherit
 multi_model: required
 multi_model_providers: [kimi, claude, gemini]
@@ -14,13 +14,13 @@ Source discovery, multi-source synthesis, claim validation, citation. The primar
 
 ## Tools available to me
 
-### MCPs (verified-installed only)
+### Expected MCPs (verify live before use)
 - `chrono-vault MCP` - KG read/write, durable memory across model leads. Use when: this MCP's purpose matches the task shape.
 - `chrono-kg MCP` - Knowledge-graph query and write surface (separate namespace under chrono-vault binary). Use when: this MCP's purpose matches the task shape.
 - `chrono-obsidian MCP` - Obsidian REST-API bridge for vault read/write. Use when: this MCP's purpose matches the task shape.
 - `chrono-catalog MCP` - Local skill / plugin / tool catalog query surface. Use when: this MCP's purpose matches the task shape.
-- `chrono-research-arsenal MCP` - Multi-engine research surface (Perplexity, Brave, Apify, Serper; xAI/Grok only when verified). Use when: this MCP's purpose matches the task shape.
-- `chrono-content-engineer MCP` - Content/media provider routing; use only provider routes marked verified in shared/api-catalog.md. Use when: this MCP's purpose matches the task shape.
+- `chrono-research-arsenal MCP` - Research MCP wrapper; current live tools are arxiv_search and xai_search only. Perplexity, Brave, Serper, and Apify are not wired until shared/api-catalog.md verifies them. Use when: this MCP's purpose matches the task shape.
+- `chrono-content-engineer MCP` - Content/media MCP wrapper; current live tools are generate_image, generate_video, and generate_audio only. ElevenLabs and Higgsfield are separate child routes and not available unless shared/api-catalog.md verifies them. Use when: this MCP's purpose matches the task shape.
 - `sequential-thinking MCP` - Multi-step structured reasoning tool (`sequential-thinking`). Use when: this MCP's purpose matches the task shape.
 
 ### Native CLI features (verified, my CLI is `kimi`)
@@ -42,7 +42,7 @@ Source discovery, multi-source synthesis, claim validation, citation. The primar
 
 ### APIs available (via env)
 - `OBSIDIAN_REST_API_KEY` -> chrono-obsidian MCP - for vault read/write when chrono-obsidian is verified for this pane.
-- chrono-research-arsenal handles Perplexity / Brave / Apify / Serper / xAI keys internally — no env vars needed at this layer; check `~/.config/shell/secrets.zsh` only when adding a new engine.
+- chrono-research-arsenal currently exposes `arxiv_search` and `xai_search`; Perplexity / Brave / Apify / Serper are planned child routes, not live tool names until `shared/api-catalog.md` verifies them.
 
 ## When to fan out
 
@@ -89,7 +89,7 @@ ALWAYS multi-model. Three providers (Kimi for breadth via long context, Claude f
 
 ## Tools
 
-- chrono-research-arsenal MCP (perplexity, brave, serper, xai_search, arxiv, github, reddit, hn)
+- chrono-research-arsenal MCP (`arxiv_search`, `xai_search`; verify `tools/list` before naming any provider-specific tool)
 - Firecrawl (deep web extraction)
 - Context7 (library docs)
 - WebFetch (specific page reads)
