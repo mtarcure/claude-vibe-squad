@@ -180,7 +180,13 @@ if [[ -f "$RUNTIME_MAP" ]]; then
                 ;;
             gemini)
                 adapter="$VAULT/model-lanes/gemini/.gemini/agents/${specialist}.md"
-                [[ -f "$adapter" ]] || adapter_issue="missing-gemini-agent-adapter:${specialist}"
+                if [[ ! -f "$adapter" ]]; then
+                    adapter_issue="missing-gemini-agent-adapter:${specialist}"
+                elif [[ "$(head -n 1 "$adapter")" != "---" ]]; then
+                    adapter_issue="gemini-agent-missing-frontmatter:${specialist}"
+                elif ! grep -q "^name: ${specialist}$" "$adapter"; then
+                    adapter_issue="gemini-agent-name-mismatch:${specialist}"
+                fi
                 ;;
             kimi)
                 adapter="$VAULT/model-lanes/kimi/subagents/${specialist}.yaml"
@@ -198,6 +204,16 @@ if [[ -f "$RUNTIME_MAP" ]]; then
         fi
     done < "$RUNTIME_MAP"
 fi
+
+for gemini_md in "$VAULT"/model-lanes/gemini/.gemini/agents/*.md; do
+    [[ -f "$gemini_md" ]] || continue
+    gemini_file="$(basename "$gemini_md")"
+    if [[ "$(head -n 1 "$gemini_md")" != "---" ]]; then
+        printf '{"file":"%s","status":"fail","issues":["gemini-agent-file-missing-frontmatter:%s"]}\n' "$gemini_md" "$gemini_file"
+        FAILED=$((FAILED + 1))
+        EXIT_CODE=1
+    fi
+done
 
 # Validate route/invocation references in canonical instruction surfaces.
 # This catches mode docs dispatching fake subagents even when every specialist

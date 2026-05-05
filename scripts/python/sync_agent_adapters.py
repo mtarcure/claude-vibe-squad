@@ -148,10 +148,6 @@ def write_claude(rows: list[dict[str, str]]) -> None:
 def write_gemini(rows: list[dict[str, str]]) -> None:
     out = LANE_DIRS["gemini"]
     clean_dir(out, (".md",))
-    (out / "README.md").write_text(
-        "# Gemini Agent Adapters\n\n"
-        "Generated from `shared/specialist-runtime-map.tsv`. Each adapter points back to canonical markdown.\n"
-    )
     for row in rows:
         if row["model"] != "gemini":
             continue
