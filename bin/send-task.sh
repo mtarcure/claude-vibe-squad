@@ -197,7 +197,6 @@ if [[ "$SPECIALIST" != "none" ]]; then
     fi
 
     MAP_MODEL="$(map_field "$SPECIALIST" 2 || true)"
-    MAP_REVIEW="$(map_field "$SPECIALIST" 3 || true)"
     MAP_NAMESPACE="$(map_field "$SPECIALIST" 4 || true)"
     MAP_SAFETY="$(map_field "$SPECIALIST" 6 || true)"
 

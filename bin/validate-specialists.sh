@@ -34,6 +34,7 @@ VERIFIED_MCPS=$(awk '
 LOCAL_SKILLS=$(
     {
         find "${VAULT}/shared/skills" -maxdepth 1 -type f -name "*.md" -exec basename {} .md \; 2>/dev/null
+        sed '/^[[:space:]]*#/d; /^[[:space:]]*$/d' "${VAULT}/shared/skills/catalog.txt" 2>/dev/null
         find "${HOME}/.claude/plugins/cache" -path "*/skills/*" -name "SKILL.md" 2>/dev/null | sed 's|.*/skills/||; s|/SKILL.md$||'
     } | sort -u
 )
