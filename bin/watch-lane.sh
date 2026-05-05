@@ -14,6 +14,7 @@ case "${LANE}" in
 esac
 
 color() { printf '\033[%sm%s\033[0m' "$1" "$2"; }
+c256() { printf '\033[38;5;%sm%s\033[0m' "$1" "$2"; }
 hide_cursor() { printf '\033[?25l'; }
 show_cursor() { printf '\033[?25h'; }
 home() { printf '\033[H'; }
@@ -120,8 +121,9 @@ blocked_count() {
 
 draw_card() {
     local lane="$1" width="$2"
-    local accent short tagline inbox active outbox blocked specialist last state state_color inner title pad
-    accent="$(runtime_terminal_color "$lane")"
+    local accent term_accent short tagline inbox active outbox blocked specialist last state state_color inner title pad
+    accent="$(runtime_accent_color "$lane")"
+    term_accent="$(runtime_terminal_color "$lane")"
     short="$(runtime_short_name "$lane")"
     tagline="$(runtime_tagline "$lane")"
     inbox=$(count_lane_tasks "$lane" inbox)
@@ -132,13 +134,13 @@ draw_card() {
     last="$(latest_result "$lane")"
 
     if [[ "$active" -gt 0 ]]; then
-        state="WORKING"; state_color="32"
+        state="WORKING"; state_color="38;5;118"
     elif [[ "$inbox" -gt 0 ]]; then
-        state="PENDING"; state_color="33"
+        state="PENDING"; state_color="38;5;214"
     elif [[ "$blocked" -gt 0 ]]; then
-        state="BLOCKED"; state_color="31"
+        state="BLOCKED"; state_color="38;5;203"
     else
-        state="IDLE"; state_color="90"
+        state="IDLE"; state_color="38;5;245"
     fi
 
     inner=$((width - 4))
@@ -147,22 +149,26 @@ draw_card() {
     pad=$((inner - ${#title}))
     [[ "$pad" -lt 1 ]] && pad=1
 
-    color "1;${accent}" "╭─ ${title} "
-    color "1;${accent}" "$(repeat_char '─' "$pad")"
-    color "1;${accent}" "╮"
+    c256 "$accent" "╭─ "
+    printf '\033[1;38;5;%sm%s\033[0m' "$accent" "$title"
+    c256 "$accent" " $(repeat_char '─' "$pad")╮"
     printf '\n'
 
     printf '│ '
     color "${state_color}" "$(fit "$tagline" "$inner")"
     printf ' │\n'
 
-    printf '│ work  %s │\n' "$(fit "${specialist:-none}" "$((inner - 6))")"
-    printf '│ queue %s │\n' "$(fit "in ${inbox}  active ${active}  out ${outbox}  blocked ${blocked}" "$((inner - 6))")"
-    printf '│ last  %s │\n' "$(fit "${last:-none}" "$((inner - 6))")"
+    printf '│ '
+    color "38;5;250" "work "
+    printf ' %s │\n' "$(fit "${specialist:-none}" "$((inner - 6))")"
+    printf '│ '
+    color "38;5;250" "queue"
+    printf ' %s │\n' "$(fit "in ${inbox}  active ${active}  out ${outbox}  blocked ${blocked}" "$((inner - 6))")"
+    printf '│ '
+    color "38;5;250" "last "
+    printf ' %s │\n' "$(fit "${last:-none}" "$((inner - 6))")"
 
-    color "1;${accent}" "╰"
-    color "1;${accent}" "$(repeat_char '─' "$((width - 2))")"
-    color "1;${accent}" "╯"
+    c256 "$accent" "╰$(repeat_char '─' "$((width - 2))")╯"
     printf '\n'
 }
 
@@ -178,9 +184,9 @@ while true; do
 
     home
     if [[ "$LANE" == "all" ]]; then
-        color "1;37" "MODEL LANES"
+        printf '\033[48;5;236;38;5;45;1m MODEL LANES \033[0m'
         printf '  '
-        color "90" "scroll: mouse / copy: drag or copy-mode"
+        color "38;5;245" "scroll: mouse / copy: drag or copy-mode"
         printf '\n\n'
         for lane in "${MODEL_LANES[@]}"; do
             draw_card "$lane" "$width"

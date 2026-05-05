@@ -44,10 +44,11 @@ tmux set-window-option -t "${SESSION}:chrono" main-pane-width "$main_width" >/de
 tmux select-layout -t "${SESSION}:chrono" main-vertical >/dev/null
 
 tmux set-window-option -t "${SESSION}:chrono" pane-border-status top >/dev/null
-tmux set-window-option -t "${SESSION}:chrono" pane-border-format '#[fg=colour39,bold] #{pane_title} #[fg=colour238]─' >/dev/null
+tmux set-window-option -t "${SESSION}:chrono" pane-border-format '#{?#{==:#{pane_index},0},#(VAULT_ROOT='"${VAULT_ROOT}"' bash '"${VAULT_ROOT}"'/bin/chrono-status-segment.sh),#[bg=colour141,fg=colour16,bold] MODEL LANES live #[bg=default,fg=colour238]}─' >/dev/null
 tmux set-window-option -t "${SESSION}:chrono" pane-border-style 'fg=colour238' >/dev/null
 tmux set-window-option -t "${SESSION}:chrono" pane-active-border-style 'fg=colour51,bold' >/dev/null
-tmux set-window-option -t "${SESSION}:chrono" window-active-style 'fg=colour255,bg=colour234' >/dev/null
+tmux set-window-option -t "${SESSION}:chrono" window-style 'fg=colour250,bg=colour235' >/dev/null
+tmux set-window-option -t "${SESSION}:chrono" window-active-style 'fg=colour255,bg=colour233' >/dev/null
 
 # Focus stays on chrono main pane
 tmux select-pane -t "${SESSION}:chrono.0"

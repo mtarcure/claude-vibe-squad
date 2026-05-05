@@ -127,6 +127,8 @@ tmux set-option -g window-status-format ' #[fg=colour245]#I #[fg=colour250]#W '
 tmux set-option -g window-status-current-format ' #[fg=colour16,bold]#I #[fg=colour16,bold]#W '
 tmux set-option -g pane-border-style 'fg=colour238'
 tmux set-option -g pane-active-border-style 'fg=colour51,bold'
+tmux set-option -g pane-border-status top
+tmux set-option -g pane-border-format '#[bg=colour51,fg=colour16,bold] #{pane_title} #[bg=default,fg=colour238]─'
 tmux set-option -g status-left "#[bg=colour39,fg=colour16,bold] squad #[bg=colour235,fg=colour250] "
 tmux set-option -g status-right "#[fg=colour214]#(cat ${VAULT_ROOT}/_state/doctor-logs/\$(date +%%Y-%%m-%%d)-summary.json 2>/dev/null | jq -r 'if .issue_count>0 then \"issues:\"+(.issue_count|tostring) elif .warning_count>0 then \"warn:\"+(.warning_count|tostring) else \"healthy\" end' 2>/dev/null || echo 'doctor:?') #[fg=colour245]| #[fg=colour45]#(bash ${VAULT_ROOT}/bin/squad-health.sh) #[fg=colour245]| #[fg=colour118]%H:%M"
 

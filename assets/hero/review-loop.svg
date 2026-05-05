@@ -1,0 +1,31 @@
+<svg width="1400" height="620" viewBox="0 0 1400 620" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Vibe Squad multi-model review</title>
+  <desc id="desc">High-risk work receives read-only review from a different model family before Chrono reports back.</desc>
+  <rect width="1400" height="620" fill="#0b1020"/>
+  <text x="80" y="82" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="42" font-weight="800">Multi-Model Review</text>
+  <text x="80" y="120" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="22">High-risk output gets challenged by a different model family before it reaches the operator.</text>
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M2 2 L10 6 L2 10 Z" fill="#64748b"/>
+    </marker>
+  </defs>
+  <rect x="105" y="250" width="270" height="130" rx="18" fill="#1f1608" stroke="#f59e0b" stroke-width="2"/>
+  <text x="240" y="300" text-anchor="middle" fill="#fbbf24" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="800">writer lead</text>
+  <text x="240" y="336" text-anchor="middle" fill="#cbd5e1" font-family="Inter, Arial, sans-serif" font-size="18">scoped work output</text>
+  <line x1="390" y1="315" x2="535" y2="315" stroke="#64748b" stroke-width="4" marker-end="url(#arrow)"/>
+
+  <rect x="550" y="220" width="300" height="190" rx="18" fill="#260f12" stroke="#fb7185" stroke-width="2"/>
+  <text x="700" y="276" text-anchor="middle" fill="#fb7185" font-family="Inter, Arial, sans-serif" font-size="29" font-weight="800">review lead</text>
+  <text x="700" y="315" text-anchor="middle" fill="#fecdd3" font-family="Inter, Arial, sans-serif" font-size="19">read-only by default</text>
+  <text x="700" y="347" text-anchor="middle" fill="#fecdd3" font-family="Inter, Arial, sans-serif" font-size="19">different model family</text>
+  <line x1="865" y1="315" x2="1010" y2="315" stroke="#64748b" stroke-width="4" marker-end="url(#arrow)"/>
+
+  <rect x="1025" y="250" width="270" height="130" rx="18" fill="#082f49" stroke="#22d3ee" stroke-width="2"/>
+  <text x="1160" y="300" text-anchor="middle" fill="#e0f2fe" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="800">Chrono</text>
+  <text x="1160" y="336" text-anchor="middle" fill="#bae6fd" font-family="Inter, Arial, sans-serif" font-size="18">synthesizes verdict</text>
+
+  <g font-family="Inter, Arial, sans-serif" font-size="18">
+    <rect x="155" y="462" width="1090" height="64" rx="12" fill="#111827" stroke="#334155"/>
+    <text x="700" y="502" text-anchor="middle" fill="#cbd5e1">mandatory for bounty, security, privacy, auth, outreach sends, public release, cleanup, and high-blast-radius architecture</text>
+  </g>
+</svg>
