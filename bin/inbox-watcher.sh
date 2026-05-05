@@ -37,6 +37,7 @@ fswatch -0 --event=Created --event=Renamed --event=MovedTo \
         */TASK-*.md) ;;
         *) continue ;;
     esac
+    [[ -f "$path" ]] || continue
     to_model="$(awk '/^---$/{p=!p; next} p && /^to_model:/ {sub(/^to_model:[[:space:]]*/, ""); print; exit}' "$path")"
     [[ -z "$to_model" ]] && to_model="$(namespace_default_model "${LEAD}")"
     TARGET_WIN="$(runtime_window_name "${to_model}")"
