@@ -1,7 +1,6 @@
 ---
 name: prompt-engineer
 description: "Prompt quality, instruction adapters, model fit."
-tools: Read, Edit, Write, Bash, Glob, Grep
 model: inherit
 ---
 

@@ -1,7 +1,6 @@
 ---
 name: product-manager
 description: "Product shape, requirements, scope, acceptance criteria."
-tools: Read, Edit, Write, Bash, Glob, Grep
 model: inherit
 ---
 

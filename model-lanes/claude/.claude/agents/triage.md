@@ -1,7 +1,6 @@
 ---
 name: triage
 description: "Initial classification, mode suggestion, risk triage."
-tools: Read, Edit, Write, Bash, Glob, Grep
 model: inherit
 ---
 

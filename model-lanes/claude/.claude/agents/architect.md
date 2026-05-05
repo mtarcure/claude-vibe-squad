@@ -1,7 +1,6 @@
 ---
 name: architect
 description: "System design and tradeoff judgment; Codex reviews implementation feasibility."
-tools: Read, Edit, Write, Bash, Glob, Grep
 model: inherit
 ---
 

@@ -1,7 +1,6 @@
 ---
 name: editor
 description: "Clarity, length, voice, final content pass."
-tools: Read, Edit, Write, Bash, Glob, Grep
 model: inherit
 ---
 

@@ -1,7 +1,6 @@
 ---
 name: harness-optimizer
 description: "Prompt/tool/script drift and squad harness audits."
-tools: Read, Edit, Write, Bash, Glob, Grep
 model: inherit
 ---
 

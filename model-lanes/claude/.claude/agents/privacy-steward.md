@@ -1,7 +1,6 @@
 ---
 name: privacy-steward
 description: "Privacy, PII/data-flow, regulatory risk."
-tools: Read, Edit, Write, Bash, Glob, Grep
 model: inherit
 ---
 

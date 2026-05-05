@@ -1,7 +1,6 @@
 ---
 name: threat-modeler
 description: "Attack trees, STRIDE, abuse cases, risk ranking."
-tools: Read, Edit, Write, Bash, Glob, Grep
 model: inherit
 ---
 

@@ -1,7 +1,6 @@
 ---
 name: knowledge-librarian
 description: "Vault organization, links, durable knowledge hygiene."
-tools: Read, Edit, Write, Bash, Glob, Grep
 model: inherit
 ---
 

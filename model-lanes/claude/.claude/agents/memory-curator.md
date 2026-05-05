@@ -1,7 +1,6 @@
 ---
 name: memory-curator
 description: "Memory/vault/brain-map hygiene and public-private boundary checks."
-tools: Read, Edit, Write, Bash, Glob, Grep
 model: inherit
 ---
 

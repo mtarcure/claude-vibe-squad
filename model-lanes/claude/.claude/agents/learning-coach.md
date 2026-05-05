@@ -1,7 +1,6 @@
 ---
 name: learning-coach
 description: "Study plans, drills, learning paths."
-tools: Read, Edit, Write, Bash, Glob, Grep
 model: inherit
 ---
 

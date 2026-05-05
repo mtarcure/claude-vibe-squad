@@ -1,7 +1,6 @@
 ---
 name: security-analyst
 description: "SAST, supply-chain, vulnerability reasoning; Codex assists code tracing."
-tools: Read, Edit, Write, Bash, Glob, Grep
 model: inherit
 ---
 
