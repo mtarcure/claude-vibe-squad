@@ -46,7 +46,7 @@ Each bullet leads with what you get in plain terms. The implementation detail fo
 
 - **One conversation while the squad works in the background** - You talk to Chrono. Chrono scopes the task, chooses the specialist, chooses the model lead, sends the packet, watches for the result, and explains the outcome. *Implementation: markdown task packets land in namespace mailboxes and watcher rails nudge the correct tmux model lane.*
 
-- **Four model leads with clean responsibilities** - OpenAI GPT/Codex handles implementation-heavy work, Claude handles judgment and safety-heavy work, Gemini handles media and grounding-heavy work, and Kimi handles long-context/source-heavy work. No folder decides routing. *Implementation: `shared/specialist-runtime-map.tsv` is the canonical map; source namespaces only store prompts, memory, and mailbox files.*
+- **Four model leads with clean responsibilities** - OpenAI GPT/Codex handles implementation-heavy work, Claude handles judgment and safety-heavy work, Gemini handles media and grounding-heavy work, and Kimi handles long-context/source-heavy work. No folder decides routing. *Implementation: `shared/specialist-runtime-map.tsv` is the canonical map; source namespaces store specialist markdown and local memory; compatibility namespaces carry mailbox packets.*
 
 - **Forty-six specialists without dumping every prompt into every context window** - Chrono loads the relevant mode and dispatch packet. The model lead receives the assigned specialist brief and scoped task, not the entire system history. *Implementation: specialist markdown lives under `departments/*/specialists/` and `shared/specialists/`; lanes load short `model-lanes/*/` instructions.*
 
@@ -72,7 +72,9 @@ Chrono coordinates. Model leads execute. Specialists define the work shape.
 | Chrono | Plans, scopes, routes, conflict-checks, reviews, reports | `chrono/CLAUDE.md`, `chrono/SOUL.md`, `chrono/current.md` |
 | Model leads | Run assigned specialist briefs in their provider CLI | `model-lanes/gpt-codex/`, `model-lanes/claude/`, `model-lanes/gemini/`, `model-lanes/kimi/` |
 | Specialists | Encode role-specific work patterns and acceptance criteria | `departments/*/specialists/*.md`, `shared/specialists/*.md` |
-| Source namespaces | Store compatibility mailboxes, prompts, and local memory | `departments/coding`, `security`, `content`, `sysmgmt`, `research` |
+| Source namespaces | Store specialist markdown and local memory; they never choose the model lead | `departments/coding`, `security`, `content`, `sysmgmt`, `research` |
+
+Mailbox folders are compatibility rails. A specialist can live in one source namespace and still run on any model lead selected by the specialist runtime map.
 
 Model lead fit is specialist-by-specialist:
 
@@ -95,6 +97,7 @@ Every dispatched task uses model-lead fields:
 to_model: gpt-codex | claude | gemini | kimi
 specialist: <canonical-specialist>
 source_namespace: coding | security | content | sysmgmt | research | shared
+compatibility_namespace: coding | security | content | sysmgmt | research
 write_scope: [...]
 review_model: <model-lead | none>
 mandatory_review: true | false
@@ -102,13 +105,13 @@ parallel_safe: true | false
 direct_lane_work_allowed: false
 ```
 
-`source_namespace` tells the system where compatibility mailbox files live. `to_model` tells the system which visible model lead executes the work. Those are separate concepts.
+`source_namespace` selects specialist markdown/source storage. `compatibility_namespace` selects the mailbox folder that carries the task packet. `to_model` selects the visible model lead that executes the work. None of these folder labels chooses the model.
 
 Task lifecycle:
 
 ```text
 Chrono writes TASK-<id>.md
-  -> namespace inbox
+  -> compatibility namespace inbox
   -> model lead moves it to active
   -> model lead executes specialist brief
   -> response lands in outbox
@@ -205,7 +208,7 @@ The repo is intentionally markdown-first:
 ```text
 chrono/                  Chrono brain, state, operator setup
 model-lanes/             short startup instructions for each model lead
-departments/*/           source namespace storage and specialist markdown
+departments/*/           source namespace storage, local memory, compatibility mailboxes
 shared/modes/            operator-consented workflows
 shared/specialists/      cross-cutting specialists
 shared/*.md              routing, protocol, lifecycle, API inventory

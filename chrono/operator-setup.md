@@ -52,7 +52,8 @@ Do not ask the operator to hand-edit runtime system files while away. Use dispat
 
 - Chrono dispatches specialists, not departments.
 - `to_model` selects the visible model lead.
-- `source_namespace` selects specialist markdown and mailbox storage.
+- `source_namespace` selects specialist markdown/source storage.
+- `compatibility_namespace` selects the mailbox folder for the task packet.
 - `shared/specialist-runtime-map.tsv` is the routing source of truth.
 - `model-lanes/ROSTER.md` is the human-readable roster generated from that map.
 

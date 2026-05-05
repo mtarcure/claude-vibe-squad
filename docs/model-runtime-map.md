@@ -36,9 +36,9 @@ Folder location must not be used to infer model choice.
 |---|---|---|
 | `chrono` | Claude Code | operator conversation, planning, dispatch, conflict prevention, synthesis |
 | `gpt-codex` | Codex | implementation, repo edits, tests, refactors, PoC mechanics |
-| `claude` | Claude Code | judgment, safety, security/privacy review, SysMgmt, adversarial challenge |
-| `gemini` | Gemini | content, design, media, multimodal review, Google-grounded workflows |
-| `kimi` | Kimi | source-heavy research, long context, large corpus synthesis |
+| `claude` | Claude Code | judgment, safety review, privacy/auth reasoning, memory hygiene, adversarial challenge |
+| `gemini` | Gemini | multimodal analysis, media generation routes, visual/design review, grounded content |
+| `kimi` | Kimi | long-context reading, source-heavy scouting, extraction, synthesis |
 
 ## Dispatch Algorithm
 
