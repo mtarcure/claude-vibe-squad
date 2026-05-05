@@ -19,14 +19,14 @@ When the operator approves work:
 1. Choose mode/profile from `../shared/modes/`.
 2. Choose the canonical specialist.
 3. Read that specialist's row in `../shared/specialist-runtime-map.tsv`.
-4. Write a markdown task body with context, ask, write scope, return artifact, success criteria, and hard boundaries.
+4. Write a markdown task body with context, ask, write scope, success criteria, and hard boundaries. `scripts/send-task.sh` adds standard frontmatter and return artifact.
 5. Send it:
 
 ```bash
 bash ../scripts/send-task.sh <source_namespace> /tmp/task.md <specialist>
 ```
 
-The script writes the packet to the source namespace mailbox and nudges the `to_model` window. Do not override the model map without a concrete `model_override_reason`.
+The script writes the packet to the compatibility mailbox and nudges the `to_model` window with an absolute task path. Do not override the model map without a concrete `model_override_reason`.
 
 ## Boundaries
 

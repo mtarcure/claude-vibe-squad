@@ -23,13 +23,11 @@ if ! command -v fswatch >/dev/null 2>&1; then
 fi
 
 VAULT_ROOT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
+SESSION="${SQUAD_SESSION:-squad}"
 source "${VAULT_ROOT}/shared/lead-windows.sh"
 INBOX="${VAULT_ROOT}/departments/${LEAD}/inbox"
-NUDGE_MSG="A new task has arrived in inbox/. Pick up the oldest TASK-*.md and process it per protocol."
-
 mkdir -p "${INBOX}"
-
-echo "Watching ${INBOX}/ for new tasks; will nudge squad:${TARGET_WIN} pane on each."
+echo "Watching ${INBOX}/ for new tasks; will nudge the assigned model-lane pane on each."
 
 fswatch -0 --event=Created --event=Renamed --event=MovedTo \
         -e '\.tmp$' -e '\.swp$' -e '\.lock$' -e '\.gitkeep$' \
@@ -42,10 +40,8 @@ fswatch -0 --event=Created --event=Renamed --event=MovedTo \
     to_model="$(awk '/^---$/{p=!p; next} p && /^to_model:/ {sub(/^to_model:[[:space:]]*/, ""); print; exit}' "$path")"
     [[ -z "$to_model" ]] && to_model="$(namespace_default_model "${LEAD}")"
     TARGET_WIN="$(runtime_window_name "${to_model}")"
-    if ! tmux has-session -t squad 2>/dev/null; then continue; fi
-    if ! tmux list-windows -t squad -F '#{window_name}' 2>/dev/null | grep -qx "${TARGET_WIN}"; then continue; fi
-    echo "[$(date '+%H:%M:%S')] new: $(basename "$path") → nudging squad:${TARGET_WIN}"
-    tmux send-keys -l -t "squad:${TARGET_WIN}" "${NUDGE_MSG}"
-    sleep 0.3
-    tmux send-keys -t "squad:${TARGET_WIN}" Enter
+    if ! tmux has-session -t "$SESSION" 2>/dev/null; then continue; fi
+    if ! tmux list-windows -t "$SESSION" -F '#{window_name}' 2>/dev/null | grep -qx "${TARGET_WIN}"; then continue; fi
+    echo "[$(date '+%H:%M:%S')] new: $(basename "$path") → nudging ${SESSION}:${TARGET_WIN}"
+    VAULT_ROOT="$VAULT_ROOT" SQUAD_SESSION="$SESSION" bash "${VAULT_ROOT}/bin/nudge-task.sh" "$path" || true
 done

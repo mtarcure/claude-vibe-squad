@@ -1,14 +1,15 @@
 #!/bin/bash
-# dispatch-toolkit.sh — emit the per-namespace specialist + MCP roster as a
-# markdown snippet that send-task.sh prepends to every dispatched task.
+# dispatch-toolkit.sh — emit source-namespace context and executing model-lane
+# tool expectations as a markdown snippet that send-task.sh appends to every
+# dispatched task.
 #
 # This implements the rule from chrono memory:
 #   "every brief must enumerate chrono MCPs; voices default to WebFetch when
 #    brief omits them."
 #
 # Without this, dispatched model lanes default to whatever is first in their
-# context (usually WebFetch). With this, every lane sees the right toolkit on
-# every dispatch and can pick the right tool.
+# context. With this, every lane sees both the source namespace roster and the
+# executing model lane's verified tool surface.
 #
 # Per-pane MCP enumeration is sourced from:
 #   _state/capability-inventory-2026-05-02.md (verified per-pane install state)
@@ -20,18 +21,29 @@
 # through Research, not directly. Eliminates the "every lane reaches for
 # perplexity" tool-collision noise.
 #
-# Usage:  bash shared/dispatch-toolkit.sh <source-namespace>
+# Usage:  bash shared/dispatch-toolkit.sh <compatibility-namespace> <to-model>
 
 set -euo pipefail
 
-LEAD="${1:-}"
-case "${LEAD}" in
+NAMESPACE="${1:-}"
+TO_MODEL="${2:-unknown}"
+
+cat <<EOF
+
+## Dispatch Context
+
+- Source mailbox namespace: \`${NAMESPACE}\`
+- Executing model lane: \`${TO_MODEL}\`
+
+EOF
+
+case "${NAMESPACE}" in
     coding)
         cat <<'EOF'
 
-## Tools available for this task
+## Source Namespace Context
 
-**Specialists you should dispatch (don't do their work yourself — fan out):**
+**Related specialist briefs in this namespace:**
 - `backend-engineer` · APIs, async pipelines, server-side
 - `frontend-engineer` · React/Vue/Svelte, Tailwind, perf
 - `ui-engineer` · component design, design-token alignment
@@ -47,42 +59,23 @@ case "${LEAD}" in
 - `systems-engineer` · cross-arch builds, NUMA/SIMD
 - `e2e-runner` · Playwright suites, visual diffs, flaky-test hunting
 
-**MCPs verified installed in this pane (codex CLI per capability-inventory-2026-05-02):**
-- `chrono-vault` — KG read/write for project memory
-- `chrono-kg` — KG namespace direct access
-- `chrono-obsidian` — Obsidian vault REST API
-- `chrono-catalog` — capability/MCP catalog queries
-- `chrono-content-engineer` — only when generating content artifacts (rare for coding)
-- `sequential-thinking` — multi-step reasoning helper
-- Native Bash for git, npm, cargo, docker, etc.
-
 **Routing reminder:** for OSINT / vendor research / library exploration, ask Chrono for a research-namespace dispatch — that namespace owns `chrono-research-arsenal` (Perplexity / Brave / Serper / Apify). Don't reach for WebFetch yourself; route the research task.
 
-**Required:** Dispatch to at least one specialist before drafting your own response. If none of the above fits, surface to operator instead of inventing a freeform answer.
+**Required:** Execute the `specialist:` named in the task packet yourself. Do not fan out or dispatch to another specialist unless the task packet explicitly asks for a review pass.
 EOF
         ;;
     security)
         cat <<'EOF'
 
-## Tools available for this task
+## Source Namespace Context
 
-**Specialists you should dispatch (don't do their work yourself — fan out):**
+**Related specialist briefs in this namespace:**
 - `scout` · bounty target selection, program reconnaissance, scope analysis, platform intel
 - `security-analyst` · SAST, supply-chain audits, code review for security
 - `threat-modeler` · STRIDE, attack-tree, risk ranking
 - `exploit-developer` · PoC construction, payload crafting, sandbox-safe reproduction
 - `impact-validator` · CVSS v4 scoring, sanity check on findings, dedup vs CVE/known-issue DBs
 - `privacy-steward` · PII / data-flow concerns, GDPR/CCPA review
-
-**MCPs verified installed in this pane (claude CLI, post-2026-05-03 tilde fix):**
-- `chrono-vault` — KG read/write for finding/program memory
-- `chrono-kg` — KG namespace direct access
-- `chrono-obsidian` — Obsidian vault REST API
-- `chrono-catalog` — capability/MCP catalog queries
-- `playwright` (CDP) — attach to operator's persistent Chrome at port 9222 for bounty platform navigation. Tabs already 2FA'd: HackerOne, Bugcrowd, Intigriti, HackenProof, Code4rena
-- `chrome-devtools` — DOM-level CDP attach for read-only inspection
-- `context7` — library/API documentation lookup
-- `sequential-thinking` — multi-step reasoning helper
 
 **Bounty platform context:**
 - `HACKERONE_API_TOKEN` available in env for direct REST API queries
@@ -91,15 +84,15 @@ EOF
 
 **Routing reminder:** for OSINT / vendor research that doesn't fit `scout`'s platform-intel scope, ask Chrono for a research-namespace dispatch — that namespace owns `chrono-research-arsenal` (Perplexity for synthesis, Brave/Serper for raw search). Don't WebFetch directly.
 
-**Required:** Dispatch to at least one specialist before drafting your own response. For "find a bounty" tasks, that's `scout`. For "audit this code" tasks, that's `security-analyst`. For "model the threats here" tasks, that's `threat-modeler`.
+**Required:** Execute the `specialist:` named in the task packet yourself. Do not fan out or dispatch to another specialist unless Chrono explicitly assigns a review or parallel pass.
 EOF
         ;;
     content)
         cat <<'EOF'
 
-## Tools available for this task
+## Source Namespace Context
 
-**Specialists you should dispatch:**
+**Related specialist briefs in this namespace:**
 - `writer` · prose drafting, brand-voice content
 - `technical-writer` · changelogs, ADRs, post-spec handoffs
 - `editor` · pass for clarity, length, voice
@@ -107,28 +100,19 @@ EOF
 - `brand-voice` · operator voice consistency check
 - `video-editor` · video trim/edit/captions
 
-**MCPs verified installed in this pane (gemini CLI, post-Hybrid-Path-A install 2026-05-03):**
-- `chrono-content-engineer` — ElevenLabs Scribe (transcription), text-to-speech, image generation, music composition
-- `chrono-vault` — brand-voice memory, prior content recall
-- `chrono-kg` — KG namespace direct access
-- `chrono-obsidian` — direct vault REST API for content output
-- `chrono-catalog` — capability/MCP catalog queries
-- `sequential-thinking` — multi-step reasoning helper
-- `stitch` (gemini extension) — Figma/UI-design generation; natural-language commands inside the gemini session
-
 **Native Gemini grounding:** `gemini-3.1-pro-preview` carries Google Search grounding implicitly — use it for fact-finding / citation hunting in-session. (No `chrono-research-arsenal` on the gemini pane by design — Hybrid Path A relies on native grounding for content-pane research.)
 
 **Routing reminder:** for deeper multi-source synthesis beyond a quick grounded check, hand off to research namespace.
 
-**Required:** Dispatch to at least one specialist. For drafts, that's `writer` or `technical-writer`. For final pass, `editor`. For visuals, `designer` + `chrono-content-engineer`.
+**Required:** Execute the `specialist:` named in the task packet yourself. Do not fan out or dispatch to another specialist unless Chrono explicitly assigns a review or parallel pass.
 EOF
         ;;
     sysmgmt)
         cat <<'EOF'
 
-## Tools available for this task
+## Source Namespace Context
 
-**Specialists you should dispatch:**
+**Related specialist briefs in this namespace:**
 - `doctor` · system health checks, CLI auth, MCP reachability
 - `dreamer` · KG synthesis, pattern observation
 - `archiver` · cold-storage policies, run lifecycle
@@ -139,26 +123,17 @@ EOF
 - `personal-ops` · operator's daily routines + reminders
 - `loop-operator` · long-running iteration with checkpoints + stall detection
 
-**MCPs verified installed in this pane (claude CLI, post-2026-05-03 tilde fix):**
-- `chrono-vault` — for any state read/write
-- `chrono-kg` — KG namespace direct access
-- `chrono-obsidian` — direct vault REST API
-- `chrono-catalog` — capability/MCP catalog queries
-- `context7` — library/API documentation lookup
-- `sequential-thinking` — multi-step reasoning helper
-- Native Bash for `pmset`, `df`, `launchctl`, etc.
-
 **Routing reminder:** for any external research (CLI changelogs, vendor docs, frontier-tool freshness checks), hand off to research namespace — they own `chrono-research-arsenal`.
 
-**Required:** Dispatch to at least one specialist before drafting your own response. For system health: `doctor`. For KG operations: `memory-curator` or `knowledge-librarian`. For squad configuration audits: `harness-optimizer`.
+**Required:** Execute the `specialist:` named in the task packet yourself. Do not fan out or dispatch to another specialist unless Chrono explicitly assigns a review or parallel pass.
 EOF
         ;;
     research)
         cat <<'EOF'
 
-## Tools available for this task
+## Source Namespace Context
 
-**Specialists you should dispatch:**
+**Related specialist briefs in this namespace:**
 - `research` · deep investigation, multi-source synthesis, claim validation
 - `synthesizer` · aggregate parallel findings, preserve outliers
 - `large-context-analyst` · 1M-2M context full-codebase / multi-doc analysis
@@ -166,26 +141,52 @@ EOF
 - `learner` · study plans, drills, spaced repetition, reading ladders
 - `data-extraction-engineer` · PDF parsing, table extraction, dataset wrangling
 
-**MCPs verified installed in this pane (kimi CLI per capability-inventory-2026-05-02):**
-- `chrono-research-arsenal` — **PRIMARY for web research.** Perplexity for synthesis, Brave/Serper for raw search, Apify for scraping. ALWAYS prefer over WebFetch.
-- `chrono-vault` — KG for cross-domain pattern recall
-- `chrono-kg` — KG namespace direct access
-- `chrono-obsidian` — vault navigation for prior research
-- `chrono-catalog` — capability/MCP catalog queries
-- `chrono-content-engineer` — only when research output needs media artifacts
-- `sequential-thinking` — multi-step reasoning helper
-
 **This namespace is the squad's web-research home.** Other namespaces route research tasks here; you own `chrono-research-arsenal`.
 
 **WebFetch is a fallback ONLY** — use it when chrono-research-arsenal can't reach a specific URL or for quick single-page reads. Never as your primary research tool.
 
 **NOT YOUR DOMAIN:** Bounty target selection (that's Security `scout`). Vulnerability discovery (that's Security `security-analyst`). Implementation work (that's Coding's specialists).
 
-**Required:** Dispatch to at least one specialist. For OSINT / multi-source: `research`. For synthesis: `synthesizer`. For long docs: `large-context-analyst`.
+**Required:** Execute the `specialist:` named in the task packet yourself. Do not fan out or dispatch to another specialist unless Chrono explicitly assigns a review or parallel pass.
 EOF
         ;;
     *)
         echo ""  # unknown namespace, no toolkit injection
+        ;;
+esac
+
+case "${TO_MODEL}" in
+    gpt-codex)
+        cat <<'EOF'
+
+## Executing Model Lane Tools
+
+GPT/Codex lane can use repo shell commands, file edits, tests, `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `chrono-catalog`, `chrono-content-engineer` when relevant, and `sequential-thinking`.
+EOF
+        ;;
+    claude)
+        cat <<'EOF'
+
+## Executing Model Lane Tools
+
+Claude lane can use `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `chrono-catalog`, `context7`, `sequential-thinking`, and local shell where allowed by the task. Use Playwright/CDP only when the packet explicitly allows browser work.
+EOF
+        ;;
+    gemini)
+        cat <<'EOF'
+
+## Executing Model Lane Tools
+
+Gemini lane can use native Gemini grounding, `chrono-content-engineer`, `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `chrono-catalog`, `sequential-thinking`, and media/design tools when the packet allows them.
+EOF
+        ;;
+    kimi)
+        cat <<'EOF'
+
+## Executing Model Lane Tools
+
+Kimi lane can use `chrono-research-arsenal`, `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `chrono-catalog`, `chrono-content-engineer` when relevant, and `sequential-thinking`. Prefer research-arsenal for source-heavy research when allowed by the packet.
+EOF
         ;;
 esac
 

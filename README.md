@@ -138,7 +138,7 @@ Prerequisites: macOS, `tmux`, `jq`, `fswatch`, Bash, and logged-in CLIs for Clau
 git clone https://github.com/mtarcure/claude-vibe-squad.git
 cd claude-vibe-squad
 bash bin/doctor.sh
-bash bin/launch-squad.sh
+bash bin/launch-squad.sh        # auto/yolo model-lane profile
 tmux attach -t squad
 ```
 
@@ -166,7 +166,7 @@ bash bin/validate-specialists.sh
 bash bin/product-hygiene.sh --public-export
 ```
 
-If `bin/squad` is installed on your PATH, `squad up`, `squad stop`, `squad status`, and `squad doctor` wrap the common commands.
+If `bin/squad` is installed on your PATH, `squad up`, `squad stop`, `squad status`, and `squad doctor` wrap the common commands. Use `squad up --safe` when you want the conservative approval profile.
 
 ## Modes
 

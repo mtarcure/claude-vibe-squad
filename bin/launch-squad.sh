@@ -36,7 +36,7 @@ for arg in "$@"; do
     esac
 done
 
-SQUAD_UNSAFE_AUTONOMY="${SQUAD_UNSAFE_AUTONOMY:-0}"
+SQUAD_UNSAFE_AUTONOMY="${SQUAD_UNSAFE_AUTONOMY:-1}"
 SQUAD_TRUST_CODEX_MCPS="${SQUAD_TRUST_CODEX_MCPS:-0}"
 
 FIRST_RUN_SENTINEL="${VAULT_ROOT}/_state/.autonomous-launch-ack"
@@ -229,7 +229,8 @@ tmux send-keys -t "${SESSION}:${KIMI_WIN}" "${RESEARCH_CMD}" C-m
 # operator without waiting for the operator's next turn).
 WATCHERS_WIN="$(lead_window_name watchers)"
 tmux new-window -t "${SESSION}" -n "${WATCHERS_WIN}" -c "${VAULT_ROOT}"
-tmux send-keys -t "${SESSION}:${WATCHERS_WIN}" "for lead in coding security content sysmgmt research; do bash ${VAULT_ROOT}/bin/inbox-watcher.sh \"\$lead\" & bash ${VAULT_ROOT}/bin/outbox-watcher.sh \"\$lead\" & done; wait" Enter
+tmux pipe-pane -t "${SESSION}:${WATCHERS_WIN}" -o "cat >> ${TMUX_LOG_DIR}/watchers-status.log"
+tmux send-keys -t "${SESSION}:${WATCHERS_WIN}" "export SQUAD_SESSION=${SESSION}; for lead in coding security content sysmgmt research; do bash ${VAULT_ROOT}/bin/inbox-watcher.sh \"\$lead\" & bash ${VAULT_ROOT}/bin/outbox-watcher.sh \"\$lead\" & done; wait" Enter
 
 # Give the model CLIs a moment to initialize so the sidebar's first capture
 # shows their welcome screens instead of empty shells.

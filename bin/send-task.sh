@@ -342,8 +342,8 @@ WORKING_COPY=$(mktemp "${TASK_FILE%.md}.XXXXXX.md")
 cp "$TASK_FILE" "$WORKING_COPY"
 
 if [[ -x "$TOOLKIT" ]]; then
-    bash "$TOOLKIT" "$COMPAT_NAMESPACE" >> "$WORKING_COPY"
-    info "Toolkit injected for ${COMPAT_NAMESPACE}"
+    bash "$TOOLKIT" "$COMPAT_NAMESPACE" "$TO_MODEL" >> "$WORKING_COPY"
+    info "Toolkit injected for ${COMPAT_NAMESPACE}/${TO_MODEL}"
 fi
 
 # ── ITEM 3: per-task version dirs ─────────────────────────────────────────────
@@ -427,9 +427,7 @@ info "Dispatch log updated"
 # ── nudge model lane pane ─────────────────────────────────────────────────────
 
 if [[ -n "$NUDGE_PANE" ]]; then
-    tmux send-keys -t "$NUDGE_PANE" \
-        "A new task has arrived in inbox/. Pick up the oldest TASK-*.md and process it per protocol." \
-        Enter \
+    VAULT_ROOT="$VAULT_ROOT" bash "${VAULT_ROOT}/bin/nudge-task.sh" "$DEST" \
         && info "Nudged pane ${NUDGE_PANE}" \
         || echo "WARNING: Failed to nudge pane ${NUDGE_PANE} (dispatch already recorded)" >&2
 fi
