@@ -1,66 +1,33 @@
 ---
 name: maintenance
-version: 1.0
-primary_lead: sysmgmt
+version: 1.1
+primary_mode_namespace: sysmgmt
 status: active
 phases: 5
 ---
 
 # Mode: Maintenance
 
-For environment health, dep upgrades, repo cleanup, system sweeps. Primary Lead: SysMgmt (Claude).
+For environment health, dependency upgrades, repo cleanup, routine audits, and system sweeps.
 
-## Triggers
+## Flow
 
-```yaml
-intent_phrases: ["clean up", "audit env", "upgrade deps", "patch CVEs", "things feel stale", "Mac feels weird", "weekly cleanup", "monthly audit"]
-file_types: []
-negative_triggers: ["explain maintenance", "what should I clean"]
-```
+| Phase | Work | Likely specialists |
+|---|---|---|
+| 1 | Inventory | `mac-ops`, `agentops`, `finance-analyst` when spend/quota-related |
+| 2 | Risk grouping | `skeptic`, `harness-optimizer`, `privacy-steward` |
+| 3 | Plan and approval | `planner` |
+| 4 | Execute approved batch | relevant implementation or ops specialist |
+| 5 | Regression and changelog | `test-engineer`, `technical-writer`, `vibecoding-check` |
 
-## Phases (5)
+## Dispatch Notes
 
-### Phase 1: Doctor / Inventory
-Owner: SysMgmt Lead. Specialist: mac-ops (runs the doctor.sh equivalent for current state).
-Output: `inventory.md` (what's installed, versions, pending updates, anomalies).
+- Cleanup proposals are not cleanup approval.
+- One writer owns each path during execution.
+- Keep private/runtime artifacts out of public release.
 
-### Phase 2: Risk Grouping
-Owner: SysMgmt Lead. Specialist: skeptic (cross-cutting) for risk assessment.
-Output: `risk-groups.md` — bucket pending changes by risk (low/medium/high).
-Operator gate: SOFT.
+## Gates
 
-### Phase 3: Plan + Approval
-Owner: SysMgmt Lead.
-Output: `plan.md` — ordered batches of changes.
-Operator gate: HARD before any destructive action (deletions, force-pushes, schema migrations).
-
-### Phase 4: Execute
-Owner: SysMgmt Lead. Cross-Lead: Coding for code changes during refactors, Security for permission-impacting changes.
-Output: per-batch result logs.
-In-phase checkpoints: after each batch, stop if any error rate exceeds threshold.
-
-### Phase 5: Regression Test + Changelog
-Owner: SysMgmt Lead. Specialist: test-engineer (Coding cross-Lead) if code touched.
-Output: `regression-test-results.md`, `changelog.md`.
-Pre-completion: vibecoding-check.
-
-## Hard gates
-
-```yaml
-- phase_3_to_4: HARD (operator approves plan before any destructive action)
-- phase_4_destructive: HARD before each destructive batch
-```
-
-## Termination
-
-```yaml
-completion: "all batches executed + regression green"
-explicit_stop: "operator says stop"
-```
-
-## Recurring auto-trigger
-
-Some Maintenance tasks fire from the nightly routine (light cleanup). Full Maintenance Mode engages when:
-- Operator explicitly invokes
-- Nightly routine surfaces multiple accumulated issues
-- Weekly Sunday brief recommends full sweep
+- Operator approval before deletes, credential changes, cleanup actions, public release changes, force pushes, or dependency trust changes.
+- Mandatory review for high-blast-radius runtime changes.
+- Run `vibecoding-check` before closing.

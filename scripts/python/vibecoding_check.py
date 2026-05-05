@@ -16,7 +16,8 @@ Universal checks (always):
   2. Declared artifacts exist
   3. Citations resolve (URL 200 / file exists / git ref resolves)
   4. No TODO/FIXME/XXX in modified code
-  5. All declared phase-tags emitted in run log
+  5. All declared phase-tags emitted
+  6. No unauthorized file deletions in run diff in run log
 
 Mode-specific extensions (declared in checks.yaml):
   - project: tests_pass, git_clean, new_code_has_tests, no_destructive_ops
@@ -245,6 +246,91 @@ def check_phase_tags(manifest: dict[str, Any]) -> CheckResult:
         )
     return CheckResult(name="phase_tags", passed=True,
                        detail=f"all {len(declared)} phase-tags emitted")
+
+
+def check_no_unauthorized_deletions(manifest: dict[str, Any]) -> CheckResult:
+    """Check 6 (universal): no unauthorized file deletions in the run's diff."""
+    run_id = manifest["run_id"]
+    approval_path = APPROVALS_DIR / f"{run_id}.md"
+
+    try:
+        snapshot_keys = [
+            str(v)
+            for v in (
+                manifest.get("task_id"),
+                manifest.get("dispatch_task_id"),
+                run_id,
+            )
+            if v and str(v) != "none"
+        ]
+        snapshot_sha = ""
+        for key in snapshot_keys:
+            result = subprocess.run(
+                ["git", "log", "--oneline", "--grep", f"auto-snapshot: before .*{key}"],
+                capture_output=True, text=True, cwd=str(VAULT_ROOT),
+            )
+            if result.stdout.strip():
+                snapshot_sha = result.stdout.split()[0]
+                break
+
+        if not snapshot_sha:
+            fallback_diff = subprocess.run(
+                ["git", "diff", "--name-only", "--diff-filter=D", "--"],
+                capture_output=True, text=True, cwd=str(VAULT_ROOT),
+            )
+            fallback_deleted = [f.strip() for f in fallback_diff.stdout.splitlines() if f.strip()]
+            if not fallback_deleted:
+                return CheckResult(
+                    name="no_unauthorized_deletions", passed=True, tier=TIER_OK,
+                    detail="No dispatch snapshot found; no current working-tree deletions detected.",
+                )
+            deleted_files = fallback_deleted
+        else:
+            # Compare the dispatch snapshot against the current working tree. Using
+            # HEAD here misses ordinary unstaged deletions, which are the common
+            # risk during long-running agent work.
+            diff_result = subprocess.run(
+                ["git", "diff", "--name-only", "--diff-filter=D", snapshot_sha, "--"],
+                capture_output=True, text=True, cwd=str(VAULT_ROOT),
+            )
+            deleted_files = [f.strip() for f in diff_result.stdout.splitlines() if f.strip()]
+
+        if not deleted_files:
+            return CheckResult(
+                name="no_unauthorized_deletions", passed=True, tier=TIER_OK,
+                detail="No deletions detected in run diff.",
+            )
+
+        if approval_path.exists():
+            approval_text = approval_path.read_text()
+            deletion_approved = any(
+                line.strip().lower() in {
+                    "deletion_approved: true",
+                    "deletion_approved: yes",
+                }
+                for line in approval_text.splitlines()
+            )
+            if deletion_approved or "APPROVE_DELETIONS" in approval_text:
+                return CheckResult(
+                    name="no_unauthorized_deletions", passed=True, tier=TIER_OK,
+                    detail=f"Deletions approved: {deleted_files}",
+                )
+
+        return CheckResult(
+            name="no_unauthorized_deletions", passed=False, tier=TIER_OPERATOR,
+            detail=(
+                f"UNAUTHORIZED DELETIONS in run {run_id}:\n"
+                + "\n".join(f"  - {f}" for f in deleted_files)
+                + "\n\nThe auto-snapshot makes these recoverable."
+                + f"\nTo approve: write 'APPROVE_DELETIONS' to _state/approvals/{run_id}.md"
+                + "\nTo recover: git checkout <snapshot-sha> -- <file-path>"
+            ),
+        )
+    except Exception as e:
+        return CheckResult(
+            name="no_unauthorized_deletions", passed=False, tier=TIER_RETRY,
+            detail=f"Delete-check errored: {e}",
+        )
 
 
 # ─── Mode-specific checks ──────────────────────────────────────────
@@ -491,6 +577,7 @@ def run_all_checks(manifest: dict[str, Any]) -> RunReport:
         check_citations_resolve,
         check_no_todo_in_modified,
         check_phase_tags,
+        check_no_unauthorized_deletions,
     ):
         try:
             report.checks.append(check_fn(manifest))

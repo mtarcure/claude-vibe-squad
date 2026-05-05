@@ -8,13 +8,13 @@ purpose: classify-and-route
 
 # Specialist: Triage (cross-cutting)
 
-Classify incoming work, route to right mode/Lead, surface routing decision to Coordinator. Used inside Triage Mode and on-demand when Coordinator is uncertain where to send a task.
+Classify incoming work, route to right mode and model lead, surface routing decision to Coordinator. Used inside Triage Mode and on-demand when Coordinator is uncertain where to send a task.
 
 ## When dispatched
 
 - Triage Mode (Coordinator-only mode for ambiguous incoming work)
 - When operator pastes something without clear intent ("look at this")
-- When a Lead receives a task it doesn't think it owns
+- When a model lead receives a task it doesn't think it owns
 - For severity labelling on incoming issues
 
 ## What you receive (input)
@@ -37,7 +37,7 @@ Classify incoming work, route to right mode/Lead, surface routing decision to Co
 
 ## Routing recommendation
 - Mode: bounty | project | content | maintenance | incident | research | none
-- Lead: <which Department Lead>
+- Model lead: <mapped to_model>
 - Specialist (if specific): <name>
 
 ## Reasoning

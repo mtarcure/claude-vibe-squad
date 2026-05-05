@@ -17,7 +17,7 @@ For Solidity / Vyper / Rust smart contract audits (Code4rena, Immunefi, etc.).
 
 ## Phase customizations
 
-### Phase 1: Intelligence (smart-contract additions)
+### Phase 2: Program Scope (smart-contract additions)
 
 Additional specialists:
 - smart-contract-engineer (primary) — reads protocol architecture
@@ -25,7 +25,7 @@ Additional specialists:
 
 Additional outputs:
 - `contracts.md` — deployments, addresses, source links, chain
-- `protocol-architecture.md` — control flow, key functions, accepted vuln classes per program
+- `protocol-architecture.md` — control flow, key functions, accepted vuln classes per program scope
 - `oracle-integrations.md` (if relevant)
 - `bridge-architecture.md` (if relevant)
 
@@ -34,11 +34,11 @@ Tools added:
 - contract address parser
 - ABI reader
 
-### Phase 2: Recon (smart-contract additions)
+### Phase 3: Recon (smart-contract additions)
 
 Specialists:
 - smart-contract-engineer
-- exploit-developer (multi-model)
+- security namespace invokes `exploit-developer` via `Task` tool with `subagent_type: exploit-developer` (multi-model)
 
 Tools:
 - Slither (Solidity static analysis)
@@ -48,7 +48,7 @@ Tools:
 
 Multi-model: yes — chrono's `multi-stance-audit-fanout` (8 specialist stances)
 
-### Phase 3: Threat Modeling (smart-contract additions)
+### Phase 4: Threat Modeling (smart-contract additions)
 
 Focus areas:
 - Access control (msg.sender, ownable, roles)
@@ -58,7 +58,7 @@ Focus areas:
 - Economic invariants (slippage, fee accumulation, MEV)
 - Cross-contract assumptions
 
-### Phase 5/6/7: Exploitation (smart-contract additions)
+### Phase 6/7/8: Exploitation (smart-contract additions)
 
 Test infrastructure:
 - foundry test scripts as PoCs (Solidity)
@@ -68,21 +68,21 @@ Test infrastructure:
 
 Each PoC IS a foundry/hardhat/anchor test — reproduces deterministically.
 
-### Phase 7: Chain Construction (smart-contract specific)
+### Phase 8: Chain Construction (smart-contract specific)
 
 Specialists:
 - chain-construct-smart-contract (chrono skill)
-- skeptic (chain-atomicity-verify)
+- security namespace invokes `skeptic` via `Task` tool with `subagent_type: skeptic` with chain-atomicity-verify instructions
 
 Output:
 - `chain-attack.sol` — multi-call exploit
 - `chain-impact.md` — TVL at risk, attacker profit calculation
 
-### Phase 9: Validation (smart-contract additions)
+### Phase 10: Validation (smart-contract additions)
 
 Specialists:
 - defi-invariant-check (chrono skill)
-- impact-validator with chain-impact-rescore
+- security namespace invokes `impact-validator` via `Task` tool with `subagent_type: impact-validator` with chain-impact-rescore instructions
 
 Tools:
 - SI/SLI mapping
@@ -93,7 +93,7 @@ Output:
 - `financial-impact.md` — quantified attacker profit, victim loss
 - `severity-justification.md` — Code4rena severity (High/Medium/Low) per their rubric
 
-### Phase 10: Report (smart-contract additions)
+### Phase 11: Report (smart-contract additions)
 
 Specialists:
 - technical-writer
@@ -115,10 +115,10 @@ Output: per-platform submission package, populated via persistent browser sessio
 
 ## Specialists active in this profile
 
-- smart-contract-engineer (primary, Coding Lead — but Security Lead orchestrates)
-- exploit-developer (Codex + Claude multi-model)
-- skeptic (cross-cutting, multi-model)
-- impact-validator (cross-cutting, multi-model)
-- threat-modeler (Security)
+- smart-contract-engineer (primary, coding namespace — but security namespace orchestrates)
+- security namespace invokes `exploit-developer` via `Task` tool with `subagent_type: exploit-developer` (Codex + Claude multi-model)
+- security namespace invokes `skeptic` via `Task` tool with `subagent_type: skeptic` (cross-cutting, multi-model)
+- security namespace invokes `impact-validator` via `Task` tool with `subagent_type: impact-validator` (cross-cutting, multi-model)
+- security namespace invokes `threat-modeler` via `Task` tool with `subagent_type: threat-modeler`
 - defensive-pattern-discovery (chrono skill — what defenses ARE in place?)
 - gptscan-prompt-templates (chrono skill — vuln-class-aware LLM scaffolding)

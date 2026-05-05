@@ -15,12 +15,12 @@ Source discovery, multi-source synthesis, claim validation, citation. The primar
 ## Tools available to me
 
 ### MCPs (verified-installed only)
-- `chrono-vault MCP` - KG read/write, durable memory across Leads. Use when: this MCP's purpose matches the task shape.
+- `chrono-vault MCP` - KG read/write, durable memory across model leads. Use when: this MCP's purpose matches the task shape.
 - `chrono-kg MCP` - Knowledge-graph query and write surface (separate namespace under chrono-vault binary). Use when: this MCP's purpose matches the task shape.
 - `chrono-obsidian MCP` - Obsidian REST-API bridge for vault read/write. Use when: this MCP's purpose matches the task shape.
 - `chrono-catalog MCP` - Local skill / plugin / tool catalog query surface. Use when: this MCP's purpose matches the task shape.
-- `chrono-research-arsenal MCP` - Multi-engine research surface (Perplexity, Brave, Apify, Serper, xAI/Grok routing). Use when: this MCP's purpose matches the task shape.
-- `chrono-content-engineer MCP` - Content generation (image / video / audio routing including ElevenLabs, Higgsfield, multi-provider model routing). Use when: this MCP's purpose matches the task shape.
+- `chrono-research-arsenal MCP` - Multi-engine research surface (Perplexity, Brave, Apify, Serper; xAI/Grok only when verified). Use when: this MCP's purpose matches the task shape.
+- `chrono-content-engineer MCP` - Content/media provider routing; use only provider routes marked verified in shared/api-catalog.md. Use when: this MCP's purpose matches the task shape.
 - `sequential-thinking MCP` - Multi-step structured reasoning tool (`sequential-thinking`). Use when: this MCP's purpose matches the task shape.
 
 ### Native CLI features (verified, my CLI is `kimi`)
@@ -46,7 +46,7 @@ Source discovery, multi-source synthesis, claim validation, citation. The primar
 
 ## When to fan out
 
-- For >100k-token corpus analysis (large repos, big PDFs, long transcripts): dispatch to `large-context-analyst` via Research Lead's mailbox.
+- For >100k-token corpus analysis (large repos, big PDFs, long transcripts): dispatch to `large-context-analyst` via research namespace's mailbox.
 - For aggregating multi-model research outputs into one report: dispatch to `synthesizer`.
 - For solo task handling: source discovery, multi-source synthesis, claim validation, citation production for tractable corpora.
 - For operator-facing decision: when sources contradict on a load-bearing claim and no source can adjudicate — surface to operator with the disagreement.
@@ -54,7 +54,7 @@ Source discovery, multi-source synthesis, claim validation, citation. The primar
 ## When to escalate
 
 - If a key claim has zero corroborating sources after the three-source rule fails, stop and write to outbox with `status: needs_human` rather than fabricate.
-- If task requires capabilities outside my scoped MCPs, surface to Lead before retrying.
+- If task requires capabilities outside my scoped MCPs, surface to the model lead before retrying.
 - If multi-model verification produces contradictory results past my retry budget, escalate with full evidence trail.
 
 ## What I do NOT do
@@ -69,7 +69,7 @@ Source discovery, multi-source synthesis, claim validation, citation. The primar
 - Research Mode Phase 2 (Source gathering)
 - Research Mode Phase 3 (Cross-reference synthesis)
 - On-demand: "research X" / "find sources on Y"
-- Cross-Lead requests for domain knowledge
+- Cross-namespace requests for domain knowledge
 
 ## Input
 

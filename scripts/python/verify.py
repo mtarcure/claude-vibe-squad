@@ -9,16 +9,28 @@ reviewer per CLAUDE.md routing rules.
 Per system rule: "Reviewer family ≠ writer family. If Codex wrote, Claude or
 Gemini reviews — never Codex."
 
+STATUS (2026-05-03): Ad-hoc utility for manual / mode-driven multi-model review.
+NOT load-bearing in nightly automation. `dream_light.py` has its own hardcoded
+reviewer logic (Gemini journal → Codex review with Kimi fallback) which is a
+deliberate choice with different reviewer preferences than this script's
+REVIEWER_CHAIN. Do not refactor `dream_light.py` to delegate to this script
+without explicit operator approval — the reviewer family preferences differ
+(this script's chain is Claude-first for Gemini writers; dream_light's is
+Codex-first), and switching them is a behavior change.
+
+If you want to unify them later, update REVIEWER_CHAIN below to match
+dream_light's preferences (gemini → codex, kimi) BEFORE refactoring any consumer.
+
 Usage:
   scripts/python/verify.py --writer <writer-cli> --output <file> [--prompt <text>]
   scripts/python/verify.py --writer codex --output draft.md
   scripts/python/verify.py --writer gemini --output finding.md --prompt 'Adversarial review'
 
-Default reviewer assignments (writer → reviewer):
-  claude → codex (or gemini fallback)
-  codex  → claude (or gemini fallback)
-  gemini → claude (or codex fallback)
-  kimi   → claude (or codex fallback)
+Default reviewer assignments per REVIEWER_CHAIN below:
+  claude → codex (or gemini, kimi fallback)
+  codex  → claude (or gemini, kimi fallback)
+  gemini → claude (or codex, kimi fallback)
+  kimi   → claude (or codex, gemini fallback)
 
 The reviewer is invoked headless with the output file's content prepended to
 the prompt. Returns reviewer's response on stdout. Exit 0 always (the verdict

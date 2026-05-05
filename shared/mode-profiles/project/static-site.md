@@ -29,7 +29,7 @@ Hugo / Jekyll / Astro / Eleventy / Gatsby — content-driven sites that build to
 ### Phase 4 Build
 - frontend-engineer (templates, layouts)
 - ui-engineer (visual polish, design tokens)
-- content-creator (Content cross-Lead) for hero images / OG tags
+- content-creator (Content cross-namespace) for hero images / OG tags
 - devops-engineer (deploy automation)
 
 ### Phase 6 Test
@@ -48,10 +48,10 @@ Hugo / Jekyll / Astro / Eleventy / Gatsby — content-driven sites that build to
 
 - frontend-engineer
 - ui-engineer
-- designer (Content cross-Lead)
-- content-creator (Content cross-Lead) for visual assets
+- designer (Content cross-namespace)
+- content-creator (Content cross-namespace) for visual assets
 - devops-engineer (deploy)
-- technical-writer (Content cross-Lead) if writing-heavy site
+- technical-writer (Content cross-namespace) if writing-heavy site
 
 ## Static-site concerns
 

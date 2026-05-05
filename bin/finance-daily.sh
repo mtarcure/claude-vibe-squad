@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Daily token-spend check during first week of v1.1.
+# Daily token-spend check during first production-readiness week.
 # Reads dispatch-log.jsonl + tmux-logs to estimate per-pane dispatch counts.
 # Compares to baseline; surfaces anomalies in next morning brief.
 
@@ -22,7 +22,7 @@ BUDGET_FILE="${VAULT_ROOT}/_state/token-budget-2026-05-W2.md"
     echo
     echo "## Per-pane dispatches (last 24h)"
     echo
-    jq -r --arg t "$yesterday" 'select(.ts > $t) | .to_lead' \
+    jq -r --arg t "$yesterday" 'select(.ts > $t) | (.model_lane // .to_model // "?")' \
         "${VAULT_ROOT}/_state/dispatch-log.jsonl" 2>/dev/null | \
         sort | uniq -c | sort -rn || echo "(no entries in last 24h)"
     echo
@@ -31,7 +31,7 @@ BUDGET_FILE="${VAULT_ROOT}/_state/token-budget-2026-05-W2.md"
     # Compare to baseline; flag panes >1.5× baseline
     # (Simple version: just show counts; operator reads + decides)
     echo "Compare against baseline in token-budget-2026-05-W2.md."
-    echo "Lead spending 1.5× baseline → review effort-tier setting."
+    echo "Model lead spending 1.5x baseline -> review effort-tier setting."
     echo
     echo "## Surface to morning brief"
     echo

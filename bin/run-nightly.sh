@@ -64,6 +64,8 @@ run_phase() {
 log "=== Claude-Vibe-Squad nightly start: ${DATE} ==="
 
 run_phase "doctor"               "${VAULT_ROOT}/bin/doctor.sh"
+run_phase "product-hygiene"      "${VAULT_ROOT}/bin/product-hygiene.sh"
+run_phase "memory-audit"         "${VAULT_ROOT}/bin/memory-audit.sh"
 run_phase "sweep-active"         "${VAULT_ROOT}/bin/sweep-active.sh"
 run_phase "browser-keep-alive"   "${VAULT_ROOT}/bin/browser-keep-alive.sh"
 run_phase "system-cleanup"       "${VAULT_ROOT}/bin/system-cleanup.sh"

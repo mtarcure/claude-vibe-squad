@@ -14,7 +14,7 @@ Phases:
      (OpenAI/Anthropic/xAI/Perplexity/Google API keys, GitHub PATs, AWS access
      keys, Slack tokens, JWTs, HuggingFace, Stripe, Apify, bearer-in-URL).
      Does NOT redact arbitrary 32+ char strings — that pattern over-matched
-     git SHAs / UUIDs / base64 chunks and mangled journals (v1.1.1 fix).
+     git SHAs / UUIDs / base64 chunks and mangled journals.
   4. Gemini journal pass — drafts structured insights
   5. Codex adversarial review — flags hallucinations, over-reach, sensitive content
   6. Write `_state/dream-logs/<date>.md` (journal + review verdict)

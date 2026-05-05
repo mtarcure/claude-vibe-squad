@@ -1,0 +1,68 @@
+#!/bin/bash
+# Squad — single-command interface to the Claude-Vibe-Squad lifecycle.
+#
+# Setup (one-time):
+#   ln -s ~/Obsidian-Claude-Vibe-Squad/bin/squad ~/.local/bin/squad
+#   (or add ~/Obsidian-Claude-Vibe-Squad/bin to your PATH)
+#
+# Usage:
+#   squad           — launch / attach (alias: `squad up`, `squad start`)
+#   squad up --safe — launch conservative permissions profile
+#   squad stop      — update live state + transient summary, then kill session (alias: `squad down`, `squad close`)
+#   squad status    — print where-are-we summary (no attach)
+#   squad doctor    — run health check + MCP/runtime audit
+#   squad attach    — attach to existing session (no launch)
+#   squad detach    — detach the current client (same as Ctrl-b d inside tmux)
+#   squad help      — show this help
+
+set -uo pipefail
+
+VAULT_ROOT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
+
+cmd="${1:-up}"
+
+case "${cmd}" in
+    up|start|launch|"")
+        if [[ "${2:-}" == "--safe" ]]; then
+            SQUAD_UNSAFE_AUTONOMY=0 bash "${VAULT_ROOT}/bin/launch-squad.sh" --safe "${@:3}"
+        else
+            SQUAD_UNSAFE_AUTONOMY="${SQUAD_UNSAFE_AUTONOMY:-0}" bash "${VAULT_ROOT}/bin/launch-squad.sh" "${@:2}"
+        fi
+        ;;
+    stop|down|close|exit|kill)
+        bash "${VAULT_ROOT}/bin/squad-stop.sh" "${@:2}"
+        ;;
+    status|where|state)
+        bash "${VAULT_ROOT}/bin/where-are-we.sh"
+        ;;
+    doctor|check|health)
+        bash "${VAULT_ROOT}/bin/doctor.sh"
+        ;;
+    mcp-audit)
+        bash "${VAULT_ROOT}/bin/mcp-audit.sh"
+        ;;
+    attach)
+        if tmux has-session -t squad 2>/dev/null; then
+            tmux attach -t squad
+        else
+            echo "No squad session running. Start with: squad up"
+            exit 1
+        fi
+        ;;
+    detach)
+        if tmux list-clients -t squad 2>/dev/null | grep -q .; then
+            tmux detach -s squad
+            echo "Detached. Session continues in background."
+        else
+            echo "No attached client to detach."
+        fi
+        ;;
+    help|-h|--help)
+        sed -n '2,17p' "$0" | sed 's/^# //; s/^#//'
+        ;;
+    *)
+        echo "unknown subcommand: ${cmd}"
+        echo "usage: squad [up [--safe]|stop|status|doctor|attach|detach|help]"
+        exit 1
+        ;;
+esac

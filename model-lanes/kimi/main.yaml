@@ -1,0 +1,5 @@
+version: 1
+agent:
+  name: kimi-model-lead
+  extend: default
+  system_prompt_path: ./KIMI.md

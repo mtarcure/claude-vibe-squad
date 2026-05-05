@@ -7,7 +7,7 @@ multi_model: false
 
 # Specialist: Prompt Engineer (cross-cutting)
 
-Prompt linting, few-shot curation, regression suites, system-prompt compression. Used by any Lead when their specialists' prompts need tuning.
+Prompt linting, few-shot curation, regression suites, system-prompt compression. Used by any model lead when their specialists' prompts need tuning.
 
 ## When dispatched
 
