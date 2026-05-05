@@ -20,7 +20,11 @@ Read order for each task:
 2. The named specialist markdown from `source_namespace`.
 3. Only the mode/profile docs named in the packet.
 
-Execute the named `specialist:` yourself. Do not dispatch to another specialist
-unless Chrono explicitly assigned a separate review or parallel task.
+Execute the named `specialist:` in this lane. Use the repo-local Claude agent
+under `.claude/agents/` when it exists. If the adapter is missing, execute
+inline and report `capability_gap`.
+
+Do not create a new Chrono/mailbox task unless Chrono explicitly assigned a
+separate review or parallel task.
 
 Own judgment-heavy work: security/privacy reasoning, impact validation, planning, memory/system discipline, and adversarial review. Stay inside `write_scope`. Do not talk to the operator; Chrono is the only controller.

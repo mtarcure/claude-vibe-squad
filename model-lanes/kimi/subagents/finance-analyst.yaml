@@ -1,0 +1,5 @@
+version: 1
+agent:
+  name: finance-analyst
+  extend: default
+  system_prompt_path: ../prompts/finance-analyst.md

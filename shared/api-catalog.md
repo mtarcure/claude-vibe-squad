@@ -616,7 +616,7 @@ Gemini CLI flags — verified live via `gemini --help` capture on 2026-05-02. Su
 - specialists: coding workflows (potential alt CLI)
 - verified: needs-research
 - last_checked: 2026-05-02
-- research_task: investigate — alt CLI for Coding pane?
+- research_task: investigate — possible alternate CLI for implementation work?
 - notes: IDE-agent product.
 
 ---
@@ -866,10 +866,10 @@ Kimi CLI flags — verified live via `kimi --help` capture on 2026-05-02. Subscr
 - url: https://elevenlabs.io
 - access: API (ELEVENLABS_API_KEY)
 - specialists: media-producer
-- verified: yes for Claude child MCP; needs-research for Gemini/content-pane use through chrono-content-engineer
+- verified: yes for Claude child MCP; not exposed through the current Gemini `chrono-content-engineer` wrapper
 - last_checked: 2026-05-02
 - test_reference: `claude mcp list` shows `plugin:chrono-content-engineer:elevenlabs` ✓ Connected via `uvx elevenlabs-mcp` (Capability Inventory)
-- notes: Full surface: speech-to-text, text-to-speech, sound effects, music composition, voice cloning, voice library search, conversational agents. See `mcp__plugin_chrono-content-engineer_elevenlabs__*` tool list.
+- notes: Full Claude child surface includes speech-to-text, text-to-speech, sound effects, music composition, voice cloning, voice library search, and conversational agents. Do not ask Gemini for `elevenlabs__*` tools unless a live lane schema proves they exist.
 
 ---
 
@@ -939,28 +939,28 @@ Per-pane verification matrix for each chrono-* family MCP. Claude pane verificat
 - last_checked: 2026-05-03 for claude panes; 2026-05-02 for codex/kimi; 2026-05-02 for gemini (absent)
 
 ### chrono-research-arsenal MCP
-- purpose: Multi-engine research surface (Perplexity, Brave, Apify, Serper, xAI/Grok routing)
+- purpose: Current live research wrapper exposing `arxiv_search` and `xai_search`. Perplexity, Brave, Apify, and Serper are planned/unverified child routes until the wrapper exports tool names and lane smoke tests prove them.
 - specialists: research, scout, large-context-analyst, fact-checker
 - verified per pane:
-  - chrono pane (claude): yes — test_reference: `claude mcp list` post-2026-05-03 tilde-fix shows ✓ Connected (top-level wrapper); child `perplexity` independently ✓ Connected via `uvx perplexity-mcp`
+  - chrono pane (claude): yes — wrapper registered; current wrapper tool proof is `arxiv_search`, `xai_search`
   - security pane (claude): yes — same
   - sysmgmt pane (claude): yes — same
-  - coding pane (codex): yes — `codex mcp list` shows enabled (ENV: APIFY_TOKEN, BRAVE_API_KEY, PERPLEXITY_API_KEY, SERPER_API_KEY, XAI_API_KEY)
+  - coding pane (codex): yes — registered; task packets must still verify `tools/list` before naming provider-specific tools
   - content pane (gemini): no — **INTENTIONALLY SKIPPED in Hybrid Path A.** Google Search grounding (built into `gemini-3.1-pro-preview`) is the substitute. Gemini pane research uses native grounding, not chrono-research-arsenal.
-  - research pane (kimi): yes — `kimi mcp list` shows configured
-- last_checked: 2026-05-03 for claude panes; 2026-05-02 for codex/kimi; 2026-05-02 for gemini (intentional-skip)
+  - research pane (kimi): yes — registered; current wrapper tool proof is `arxiv_search`, `xai_search`
+- last_checked: 2026-05-05 for current wrapper tool names; gemini remains intentional-skip
 
 ### chrono-content-engineer MCP
-- purpose: Content/media provider routing. Provider-specific availability still depends on each child route's verification status.
+- purpose: Current live content/media wrapper exposing `generate_image`, `generate_video`, and `generate_audio`. Provider-specific child routes such as ElevenLabs and Higgsfield are separate surfaces unless the active lane schema exposes them.
 - specialists: media-producer, designer, content-creator only for non-media content support
 - verified per pane:
-  - chrono pane (claude): yes — test_reference: `claude mcp list` post-2026-05-03 tilde-fix shows ✓ Connected (top-level wrapper); child `elevenlabs` independently ✓ Connected
+  - chrono pane (claude): yes — wrapper registered; Claude also has the separate ElevenLabs child MCP
   - security pane (claude): yes — same
   - sysmgmt pane (claude): yes — same
-  - coding pane (codex): yes — `codex mcp list` shows enabled (ENV: GEMINI_API_KEY, OPENAI_API_KEY, XAI_API_KEY)
-  - content pane (gemini): needs-research — wrapper presence claimed in prior docs, but proof log is missing locally; do not claim provider-level success without rerun
-  - research pane (kimi): yes — `kimi mcp list` shows configured
-- last_checked: 2026-05-03 for claude panes; 2026-05-02 for codex/kimi; gemini requires rerun/proof log
+  - coding pane (codex): yes — registered; wrapper tools must be verified with `tools/list`
+  - content pane (gemini): yes — wrapper registered; current wrapper tools are `generate_image`, `generate_video`, `generate_audio`; do not request ElevenLabs child tools from Gemini unless the lane schema exposes them
+  - research pane (kimi): yes — registered; wrapper tools must be verified with `tools/list`
+- last_checked: 2026-05-05 for current wrapper tool names
 
 ### sequential-thinking MCP
 - purpose: Multi-step structured reasoning tool (`sequentialthinking`)

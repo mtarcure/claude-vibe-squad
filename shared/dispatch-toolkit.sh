@@ -8,18 +8,18 @@
 #    brief omits them."
 #
 # Without this, dispatched model lanes default to whatever is first in their
-# context. With this, every lane sees both the source namespace roster and the
-# executing model lane's verified tool surface.
+# context. With this, every lane sees the source namespace roster, the expected
+# model-lane surface, and the rule to verify live tool availability before use.
 #
 # Per-pane MCP enumeration is sourced from:
 #   _state/capability-inventory-2026-05-02.md (verified per-pane install state)
 #   _state/incident-2026-05-03-claude-mcp-tilde.md (post-fix Claude MCP set)
 #   gemini mcp list -d (post-Hybrid-Path-A install on 2026-05-03)
 #
-# `chrono-research-arsenal` is intentionally listed ONLY in the research section.
-# The research namespace owns multi-source web research; other namespaces route research
-# through Research, not directly. Eliminates the "every lane reaches for
-# perplexity" tool-collision noise.
+# `chrono-research-arsenal` is a research-lane wrapper. Current live tools are
+# `arxiv_search` and `xai_search`; Perplexity/Brave/Serper/Apify are future
+# routes until the catalog verifies them. Other namespaces route external
+# research through the research namespace instead of inventing tool names.
 #
 # Usage:  bash shared/dispatch-toolkit.sh <compatibility-namespace> <to-model>
 
@@ -59,9 +59,9 @@ case "${NAMESPACE}" in
 - `systems-engineer` · cross-arch builds, NUMA/SIMD
 - `e2e-runner` · Playwright suites, visual diffs, flaky-test hunting
 
-**Routing reminder:** for OSINT / vendor research / library exploration, ask Chrono for a research-namespace dispatch — that namespace owns `chrono-research-arsenal` (Perplexity / Brave / Serper / Apify). Don't reach for WebFetch yourself; route the research task.
+**Routing reminder:** for OSINT / vendor research / library exploration, ask Chrono for a research-namespace dispatch. The live `chrono-research-arsenal` wrapper currently exposes `arxiv_search` and `xai_search`; do not ask for Perplexity/Brave/Serper/Apify tool names until `shared/api-catalog.md` verifies them.
 
-**Required:** Execute the `specialist:` named in the task packet yourself. Do not fan out or dispatch to another specialist unless the task packet explicitly asks for a review pass.
+**Required:** Execute the `specialist:` named in the task packet in this model lane. Native specialist/subagent adapters are allowed when registered; creating a new Chrono/mailbox task is not allowed unless the packet explicitly asks for cross-lane review or parallel work.
 EOF
         ;;
     security)
@@ -82,9 +82,9 @@ EOF
 - 4 other platforms (Bugcrowd, Intigriti, HackenProof, Code4rena) are browser-only; use Playwright CDP attach
 - Operator's allowed platforms ONLY: HackerOne, Bugcrowd, Intigriti, HackenProof, Code4rena. Do NOT suggest Cantina, Immunefi, Sherlock, YesWeHack.
 
-**Routing reminder:** for OSINT / vendor research that doesn't fit `scout`'s platform-intel scope, ask Chrono for a research-namespace dispatch — that namespace owns `chrono-research-arsenal` (Perplexity for synthesis, Brave/Serper for raw search). Don't WebFetch directly.
+**Routing reminder:** for OSINT / vendor research that doesn't fit `scout`'s platform-intel scope, ask Chrono for a research-namespace dispatch. The live research wrapper currently exposes `arxiv_search` and `xai_search`; do not ask for unverified Perplexity/Brave/Serper/Apify tool names.
 
-**Required:** Execute the `specialist:` named in the task packet yourself. Do not fan out or dispatch to another specialist unless Chrono explicitly assigns a review or parallel pass.
+**Required:** Execute the `specialist:` named in the task packet in this model lane. Native specialist/subagent adapters are allowed when registered; creating a new Chrono/mailbox task is not allowed unless Chrono explicitly assigns a review or parallel pass.
 EOF
         ;;
     content)
@@ -104,7 +104,7 @@ EOF
 
 **Routing reminder:** for deeper multi-source synthesis beyond a quick grounded check, hand off to research namespace.
 
-**Required:** Execute the `specialist:` named in the task packet yourself. Do not fan out or dispatch to another specialist unless Chrono explicitly assigns a review or parallel pass.
+**Required:** Execute the `specialist:` named in the task packet in this model lane. Native specialist/subagent adapters are allowed when registered; creating a new Chrono/mailbox task is not allowed unless Chrono explicitly assigns a review or parallel pass.
 EOF
         ;;
     sysmgmt)
@@ -125,7 +125,7 @@ EOF
 
 **Routing reminder:** for any external research (CLI changelogs, vendor docs, frontier-tool freshness checks), hand off to research namespace — they own `chrono-research-arsenal`.
 
-**Required:** Execute the `specialist:` named in the task packet yourself. Do not fan out or dispatch to another specialist unless Chrono explicitly assigns a review or parallel pass.
+**Required:** Execute the `specialist:` named in the task packet in this model lane. Native specialist/subagent adapters are allowed when registered; creating a new Chrono/mailbox task is not allowed unless Chrono explicitly assigns a review or parallel pass.
 EOF
         ;;
     research)
@@ -141,13 +141,13 @@ EOF
 - `learner` · study plans, drills, spaced repetition, reading ladders
 - `data-extraction-engineer` · PDF parsing, table extraction, dataset wrangling
 
-**This namespace is the squad's web-research home.** Other namespaces route research tasks here; you own `chrono-research-arsenal`.
+**This namespace is the squad's web-research home.** Other namespaces route research tasks here; you own the live `chrono-research-arsenal` wrapper.
 
-**WebFetch is a fallback ONLY** — use it when chrono-research-arsenal can't reach a specific URL or for quick single-page reads. Never as your primary research tool.
+**Live research MCP tools:** `arxiv_search` and `xai_search`. Perplexity, Brave, Serper, and Apify are not wired in the current wrapper. If a task asks for an unlisted tool, report `capability_gap` and use the task-approved fallback or model-native search.
 
-**NOT YOUR DOMAIN:** Bounty target selection (that's Security `scout`). Vulnerability discovery (that's Security `security-analyst`). Implementation work (that's Coding's specialists).
+**NOT YOUR DOMAIN:** Bounty target selection (that's security namespace `scout`). Vulnerability discovery (that's security namespace `security-analyst`). Implementation work (that's coding namespace specialists).
 
-**Required:** Execute the `specialist:` named in the task packet yourself. Do not fan out or dispatch to another specialist unless Chrono explicitly assigns a review or parallel pass.
+**Required:** Execute the `specialist:` named in the task packet in this model lane. Native specialist/subagent adapters are allowed when registered; creating a new Chrono/mailbox task is not allowed unless Chrono explicitly assigns a review or parallel pass.
 EOF
         ;;
     *)
@@ -159,33 +159,41 @@ case "${TO_MODEL}" in
     gpt-codex)
         cat <<'EOF'
 
-## Executing Model Lane Tools
+## Expected Model Lane Tool Surface
 
-GPT/Codex lane can use repo shell commands, file edits, tests, `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `chrono-catalog`, `chrono-content-engineer` when relevant, and `sequential-thinking`.
+GPT/Codex lane is expected to have repo shell commands, file edits, tests, `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `chrono-catalog`, `chrono-content-engineer` when relevant, and `sequential-thinking`.
+
+This is an expected surface, not proof of live availability. Verify the tool exists in your current runtime before using it. If missing, report `capability_gap` and use the task-approved fallback.
 EOF
         ;;
     claude)
         cat <<'EOF'
 
-## Executing Model Lane Tools
+## Expected Model Lane Tool Surface
 
-Claude lane can use `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `chrono-catalog`, `context7`, `sequential-thinking`, and local shell where allowed by the task. Use Playwright/CDP only when the packet explicitly allows browser work.
+Claude lane is expected to have `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `chrono-catalog`, and local shell where allowed by the task. Context7 and sequential thinking are optional conveniences only when the live Claude runtime exposes them. Use Playwright/CDP only when the packet explicitly allows browser work.
+
+This is an expected surface, not proof of live availability. Verify the tool exists in your current runtime before using it. If missing, report `capability_gap` and use the task-approved fallback.
 EOF
         ;;
     gemini)
         cat <<'EOF'
 
-## Executing Model Lane Tools
+## Expected Model Lane Tool Surface
 
-Gemini lane can use native Gemini grounding, `chrono-content-engineer`, `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `chrono-catalog`, `sequential-thinking`, and media/design tools when the packet allows them.
+Gemini lane is expected to have native Gemini grounding, `chrono-content-engineer`, `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `chrono-catalog`, `sequential-thinking`, and media/design tools when the packet allows them. `chrono-content-engineer` currently exposes wrapper tools such as `generate_image`, `generate_video`, and `generate_audio`; ElevenLabs/Higgsfield child tool names are not available in this lane unless the live schema exposes them.
+
+This is an expected surface, not proof of live availability. Verify the tool exists in your current runtime before using it. If missing, report `capability_gap` and use the task-approved fallback.
 EOF
         ;;
     kimi)
         cat <<'EOF'
 
-## Executing Model Lane Tools
+## Expected Model Lane Tool Surface
 
-Kimi lane can use `chrono-research-arsenal`, `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `chrono-catalog`, `chrono-content-engineer` when relevant, and `sequential-thinking`. Prefer research-arsenal for source-heavy research when allowed by the packet.
+Kimi lane is expected to have `chrono-research-arsenal`, `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `chrono-catalog`, `chrono-content-engineer` when relevant, and `sequential-thinking`. The current research wrapper exposes `arxiv_search` and `xai_search`; Perplexity/Brave/Serper/Apify tool names are not wired until verified in the catalog.
+
+This is an expected surface, not proof of live availability. Verify the tool exists in your current runtime before using it. If missing, report `capability_gap` and use the task-approved fallback.
 EOF
         ;;
 esac

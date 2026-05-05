@@ -9,7 +9,7 @@
 #   4. Vault accessible (Obsidian REST API)
 #   5. Persistent browser session alive
 #   6. Disk space (>15% free)
-#   7. tmux panes (5 Lead panes alive)
+#   7. tmux panes (Chrono + 4 model-lane panes alive)
 #   8. Token usage per CLI (where reportable)
 #   9. Specialist dispatch volume last 24h
 #   10. Process audit (long-running, orphaned)
@@ -304,16 +304,40 @@ fi
 # --- 10. Process audit (with pathology detection) ---
 echo "" >> "${DOCTOR_LOG}"
 echo "## Process Audit" >> "${DOCTOR_LOG}"
-# Long-running claude/codex/gemini/kimi processes are expected for the
-# daily-driver tmux model. Report them as informational; runaway CPU and retry
-# storms below are the actual warning signals.
-long_procs=$(ps -eo pid,etime,pcpu,comm | awk '$4 ~ /(claude|codex|gemini|kimi)/ && $2 ~ /^[0-9]+-[0-9]+/ {print}' | head -5)
+SQUAD_PIDS=""
+if command -v tmux >/dev/null 2>&1 && tmux has-session -t squad 2>/dev/null; then
+    SQUAD_PIDS=$(tmux list-panes -a -F '#{pane_pid}' 2>/dev/null | tr '\n' ' ')
+    echo "- ✓ squad tmux session is running with pane roots: ${SQUAD_PIDS}" >> "${DOCTOR_LOG}"
+    HEALTHY+=("squad tmux session present")
+else
+    echo "- ⚠️ squad tmux session is not running" >> "${DOCTOR_LOG}"
+    WARNINGS+=("squad tmux session not running")
+fi
+
+# Long-running claude/codex/gemini/kimi processes are expected for the daily
+# driver, but extra interactive CLIs outside the squad pane roots can leave MCP
+# children around. Report them separately; do not kill them automatically.
+long_procs=$(ps -eo pid,ppid,etime,pcpu,comm | awk '$5 ~ /(claude|codex|gemini|kimi)/ && $3 ~ /^[0-9]+-[0-9]+/ {print}' | head -10)
 if [[ -n "${long_procs}" ]]; then
-    echo "- ℹ️ Long-running CLI processes (>1 day, expected for daily-driver panes):" >> "${DOCTOR_LOG}"
+    echo "- ℹ️ Long-running CLI processes (>1 day; may be active non-squad sessions):" >> "${DOCTOR_LOG}"
     echo "${long_procs}" | sed 's/^/  /' >> "${DOCTOR_LOG}"
-    HEALTHY+=("persistent CLI panes present")
+    HEALTHY+=("persistent CLI processes present")
 else
     echo "- ✓ No long-running CLI processes detected" >> "${DOCTOR_LOG}"
+fi
+
+extra_cli=$(ps -eo pid,ppid,etime,pcpu,command | awk -v squad_pids="${SQUAD_PIDS}" '
+    function is_squad(pid) {
+        return index(" " squad_pids " ", " " pid " ") > 0
+    }
+    $0 ~ /(claude|codex|gemini|kimi)( |$)/ && $0 !~ /bin\/(launch-squad|squad-stop|doctor)\.sh/ {
+        if (!is_squad($1) && !is_squad($2)) print
+    }
+' | head -20)
+if [[ -n "${extra_cli}" ]]; then
+    echo "- 🟡 Extra non-squad CLI roots detected (informational; may be active terminals):" >> "${DOCTOR_LOG}"
+    echo "${extra_cli}" | sed 's/^/  /' >> "${DOCTOR_LOG}"
+    WARNINGS+=("extra non-squad CLI sessions detected; use normal terminal cleanup if stale")
 fi
 
 # Pathology: high-CPU CLI processes (likely retry storm or runaway loop)

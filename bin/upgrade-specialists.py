@@ -66,9 +66,9 @@ CHRONO_MCP_SECTION = "## 9. chrono MCPs squad-wide"
 
 V11_SECTION_MARKER = "## Tools available to me"
 
-# Hardcoded role -> skill mapping (top 3-5 per Lead). Anything not in this map
-# falls back to a generic per-Lead set + a <FILL: ...> placeholder so the
-# Lead author can supply specialist-specific skills.
+# Hardcoded role -> skill mapping (top 3-5 per source namespace). Anything not
+# in this map falls back to a generic namespace set + a <FILL: ...> placeholder
+# so the maintainer can supply specialist-specific skills.
 LEAD_DEFAULT_SKILLS = {
     "coding": [
         "code-review-loop",
@@ -525,7 +525,7 @@ def build_v11_sections(
         "",
         "## When to fan out",
         "",
-        "- For <FILL: typical task shape A>: dispatch to <FILL: peer specialist for shape A> via Lead's mailbox.",
+        "- For <FILL: typical task shape A>: dispatch to <FILL: peer specialist for shape A> via Chrono/model-lane routing.",
         "- For <FILL: typical task shape B>: handle solo.",
         "- For <FILL: typical task shape C>: surface to operator (out of my scope).",
         "",

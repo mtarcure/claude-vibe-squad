@@ -1,6 +1,6 @@
 ---
 name: designer
-parent_lead: content
+source_namespace: content
 default_model: inherit
 multi_model: false
 ---
@@ -13,12 +13,12 @@ Visual systems, brand assets, Figma fidelity, creative direction. Sister to ui-e
 
 ## Tools available to me
 
-### MCPs (verified-installed only)
+### Expected MCPs (verify live before use)
 - `chrono-vault MCP` - KG read/write, durable memory across model leads. Use when: this MCP's purpose matches the task shape.
 - `chrono-kg MCP` - Knowledge-graph query and write surface (separate namespace under chrono-vault binary). Use when: this MCP's purpose matches the task shape.
 - `chrono-obsidian MCP` - Obsidian REST-API bridge for vault read/write. Use when: this MCP's purpose matches the task shape.
 - `chrono-catalog MCP` - Local skill / plugin / tool catalog query surface. Use when: this MCP's purpose matches the task shape.
-- `chrono-content-engineer MCP` - Content/media provider routing; use only provider routes marked verified in shared/api-catalog.md. Use when: this MCP's purpose matches the task shape.
+- `chrono-content-engineer MCP` - Content/media MCP wrapper; current live tools are generate_image, generate_video, and generate_audio only. ElevenLabs and Higgsfield are separate child routes and not available unless shared/api-catalog.md verifies them. Use when: this MCP's purpose matches the task shape.
 - `sequential-thinking MCP` - Multi-step structured reasoning tool (`sequential-thinking`). Use when: this MCP's purpose matches the task shape.
 
 ### Native CLI features (verified, my CLI is `gemini`)

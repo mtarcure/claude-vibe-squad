@@ -1,6 +1,6 @@
 ---
 name: content-creator
-parent_lead: content
+source_namespace: content
 default_model: inherit
 multi_model: false
 mcps_used: [chrono-vault, chrono-kg, chrono-obsidian]
@@ -14,7 +14,7 @@ Long-form prose, marketing copy, campaign drafts, thought-leadership pieces, and
 
 ## Tools available to me
 
-### MCPs (verified-installed only)
+### Expected MCPs (verify live before use)
 - `chrono-vault MCP` - KG read/write, durable memory across model leads. Use when: this MCP's purpose matches the task shape.
 - `chrono-kg MCP` - Knowledge-graph query and write surface (separate namespace under chrono-vault binary). Use when: this MCP's purpose matches the task shape.
 - `chrono-obsidian MCP` - Obsidian REST-API bridge for vault read/write. Use when: this MCP's purpose matches the task shape.

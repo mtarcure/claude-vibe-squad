@@ -39,6 +39,9 @@ departments/*/archive/*.md
 
 # Per-CLI local state (Gemini, etc)
 .gemini/
+!model-lanes/gemini/.gemini/
+!model-lanes/gemini/.gemini/agents/
+!model-lanes/gemini/.gemini/agents/*.md
 
 # Temp files from atomic writes
 **/*.tmp

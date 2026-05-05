@@ -1,11 +1,11 @@
 #!/bin/bash
-# Dashboard — creates a separate window in the squad session showing all 5 Leads
-# at once in a tiled grid, each pane live-tailing that Lead's pipe-pane log.
+# Dashboard — creates a separate window in the squad session showing model lanes
+# at once in a tiled grid, each pane live-tailing that model lane's pipe-pane log.
 # Operator switches to it with `Ctrl-b m` (or `:select-window -t squad:monitor`).
 #
 # This is read-only — typing anywhere in the dashboard does nothing useful.
-# To actually drive a Lead, switch to its dedicated window (Ctrl-b 1..5).
-# Or just talk to Chrono — Chrono dispatches via send-task.sh, the Lead works,
+# To inspect a model lane, switch to its dedicated window (Ctrl-b 1..4).
+# Or just talk to Chrono — Chrono dispatches via send-task.sh, the model lane works,
 # you watch progress on the dashboard. No pane-switching needed for normal work.
 
 set -uo pipefail

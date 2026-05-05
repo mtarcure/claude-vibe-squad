@@ -109,6 +109,12 @@ fi
         "${VAULT_ROOT}/docs" "${VAULT_ROOT}/shared" 2>/dev/null; then
         :
     fi
+    if grep -RInE 'perplexity_search_web|elevenlabs__check_subscription|brave_search|serper_search' \
+        "${VAULT_ROOT}/README.md" "${VAULT_ROOT}/CLAUDE.md" "${VAULT_ROOT}/chrono" \
+        "${VAULT_ROOT}/docs" "${VAULT_ROOT}/shared" "${VAULT_ROOT}/model-lanes" \
+        "${VAULT_ROOT}/departments"/*/specialists 2>/dev/null; then
+        :
+    fi
 } | sort -u > "$drift_file"
 
 runtime_count=$(grep -c . "$runtime_file" 2>/dev/null || true)
