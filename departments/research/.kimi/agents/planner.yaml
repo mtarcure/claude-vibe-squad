@@ -1,5 +1,0 @@
-version: 1
-agent:
-  name: planner
-  extend: ./main.yaml
-  system_prompt_path: ./prompts/planner.md

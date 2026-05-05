@@ -1,7 +1,7 @@
 #!/bin/bash
 # Launch the full Claude-Vibe-Squad tmux session with 6 visible windows.
-# Each visible window uses a model-led name while keeping compatibility
-# Lead folders/mailboxes stable under departments/.
+# Each visible window is a model lead. Department folders are source
+# namespaces and mailbox storage only.
 #
 # Usage:
 #   bash ~/Obsidian-Claude-Vibe-Squad/bin/launch-squad.sh
@@ -10,10 +10,10 @@
 # After launch:
 #   tmux attach -t squad     # attach to the session
 #   Ctrl-b + 0  → chrono (Coordinator, your conversation)
-#   Ctrl-b + 1  → gpt-codex  (departments/coding)
-#   Ctrl-b + 2  → claude     (security + sysmgmt compatibility namespaces)
-#   Ctrl-b + 3  → gemini     (departments/content)
-#   Ctrl-b + 4  → kimi       (departments/research)
+#   Ctrl-b + 1  → gpt-codex
+#   Ctrl-b + 2  → claude
+#   Ctrl-b + 3  → gemini
+#   Ctrl-b + 4  → kimi
 #   Ctrl-b + 5  → watchers/status
 #   Ctrl-b + d  → detach (panes keep running)
 #
@@ -122,6 +122,12 @@ tmux set-option -g status-right "#[fg=yellow]#(cat ${VAULT_ROOT}/_state/doctor-l
 # Per-pane log dir — pipe-pane writes pane stdout here for grep-able audit
 TMUX_LOG_DIR="${VAULT_ROOT}/_state/tmux-logs"
 mkdir -p "${TMUX_LOG_DIR}"
+for ns in coding security content sysmgmt research; do
+    mkdir -p "${VAULT_ROOT}/departments/${ns}/inbox" \
+             "${VAULT_ROOT}/departments/${ns}/active" \
+             "${VAULT_ROOT}/departments/${ns}/outbox" \
+             "${VAULT_ROOT}/departments/${ns}/archive"
+done
 
 # Ensure ~/.local/bin is on PATH inside every tmux pane (claude + kimi live there)
 PATH_PREFIX='export PATH="$HOME/.local/bin:$PATH"'
@@ -136,12 +142,12 @@ if [[ "${SQUAD_UNSAFE_AUTONOMY}" == "1" ]]; then
     CODEX_CMD='codex --dangerously-bypass-approvals-and-sandbox -c model_reasoning_effort=high'
     CLAUDE_CMD="claude --permission-mode bypassPermissions --model opus --effort xhigh --add-dir ${VAULT_ROOT}"
     CONTENT_CMD="gemini --yolo --model gemini-3.1-pro-preview --include-directories ${VAULT_ROOT}"
-    RESEARCH_CMD="kimi --yolo --thinking --agent-file ${VAULT_ROOT}/departments/research/.kimi/agents/main.yaml --add-dir ${VAULT_ROOT}"
+    RESEARCH_CMD="kimi --yolo --thinking --agent-file ${VAULT_ROOT}/model-lanes/kimi/main.yaml --add-dir ${VAULT_ROOT}"
 else
     CODEX_CMD='codex --sandbox workspace-write --ask-for-approval never -c model_reasoning_effort=high'
     CLAUDE_CMD="claude --permission-mode acceptEdits --model opus --effort xhigh --add-dir ${VAULT_ROOT}"
     CONTENT_CMD="gemini --model gemini-3.1-pro-preview --include-directories ${VAULT_ROOT}"
-    RESEARCH_CMD="kimi --thinking --agent-file ${VAULT_ROOT}/departments/research/.kimi/agents/main.yaml --add-dir ${VAULT_ROOT}"
+    RESEARCH_CMD="kimi --thinking --agent-file ${VAULT_ROOT}/model-lanes/kimi/main.yaml --add-dir ${VAULT_ROOT}"
 fi
 
 # Window 0: chrono (Coordinator — Claude Code, auto-loads chrono/CLAUDE.md)
@@ -164,55 +170,55 @@ if [[ "${SQUAD_TRUST_CODEX_MCPS}" == "1" ]]; then
     fi
 fi
 
-CODING_WIN="$(lead_window_name coding)"
-SECURITY_WIN="$(lead_window_name security)"
-CONTENT_WIN="$(lead_window_name content)"
-RESEARCH_WIN="$(lead_window_name research)"
+GPT_CODEX_WIN="$(runtime_window_name gpt-codex)"
+CLAUDE_WIN="$(runtime_window_name claude)"
+GEMINI_WIN="$(runtime_window_name gemini)"
+KIMI_WIN="$(runtime_window_name kimi)"
 
-# Window 1: GPT/Codex model lane (compatibility folder: coding)
-tmux new-window -t "${SESSION}" -n "${CODING_WIN}" -c "${VAULT_ROOT}/departments/coding"
-tmux pipe-pane -t "${SESSION}:${CODING_WIN}" -o "cat >> ${TMUX_LOG_DIR}/coding.log"
-tmux send-keys -t "${SESSION}:${CODING_WIN}" "${PATH_PREFIX}" C-m
-tmux send-keys -t "${SESSION}:${CODING_WIN}" "${AUTH_PREFIX}" C-m
-tmux send-keys -t "${SESSION}:${CODING_WIN}" "clear; echo '=== GPT/CODEX MODEL LANE (specialist execution) ==='" C-m
-tmux send-keys -t "${SESSION}:${CODING_WIN}" "${CODEX_CMD}" C-m
+# Window 1: GPT/Codex model lead
+tmux new-window -t "${SESSION}" -n "${GPT_CODEX_WIN}" -c "${VAULT_ROOT}/model-lanes/gpt-codex"
+tmux pipe-pane -t "${SESSION}:${GPT_CODEX_WIN}" -o "cat >> ${TMUX_LOG_DIR}/gpt-codex.log"
+tmux send-keys -t "${SESSION}:${GPT_CODEX_WIN}" "${PATH_PREFIX}" C-m
+tmux send-keys -t "${SESSION}:${GPT_CODEX_WIN}" "${AUTH_PREFIX}" C-m
+tmux send-keys -t "${SESSION}:${GPT_CODEX_WIN}" "clear; echo '=== GPT/CODEX MODEL LEAD (implementation, tests, PoC mechanics) ==='" C-m
+tmux send-keys -t "${SESSION}:${GPT_CODEX_WIN}" "${CODEX_CMD}" C-m
 
-# Window 2: Claude model lane (compatibility folders: security + sysmgmt)
-tmux new-window -t "${SESSION}" -n "${SECURITY_WIN}" -c "${VAULT_ROOT}"
-tmux pipe-pane -t "${SESSION}:${SECURITY_WIN}" -o "cat >> ${TMUX_LOG_DIR}/claude.log"
-tmux send-keys -t "${SESSION}:${SECURITY_WIN}" "${PATH_PREFIX}" C-m
-tmux send-keys -t "${SESSION}:${SECURITY_WIN}" "${AUTH_PREFIX}" C-m
-tmux send-keys -t "${SESSION}:${SECURITY_WIN}" "clear; echo '=== CLAUDE MODEL LANE (security, privacy, sysmgmt, judgment review) ==='" C-m
-tmux send-keys -t "${SESSION}:${SECURITY_WIN}" "${CLAUDE_CMD}" C-m
+# Window 2: Claude model lead
+tmux new-window -t "${SESSION}" -n "${CLAUDE_WIN}" -c "${VAULT_ROOT}/model-lanes/claude"
+tmux pipe-pane -t "${SESSION}:${CLAUDE_WIN}" -o "cat >> ${TMUX_LOG_DIR}/claude.log"
+tmux send-keys -t "${SESSION}:${CLAUDE_WIN}" "${PATH_PREFIX}" C-m
+tmux send-keys -t "${SESSION}:${CLAUDE_WIN}" "${AUTH_PREFIX}" C-m
+tmux send-keys -t "${SESSION}:${CLAUDE_WIN}" "clear; echo '=== CLAUDE MODEL LEAD (judgment, safety review, careful reasoning) ==='" C-m
+tmux send-keys -t "${SESSION}:${CLAUDE_WIN}" "${CLAUDE_CMD}" C-m
 
-# Window 3: Gemini model lane (compatibility folder: content)
-tmux new-window -t "${SESSION}" -n "${CONTENT_WIN}" -c "${VAULT_ROOT}/departments/content"
-tmux pipe-pane -t "${SESSION}:${CONTENT_WIN}" -o "cat >> ${TMUX_LOG_DIR}/content.log"
-tmux send-keys -t "${SESSION}:${CONTENT_WIN}" "${PATH_PREFIX}" C-m
-tmux send-keys -t "${SESSION}:${CONTENT_WIN}" "${AUTH_PREFIX}" C-m
-tmux send-keys -t "${SESSION}:${CONTENT_WIN}" "clear; echo '=== GEMINI MODEL LANE (content + design + media) ==='" C-m
-tmux send-keys -t "${SESSION}:${CONTENT_WIN}" "${CONTENT_CMD}" C-m
+# Window 3: Gemini model lead
+tmux new-window -t "${SESSION}" -n "${GEMINI_WIN}" -c "${VAULT_ROOT}/model-lanes/gemini"
+tmux pipe-pane -t "${SESSION}:${GEMINI_WIN}" -o "cat >> ${TMUX_LOG_DIR}/gemini.log"
+tmux send-keys -t "${SESSION}:${GEMINI_WIN}" "${PATH_PREFIX}" C-m
+tmux send-keys -t "${SESSION}:${GEMINI_WIN}" "${AUTH_PREFIX}" C-m
+tmux send-keys -t "${SESSION}:${GEMINI_WIN}" "clear; echo '=== GEMINI MODEL LEAD (multimodal, media, grounded content) ==='" C-m
+tmux send-keys -t "${SESSION}:${GEMINI_WIN}" "${CONTENT_CMD}" C-m
 
-# Window 4: Kimi model lane (compatibility folder: research)
-tmux new-window -t "${SESSION}" -n "${RESEARCH_WIN}" -c "${VAULT_ROOT}/departments/research"
-tmux pipe-pane -t "${SESSION}:${RESEARCH_WIN}" -o "cat >> ${TMUX_LOG_DIR}/research.log"
-tmux send-keys -t "${SESSION}:${RESEARCH_WIN}" "${PATH_PREFIX}" C-m
-tmux send-keys -t "${SESSION}:${RESEARCH_WIN}" "${AUTH_PREFIX}" C-m
-tmux send-keys -t "${SESSION}:${RESEARCH_WIN}" "clear; echo '=== KIMI MODEL LANE (research + long context) ==='" C-m
-tmux send-keys -t "${SESSION}:${RESEARCH_WIN}" "echo 'Kimi has no per-cwd auto-load. Once it starts, paste: Read LEAD.md and follow it as your role identity. Then check inbox/.'" C-m
-tmux send-keys -t "${SESSION}:${RESEARCH_WIN}" "${RESEARCH_CMD}" C-m
+# Window 4: Kimi model lead
+tmux new-window -t "${SESSION}" -n "${KIMI_WIN}" -c "${VAULT_ROOT}/model-lanes/kimi"
+tmux pipe-pane -t "${SESSION}:${KIMI_WIN}" -o "cat >> ${TMUX_LOG_DIR}/kimi.log"
+tmux send-keys -t "${SESSION}:${KIMI_WIN}" "${PATH_PREFIX}" C-m
+tmux send-keys -t "${SESSION}:${KIMI_WIN}" "${AUTH_PREFIX}" C-m
+tmux send-keys -t "${SESSION}:${KIMI_WIN}" "clear; echo '=== KIMI MODEL LEAD (long context, source-heavy analysis) ==='" C-m
+tmux send-keys -t "${SESSION}:${KIMI_WIN}" "echo 'Kimi model lead prompt: model-lanes/kimi/KIMI.md. Process TASK packets where to_model: kimi.'" C-m
+tmux send-keys -t "${SESSION}:${KIMI_WIN}" "${RESEARCH_CMD}" C-m
 
-# Window 6: watchers — inbox + outbox watchers per Lead.
-# Inbox watchers nudge a Lead's pane when a new TASK-*.md arrives (closing the
+# Window 5: watchers — inbox + outbox watchers per source namespace.
+# Inbox watchers nudge the assigned model pane when a new TASK-*.md arrives (closing the
 # dispatch-time race where send-task.sh's nudge gets eaten by a busy CLI).
-# Outbox watchers nudge the chrono pane when a Lead writes a RESP file
+# Outbox watchers nudge the chrono pane when a response lands
 # (closing the pull-based polling gap so Chrono surfaces responses to the
 # operator without waiting for the operator's next turn).
 WATCHERS_WIN="$(lead_window_name watchers)"
 tmux new-window -t "${SESSION}" -n "${WATCHERS_WIN}" -c "${VAULT_ROOT}"
 tmux send-keys -t "${SESSION}:${WATCHERS_WIN}" "for lead in coding security content sysmgmt research; do bash ${VAULT_ROOT}/bin/inbox-watcher.sh \"\$lead\" & bash ${VAULT_ROOT}/bin/outbox-watcher.sh \"\$lead\" & done; wait" Enter
 
-# Give the Lead CLIs a moment to initialize so the sidebar's first capture
+# Give the model CLIs a moment to initialize so the sidebar's first capture
 # shows their welcome screens instead of empty shells.
 sleep 1
 
@@ -225,11 +231,11 @@ tmux select-window -t "${SESSION}:chrono"
 tmux select-pane -t "${SESSION}:chrono.0"
 
 echo "✓ Session '${SESSION}' created:"
-echo "  0: chrono     (~/Obsidian-Claude-Vibe-Squad/chrono)"
-echo "  1: ${CODING_WIN}  (GPT/Codex lane, coding namespace)"
-echo "  2: ${SECURITY_WIN}     (Claude lane, security + sysmgmt namespaces)"
-echo "  3: ${CONTENT_WIN}     (Gemini lane, content namespace)"
-echo "  4: ${RESEARCH_WIN}       (Kimi lane, research namespace)"
+echo "  0: chrono     (Coordinator)"
+echo "  1: ${GPT_CODEX_WIN}  (GPT/Codex model lead)"
+echo "  2: ${CLAUDE_WIN}     (Claude model lead)"
+echo "  3: ${GEMINI_WIN}     (Gemini model lead)"
+echo "  4: ${KIMI_WIN}       (Kimi model lead)"
 echo "  5: ${WATCHERS_WIN} (10 fswatch processes — inbox + outbox per namespace)"
 echo ""
 echo "Each window auto-started its CLI. Switch with Ctrl-b + <num>."

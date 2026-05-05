@@ -110,7 +110,7 @@ Governed by `shared/memory-discipline.md`.
 **Key smell flags preserved:**
 - Kimi custom subagent dispatch by name is still unverified — all configs use `extend: coder` as fallback.
 - Current specialist files lack canonical frontmatter (`task_shape`, `tools`, `brief_schema`) — transpile was mechanical from old format.
-- Cross-cutting specialists need per-Lead transpilation (other Leads need their own `main.yaml` subsets).
+- Cross-cutting specialists need per-model-lane transpilation (other model leads need their own `main.yaml` subsets).
 
 **Implication for squad design:** Use Gemini's markdown+frontmatter as the canonical specialist format (single file). Transpile to Kimi YAML+Markdown split at install time. Live-test custom subagent dispatch before Phase 1.4.
 
@@ -134,5 +134,5 @@ The squad shipped explicit tool catalogs in every specialist file,
 per-pane effort/thinking tier defaults, capability inventory, and Topology B
 direct-with-CC patterns. When dispatching a specialist now, trust that its
 identity.md enumerates available MCPs / native CLI features / skills / APIs
-— no need to remind it. Lead-to-Lead direct-with-CC patterns are documented
-in this LEAD.md. See shared/lifecycle.md for lifecycle rules.
+— no need to remind it. model-lane-to-model-lane direct-with-CC patterns are documented
+in this namespace shim. See shared/lifecycle.md for lifecycle rules.

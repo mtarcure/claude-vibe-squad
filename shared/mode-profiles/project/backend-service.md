@@ -50,7 +50,7 @@ Python / Rust / Go / Node service deployed via Docker, runs as long-lived proces
 - devops-engineer
 - test-engineer
 - code-reviewer (multi-model)
-- security-analyst (Security cross-Lead) for auth / data-flow review
+- security-analyst (Security cross-namespace) for auth / data-flow review
 
 ## Backend-specific concerns
 

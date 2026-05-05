@@ -1,8 +1,8 @@
 #!/bin/bash
-# Inbox watcher — fires `tmux send-keys` to a Lead's pane the moment a new
+# Inbox watcher — fires `tmux send-keys` to a model lane pane the moment a new
 # TASK-*.md lands in its inbox/. Closes the inbox-poller gap that the squad
 # noticed during testing: send-task.sh nudges the pane at dispatch time, but
-# if the Lead's CLI was busy at that exact moment the keystrokes don't trigger
+# if the model CLI was busy at that exact moment the keystrokes don't trigger
 # processing. This watcher fires the nudge whenever a NEW file appears,
 # independent of dispatch timing.
 #
@@ -26,7 +26,6 @@ VAULT_ROOT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
 source "${VAULT_ROOT}/shared/lead-windows.sh"
 INBOX="${VAULT_ROOT}/departments/${LEAD}/inbox"
 NUDGE_MSG="A new task has arrived in inbox/. Pick up the oldest TASK-*.md and process it per protocol."
-TARGET_WIN="$(lead_window_name "${LEAD}")"
 
 mkdir -p "${INBOX}"
 
@@ -40,6 +39,9 @@ fswatch -0 --event=Created --event=Renamed --event=MovedTo \
         */TASK-*.md) ;;
         *) continue ;;
     esac
+    to_model="$(awk '/^---$/{p=!p; next} p && /^to_model:/ {sub(/^to_model:[[:space:]]*/, ""); print; exit}' "$path")"
+    [[ -z "$to_model" ]] && to_model="$(namespace_default_model "${LEAD}")"
+    TARGET_WIN="$(runtime_window_name "${to_model}")"
     if ! tmux has-session -t squad 2>/dev/null; then continue; fi
     if ! tmux list-windows -t squad -F '#{window_name}' 2>/dev/null | grep -qx "${TARGET_WIN}"; then continue; fi
     echo "[$(date '+%H:%M:%S')] new: $(basename "$path") → nudging squad:${TARGET_WIN}"

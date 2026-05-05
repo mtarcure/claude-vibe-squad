@@ -1,30 +1,55 @@
 #!/usr/bin/env bash
-# Compatibility namespace -> visible model-lane tmux window name.
+# Vibe Squad topology helpers.
 #
-# Departments are mailbox/source namespaces only. They deliberately map onto
-# the four execution lanes so folder location cannot imply model choice.
+# Source namespaces choose mailbox/storage. Model lanes choose the visible
+# tmux window and runtime. Do not infer one from the other unless a legacy
+# caller has no task packet to inspect.
 
-lead_window_name() {
+MODEL_LANES=(gpt-codex claude gemini kimi)
+SOURCE_NAMESPACES=(coding security content sysmgmt research)
+
+runtime_window_name() {
     case "$1" in
-        coding)   echo "gpt-codex" ;;
-        security) echo "claude" ;;
-        content)  echo "gemini" ;;
-        sysmgmt)  echo "claude" ;;
-        research) echo "kimi" ;;
+        codex|gpt-codex) echo "gpt-codex" ;;
+        claude) echo "claude" ;;
+        gemini) echo "gemini" ;;
+        kimi) echo "kimi" ;;
         chrono)   echo "chrono" ;;
         watchers) echo "watchers/status" ;;
         *)        echo "$1" ;;
     esac
 }
 
-lead_display_name() {
+runtime_display_name() {
     case "$1" in
-        coding)   echo "GPT/Codex Lane" ;;
-        security) echo "Claude Lane" ;;
-        content)  echo "Gemini Lane" ;;
-        sysmgmt)  echo "Claude Lane" ;;
-        research) echo "Kimi Lane" ;;
+        codex|gpt-codex) echo "GPT/Codex" ;;
+        claude) echo "Claude" ;;
+        gemini) echo "Gemini" ;;
+        kimi) echo "Kimi" ;;
         chrono)   echo "Chrono Coordinator" ;;
         *)        echo "$1" ;;
     esac
+}
+
+namespace_default_model() {
+    case "$1" in
+        coding) echo "gpt-codex" ;;
+        security|sysmgmt) echo "claude" ;;
+        content) echo "gemini" ;;
+        research) echo "kimi" ;;
+        *) echo "$1" ;;
+    esac
+}
+
+namespace_mailbox_dir() {
+    local vault_root="$1" namespace="$2"
+    echo "${vault_root}/departments/${namespace}"
+}
+
+lead_window_name() {
+    runtime_window_name "$(namespace_default_model "$1")"
+}
+
+lead_display_name() {
+    runtime_display_name "$(namespace_default_model "$1")"
 }

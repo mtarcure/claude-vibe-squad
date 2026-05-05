@@ -20,7 +20,7 @@ if [[ $# -lt 3 ]]; then
     echo "usage: $0 <source-namespace> <body-file> <specialist> [to-model]"
     echo "  source-namespace: coding | security | content | sysmgmt | research"
     echo "  body-file: path to markdown file containing task body"
-    echo "  specialist: canonical specialist name, or none only when lead_direct_allowed is intentionally true"
+    echo "  specialist: canonical specialist name, or none only when direct_lane_work_allowed is intentionally true"
     exit 1
 fi
 
@@ -41,12 +41,7 @@ case "${COMPAT_NAMESPACE}" in
 esac
 
 if [[ -z "${TO_MODEL}" ]]; then
-    case "${COMPAT_NAMESPACE}" in
-        coding) TO_MODEL="gpt-codex" ;;
-        security|sysmgmt) TO_MODEL="claude" ;;
-        content) TO_MODEL="gemini" ;;
-        research) TO_MODEL="kimi" ;;
-    esac
+    TO_MODEL="$(namespace_default_model "${COMPAT_NAMESPACE}")"
 fi
 [[ "${TO_MODEL}" == "codex" ]] && TO_MODEL="gpt-codex"
 
@@ -106,7 +101,7 @@ mandatory_review: ${MANDATORY_REVIEW}
 success_criteria: []
 out_of_scope: []
 parallel_safe: false
-lead_direct_allowed: false
+direct_lane_work_allowed: false
 operator_approved: true
 parent_msg_id: none
 ---
@@ -119,7 +114,7 @@ sync "${TASK_FILE}" 2>/dev/null || true
 
 ARGS=("${TASK_FILE}")
 if [[ -z "${SKIP_NUDGE:-}" ]] && command -v tmux >/dev/null 2>&1 && tmux has-session -t squad 2>/dev/null; then
-    TARGET_WIN="$(lead_window_name "${COMPAT_NAMESPACE}")"
+    TARGET_WIN="$(runtime_window_name "${TO_MODEL}")"
     if tmux list-windows -t squad -F '#{window_name}' 2>/dev/null | grep -qx "${TARGET_WIN}"; then
         ARGS+=("--nudge-pane" "squad:${TARGET_WIN}")
     fi
@@ -129,3 +124,4 @@ VAULT_ROOT="${VAULT_ROOT}" "${HARDENED_DISPATCH}" "${ARGS[@]}"
 
 echo "  File: ${VAULT_ROOT}/departments/${COMPAT_NAMESPACE}/inbox/${TASK_ID}.md"
 echo "  Reply expected at: ${VAULT_ROOT}/departments/${COMPAT_NAMESPACE}/outbox/${TASK_ID}-response.md"
+echo "  Model lane: ${TO_MODEL}"

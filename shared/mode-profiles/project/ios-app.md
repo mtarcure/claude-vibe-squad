@@ -23,7 +23,7 @@ Swift / SwiftUI projects targeting iOS, iPadOS, macOS (Catalyst), watchOS.
 - Distribution: TestFlight / App Store / direct IPA
 
 ### Phase 2 Design
-- architect + designer (Content cross-Lead) for UI work
+- architect + designer (Content cross-namespace) for UI work
 - SwiftUI vs UIKit decision (mostly SwiftUI for new code)
 - Navigation pattern (NavigationStack, TabView, etc.)
 - State management (Observable, environment objects)
@@ -53,7 +53,7 @@ Swift / SwiftUI projects targeting iOS, iPadOS, macOS (Catalyst), watchOS.
 - ui-engineer (visual fidelity)
 - test-engineer (XCTest + XCUITest)
 - devops-engineer (fastlane, App Store Connect)
-- designer (Content cross-Lead)
+- designer (Content cross-namespace)
 
 ## Distribution mechanisms
 

@@ -50,7 +50,7 @@ Argparse / clap / cobra / oclif command-line tools. Distributed via npm / pip / 
 - backend-engineer
 - test-engineer (CLI integration tests)
 - devops-engineer (release pipeline)
-- technical-writer (Content cross-Lead) for README + docs
+- technical-writer (Content cross-namespace) for README + docs
 
 ## CLI-specific concerns
 

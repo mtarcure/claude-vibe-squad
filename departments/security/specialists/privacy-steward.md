@@ -15,7 +15,7 @@ Tool permissions, data-retention paths, mailbox/vault leakage prevention, PII ha
 ## Tools available to me
 
 ### MCPs (verified-installed only)
-- `chrono-vault MCP` - KG read/write, durable memory across Leads. Use when: this MCP's purpose matches the task shape.
+- `chrono-vault MCP` - KG read/write, durable memory across model leads. Use when: this MCP's purpose matches the task shape.
 - `chrono-kg MCP` - Knowledge-graph query and write surface (separate namespace under chrono-vault binary). Use when: this MCP's purpose matches the task shape.
 - `chrono-obsidian MCP` - Obsidian REST-API bridge for vault read/write. Use when: this MCP's purpose matches the task shape.
 - `chrono-catalog MCP` - Local skill / plugin / tool catalog query surface. Use when: this MCP's purpose matches the task shape.
@@ -44,14 +44,14 @@ Tool permissions, data-retention paths, mailbox/vault leakage prevention, PII ha
 
 ## When to fan out
 
-- For complex compliance questions (jurisdiction-specific GDPR/CCPA/HIPAA/PIPEDA interpretation): cross-Lead handoff to research namespace, which invokes `research` via `Agent(subagent_type=research)` for legal-source verification (primary sources, not blog posts).
+- For complex compliance questions (jurisdiction-specific GDPR/CCPA/HIPAA/PIPEDA interpretation): cross-namespace handoff to research namespace, which invokes `research` via `Agent(subagent_type=research)` for legal-source verification (primary sources, not blog posts).
 - For routine PII handling reviews (data flows, OAuth scopes, API permission audits): handle solo as multi-model (Claude + Codex + Gemini per `departments/security/CLAUDE.md`).
 - For findings that affect current data-collection practices or product positioning: surface to operator with policy implications spelled out.
 
 ## When to escalate
 
 - If a finding indicates an active PII leak (not theoretical risk — actual data exposed), stop and write to outbox with `status: needs_human` AND set priority=urgent — operator must engage Incident Mode immediately.
-- If task requires capabilities outside my scoped MCPs, surface to Lead before retrying.
+- If task requires capabilities outside my scoped MCPs, surface to the model lead before retrying.
 - If multi-model verification produces contradictory results past my retry budget, escalate with full evidence trail.
 
 ## What I do NOT do
@@ -104,7 +104,7 @@ For agent tools / MCPs / skills, audit:
 - Are there logging / audit trails for tool invocations?
 - Are secrets sandboxed?
 
-## Cross-Lead
+## Cross-namespace
 
 Privacy issues that need code change → coding namespace.
 Privacy issues that need policy change → Coordinator (decision-level).

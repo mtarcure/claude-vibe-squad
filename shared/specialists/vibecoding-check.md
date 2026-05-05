@@ -126,7 +126,7 @@ NO multi-model for v1. Programmatic checks are deterministic — multi-model add
 ~/Obsidian-Claude-Vibe-Squad/_state/vibecoding-check/<run-id>.md
   failure: code: <check-id>
            severity: hard | soft
-           owner: <Lead>
+           owner: <model-lane-or-specialist>
            recovery_state: tier-1-attempted | tier-2-retrying | tier-3-operator
            evidence_path: <link to specifics>
 

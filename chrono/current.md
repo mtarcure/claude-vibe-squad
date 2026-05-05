@@ -1,39 +1,23 @@
-# Chrono — Coordinator State
+# Chrono Current State
 
-Updated: 2026-05-04 15:38 PDT
+Updated: 2026-05-05
 
 ## Active Tasks
 
-Production-readiness audit in progress. Live registry `_state/active-tasks.json` is currently empty; no Lead inbox has an active task.
+No tracked active tasks in `_state/active-tasks.json` at the time of this public-release cleanup.
 
-## Working Context
+## Current Work
 
-The 14:59 task fan-out is no longer pending: Security, Coding, and Content responses landed; the misrouted Codex contrarian task was recalled under `_state/recalled-tasks/`.
+The repo is being simplified from department-led routing to:
 
-No active implementation spec is live in Coordinator state. Durable decisions from the May 4 cleanup are folded into current docs; historical handoffs are not runtime truth.
+```text
+Operator -> Chrono -> 4 model leads -> specialists
+```
 
-## Pending replies
-
-| Task ID | Lead | Topic | Status |
-|---------|------|-------|--------|
-| TASK-2026-05-04-1459-b1211a1a | security | Browser-bridge retry via raw CDP | done — response landed in `departments/security/outbox/` |
-| TASK-2026-05-04-1459-843ed55d | coding | Spec 1.7 5 HARD format fixes | done — response landed in `departments/coding/outbox/` |
-| TASK-2026-05-04-1459-ce63f61f | coding | Skeptic Phase 5 contrarian stance | recalled — see `_state/recalled-tasks/` |
-| TASK-2026-05-04-1459-82eea8e1 | content | Skeptic Phase 5 first-principles stance | done — response landed in `departments/content/outbox/` |
+Canonical routing is `shared/specialist-runtime-map.tsv`. Visible runtime windows are `chrono`, `gpt-codex`, `claude`, `gemini`, `kimi`, and `watchers/status`.
 
 ## Open Loops
 
-- **Production readiness audit** — simplify source-of-truth rules, verify dispatch/registry/watchers/MCPs, and identify remaining public-release gates.
-- **Routing-discipline guardrail** — operator flagged routing errors recurring. Current direction: fewer source-of-truth docs and a live active registry, not more spec surfaces.
-- **Bounty mode dry-run** (queued) — operator runs as next-session test.
-- **Per-namespace SSE chrono MCPs** (optional) — split if noise becomes a problem.
-
-## Last Action
-
-Corrected this tracker after audit found stale pending replies from the 14:59 fan-out.
-
-## Cross-Lead pending replies (CC'd threads)
-
-| thread_id | from_lead → to_lead | requested_action | created | deadline | status |
-|-----------|----------------------|-------------------|---------|----------|--------|
-| _no pending threads_ |  |  |  |  |  |
+- Finish stale markdown/script cleanup.
+- Run validators and dispatch smoke tests.
+- Commit, push, and merge only after local checks are clean.

@@ -249,7 +249,7 @@ Codex CLI flags — verified live via `codex --help` capture and targeted live-f
 - verified: yes
 - last_checked: 2026-05-02
 - test_reference: `codex --help` enum capture
-- notes: REQUIRED `workspace-write` for outbox writes. Encoded in `bin/launch-squad.sh` and `coding/LEAD.md`.
+- notes: REQUIRED `workspace-write` for outbox writes. Encoded in `bin/launch-squad.sh` and the GPT/Codex model-lane prompt.
 
 ### codex -a / --ask-for-approval <APPROVAL_POLICY> {untrusted,on-request,never}
 - url: N/A (CLI flag)
@@ -891,8 +891,8 @@ Kimi CLI flags — verified live via `kimi --help` capture on 2026-05-02. Subscr
 Per-pane verification matrix for each chrono-* family MCP. Claude pane verification is post-2026-05-03 tilde-fix (see `_state/incident-2026-05-03-claude-mcp-tilde.md`).
 
 ### chrono-vault MCP
-- purpose: KG read/write, durable memory across Leads
-- specialists: brand-voice (Content), memory-curator (SysMgmt), memory-curator (SysMgmt), all Leads' memory.md persistence
+- purpose: KG read/write, durable memory across model leads
+- specialists: brand-voice (Content), memory-curator (SysMgmt), memory-curator (SysMgmt), all model leads' memory.md persistence
 - verified per pane:
   - chrono pane (claude): yes — test_reference: `claude mcp list` post-2026-05-03 tilde-fix shows ✓ Connected
   - security pane (claude): yes — same (claude global config)
@@ -904,7 +904,7 @@ Per-pane verification matrix for each chrono-* family MCP. Claude pane verificat
 
 ### chrono-kg MCP
 - purpose: Knowledge-graph query and write surface (separate namespace under chrono-vault binary)
-- specialists: memory-curator, memory-curator, kg-integrity-gate workflows, all Leads writing durable findings
+- specialists: memory-curator, memory-curator, kg-integrity-gate workflows, all model leads writing durable findings
 - verified per pane:
   - chrono pane (claude): yes — test_reference: `claude mcp list` post-2026-05-03 tilde-fix shows ✓ Connected
   - security pane (claude): yes — same
