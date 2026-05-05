@@ -24,6 +24,7 @@ if [[ $# -lt 3 ]]; then
     exit 1
 fi
 
+COMPAT_NAMESPACE="$1"
 SOURCE_NAMESPACE="$1"
 BODY_FILE="$2"
 SPECIALIST="$3"
@@ -34,13 +35,13 @@ if [[ ! -f "${BODY_FILE}" ]]; then
     exit 1
 fi
 
-case "${SOURCE_NAMESPACE}" in
+case "${COMPAT_NAMESPACE}" in
     coding|security|content|sysmgmt|research) ;;
-    *) echo "ERROR: invalid source namespace: ${SOURCE_NAMESPACE}"; exit 1 ;;
+    *) echo "ERROR: invalid compatibility namespace: ${COMPAT_NAMESPACE}"; exit 1 ;;
 esac
 
 if [[ -z "${TO_MODEL}" ]]; then
-    case "${SOURCE_NAMESPACE}" in
+    case "${COMPAT_NAMESPACE}" in
         coding) TO_MODEL="gpt-codex" ;;
         security|sysmgmt) TO_MODEL="claude" ;;
         content) TO_MODEL="gemini" ;;
@@ -64,7 +65,7 @@ if [[ "${SPECIALIST}" != "none" && -f "${RUNTIME_MAP}" ]]; then
     if [[ -n "${mapped_model}" ]]; then
         TO_MODEL="${mapped_model}"
         REVIEW_MODEL="${mapped_review:-none}"
-        SOURCE_NAMESPACE="${mapped_namespace:-${TO_LEAD}}"
+        SOURCE_NAMESPACE="${mapped_namespace:-${SOURCE_NAMESPACE}}"
         [[ "${mapped_safety}" == "high" ]] && MANDATORY_REVIEW="true"
     fi
 fi
@@ -95,8 +96,8 @@ created: $(date -u +%FT%TZ)
 deadline: none
 write_scope: []
 read_context: []
-return_artifact: ${VAULT_ROOT}/departments/${SOURCE_NAMESPACE}/outbox/${TASK_ID}-response.md
-compatibility_namespace: ${SOURCE_NAMESPACE}
+return_artifact: ${VAULT_ROOT}/departments/${COMPAT_NAMESPACE}/outbox/${TASK_ID}-response.md
+compatibility_namespace: ${COMPAT_NAMESPACE}
 specialist: ${SPECIALIST}
 to_model: ${TO_MODEL}
 source_namespace: ${SOURCE_NAMESPACE}
@@ -118,7 +119,7 @@ sync "${TASK_FILE}" 2>/dev/null || true
 
 ARGS=("${TASK_FILE}")
 if [[ -z "${SKIP_NUDGE:-}" ]] && command -v tmux >/dev/null 2>&1 && tmux has-session -t squad 2>/dev/null; then
-    TARGET_WIN="$(lead_window_name "${SOURCE_NAMESPACE}")"
+    TARGET_WIN="$(lead_window_name "${COMPAT_NAMESPACE}")"
     if tmux list-windows -t squad -F '#{window_name}' 2>/dev/null | grep -qx "${TARGET_WIN}"; then
         ARGS+=("--nudge-pane" "squad:${TARGET_WIN}")
     fi
@@ -126,5 +127,5 @@ fi
 
 VAULT_ROOT="${VAULT_ROOT}" "${HARDENED_DISPATCH}" "${ARGS[@]}"
 
-echo "  File: ${VAULT_ROOT}/departments/${SOURCE_NAMESPACE}/inbox/${TASK_ID}.md"
-echo "  Reply expected at: ${VAULT_ROOT}/departments/${SOURCE_NAMESPACE}/outbox/${TASK_ID}-response.md"
+echo "  File: ${VAULT_ROOT}/departments/${COMPAT_NAMESPACE}/inbox/${TASK_ID}.md"
+echo "  Reply expected at: ${VAULT_ROOT}/departments/${COMPAT_NAMESPACE}/outbox/${TASK_ID}-response.md"

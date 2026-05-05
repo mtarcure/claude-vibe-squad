@@ -1,6 +1,11 @@
 {
   "TASK-2026-05-04-1200-example": {
-    "to_lead": "coding",
+    "compatibility_namespace": "coding",
+    "to_model": "gpt-codex",
+    "specialist": "backend-engineer",
+    "source_namespace": "coding",
+    "review_model": "claude",
+    "mandatory_review": "false",
     "dispatched_at": "2026-05-04T19:00:00Z",
     "write_scope": [
       "bin/send-task.sh",

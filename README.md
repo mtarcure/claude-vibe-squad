@@ -14,24 +14,23 @@
 
 ## v1 — Daily-Driver Release
 
-Current release focus: reliable local daily-driver operation, clean public repo shape, verified MCP/tool availability, and markdown-first routing. Highlights:
+Current release focus: reliable local daily-driver operation, clean public repo shape, verified MCP/tool availability, and model-lane routing. Highlights:
 
-- **Specialist tool-awareness** — every department specialist file now enumerates verified MCPs / native CLI features / skills / APIs, with per-runtime verification matrices. No more WebFetch-as-default. Validator (`bin/validate-specialists.sh`) catches drift across specialists, mode routing, and generated adapters.
-- **Per-pane effort/thinking tier defaults** — `bin/launch-squad.sh` sets `--model opus --effort xhigh` for chrono+security panes, `-c model_reasoning_effort=high` for coding, `--model gemini-3.1-pro-preview` for content, `--model sonnet --effort high` for sysmgmt, `--thinking` for research. Unsafe/yolo-style autonomy is opt-in with `SQUAD_UNSAFE_AUTONOMY=1`.
-- **Capability inventory** at `_state/capability-inventory-2026-05-02.md` — live-verified inventory of every CLI flag + MCP + feature. Specialist files cite only `verified: yes` entries.
-- **Topology B chaser logic** — Chrono now tracks pending CC'd cross-Lead threads in `current.md` and surfaces stalls past 2h.
-- **MCP graduation N=3 instinct loop** — `bin/spawn-specialist.sh` writes routine signatures to `_state/patterns.jsonl`; `bin/graduation-scan.sh` (weekly) surfaces routines hitting ≥3 distinct engagements as candidates for custom MCP creation. Operator-gated, no auto-scaffold.
-- **4 new log streams** — `specialist-log.jsonl` (per-spawn metadata, full fidelity), `tool-calls.jsonl` (best-effort stdout-grep), `errors.jsonl` (nightly aggregator), `patterns.jsonl` (routine signatures).
-- **2 new skills (REMAKE policy)** — `smart-contract-audit-checklist` (sources: tamjid0x01 + cryptofinlabs), `bounty-platform-report-format` (HackerOne / Bugcrowd / Code4rena).
+- **Chrono-only control plane** — Chrono selects the mode, specialist, model lane, write scope, and review gate. GPT/Codex, Claude, Gemini, and Kimi execute assigned specialist briefs; they do not own whole departments.
+- **Canonical specialist runtime map** — `shared/specialist-runtime-map.tsv` maps every specialist to `best_model_lane`, `review_model`, `source_namespace`, required tools, and safety level. Folder location is compatibility storage, not routing truth.
+- **Model-lane terminal layout** — `squad up` starts visible windows named `chrono`, `gpt-codex`, `claude`, `gemini`, `kimi`, and `watchers/status`.
+- **Safety-first dispatch rails** — `bin/send-task.sh` blocks unknown specialists, invalid model lanes, missing map entries, unsafe model overrides, overlapping write scopes, high-safety work without review, and unapproved direct lane work.
+- **Public-release hygiene gates** — CI and local audits validate specialists, shell/Python syntax, dispatch safety, runtime/private artifact exclusion, public docs drift, MCP reachability, and memory boundaries.
+- **Dry-run outreach and approval gates** — outreach/email stays dry-run by default; live sends, deletes, credential changes, cleanup actions, and public-release changes require explicit operator approval.
 
 ### Reference docs
 
 - [Lifecycle rules](./shared/lifecycle.md) — canonical lifecycle, cleanup, memory, and effort rules
 - [API catalog](./shared/api-catalog.md) — verified APIs/features mapped to specialists
-- [Operator setup](./chrono/operator-setup.md) — routing rules incl. cross-Lead direct-with-CC examples
+- [Operator setup](./chrono/operator-setup.md) — routing rules, setup, and approval gates
 - [Brain map](./docs/brain-map.md) — canonical source-of-truth layers and naming glossary
 - [State model](./docs/state-model.md) — live truth order and runtime/private boundaries
-- [Model runtime map](./docs/model-runtime-map.md) — Lead/runtime ownership and multi-model review rules
+- [Model runtime map](./docs/model-runtime-map.md) — model-lane ownership and multi-model review rules
 - [Production readiness](./docs/production-readiness.md) — release checklist and public command surface
 
 ---
@@ -44,7 +43,7 @@ Each bullet leads with **what you get in plain terms**. The technical detail fol
 
 - **Four AI providers, all on subscription billing** — Claude Max, ChatGPT Plus, Gemini Personal OAuth, Kimi login. The launcher unsets `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` / `GOOGLE_API_KEY` per pane so each CLI falls back to its OAuth/keychain path. Pay flat-rate, not per-token. *Implementation: `bin/launch-squad.sh` AUTH_PREFIX exports unset for every pane; `scripts/python/*.py` use `oauth_env()` helper before any subprocess call.*
 
-- **Each Lead loads its identity from a per-cwd file** — Codex auto-loads `AGENTS.md`, Claude auto-loads `CLAUDE.md`, Gemini auto-loads `GEMINI.md`. We symlink each department's `LEAD.md` to the right name, so just opening that CLI in that directory makes it the Lead. No prompt boilerplate. *Implementation: `departments/coding/AGENTS.md → LEAD.md`, `departments/security/CLAUDE.md → LEAD.md`, etc. Kimi has no per-cwd convention, so its first message says "read `LEAD.md` and follow it."*
+- **Compatibility namespaces still load local context** — Codex, Claude, Gemini, and Kimi still use the existing department folders for prompts, memory, and mailboxes while Chrono routes by specialist-to-model map. *Implementation: `departments/*/LEAD.md` and generated adapter files point back to canonical markdown; `shared/specialist-runtime-map.tsv` decides the lane.*
 
 - **Modes never auto-engage** — Bounty / project / content / incident / research / triage / maintenance modes only start when you say so. URL pasted? Chrono *suggests* a mode and waits for your "yes." No phrase-matching that fires on accident. *Implementation: `shared/routing.md` lists concrete-signal triggers (URL patterns, file extensions, slash commands); `shared/modes/*.md` define workflows; nothing engages without explicit consent.*
 
@@ -60,9 +59,9 @@ Each bullet leads with **what you get in plain terms**. The technical detail fol
 
 - **Dreaming proposes, never applies** — The dream system journals daily activity (gemini), gets adversarially reviewed (codex), and if `mode: propose` is set, extracts structured proposal cards to `_state/dream-proposals/`. The morning brief surfaces pending proposals; you approve or reject by editing each file's `status:` field. No silent KG mutation. *Implementation: `scripts/python/dream_light.py` with privacy redaction (emails, API keys, common secret patterns). `mode: shadow` (default) journals only.*
 
-- **Subscription billing protected at every layer** — Headless calls drop API-key env vars before invoking any CLI. The auto-nudge system (mailbox → tmux send-keys) keeps Leads idle until work arrives — they don't burn quota waiting. ElevenLabs Scribe transcription is gated behind `--enable-transcription` (pay-per-minute) so no accidental spend. *Implementation: `oauth_env()` in every Python pipeline; `--enable-transcription` flag default-off.*
+- **Subscription billing protected at every layer** — Headless calls drop API-key env vars before invoking any CLI. The auto-nudge system (mailbox → tmux send-keys) keeps lanes idle until work arrives — they don't burn quota waiting. ElevenLabs Scribe transcription is gated behind `--enable-transcription` (pay-per-minute) so no accidental spend. *Implementation: `oauth_env()` in every Python pipeline; `--enable-transcription` flag default-off.*
 
-- **Markdown all the way down** — Mode workflows, specialist roles, Lead identities, mailbox messages, dream logs, briefs — all human-readable markdown in an Obsidian-friendly vault. Audit your AI's day by reading files, not parsing JSON. *Implementation: vault root is an Obsidian vault. Every dispatched task and every reply is a markdown file with YAML frontmatter you can grep / edit / link.*
+- **Markdown all the way down** — Mode workflows, specialist roles, lane/namespace adapter prompts, mailbox messages, dream logs, briefs — all human-readable markdown in an Obsidian-friendly vault. Audit your AI's day by reading files, not parsing JSON. *Implementation: vault root is an Obsidian vault. Every dispatched task and every reply is a markdown file with YAML frontmatter you can grep / edit / link.*
 
 ---
 
@@ -74,9 +73,9 @@ Three levels:
 
 1. **You** talk only to **Chrono** (window 0 of the squad)
 2. **Chrono** chooses a specialist and model runtime, then routes through the compatibility mailbox
-3. **Leads** coordinate specialist execution and synthesize results; specialists do the domain work
+3. **Model lanes** execute assigned specialist briefs and return artifacts; Chrono synthesizes results for you
 
-| Model Lead | Compatibility pane | Owns |
+| Model lane | Compatibility namespaces | Best for |
 |------------|--------------------|------|
 | **GPT/Codex** | `coding` | implementation, refactoring, tests, code review |
 | **Claude** | `security`, `sysmgmt` | security, privacy, judgment, local operations, harness governance |
@@ -95,16 +94,16 @@ Specialists live in `departments/<lead>/specialists/*.md` for compatibility and 
 You: "let's audit this contract <URL>"
  │
  ▼
-Chrono confirms intent → calls scripts/send-task.sh security /tmp/task.md scout claude
+Chrono confirms intent → calls scripts/send-task.sh security /tmp/task.md scout
  │
  ▼
 send-task.sh:
   1. atomic write → departments/security/inbox/TASK-<id>.md
-  2. tmux send-keys → squad:security pane (auto-nudge)
+  2. tmux send-keys → squad:claude pane (auto-nudge)
  │
  ▼
-Security/Claude Lead picks up:
-  inbox/ → active/ → dispatch named specialist → outbox/<task-id>-response.md → archive/
+Claude model lane picks up:
+  inbox/ → active/ → execute scout brief → outbox/<task-id>-response.md → archive/
  │
  ▼
 Chrono polls outbox at start of every operator turn
@@ -168,12 +167,12 @@ tmux attach -t squad
 
 The launcher auto-starts every CLI. You'll land in window 0 (chrono) with Claude Code already running and a **4-lane sidebar** showing model lane, active specialist, task count, last result, and blocked state. Start talking to Chrono on the left; the right side updates on its own. Try *"where are we"* — Chrono reads `chrono/current.md`, the morning brief, and each namespace `current.md` to summarize state.
 
-Each Lead also has its own dedicated tmux window with the full CLI, accessible via `Ctrl-b + <num>`:
-- Window 1 (coding): Codex
-- Window 2 (security): Claude
-- Window 3 (content): Gemini
-- Window 4 (sysmgmt): Claude
-- Window 5 (research): Kimi — paste *"Read LEAD.md and follow it as your role identity."* once when you first switch to it (Kimi has no per-cwd auto-load convention).
+Each model lane also has its own dedicated tmux window with the full CLI, accessible via `Ctrl-b + <num>`:
+- Window 1 (`gpt-codex`): coding and implementation-heavy specialists
+- Window 2 (`claude`): security, privacy, sysmgmt, and judgment/review specialists
+- Window 3 (`gemini`): content, design, and media specialists
+- Window 4 (`kimi`): research and long-context specialists
+- Window 5 (`watchers/status`): mailbox watchers and status surface
 
 Detach with `Ctrl-b d`. The session keeps running. Toggle the sidebar off with `bash bin/sidebar-off.sh` if you want the chrono window full-width.
 
@@ -244,7 +243,7 @@ You bring your own subscriptions. The squad never bills against API keys unless 
 │   ├── SOUL.md               ← Chrono's identity
 │   ├── CLAUDE.md             ← auto-loaded by Claude in chrono/
 │   └── current.md            ← runtime state
-├── departments/              ← compatibility panes/folders for model-led routing
+├── departments/              ← compatibility namespaces/folders for model-lane routing
 │   ├── coding/               (Codex — AGENTS.md → LEAD.md)
 │   ├── security/             (Claude — CLAUDE.md → LEAD.md)
 │   ├── content/              (Gemini — GEMINI.md → LEAD.md)
@@ -252,11 +251,11 @@ You bring your own subscriptions. The squad never bills against API keys unless 
 │   └── research/             (Kimi — LEAD.md, loaded via first message)
 ├── shared/                   ← cross-cutting workflows + specialists
 │   ├── protocol.md           ← mailbox message format
-│   ├── routing.md            ← mode triggers + cross-Lead rules
+│   ├── routing.md            ← mode triggers + cross-lane rules
 │   ├── modes/                ← mode workflows
 │   ├── mode-profiles/        ← 15 target-type profiles
 │   ├── specialists/          ← 6 cross-cutting (vibecoding-check, planner, skeptic, etc.)
-│   └── mailbox/              ← cross-Lead message templates
+│   └── mailbox/              ← legacy mailbox templates
 ├── bin/                      ← runner scripts
 │   ├── launch-squad.sh       ← create the tmux session
 │   ├── run-nightly.sh        ← orchestrates 8 phases
@@ -299,7 +298,7 @@ Two YAML files in `_state/`:
 - **`feed-config.yaml`** — RSS URLs, expected cadences, processors per source. Add your own podcasts / blogs here.
 - **`dream-config.yaml`** — what paths the dream system can scan, exclusion patterns (secrets, finance, private journal), thresholds, mode (`shadow` / `propose` / `aggressive`).
 
-The squad runs fine on each CLI's built-in tools. If you have your own MCP servers (e.g., a vault MCP, research MCP, content generation MCP), `scripts/bootstrap-mcps.sh` registers them across Codex / Gemini / Kimi in one command. Without that registration, Leads still work — they just won't have MCP-mediated capabilities. The MCP integration is opt-in; the script gracefully exits when no MCP source is found.
+The squad runs fine on each CLI's built-in tools. If you have your own MCP servers (e.g., a vault MCP, research MCP, content generation MCP), `scripts/bootstrap-mcps.sh` registers them across Codex / Gemini / Kimi in one command. Without that registration, model lanes still work — they just won't have MCP-mediated capabilities. The MCP integration is opt-in; the script gracefully exits when no MCP source is found.
 
 ---
 
