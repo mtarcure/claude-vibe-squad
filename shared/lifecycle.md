@@ -67,11 +67,11 @@ Violation symptom (today's bounty work): Research and Security specialist invoca
 
 ## 11. Browser attach — never spawn fresh
 
-Every browser-touching specialist invocation (`scout` via Claude `Task`, Codex custom agent `scraping_engineer`, Kimi `Agent(subagent_type=data-extraction-engineer)`, `exploit-developer` via Claude `Task`, etc.) attaches to the operator's running Chrome via CDP at `127.0.0.1:9222`. Chrono follows the same rule when running Bounty Mode Phase 0 discovery directly with the operator. Never spawn a new Chrome / Playwright / chrome-devtools instance with its own profile.
+Every browser-touching specialist task attaches to the operator's running Chrome via CDP at `127.0.0.1:9222`. Chrono does not run browser discovery directly; Chrono dispatches the appropriate specialist and includes this browser rule in the task packet. Never spawn a new Chrome / Playwright / chrome-devtools instance with its own profile.
 
 **Why**: the operator keeps Chrome open with 2FA'd, signed-in tabs for all 5 bounty platforms (HackerOne, Bugcrowd, Intigriti, HackenProof, Code4rena) plus other working state. Spawning fresh = fresh profile = no auth = useless. Worse, fresh-spawn collides with already-running profiles and produces confusing "profile lock" errors that masquerade as transient failures.
 
-**Primary raw-CDP discovery flow** (specialists and Chrono during Bounty Mode Phase 0):
+**Primary raw-CDP discovery flow** (specialists during browser-approved work):
 1. Run `httpx http://localhost:9222/json/list` or `curl http://localhost:9222/json/list` to enumerate tabs and verify non-blank page titles.
 2. If empty / unreachable: stop, write a NOTIFY to chrono pane, surface "operator's Chrome is not running" — do NOT auto-spawn.
 3. To act on a tab: connect to the tab's raw CDP websocket from `/json/list`, then select and inspect only allowlisted tabs for the task.
@@ -181,18 +181,17 @@ Cleanup is part of done. A mode, maintenance task, or product-readiness pass can
 
 Why: stale plans and handoffs look authoritative to future agents. They cause instruction drift, duplicate source-of-truth surfaces, and extra operator file-organizing work.
 
-## Per-pane effort defaults
+## Model-lane effort defaults
 
-Set in `bin/launch-squad.sh`. Per Capability Inventory (`_state/capability-inventory-2026-05-02.md`):
+Set in `bin/launch-squad.sh`.
 
-| Pane | CLI | Model | Effort tier flag | Rationale |
+| Model lane | CLI | Model | Effort tier flag | Rationale |
 |------|-----|-------|------------------|-----------|
 | chrono | claude | opus | `--effort xhigh` | Coordinator judgment is high-stakes |
-| security | claude | opus | `--effort xhigh` | Security work is judgment-heavy |
-| coding | codex | gpt-5.5 | `-c model_reasoning_effort=high` | Codex's max scale; implementation depth |
-| sysmgmt | claude | sonnet | `--effort high` | Operations mostly mechanical; specialists scope up per task |
-| content | gemini | gemini-3.1-pro-preview | (no flag — implicit at model level) | Gemini 3.1 Pro thinks by default; no `--thinking` flag exists per Capability Inventory |
-| research | kimi | k2.6 | `--thinking` | Synthesis depth |
+| gpt-codex | codex | gpt-5.5 | `-c model_reasoning_effort=high` | implementation depth |
+| claude | claude | opus | `--effort xhigh` | judgment and safety depth |
+| gemini | gemini | gemini-3.1-pro-preview | model default | grounded content and media |
+| kimi | kimi | k2.6 | `--thinking` | long-context synthesis |
 
 ## Per-task overrides
 
@@ -206,7 +205,7 @@ claude -p --effort low "<trivia task>"
 claude -p --effort xhigh "<judgment task>"
 ```
 
-model lead's pane default is the "background" tier; specialist tier is work-specific.
+Model lead pane default is the background tier; specialist tier is work-specific.
 
 ### Tier guidance per work type
 

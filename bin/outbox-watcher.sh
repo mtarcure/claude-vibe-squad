@@ -32,6 +32,7 @@ if ! command -v fswatch >/dev/null 2>&1; then
 fi
 
 VAULT_ROOT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
+SESSION="${SQUAD_SESSION:-squad}"
 OUTBOX="${VAULT_ROOT}/departments/${LEAD}/outbox"
 
 mkdir -p "${OUTBOX}"
@@ -50,8 +51,8 @@ fswatch -0 --event=Created --event=Renamed --event=MovedTo \
     esac
 
     # Only nudge if the squad session and chrono window are alive.
-    if ! tmux has-session -t squad 2>/dev/null; then continue; fi
-    if ! tmux list-windows -t squad -F '#{window_name}' 2>/dev/null | grep -qx "chrono"; then continue; fi
+    if ! tmux has-session -t "$SESSION" 2>/dev/null; then continue; fi
+    if ! tmux list-windows -t "$SESSION" -F '#{window_name}' 2>/dev/null | grep -qx "chrono"; then continue; fi
 
     fname="$(basename "$path")"
     echo "[$(date '+%H:%M:%S')] new: ${fname} from ${LEAD} → nudging squad:chrono"
@@ -84,6 +85,14 @@ PYEOF
         else
             echo "[$(date '+%H:%M:%S')] warning: failed to close active-task registry entry: ${task_id}" >&2
         fi
+        for state in inbox active; do
+            task_file="${VAULT_ROOT}/departments/${LEAD}/${state}/${task_id}.md"
+            if [[ -f "$task_file" ]]; then
+                mkdir -p "${VAULT_ROOT}/departments/${LEAD}/archive"
+                mv "$task_file" "${VAULT_ROOT}/departments/${LEAD}/archive/${task_id}.md"
+                echo "[$(date '+%H:%M:%S')] archived completed task packet: ${state}/${task_id}.md"
+            fi
+        done
     fi
 
     # Compose the nudge. Chrono receives this in its conversation as if the
@@ -93,7 +102,7 @@ PYEOF
     # Match inbox-watcher.sh keystroke pattern: literal text, sleep, then Enter.
     # The 0.3s sleep gives the receiving CLI time to settle before Enter is
     # interpreted as submit.
-    tmux send-keys -l -t "squad:chrono" "${NUDGE_MSG}"
+    tmux send-keys -l -t "${SESSION}:chrono" "${NUDGE_MSG}"
     sleep 0.3
-    tmux send-keys -t "squad:chrono" Enter
+    tmux send-keys -t "${SESSION}:chrono" Enter
 done

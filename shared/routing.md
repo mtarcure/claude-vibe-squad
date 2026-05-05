@@ -11,6 +11,7 @@ Markdown remains the interface. Chrono writes task packets; model leads execute 
 ## Source Namespace Versus Model Lane
 
 - `source_namespace`: where the specialist markdown and mailbox live.
+- `compatibility_namespace`: which `departments/<namespace>/` mailbox stores the task packet.
 - `to_model`: which model lead/window executes the task.
 - Folder location never determines model choice.
 
@@ -23,6 +24,7 @@ Every non-trivial task packet names:
 - `to_model`: `gpt-codex | claude | gemini | kimi`
 - `specialist`: canonical specialist name
 - `source_namespace`: `coding | security | content | sysmgmt | research | shared`
+- `compatibility_namespace`: `coding | security | content | sysmgmt | research`
 - `write_scope`: exact writable paths, or `[]`
 - `review_model`: read-only reviewer lane, or `none`
 - `mandatory_review`: `true | false`
@@ -38,6 +40,9 @@ Dispatch is blocked when:
 - `to_model` or `review_model` is invalid
 - `to_model` differs from the map without `model_override_reason`
 - high-safety specialist lacks mandatory review
+- `mandatory_review: true` has `review_model: none`
+- `review_model` equals `to_model` for mandatory review
+- approval-gated work has `operator_approved: false`
 - write scopes overlap in-flight work
 
 Explicit operator approval is required for deletes, external sends, credential changes, cleanup, public release changes, live outreach/email, and paid media generation.

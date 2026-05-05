@@ -43,10 +43,15 @@ frontmatter_field() {
 }
 
 count_lane_tasks() {
-    local lane="$1" dir="$2" count=0 f to_model
+    local lane="$1" dir="$2" count=0 f to_model task_id response ns_for_response
     for ns in "${SOURCE_NAMESPACES[@]}"; do
         for f in "${VAULT_ROOT}/departments/${ns}/${dir}"/TASK-*.md; do
             [[ -f "$f" ]] || continue
+            if [[ "$dir" == "inbox" ]]; then
+                task_id="$(basename "$f" .md)"
+                response="${VAULT_ROOT}/departments/${ns}/outbox/${task_id}-response.md"
+                [[ -f "$response" ]] && continue
+            fi
             to_model="$(frontmatter_field "$f" to_model)"
             [[ "$to_model" == "$lane" ]] && count=$((count + 1))
         done

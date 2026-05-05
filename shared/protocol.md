@@ -12,7 +12,7 @@ from: chrono
 to_model: gpt-codex | claude | gemini | kimi
 specialist: <canonical-specialist>
 source_namespace: coding | security | content | sysmgmt | research | shared
-compatibility_namespace: <same as source_namespace unless shared routing needs a mailbox bridge>
+compatibility_namespace: coding | security | content | sysmgmt | research
 review_model: gpt-codex | claude | gemini | kimi | none
 mandatory_review: true | false
 mode: bounty | project | content | maintenance | incident | research | triage | outreach | none
@@ -41,11 +41,15 @@ The dispatcher contains a temporary compatibility bridge for older local packets
 
 1. Chrono writes a task body.
 2. `scripts/send-task.sh` adds frontmatter from the model map.
-3. `bin/send-task.sh` validates safety and writes to `departments/<source_namespace>/inbox/`.
-4. Inbox watchers nudge the `to_model` window.
+3. `bin/send-task.sh` validates safety and writes to `departments/<compatibility_namespace>/inbox/`.
+4. Inbox watchers nudge the `to_model` window with the absolute task packet path.
 5. The model lead reads the packet and named specialist markdown.
 6. The model lead writes the response to the return artifact/outbox.
 7. Chrono surfaces the result to the operator.
+
+`source_namespace` selects the specialist markdown. `compatibility_namespace`
+selects the mailbox folder. Shared specialists do not have a `departments/shared`
+mailbox; Chrono chooses the mailbox namespace that matches the active workflow.
 
 ## Async Rule
 
