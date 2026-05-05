@@ -36,9 +36,10 @@ split_and_run() {
     sleep 0.2
 }
 
-# 50/50 split: chrono main pane gets the same width as the sidebar.
-# Operator preference 2026-05-02 — narrower tiles felt cluttered earlier.
-tmux split-window -h -p 50 -t "${SESSION}:chrono"
+# Main-left layout: Chrono stays large on the left; the four model-lane tiles
+# stack at equal height on the right. This keeps the visual grid stable across
+# terminal resizes.
+tmux split-window -h -p 42 -t "${SESSION}:chrono"
 sleep 0.2
 tmux send-keys -t "${SESSION}:chrono.1" "${WATCH} gpt-codex" Enter
 
@@ -50,6 +51,17 @@ tmux send-keys -t "${SESSION}:chrono.3" "${WATCH} gemini" Enter
 
 split_and_run "${SESSION}:chrono.3" 66 research
 tmux send-keys -t "${SESSION}:chrono.4" "${WATCH} kimi" Enter
+
+window_width=$(tmux display-message -p -t "${SESSION}:chrono" '#{window_width}' 2>/dev/null || echo 120)
+main_width=$(( window_width * 58 / 100 ))
+[[ "$main_width" -lt 72 ]] && main_width=72
+tmux set-window-option -t "${SESSION}:chrono" main-pane-width "$main_width" >/dev/null
+tmux select-layout -t "${SESSION}:chrono" main-vertical >/dev/null
+
+tmux set-window-option -t "${SESSION}:chrono" pane-border-status top >/dev/null
+tmux set-window-option -t "${SESSION}:chrono" pane-border-format '#[fg=colour39,bold] #{pane_index} #[fg=colour245]#{pane_current_command} ' >/dev/null
+tmux set-window-option -t "${SESSION}:chrono" pane-border-style 'fg=colour238' >/dev/null
+tmux set-window-option -t "${SESSION}:chrono" pane-active-border-style 'fg=colour39,bold' >/dev/null
 
 # Focus stays on chrono main pane
 tmux select-pane -t "${SESSION}:chrono.0"
