@@ -22,7 +22,7 @@ For Next.js / React / Vue / Svelte web applications. Covers frontend, backend, d
 - Deploy target: Vercel / Cloudflare / Netlify / fly.io / self-hosted
 
 ### Phase 2 Design
-- Architect + designer (Content cross-Lead) for UI work
+- Architect + designer (Content cross-namespace) for UI work
 - Decide: app router vs pages, server components vs client, state management
 
 ### Phase 4 Build
@@ -53,4 +53,4 @@ For Next.js / React / Vue / Svelte web applications. Covers frontend, backend, d
 - devops-engineer
 - test-engineer (heavy on e2e)
 - code-reviewer (multi-model)
-- designer (Content cross-Lead)
+- designer (Content cross-namespace)

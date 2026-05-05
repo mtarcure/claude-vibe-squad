@@ -1,12 +1,10 @@
 #!/bin/bash
-# Sidebar — splits the chrono window so Chrono takes the left ~65% and a
-# narrow right column shows clean status + live snapshot of every Lead.
+# Sidebar — splits the chrono window so Chrono takes the left side and a
+# right column shows clean status for each visible model lane.
 #
-# Each sidebar pane runs `bin/watch-lead.sh <lead>` which periodically:
+# Each sidebar pane runs `bin/watch-lane.sh <model-lane>` which periodically:
 #   1. Prints a 2-line status header (mailbox counts + state + last-activity age)
-#   2. Snapshots the rendered output of that Lead's actual tmux pane via
-#      `tmux capture-pane -p` (NOT raw pipe-pane logs — that flashes).
-# Result: stable, readable, ANSI-clean live mirror.
+#   2. Shows focus/last-result for that compatibility namespace.
 #
 # Toggle off with `bin/sidebar-off.sh`.
 
@@ -28,13 +26,12 @@ if [[ "${n}" -gt 1 ]]; then
     exit 0
 fi
 
-WATCH="bash ${VAULT_ROOT}/bin/watch-lead.sh"
+WATCH="bash ${VAULT_ROOT}/bin/watch-lane.sh"
 
-# Split chrono horizontally: chrono main 65%, sidebar 35%
 # split + send-keys with a brief settle — fresh shells sometimes drop keys
 # typed too quickly after their split. 0.2s is plenty.
 split_and_run() {
-    local target="$1"; local pct="$2"; local lead="$3"
+    local target="$1"; local pct="$2"
     tmux split-window -v -p "${pct}" -t "${target}"
     sleep 0.2
 }
@@ -43,24 +40,21 @@ split_and_run() {
 # Operator preference 2026-05-02 — narrower tiles felt cluttered earlier.
 tmux split-window -h -p 50 -t "${SESSION}:chrono"
 sleep 0.2
-tmux send-keys -t "${SESSION}:chrono.1" "${WATCH} coding" Enter
+tmux send-keys -t "${SESSION}:chrono.1" "${WATCH} gpt-codex" Enter
 
 split_and_run "${SESSION}:chrono.1" 80 security
-tmux send-keys -t "${SESSION}:chrono.2" "${WATCH} security" Enter
+tmux send-keys -t "${SESSION}:chrono.2" "${WATCH} claude" Enter
 
 split_and_run "${SESSION}:chrono.2" 75 content
-tmux send-keys -t "${SESSION}:chrono.3" "${WATCH} content" Enter
+tmux send-keys -t "${SESSION}:chrono.3" "${WATCH} gemini" Enter
 
-split_and_run "${SESSION}:chrono.3" 66 sysmgmt
-tmux send-keys -t "${SESSION}:chrono.4" "${WATCH} sysmgmt" Enter
-
-split_and_run "${SESSION}:chrono.4" 50 research
-tmux send-keys -t "${SESSION}:chrono.5" "${WATCH} research" Enter
+split_and_run "${SESSION}:chrono.3" 66 research
+tmux send-keys -t "${SESSION}:chrono.4" "${WATCH} kimi" Enter
 
 # Focus stays on chrono main pane
 tmux select-pane -t "${SESSION}:chrono.0"
 
-echo "✓ Sidebar enabled with capture-pane mirroring."
+echo "✓ Sidebar enabled with model-lane status tiles."
 echo "  Type to Chrono in the main left pane."
-echo "  Each sidebar tile shows status header + last 12 lines of the actual Lead pane."
+echo "  Tiles: gpt-codex, claude, gemini, kimi."
 echo "  Refresh: 2s default. To toggle off: bash ${VAULT_ROOT}/bin/sidebar-off.sh"

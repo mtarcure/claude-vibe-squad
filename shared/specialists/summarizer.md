@@ -9,11 +9,11 @@ purpose: context-compression
 
 # Specialist: Summarizer (cross-cutting)
 
-Compresses old context into compact summaries so long-running Lead sessions don't bloat their context windows.
+Compresses old context into compact summaries so long-running model lead sessions don't bloat their context windows.
 
 ## Why this exists
 
-Each Lead's session can run for days. Without summarization:
+Each model lead's session can run for days. Without summarization:
 - 50-turn session = ~80k+ tokens of history loaded each turn
 - Eventually hits context limit, breaks
 - Resume after sleep loads full transcript (slow + expensive)
@@ -41,7 +41,7 @@ Each mode's phase completion auto-dispatches summarizer:
 - Input: full phase transcript + artifacts produced
 - Output: 100-300 word summary
 - Saved to: `runs/<run-id>/phase-N-summary.md`
-- Lead's active context replaces full transcript with summary going forward
+- model lead's active context replaces full transcript with summary going forward
 
 ### 2. Dispatch threshold (auto)
 
@@ -52,8 +52,8 @@ After ~10 specialist dispatches without phase boundary, summarizer auto-dispatch
 
 ### 3. should_compact() advisory (operator-prompted)
 
-When Lead's context approaches 70% of window:
-- Lead's idle loop checks context size
+When model lead's context approaches 70% of window:
+- model lead's idle loop checks context size
 - If approaching limit, surfaces nudge: "context getting heavy — want me to compact?"
 - Operator says yes → summarizer fires
 - Operator says no → continue, ask again at next phase boundary

@@ -39,4 +39,9 @@ for lead in coding security content sysmgmt research; do
     done < <(find "${dept}/outbox" "${dept}/archive" -maxdepth 1 -type f -name 'TASK-*-response.md' 2>/dev/null)
 done
 
-printf 'act:%d pen:%d err:%d thru:%d/h' "$active" "$pending" "$err" "$throughput"
+monitor_count=0
+monitor_state="${VAULT_ROOT}/_state/monitor/last-alert-count"
+[[ -f "$monitor_state" ]] && monitor_count=$(cat "$monitor_state" 2>/dev/null || echo 0)
+
+printf 'act:%d pen:%d err:%d thru:%d/h mon:%d' \
+    "$active" "$pending" "$err" "$throughput" "$monitor_count"

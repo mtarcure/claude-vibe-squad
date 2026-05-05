@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-upgrade-specialists.py - Inject v1.1 schema sections into all 39 specialist files.
+upgrade-specialists.py - Inject specialist schema sections into department specialist files.
 
 Reads shared/api-catalog.md for tool pre-fill matched by Lead-CLI.
 Atomic write via temp+fsync+rename per squad convention.
@@ -12,12 +12,12 @@ For each departments/<lead>/specialists/<name>.md:
   3. Determine the specialist's Lead and CLI from the path.
   4. Pre-fill MCP / native-flag lists from shared/api-catalog.md verified entries
      for the specialist's Lead-CLI pane.
-  5. Inject 4 required v1.1 sections AFTER the existing role description, BEFORE
+  5. Inject 4 required schema sections AFTER the existing role description, BEFORE
      any trailing H2 sections we don't recognize.
   6. Leave <FILL: ...> placeholders for human-judgment fields.
   7. Atomic write via tempfile + fsync + rename.
 
-After all 39 files, write report to _state/upgrade-specialists-report-2026-05-02.md.
+After all files, write report to _state/upgrade-specialists-report-2026-05-02.md.
 
 Run with VAULT_ROOT env override or default ~/Obsidian-Claude-Vibe-Squad.
 Optional: --dry-run prints what would be written for one file (path arg) without
@@ -458,7 +458,7 @@ def build_v11_sections(
     cli: str,
     catalog: dict,
 ) -> str:
-    """Generate the 4 v1.1 sections markdown for a specialist.
+    """Generate the 4 schema sections markdown for a specialist.
 
     Pre-fills MCPs/CLI features/skills from catalog; leaves <FILL: ...>
     placeholders for human-judgment fields (peer specialist names, escalation
@@ -548,7 +548,7 @@ def build_v11_sections(
 
 
 def find_injection_point(content: str) -> int:
-    """Locate the byte offset where v1.1 sections should be injected.
+    """Locate the byte offset where schema sections should be injected.
 
     Heuristic: scan past frontmatter and the first H1, then look for the FIRST
     H2 (`## `). If found, inject BEFORE that H2 (so the new sections come right
@@ -673,8 +673,8 @@ def write_report(report: list) -> None:
         "## Summary",
         "",
         f"- Total files processed: {len(report)}",
-        f"- Upgraded (v1.1 sections injected): {upgraded}",
-        f"- Skipped (already had v1.1 schema): {skipped}",
+        f"- Upgraded (schema sections injected): {upgraded}",
+        f"- Skipped (already had schema): {skipped}",
         f"- Errors: {errors}",
         "",
         "## Per-file detail",
