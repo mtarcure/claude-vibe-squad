@@ -15,7 +15,7 @@ Unit + property + e2e + flake-triage. Merged from chrono's qa-tester + e2e-runne
 ## Tools available to me
 
 ### MCPs (verified-installed only)
-- `chrono-vault MCP` - KG read/write, durable memory across Leads. Use when: this MCP's purpose matches the task shape.
+- `chrono-vault MCP` - KG read/write, durable memory across model leads. Use when: this MCP's purpose matches the task shape.
 - `chrono-kg MCP` - Knowledge-graph query and write surface (separate namespace under chrono-vault binary). Use when: this MCP's purpose matches the task shape.
 - `chrono-obsidian MCP` - Obsidian REST-API bridge for vault read/write. Use when: this MCP's purpose matches the task shape.
 - `chrono-catalog MCP` - Local skill / plugin / tool catalog query surface. Use when: this MCP's purpose matches the task shape.
@@ -44,7 +44,7 @@ Unit + property + e2e + flake-triage. Merged from chrono's qa-tester + e2e-runne
 
 ## When to fan out
 
-- For test-failures suspected to be production-code defects rather than test bugs: dispatch back to the implementer (`backend-engineer` / `frontend-engineer`) with a minimal-failing-example via Lead's mailbox.
+- For test-failures suspected to be production-code defects rather than test bugs: dispatch back to the implementer (`backend-engineer` / `frontend-engineer`) with a minimal-failing-example via model lead's mailbox.
 - For diff review of new test code I wrote: dispatch to `code-reviewer`.
 - For solo task handling: writing new unit / property / e2e tests, flake triage, mutation campaigns, fixture and harness work.
 - For operator-facing decision: skipping a failing test (or marking it expected-fail) — never my call alone; surface to operator.
@@ -52,7 +52,7 @@ Unit + property + e2e + flake-triage. Merged from chrono's qa-tester + e2e-runne
 ## When to escalate
 
 - If a test failure reveals a security or correctness bug worth blocking ship, stop and write to outbox with `status: needs_human` and reference the implementer.
-- If task requires capabilities outside my scoped MCPs, surface to Lead before retrying.
+- If task requires capabilities outside my scoped MCPs, surface to the model lead before retrying.
 - If multi-model verification produces contradictory results past my retry budget, escalate with full evidence trail.
 
 ## What I do NOT do
@@ -107,6 +107,6 @@ NO — test execution is tool-grounded; multi-model adds latency without benefit
 - Don't write tests just to hit coverage — test invariants, not lines
 - Flaky tests get fixed or quarantined; don't tolerate flake debt
 
-## Cross-Lead
+## Cross-namespace
 
 If perf testing requires harness work beyond your scope, dispatch performance-optimizer (Coding) or systems-engineer.

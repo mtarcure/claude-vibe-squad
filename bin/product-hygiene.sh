@@ -92,13 +92,13 @@ else
 fi
 
 {
-    if grep -RInE '45 specialists|all 45 specialists|scripts/send-req\.sh|currently has FILL placeholders|<FILL:|Department Lead|Security Lead|Research Lead|Content Lead|SysMgmt Lead|Claude Security|Claude Ops|claude-sec|claude-ops|4 Model Leads|5 compatibility Lead|5-tile sidebar|Lead coordinates specialist execution|Leads coordinate|Lead'\''s job|Lead does NOT|Claude-Lead' \
+    if grep -RInE '45 specialists|all 45 specialists|scripts/send-req\.sh|currently has FILL placeholders|<FILL:|Department Lead|Security Lead|Research Lead|Content Lead|SysMgmt Lead|Claude Security|Claude Ops|claude-sec|claude-ops|5 compatibility Lead|5-tile sidebar|Lead coordinates specialist execution|Leads coordinate|Lead'\''s job|Lead does NOT|Claude-Lead' \
         "${VAULT_ROOT}/README.md" "${VAULT_ROOT}/CLAUDE.md" "${VAULT_ROOT}/chrono" \
         "${VAULT_ROOT}/docs" "${VAULT_ROOT}/shared" 2>/dev/null \
         | grep -v 'bin/upgrade-specialists.py'; then
         :
     fi
-    if grep -RInE '^[[:space:]]*["'\'']?(to_lead|owning_lead)["'\'']?[[:space:]]*:' \
+    if grep -RInE '^[[:space:]]*["'\'']?(to_lead|owning_lead|primary_lead|lead_direct_allowed)["'\'']?[[:space:]]*:' \
         "${VAULT_ROOT}/README.md" "${VAULT_ROOT}/CLAUDE.md" "${VAULT_ROOT}/chrono" \
         "${VAULT_ROOT}/docs" "${VAULT_ROOT}/shared/protocol.md" "${VAULT_ROOT}/shared/modes" \
         "${VAULT_ROOT}/examples" 2>/dev/null; then
@@ -183,10 +183,6 @@ for lead in coding security content sysmgmt research; do
              "${VAULT_ROOT}/departments/${lead}/active" \
              "${VAULT_ROOT}/departments/${lead}/outbox" \
              "${VAULT_ROOT}/departments/${lead}/archive"
-    touch "${VAULT_ROOT}/departments/${lead}/inbox/.gitkeep" \
-          "${VAULT_ROOT}/departments/${lead}/active/.gitkeep" \
-          "${VAULT_ROOT}/departments/${lead}/outbox/.gitkeep" \
-          "${VAULT_ROOT}/departments/${lead}/archive/.gitkeep"
 done
 
 echo "Cleanup applied. Draft/spec/handoff material was only reported, not deleted."

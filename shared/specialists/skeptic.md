@@ -9,7 +9,7 @@ multi_model_rule: writer_family_excluded
 
 # Specialist: Skeptic (cross-cutting)
 
-Epistemic audit + cross-model verification + council-consensus (the absorbed challenger functionality). Used by every Lead.
+Epistemic audit + cross-model verification + council-consensus (the absorbed challenger functionality). Used by every model lead.
 
 ## When invoked
 
@@ -86,4 +86,4 @@ N/3 reviewers agreed (or N/5 in council mode)
 
 ## When to invoke yourself (proactively)
 
-Skeptic is a passive specialist — you respond to native specialist invocations, don't auto-invoke. But every Lead's vibecoding-check ensures critical claims get skeptic'd before mode completion.
+Skeptic is a passive specialist — you respond to native specialist invocations, don't auto-invoke. But every model lead's vibecoding-check ensures critical claims get skeptic'd before mode completion.

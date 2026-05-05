@@ -37,7 +37,7 @@ if [[ -f "${REGISTRY}" ]] && command -v jq >/dev/null 2>&1; then
     in_flight=$(jq '[to_entries[] | select(.value.status == "in-flight")] | length' "${REGISTRY}" 2>/dev/null || echo 0)
     complete=$(jq '[to_entries[] | select(.value.status == "complete")] | length' "${REGISTRY}" 2>/dev/null || echo 0)
     echo "  in-flight: ${in_flight} │ complete: ${complete}"
-    jq -r 'to_entries[] | select(.value.status == "in-flight") | "  " + .key + " → " + (.value.compatibility_namespace // .value.to_lead // "?") + " / " + (.value.to_model // "?") + " / " + (.value.specialist // "?") + " scope=" + ((.value.write_scope // []) | join(","))' "${REGISTRY}" 2>/dev/null
+    jq -r 'to_entries[] | select(.value.status == "in-flight") | "  " + .key + " -> " + (.value.to_model // "?") + " / " + (.value.specialist // "?") + " source=" + (.value.source_namespace // .value.compatibility_namespace // "?") + " scope=" + ((.value.write_scope // []) | join(","))' "${REGISTRY}" 2>/dev/null
 elif [[ -f "${REGISTRY}" ]]; then
     echo "  ${REGISTRY} exists; install jq for structured summary"
 else
@@ -45,9 +45,9 @@ else
 fi
 echo ""
 
-# Active state per Lead
+# Active state
 hr
-color '1;33' '## LEAD STATE'
+color '1;33' '## CURRENT STATE'
 for f in "${VAULT_ROOT}/chrono/current.md" "${VAULT_ROOT}/departments"/*/current.md; do
     [[ -f "$f" ]] || continue
     role=$(dirname "$f" | xargs basename)
@@ -56,7 +56,7 @@ for f in "${VAULT_ROOT}/chrono/current.md" "${VAULT_ROOT}/departments"/*/current
 done
 echo ""
 
-# Mailbox state
+# Mailbox state by source namespace
 hr
 color '1;33' '## MAILBOX'
 for lead in coding security content sysmgmt research; do
@@ -81,12 +81,12 @@ for lead in coding security content sysmgmt research; do
     [[ "${pending}" -gt 0 ]] && color '0;35' "  ${lead}: ${pending} response file(s) awaiting Chrono surfacing"
 done
 if [[ -f "${REGISTRY}" ]] && command -v jq >/dev/null 2>&1; then
-    while IFS=$'\t' read -r task_id lead; do
-        [[ -n "${task_id}" && -n "${lead}" ]] || continue
-        if [[ -f "${VAULT_ROOT}/departments/${lead}/outbox/${task_id}-response.md" ]]; then
-            color '1;31' "  CONTRADICTION: ${task_id} is in-flight in registry but response exists in ${lead}/outbox"
+    while IFS=$'\t' read -r task_id namespace; do
+        [[ -n "${task_id}" && -n "${namespace}" ]] || continue
+        if [[ -f "${VAULT_ROOT}/departments/${namespace}/outbox/${task_id}-response.md" ]]; then
+            color '1;31' "  CONTRADICTION: ${task_id} is in-flight in registry but response exists in ${namespace}/outbox"
         fi
-    done < <(jq -r 'to_entries[] | select(.value.status == "in-flight") | [.key, (.value.compatibility_namespace // .value.to_lead)] | @tsv' "${REGISTRY}" 2>/dev/null)
+    done < <(jq -r 'to_entries[] | select(.value.status == "in-flight") | [.key, (.value.source_namespace // .value.compatibility_namespace // .value.to_lead)] | @tsv' "${REGISTRY}" 2>/dev/null)
 fi
 echo ""
 
@@ -97,7 +97,7 @@ DISPATCH_LOG="${VAULT_ROOT}/_state/dispatch-log.jsonl"
 if [[ -f "${DISPATCH_LOG}" ]]; then
     tail -10 "${DISPATCH_LOG}" 2>/dev/null | while read -r line; do
         if command -v jq >/dev/null 2>&1; then
-            echo "$line" | jq -r '"  \(.ts) → \(.to_lead): \(.task_id)"'
+            echo "$line" | jq -r '"  \(.ts) -> \(.model_lane // .to_model // "?") / \(.specialist // "?"): \(.task_id)"'
         else
             echo "  $line"
         fi
@@ -143,14 +143,14 @@ hr
 color '1;33' '## SQUAD TMUX'
 if tmux has-session -t squad 2>/dev/null; then
     color '0;32' '  ✓ session "squad" is up'
-    for lead in chrono coding security content sysmgmt research watchers; do
-        w="$(lead_window_name "$lead")"
+    for lane in chrono gpt-codex claude gemini kimi watchers; do
+        w="$(runtime_window_name "$lane")"
         if ! tmux list-windows -t squad -F '#{window_name}' 2>/dev/null | grep -qx "$w"; then
             color '1;31' "    ${w}: missing window"
             continue
         fi
         last=$(tmux capture-pane -t "squad:${w}" -p 2>/dev/null | grep -v '^$' | tail -1 | tr -d '\r' | cut -c1-70)
-        echo "    $(lead_display_name "$lead") [${w}]: ${last}"
+        echo "    $(runtime_display_name "$lane") [${w}]: ${last}"
     done
 else
     color '1;31' '  ✗ session "squad" is NOT running — bash bin/launch-squad.sh'
@@ -158,7 +158,7 @@ fi
 echo ""
 
 color '1;36' "═════════════════════════════════════════════════════════════"
-echo "  Per-pane scrollback log: ${VAULT_ROOT}/_state/tmux-logs/<lead>.log"
+echo "  Per-pane scrollback log: ${VAULT_ROOT}/_state/tmux-logs/<model-lane>.log"
 echo "  Full dispatch history:   ${VAULT_ROOT}/_state/dispatch-log.jsonl"
 echo "  Morning brief:           ${VAULT_ROOT}/_state/morning-briefs/${DATE}.md"
 color '1;36' "═════════════════════════════════════════════════════════════"

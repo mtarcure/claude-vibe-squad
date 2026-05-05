@@ -9,6 +9,7 @@ Supported platform is macOS first.
 - `bash bin/validate-specialists.sh`
 - `bash bin/doctor.sh`
 - `bash bin/mcp-audit.sh`
+- `bash bin/product-hygiene.sh --public-export`
 - Dispatch smoke test in a temporary checkout
 - Fresh clone setup test
 - Confirm no runtime/private file patterns are staged
@@ -34,5 +35,5 @@ Keep public entrypoints stable even when implementation moves:
 ## Known Limitations
 
 - MCP audit can verify stdio server usability, but CLI-specific MCP invocation quality still depends on each CLI's current implementation.
-- Kimi has no per-directory auto-load convention; the research pane still needs an explicit role-read instruction at launch.
+- Kimi has no per-directory auto-load convention; the Kimi model-lane pane starts with an explicit role-read instruction at launch.
 - Public CI cannot validate private OAuth state or local Chrome CDP sessions.

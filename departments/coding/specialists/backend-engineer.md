@@ -15,7 +15,7 @@ API design, async pipelines, databases, server-side implementation. Includes scr
 ## Tools available to me
 
 ### MCPs (verified-installed only)
-- `chrono-vault MCP` - KG read/write, durable memory across Leads. Use when: this MCP's purpose matches the task shape.
+- `chrono-vault MCP` - KG read/write, durable memory across model leads. Use when: this MCP's purpose matches the task shape.
 - `chrono-kg MCP` - Knowledge-graph query and write surface (separate namespace under chrono-vault binary). Use when: this MCP's purpose matches the task shape.
 - `chrono-obsidian MCP` - Obsidian REST-API bridge for vault read/write. Use when: this MCP's purpose matches the task shape.
 - `chrono-catalog MCP` - Local skill / plugin / tool catalog query surface. Use when: this MCP's purpose matches the task shape.
@@ -52,7 +52,7 @@ API design, async pipelines, databases, server-side implementation. Includes scr
 ## When to escalate
 
 - If a task requires production database changes or destructive migrations, stop and write to outbox with `status: needs_human`.
-- If task requires capabilities outside my scoped MCPs, surface to Lead before retrying.
+- If task requires capabilities outside my scoped MCPs, surface to the model lead before retrying.
 - If multi-model verification produces contradictory results past my retry budget, escalate with full evidence trail.
 
 ## What I do NOT do

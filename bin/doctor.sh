@@ -280,7 +280,7 @@ fi
 # comparison; this is just a high-water-mark check.
 if [[ -f "${VAULT_ROOT}/_state/dispatch-log.jsonl" ]] && command -v jq >/dev/null 2>&1; then
     yesterday_iso=$(date -u -v-1d +%FT%TZ 2>/dev/null || date -u -d '1 day ago' +%FT%TZ 2>/dev/null)
-    DISPATCHES_LAST_24H=$(jq -r --arg t "$yesterday_iso" 'select(.ts > $t) | .to_lead' \
+    DISPATCHES_LAST_24H=$(jq -r --arg t "$yesterday_iso" 'select(.ts > $t) | (.model_lane // .to_model // "?")' \
         "${VAULT_ROOT}/_state/dispatch-log.jsonl" 2>/dev/null | wc -l | tr -d ' ')
     echo "- Total dispatches last 24h: ${DISPATCHES_LAST_24H} (see _state/finance-daily/ for per-pane breakdown)" >> "${DOCTOR_LOG}"
     if [[ ${DISPATCHES_LAST_24H} -gt 200 ]]; then
@@ -297,7 +297,7 @@ INBOX_BACKLOG=$(find "${VAULT_ROOT}/departments"/*/inbox -name 'TASK-*.md' -type
 echo "- Tasks completed (last 24h): ${DISPATCHES_24H}" >> "${DOCTOR_LOG}"
 echo "- Inbox backlog: ${INBOX_BACKLOG}" >> "${DOCTOR_LOG}"
 if [[ ${INBOX_BACKLOG} -gt 10 ]]; then
-    echo "- ⚠️ Inbox backlog exceeds 10 — Leads may be stuck" >> "${DOCTOR_LOG}"
+    echo "- ⚠️ Inbox backlog exceeds 10 — model leads may be stuck" >> "${DOCTOR_LOG}"
     WARNINGS+=("inbox backlog: ${INBOX_BACKLOG} unacknowledged tasks")
 fi
 

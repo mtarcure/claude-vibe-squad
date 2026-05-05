@@ -2,7 +2,7 @@
 
 How every memory in this system is written, verified, decayed, and purged.
 
-This is the **single source of truth for cross-cutting memory rules**. Each Lead's `memory.md` cites this file and adds domain-specific rules on top. Specialists inherit both layers.
+This is the single source of truth for cross-cutting memory rules. Each namespace `memory.md` cites this file and may add source-specific rules on top. Specialists inherit both layers.
 
 ---
 
@@ -13,12 +13,12 @@ This system has three distinct persistence layers. Knowing which to use is rule 
 | Layer | Path | Scope | When to use |
 |-------|------|-------|-------------|
 | **Auto-memory** | `~/.claude/projects/-Users-chrono/memory/` | Cross-session for the controller (Chrono / Claude Code) | User profile, feedback, project context, references — anything that needs to survive across sessions outside the vault |
-| **Squad memory.md** | `departments/<lead>/memory.md` | Lead-specific durable knowledge | Distilled domain learnings: "Library X has issue Y," "This bounty program requires Z," "Research source A is authoritative for topic B" |
-| **chrono-vault** | Obsidian + KG (chrono-vault MCP) | Canonical semantic graph | Facts that need wiki-link cross-referencing, attempts/findings/decisions that should be queryable by other Leads, anything benefiting from graph navigation |
+| **Squad memory.md** | `departments/<source_namespace>/memory.md` | Namespace-specific durable knowledge | Distilled learnings: "Library X has issue Y," "This bounty program requires Z," "Research source A is authoritative for topic B" |
+| **chrono-vault** | Obsidian + KG (chrono-vault MCP) | Canonical semantic graph | Facts that need wiki-link cross-referencing, attempts/findings/decisions that should be queryable across the squad, anything benefiting from graph navigation |
 
 **Never duplicate across layers.** A memory belongs in exactly one layer. If the same fact lives in two places, one is stale or obsoletes the other — purge the duplicate.
 
-**Graduation rule**: a memory in `memory.md` graduates to `chrono-vault` when (a) more than one Lead would benefit from it, OR (b) it would be more useful with wiki-link context, OR (c) it's referenced by 3+ tasks. Memory-curator handles graduations weekly.
+**Graduation rule**: a memory in `memory.md` graduates to `chrono-vault` when more than one namespace would benefit from it, it would be more useful with wiki-link context, or it is referenced by 3+ tasks. Memory-curator handles graduations weekly.
 
 ---
 
@@ -41,7 +41,7 @@ Not:
 
 Memory captures what was true *when written*. Before acting on a memory older than 2 weeks, verify against current state — read the file, check the live API, query the source. If verification contradicts memory, **purge the stale entry, don't append a new contradicting one**.
 
-Domain rules can override this universal default (e.g., Security may keep findings indefinitely; see per-Lead overrides below).
+Domain rules can override this universal default (e.g., Security may keep findings indefinitely; see per-model-lane overrides below).
 
 ### 3. Purge in place — don't accumulate contradictions
 
@@ -74,22 +74,22 @@ No raw secrets in memory. Reuse `scripts/python/dream_light.py` SECRET_PATTERNS 
 
 If a memory needs to reference a secret-bearing artifact (e.g., "the .env at path X has the deploy key"), reference the *location*, not the value.
 
-### 7. Conflict resolution between universal and per-Lead rules
+### 7. Conflict resolution between universal and namespace rules
 
-When a per-Lead rule contradicts a universal rule, the per-Lead rule wins for that Lead's domain — but **memory-curator must surface the conflict to the operator** instead of silently auto-applying. Examples that should always surface:
+When a namespace rule contradicts a universal rule, the namespace rule wins for that source domain, but memory-curator must surface the conflict to the operator instead of silently auto-applying. Examples that should always surface:
 
-- Security says "never auto-purge findings"; universal says "verify >2wk old." → Lead rule wins, no auto-purge, but verification still happens (manually or by memory-curator's nightly nudge).
-- Research says "primary sources only"; universal says "any sourced citation OK." → Lead rule wins.
+- Security namespace says "never auto-purge findings"; universal says "verify >2wk old." Namespace rule wins, no auto-purge, but verification still happens.
+- Research namespace says "primary sources only"; universal says "any sourced citation OK." Namespace rule wins.
 
 Never let a contradiction live silently. Either reconcile or surface.
 
 ---
 
-## Per-Lead overrides
+## Namespace Overrides
 
-Each Lead's `memory.md` may add domain-specific rules. Common shapes:
+Each namespace `memory.md` may add source-specific rules. Common shapes:
 
-| Lead | Likely overrides | Why |
+| Namespace | Likely overrides | Why |
 |------|------------------|-----|
 | Security | Findings never auto-decay; redaction includes per-program disclosure rules; severity classification required per entry | Bug bounty work has long tails; findings retained until paid + 1y |
 | Content | Brand-voice anchors override style universals; audience-specific patterns kept indefinitely | Brand learnings compound over time |
@@ -97,7 +97,7 @@ Each Lead's `memory.md` may add domain-specific rules. Common shapes:
 | Coding | Distilled-knowledge-not-transcripts (already enforced); library-version-specific notes | Avoid memory bloat with debug session logs |
 | SysMgmt | Routine timing notes; environmental quirks; system invariants | Mac/launchd-specific |
 
-Each LEAD.md or per-Lead `memory.md` opens with:
+Each namespace `memory.md` opens with:
 
 ```markdown
 ## Memory discipline
@@ -117,7 +117,7 @@ Memory-curator (under SysMgmt) handles three sweeps:
 
 1. **Nightly light**: structural hygiene (orphan notes, broken links, duplicates, empties) via `brain_cleanup.py`. Proposals only — operator approves.
 2. **Weekly deep**: contradiction detection (semantic, not structural — currently unimplemented; tracked as gap), confidence-decay sweep (entries with confidence <0.3 and age >180d), graduation candidates (memory.md → chrono-vault).
-3. **On-demand**: when a Lead reports "memory contradicted by current state," memory-curator runs a focused purge on the affected category.
+3. **On-demand**: when a model lead reports "memory contradicted by current state," memory-curator runs a focused purge on the affected category.
 
 All purges write proposals to `_state/cleanup-logs/<date>-brain.md`. **Auto-deletion is forbidden** — purges always go through operator approval, except the universal "purge stale entry on contradiction" which is performed by the contradiction-finder Lead inline (rule #3).
 

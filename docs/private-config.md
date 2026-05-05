@@ -17,7 +17,7 @@ Private/local:
 Public/product:
 
 - `bin/`, `scripts/`, and `shared/` source files
-- `departments/*/LEAD.md`
+- `model-lanes/*/*` and `departments/*/NAMESPACE.md` shims
 - `departments/*/specialists/*.md`
 - `shared/modes/`, `shared/mode-profiles/`, `shared/skills/`
 - Curated examples under `examples/`

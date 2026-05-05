@@ -161,7 +161,7 @@ detect_thrash() {
         done < <(jq -r --argjson ws "$window_start" --arg lead "$lead" '
             select(.ts != null) |
             select((.ts | fromdateiso8601) >= $ws) |
-            select(.to_lead == $lead) |
+            select((.source_namespace // .compatibility_namespace // .to_lead) == $lead) |
             .task_id
         ' "$DISPATCH_LOG" 2>/dev/null)
 

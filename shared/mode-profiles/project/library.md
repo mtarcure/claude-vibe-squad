@@ -52,7 +52,7 @@ Public package for others to depend on. Semver discipline, docs are first-class.
 - backend-engineer
 - test-engineer
 - code-reviewer (multi-model — API change review)
-- technical-writer (Content cross-Lead) for docs
+- technical-writer (Content cross-namespace) for docs
 
 ## Library-specific concerns
 

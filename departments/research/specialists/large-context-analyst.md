@@ -15,7 +15,7 @@ purpose: long-context-synthesis
 ## Tools available to me
 
 ### MCPs (verified-installed only)
-- `chrono-vault MCP` - KG read/write, durable memory across Leads. Use when: this MCP's purpose matches the task shape.
+- `chrono-vault MCP` - KG read/write, durable memory across model leads. Use when: this MCP's purpose matches the task shape.
 - `chrono-kg MCP` - Knowledge-graph query and write surface (separate namespace under chrono-vault binary). Use when: this MCP's purpose matches the task shape.
 - `chrono-obsidian MCP` - Obsidian REST-API bridge for vault read/write. Use when: this MCP's purpose matches the task shape.
 - `chrono-catalog MCP` - Local skill / plugin / tool catalog query surface. Use when: this MCP's purpose matches the task shape.
@@ -44,14 +44,14 @@ purpose: long-context-synthesis
 
 ## When to fan out
 
-- For findings that need cross-source verification (claim made by analysis but not in the corpus): cross-Lead handoff to `research/research` for source-triangulation, then `skeptic` for verdict.
+- For findings that need cross-source verification (claim made by analysis but not in the corpus): cross-namespace handoff to `research/research` for source-triangulation, then `skeptic` for verdict.
 - For routine large-corpus analysis (single repo, paper stack, document set fitting in 2M context): handle solo.
-- For findings that affect another Lead's domain (security implications surfaced from codebase analysis, content patterns surfaced from document corpus): surface to operator with cross-Lead handoff plan.
+- For findings that affect another model lead's domain (security implications surfaced from codebase analysis, content patterns surfaced from document corpus): surface to operator with cross-namespace handoff plan.
 
 ## When to escalate
 
 - If the corpus exceeds Kimi's 2M context window even after chunking proposals, stop and write to outbox with `status: needs_human` — operator decides scope (sample, sub-corpus, multi-pass).
-- If task requires capabilities outside my scoped MCPs, surface to Lead before retrying.
+- If task requires capabilities outside my scoped MCPs, surface to the model lead before retrying.
 - If multi-model verification produces contradictory results past my retry budget, escalate with full evidence trail.
 
 ## What I do NOT do
@@ -101,6 +101,6 @@ When task needs both granular symbol/file-level facts AND thematic patterns — 
 - Cross-file edges: explicit graph of dependencies / similarities / divergences
 - KG integration: writes findings to `vault/research/<topic>/cross-file/`
 
-## Cross-Lead
+## Cross-namespace
 
 Often invoked from coding namespace for repo-wide refactor planning, or from security namespace for full-codebase audit prep.

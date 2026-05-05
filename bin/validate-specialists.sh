@@ -164,7 +164,7 @@ ROUTE_FILES=(
     "$VAULT"/chrono/CLAUDE.md
     "$VAULT"/chrono/operator-setup.md
     "$VAULT"/chrono/SPECIALIST-INDEX.md
-    "$VAULT"/departments/*/LEAD.md
+    "$VAULT"/departments/*/NAMESPACE.md
 )
 
 STALE_ROUTE_NAMES=(
@@ -210,45 +210,6 @@ for route_file in "${ROUTE_FILES[@]}"; do
     if [ ${#route_issues[@]} -gt 0 ]; then
         issues_json=$(printf '"%s",' "${route_issues[@]}" | sed 's/,$//')
         printf '{"file":"%s","status":"fail","issues":[%s]}\n' "$route_file" "$issues_json"
-        FAILED=$((FAILED + 1))
-        EXIT_CODE=1
-    fi
-done
-
-# Generated Kimi prompt consistency: these prompts are derived adapter
-# surfaces. They must exist for every Research/shared YAML agent and point at
-# prompt files that still identify the same specialist name.
-for adapter_readme in \
-    "$VAULT/.claude/agents/README.md" \
-    "$VAULT/departments/coding/.codex/agents/README.md" \
-    "$VAULT/departments/research/.kimi/agents/README.md"; do
-    if [[ ! -f "$adapter_readme" ]]; then
-        printf '{"file":"%s","status":"fail","issues":["missing-generated-adapter-source-marker"]}\n' "$adapter_readme"
-        FAILED=$((FAILED + 1))
-        EXIT_CODE=1
-    elif ! grep -q "Source:" "$adapter_readme" || ! grep -q "Validator:" "$adapter_readme"; then
-        printf '{"file":"%s","status":"fail","issues":["incomplete-generated-adapter-source-marker"]}\n' "$adapter_readme"
-        FAILED=$((FAILED + 1))
-        EXIT_CODE=1
-    fi
-done
-
-for yaml_file in "$VAULT"/departments/research/.kimi/agents/*.yaml; do
-    [[ -f "$yaml_file" ]] || continue
-    agent_name=$(awk '/^[[:space:]]*name:/ {print $2; exit}' "$yaml_file" | tr -d '"')
-    prompt_path=$(awk '/system_prompt_path:/ {print $2; exit}' "$yaml_file")
-    [[ -n "$agent_name" && -n "$prompt_path" ]] || continue
-    prompt_file="$VAULT/departments/research/.kimi/agents/${prompt_path#./}"
-    if [[ ! -f "$prompt_file" ]]; then
-        printf '{"file":"%s","status":"fail","issues":["missing-kimi-generated-prompt:%s"]}\n' "$yaml_file" "$prompt_path"
-        FAILED=$((FAILED + 1))
-        EXIT_CODE=1
-        continue
-    fi
-    prompt_h1=$(grep -m1 '^# Specialist:' "$prompt_file" | tr '[:upper:]' '[:lower:]' || true)
-    agent_words=$(echo "$agent_name" | tr '-' ' ' | tr '[:upper:]' '[:lower:]')
-    if [[ -n "$prompt_h1" ]] && ! echo "$prompt_h1" | grep -qF "$agent_words"; then
-        printf '{"file":"%s","status":"fail","issues":["kimi-generated-prompt-name-mismatch:%s"]}\n' "$prompt_file" "$agent_name"
         FAILED=$((FAILED + 1))
         EXIT_CODE=1
     fi

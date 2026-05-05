@@ -30,7 +30,7 @@ Operator-local runtime state belongs in `_state/` and the department mailbox dir
 - `_state/doctor-logs/`
 - `_state/cleanup-logs/`
 
-Public repos should keep only `.gitkeep` files and curated examples.
+Public repos should not track mailbox contents. The launcher recreates missing mailbox directories on startup.
 
 ## Historical Context
 

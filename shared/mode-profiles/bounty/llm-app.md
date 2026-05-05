@@ -53,7 +53,7 @@ For prompt injection, agent jailbreaks, tool abuse, indirect prompt injection. N
 
 - prompt-engineer (cross-cutting — knows jailbreak patterns)
 - security namespace invokes `exploit-developer` via `Task` tool with `subagent_type: exploit-developer` (multi-step jailbreak chains)
-- ai-engineer (Coding cross-Lead — for agent-system specific attacks)
+- ai-engineer (Coding cross-namespace — for agent-system specific attacks)
 - security namespace invokes `skeptic` via `Task` tool with `subagent_type: skeptic` to verify findings reproduce reliably
 
 ## Tools

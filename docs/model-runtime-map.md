@@ -67,8 +67,6 @@ Generated agent config files are allowed only when a target CLI requires them fo
 
 ## Verification
 
-Recorded in `docs/runtime-routing-test-results.md`.
-
 Current required gates:
 
 - `bash bin/validate-specialists.sh`

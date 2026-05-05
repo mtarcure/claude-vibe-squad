@@ -1,5 +1,5 @@
 #!/bin/bash
-# bin/send-task.sh — Dispatch a TASK file to a compatibility namespace inbox.
+# bin/send-task.sh — Dispatch a TASK file to a source namespace inbox.
 #
 # Spec 1.5 safety features baked in:
 #   Item 1: auto-git-snapshot before dispatch
@@ -123,13 +123,17 @@ SOURCE_NAMESPACE=$(frontmatter_field "$TASK_FILE" "source_namespace")
 REVIEW_MODEL=$(frontmatter_field "$TASK_FILE" "review_model")
 MANDATORY_REVIEW=$(frontmatter_field "$TASK_FILE" "mandatory_review")
 MODEL_OVERRIDE_REASON=$(frontmatter_field "$TASK_FILE" "model_override_reason")
-LEAD_DIRECT_ALLOWED=$(frontmatter_field "$TASK_FILE" "lead_direct_allowed")
+DIRECT_LANE_WORK_ALLOWED=$(frontmatter_field "$TASK_FILE" "direct_lane_work_allowed")
+LEGACY_LEAD_DIRECT_ALLOWED=$(frontmatter_field "$TASK_FILE" "lead_direct_allowed")
 PARALLEL_SAFE=$(frontmatter_field "$TASK_FILE" "parallel_safe")
 
 [[ -z "$TASK_ID" ]]  && die "Task file missing 'id' frontmatter: $TASK_FILE"
 [[ -z "$SPECIALIST" ]] && die "Task file missing 'specialist' frontmatter: $TASK_FILE"
 [[ -z "$PARALLEL_SAFE" ]] && die "Task file missing 'parallel_safe' frontmatter: $TASK_FILE"
-[[ -z "$LEAD_DIRECT_ALLOWED" ]] && die "Task file missing 'lead_direct_allowed' frontmatter: $TASK_FILE"
+if [[ -z "$DIRECT_LANE_WORK_ALLOWED" ]]; then
+    DIRECT_LANE_WORK_ALLOWED="$LEGACY_LEAD_DIRECT_ALLOWED"
+fi
+[[ -z "$DIRECT_LANE_WORK_ALLOWED" ]] && die "Task file missing 'direct_lane_work_allowed' frontmatter: $TASK_FILE"
 
 # Temporary bridge: older prepared packets may still carry to_lead,
 # owning_lead, or primary_runtime. New packets use model-lane fields and let
@@ -184,8 +188,8 @@ if [[ "$COMPAT_NAMESPACE" != "$SOURCE_NAMESPACE" && "$SOURCE_NAMESPACE" != "shar
     die "compatibility namespace (${COMPAT_NAMESPACE}) must match source_namespace (${SOURCE_NAMESPACE}) except shared/chrono coordinator work"
 fi
 
-if [[ "$SPECIALIST" == "none" && "$LEAD_DIRECT_ALLOWED" != "true" ]]; then
-    die "specialist:none requires lead_direct_allowed:true with an explicit body rationale"
+if [[ "$SPECIALIST" == "none" && "$DIRECT_LANE_WORK_ALLOWED" != "true" ]]; then
+    die "specialist:none requires direct_lane_work_allowed:true with an explicit body rationale"
 fi
 
 if [[ "$SPECIALIST" != "none" ]]; then
@@ -218,8 +222,9 @@ if [[ "$SPECIALIST" != "none" ]]; then
     fi
 fi
 
-INBOX="${VAULT_ROOT}/departments/${COMPAT_NAMESPACE}/inbox"
-[[ -d "$INBOX" ]] || die "Compatibility namespace inbox not found: $INBOX"
+MAILBOX_ROOT="${VAULT_ROOT}/departments/${COMPAT_NAMESPACE}"
+mkdir -p "${MAILBOX_ROOT}/inbox" "${MAILBOX_ROOT}/active" "${MAILBOX_ROOT}/outbox" "${MAILBOX_ROOT}/archive"
+INBOX="${MAILBOX_ROOT}/inbox"
 
 echo "Dispatching ${TASK_ID} → ${TO_MODEL}/${SPECIALIST}"
 echo "  Model lane: ${TO_MODEL}  Specialist: ${SPECIALIST}  Source namespace: ${SOURCE_NAMESPACE}"
@@ -271,7 +276,7 @@ changed = False
 for task_id, entry in registry.items():
     if entry.get("status") != "in-flight":
         continue
-    namespace = entry.get("compatibility_namespace") or entry.get("to_lead") or entry.get("source_namespace")
+    namespace = entry.get("compatibility_namespace") or entry.get("source_namespace") or entry.get("to_lead")
     if not namespace:
         continue
     response = vault / "departments" / namespace / "outbox" / f"{task_id}-response.md"
@@ -359,7 +364,7 @@ if [[ "$PER_TASK_VERSIONING" == "true" ]]; then
     fi
 fi
 
-# ── copy to Lead inbox ────────────────────────────────────────────────────────
+# ── copy to source namespace inbox ────────────────────────────────────────────
 
 DEST="${INBOX}/${TASK_ID}.md"
 cp "$ACTUAL_TASK_FILE" "$DEST"
@@ -394,9 +399,8 @@ registry["${TASK_ID}"] = {
     "source_namespace": "${SOURCE_NAMESPACE}",
     "review_model": "${REVIEW_MODEL}",
     "mandatory_review": "${MANDATORY_REVIEW}",
-    "primary_runtime": "${PRIMARY_RUNTIME}",
     "parallel_safe": "${PARALLEL_SAFE}",
-    "lead_direct_allowed": "${LEAD_DIRECT_ALLOWED}",
+    "direct_lane_work_allowed": "${DIRECT_LANE_WORK_ALLOWED}",
     "dispatched_at": datetime.now(timezone.utc).isoformat(),
     "write_scope": scope,
     "status": "in-flight",
@@ -414,13 +418,13 @@ info "Active-task registry updated"
 
 DISPATCH_LOG="${VAULT_ROOT}/_state/dispatch-log.jsonl"
 mkdir -p "$(dirname "${DISPATCH_LOG}")"
-printf '{"ts":"%s","task_id":"%s","to_lead":"%s","to_model":"%s","specialist":"%s","source_namespace":"%s","review_model":"%s","mandatory_review":"%s","return_artifact":"%s"}\n' \
-    "$(date -u +%FT%TZ)" "${TASK_ID}" "${COMPAT_NAMESPACE}" "${TO_MODEL}" "${SPECIALIST}" "${SOURCE_NAMESPACE}" "${REVIEW_MODEL}" "${MANDATORY_REVIEW}" \
+printf '{"ts":"%s","task_id":"%s","model_lane":"%s","source_namespace":"%s","compatibility_namespace":"%s","specialist":"%s","review_model":"%s","mandatory_review":"%s","return_artifact":"%s"}\n' \
+    "$(date -u +%FT%TZ)" "${TASK_ID}" "${TO_MODEL}" "${SOURCE_NAMESPACE}" "${COMPAT_NAMESPACE}" "${SPECIALIST}" "${REVIEW_MODEL}" "${MANDATORY_REVIEW}" \
     "${VAULT_ROOT}/departments/${COMPAT_NAMESPACE}/outbox/${TASK_ID}-response.md" \
     >> "${DISPATCH_LOG}"
 info "Dispatch log updated"
 
-# ── nudge Lead pane ───────────────────────────────────────────────────────────
+# ── nudge model lane pane ─────────────────────────────────────────────────────
 
 if [[ -n "$NUDGE_PANE" ]]; then
     tmux send-keys -t "$NUDGE_PANE" \
