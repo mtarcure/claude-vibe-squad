@@ -1,5 +1,9 @@
 #!/bin/bash
-# Email brief delivery — final nightly phase.
+# Email brief delivery — manual fallback path.
+#
+# This script is no longer invoked by default from `bin/run-nightly.sh`.
+# Default nightly delivery is Telegram text + MP3 audio via
+# `bin/telegram-deliver.sh` after `bin/newsletter-tts.sh`.
 #
 # Uses headless Claude because Gmail access is exposed through the operator's
 # claude.ai MCP host, not through this repo. launchd inherits the operator's

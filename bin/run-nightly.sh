@@ -16,7 +16,9 @@
 #   11. Cross-day context (continuity for newsletter)
 #   12. Improvement extractor (surfaced-only system proposals)
 #   13. Newsletter formatter (phone-readable digest + smart subject)
-#   14. Email brief (headless Claude creates a Gmail draft)
+#   14. Newsletter TTS (ElevenLabs MP3 via Telegram-native attachment)
+#   15. Telegram delivery (formatted text + audio to operator phone)
+#   Email brief is retained as a manual fallback, no longer invoked by default.
 #
 # Each phase logs separately. Failures don't block subsequent phases.
 # All output ends up in _state/morning-briefs/<date>.md as the unified brief.
@@ -85,7 +87,10 @@ run_phase "morning-brief"        "${VAULT_ROOT}/bin/morning-brief.sh"
 run_phase "cross-day-context"    "${VAULT_ROOT}/bin/cross-day-context.sh"
 run_phase "improvement-extractor"  "${VAULT_ROOT}/bin/improvement-extractor.sh"
 run_phase "newsletter-format"    "${VAULT_ROOT}/bin/newsletter-format.sh"
-run_phase "email-brief"          "${VAULT_ROOT}/bin/email-brief.sh"
+run_phase "newsletter-tts"       "${VAULT_ROOT}/bin/newsletter-tts.sh"
+run_phase "telegram-deliver"     "${VAULT_ROOT}/bin/telegram-deliver.sh"
+# Email fallback retained but retired from default nightly delivery.
+# Manual fallback: bash bin/email-brief.sh
 
 # Sunday: also run weekly deep
 if [[ "$(date +%u)" == "7" ]]; then
