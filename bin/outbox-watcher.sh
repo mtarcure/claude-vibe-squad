@@ -63,52 +63,97 @@ response_context() {
     printf 'unknown-model/unknown-specialist'
 }
 
-fswatch -0 --event=Created --event=Renamed --event=MovedTo \
-        -e '\.tmp$' -e '\.swp$' -e '\.lock$' -e '\.gitkeep$' \
-        "${OUTBOX}" \
-| while IFS= read -r -d '' path; do
+response_ready_for_status() {
+    local file="$1" mtime now age
+    [[ -f "$file" ]] || return 1
+    mtime="$(stat -f %m "$file" 2>/dev/null || stat -c %Y "$file" 2>/dev/null || echo 0)"
+    now="$(date +%s)"
+    age=$((now - mtime))
+    [[ "$age" -ge 60 ]] || return 1
+    awk '/^---$/{p=!p; next} p && /^status:[[:space:]]*/ {found=1; exit} END{exit found ? 0 : 1}' "$file"
+}
+
+response_status() {
+    local file="$1" raw
+    raw="$(frontmatter_field "$file" status | tr -d '"' | tr -d "'" | xargs)"
+    case "$raw" in
+        completed|complete) printf 'completed' ;;
+        completed_with_partials) printf 'completed_with_partials' ;;
+        completed_with_notes) printf 'completed_with_notes' ;;
+        needs_human) printf 'needs_human' ;;
+        BLOCKED|blocked) printf 'BLOCKED' ;;
+        cancelled|canceled) printf 'cancelled' ;;
+        *) printf 'unknown' ;;
+    esac
+}
+
+status_nudge_prefix() {
+    case "$1" in
+        completed) printf '✅ DONE' ;;
+        completed_with_partials|completed_with_notes) printf '⚠️ PARTIAL' ;;
+        needs_human) printf '🚨 NEEDS HUMAN' ;;
+        BLOCKED) printf '❌ BLOCKED' ;;
+        cancelled) printf '🚫 CANCELLED' ;;
+        *) printf '❓ UNKNOWN STATUS' ;;
+    esac
+}
+
+PROCESSED_PATHS="|"
+PENDING_PATHS="|"
+
+handle_response_path() {
+    local path="$1" fname ctx status status_prefix task_id scope_output NUDGE_MSG state task_file
     # Only react to actual response files — not partial writes or unrelated edits.
     case "$path" in
-        */TASK-*-response.md) ;;
-        */RESP-*.md) ;;
-        *) continue ;;
+        */TASK-*-response.md|*/RESP-*.md) ;;
+        *) return ;;
+    esac
+    case "$PROCESSED_PATHS" in
+        *"|$path|"*) return ;;
     esac
 
     # Only nudge if the squad session and chrono window are alive.
-    if ! tmux has-session -t "$SESSION" 2>/dev/null; then continue; fi
-    if ! tmux list-windows -t "$SESSION" -F '#{window_name}' 2>/dev/null | grep -qx "chrono"; then continue; fi
+    if ! tmux has-session -t "$SESSION" 2>/dev/null; then return; fi
+    if ! tmux list-windows -t "$SESSION" -F '#{window_name}' 2>/dev/null | grep -qx "chrono"; then return; fi
 
     fname="$(basename "$path")"
     ctx="$(response_context "$fname")"
+    status="unknown"
+    status_prefix="❓ UNKNOWN STATUS"
+    task_id=""
+    if [[ "$fname" == TASK-*-response.md ]]; then
+        task_id="${fname%-response.md}"
+        if response_ready_for_status "$path"; then
+            status="$(response_status "$path")"
+            status_prefix="$(status_nudge_prefix "$status")"
+        else
+            echo "[$(date '+%H:%M:%S')] response not status-ready yet: ${fname}; scheduling delayed retry"
+            case "$PENDING_PATHS" in
+                *"|$path|"*) ;;
+                *)
+                    PENDING_PATHS="${PENDING_PATHS}${path}|"
+                    ( sleep 65; handle_response_path "$path" ) &
+                    ;;
+            esac
+            return
+        fi
+    fi
+    PROCESSED_PATHS="${PROCESSED_PATHS}${path}|"
     echo "[$(date '+%H:%M:%S')] new: ${fname} from ${ctx} via ${NAMESPACE} namespace -> nudging squad:chrono"
 
     if [[ "$fname" == TASK-*-response.md ]]; then
-        task_id="${fname%-response.md}"
-        if python3 - "$VAULT_ROOT" "$task_id" <<'PYEOF'
-import json
-import os
-import sys
-from datetime import datetime, timezone
-from pathlib import Path
-
-vault = Path(sys.argv[1])
-task_id = sys.argv[2]
-registry_path = vault / "_state" / "active-tasks.json"
-if not registry_path.exists():
-    raise SystemExit(0)
-registry = json.loads(registry_path.read_text())
-if task_id in registry:
-    registry[task_id]["status"] = "complete"
-    registry[task_id]["completed_at"] = datetime.now(timezone.utc).isoformat()
-    tmp = str(registry_path) + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(registry, f, indent=2)
-    os.rename(tmp, str(registry_path))
-PYEOF
+        if "${VAULT_ROOT}/bin/registry-reconciler.sh" --task-id "$task_id" >/dev/null 2>&1
         then
-            echo "[$(date '+%H:%M:%S')] closed active-task registry entry: ${task_id}"
+            echo "[$(date '+%H:%M:%S')] reconciled active-task registry entry if eligible: ${task_id}"
         else
-            echo "[$(date '+%H:%M:%S')] warning: failed to close active-task registry entry: ${task_id}" >&2
+            echo "[$(date '+%H:%M:%S')] warning: failed registry reconciliation for: ${task_id}" >&2
+        fi
+        scope_output="$("${VAULT_ROOT}/scripts/python/scope_validator.py" "$task_id" "$NAMESPACE" 2>/dev/null || true)"
+        if [[ -n "$scope_output" ]]; then
+            echo "[$(date '+%H:%M:%S')] ${scope_output}"
+        fi
+        if [[ "$status" == "needs_human" || "$status" == "BLOCKED" ]]; then
+            "${VAULT_ROOT}/bin/notify-blocker.sh" "$task_id" "$NAMESPACE" >/dev/null 2>&1 &
         fi
         for state in inbox active; do
             task_file="${VAULT_ROOT}/departments/${NAMESPACE}/${state}/${task_id}.md"
@@ -122,7 +167,15 @@ PYEOF
 
     # Compose the nudge. Chrono receives this in its conversation as if the
     # operator typed it, then chooses to read + surface per its own protocol.
-    NUDGE_MSG="RESP from model lane ${ctx}: ${fname} landed in compatibility mailbox departments/${NAMESPACE}/outbox/. Read and surface to operator per chrono/CLAUDE.md protocol."
+    if [[ -n "${task_id}" ]]; then
+        NUDGE_MSG="${status_prefix}: ${task_id} — RESP from model lane ${ctx}: ${fname} landed in compatibility mailbox departments/${NAMESPACE}/outbox/. Read and surface to operator per chrono/CLAUDE.md protocol."
+        if [[ -n "${scope_output:-}" ]]; then
+            NUDGE_MSG="${NUDGE_MSG} ${scope_output}"
+        fi
+    else
+        NUDGE_MSG="RESP from model lane ${ctx}: ${fname} landed in compatibility mailbox departments/${NAMESPACE}/outbox/. Read and surface to operator per chrono/CLAUDE.md protocol."
+    fi
+    echo "[$(date '+%H:%M:%S')] nudge: ${NUDGE_MSG}"
 
     # Match inbox-watcher.sh keystroke pattern: literal text, sleep, then Enter.
     # The 0.3s sleep gives the receiving CLI time to settle before Enter is
@@ -130,4 +183,11 @@ PYEOF
     tmux send-keys -l -t "${SESSION}:chrono" "${NUDGE_MSG}"
     sleep 0.3
     tmux send-keys -t "${SESSION}:chrono" Enter
+}
+
+fswatch -0 --event=Created --event=Updated --event=Renamed --event=MovedTo \
+        -e '\.tmp$' -e '\.swp$' -e '\.lock$' -e '\.gitkeep$' \
+        "${OUTBOX}" \
+| while IFS= read -r -d '' path; do
+    handle_response_path "$path"
 done

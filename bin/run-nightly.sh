@@ -4,21 +4,22 @@
 #
 # Phases:
 #   1. Doctor (CLI/MCP/browser/disk/usage health + bleed detection)
-#   2. Browser session keep-alive (refresh bounty platform sessions)
-#   3. System cleanup (light)
-#   4. Brain cleanup (KG contradiction sweep)
-#   5. Feed sweep with cadence audit (vendor/practitioner/research/podcasts)
-#   6. Content triage (score new items into depth / skim / drop)
-#   7. Content processing (summarize depth items, headline-skim the rest)
-#   8. Content synthesis (cluster depth summaries)
-#   9. Light dream (journal only — no proposals on weekdays)
-#   10. Daily morning brief generator (synthesizes everything)
-#   11. Cross-day context (continuity for newsletter)
-#   12. Improvement extractor (surfaced-only system proposals)
-#   13. Newsletter formatter (short Telegram digest + full archive)
-#   14. Podcast script (conversational 4-5 minute audio prose)
-#   15. Newsletter TTS (ElevenLabs MP3 via Telegram-native attachment)
-#   16. Telegram delivery (formatted text + audio to operator phone)
+#   2. Registry reconciler (close landed responses and log drift)
+#   3. Browser session keep-alive (refresh bounty platform sessions)
+#   4. System cleanup (light)
+#   5. Brain cleanup (KG contradiction sweep)
+#   6. Feed sweep with cadence audit (vendor/practitioner/research/podcasts)
+#   7. Content triage (score new items into depth / skim / drop)
+#   8. Content processing (summarize depth items, headline-skim the rest)
+#   9. Content synthesis (cluster depth summaries)
+#   10. Light dream (journal only — no proposals on weekdays)
+#   11. Daily morning brief generator (synthesizes everything)
+#   12. Cross-day context (continuity for newsletter)
+#   13. Improvement extractor (surfaced-only system proposals)
+#   14. Newsletter formatter (short Telegram digest + full archive)
+#   15. Podcast script (conversational 4-5 minute audio prose)
+#   16. Newsletter TTS (ElevenLabs MP3 via Telegram-native attachment)
+#   17. Telegram delivery (formatted text + audio to operator phone)
 #   Email brief is retained as a manual fallback, no longer invoked by default.
 #
 # Each phase logs separately. Failures don't block subsequent phases.
@@ -73,6 +74,7 @@ run_phase() {
 log "=== Claude-Vibe-Squad nightly start: ${DATE} ==="
 
 run_phase "doctor"               "${VAULT_ROOT}/bin/doctor.sh"
+run_phase "registry-reconciler"  "${VAULT_ROOT}/bin/registry-reconciler.sh"
 run_phase "product-hygiene"      "${VAULT_ROOT}/bin/product-hygiene.sh"
 run_phase "memory-audit"         "${VAULT_ROOT}/bin/memory-audit.sh"
 run_phase "sweep-active"         "${VAULT_ROOT}/bin/sweep-active.sh"
