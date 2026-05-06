@@ -6,6 +6,7 @@ Inputs:
 - `_state/content-synthesis-<utc-date>.md`
 - `_state/content-triage-<utc-date>.json`
 - `_state/cross-day-<utc-date>.md`
+- `_state/improvements-<utc-date>.json`
 - `_state/content-actions/*.md` with `status: pending`
 
 Output:
@@ -40,6 +41,7 @@ class FormatInputs:
     morning: str
     synthesis: str
     cross_day_context: str
+    improvements: str
     actions: list[str]
     triage_summary: str
     depth_count: int
@@ -168,12 +170,47 @@ def load_cross_day_context(path: Path) -> str:
     return truncate(text, 1800)
 
 
+def load_improvements(path: Path) -> str:
+    if not path.exists():
+        return "no proposals today"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return "no proposals today"
+    candidates = data.get("candidates") if isinstance(data, dict) else None
+    if not candidates:
+        return "no proposals today"
+    compact = []
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        source = candidate.get("source") or {}
+        compact.append({
+            "id": candidate.get("id"),
+            "source": {
+                "title": source.get("title"),
+                "url": source.get("url"),
+                "lane": source.get("lane"),
+                "score": source.get("score"),
+            },
+            "proposed_change": candidate.get("proposed_change"),
+            "what_it_entails": candidate.get("what_it_entails"),
+            "risks": candidate.get("risks"),
+            "reversibility": candidate.get("reversibility"),
+            "model_opinions": candidate.get("model_opinions"),
+            "aggregate_score": candidate.get("aggregate_score"),
+            "divergence": candidate.get("divergence"),
+        })
+    return truncate(json.dumps({"candidates": compact}, ensure_ascii=False, indent=2), 9000)
+
+
 def load_inputs(args: argparse.Namespace) -> FormatInputs:
     date = args.date or utc_date()
     morning_path = Path(args.morning or STATE_DIR / "morning-briefs" / f"{date}.md")
     synthesis_path = Path(args.synthesis or STATE_DIR / f"content-synthesis-{date}.md")
     triage_path = Path(args.triage or STATE_DIR / f"content-triage-{date}.json")
     cross_day_path = STATE_DIR / f"cross-day-{date}.md"
+    improvements_path = STATE_DIR / f"improvements-{date}.json"
     actions_dir = Path(args.actions_dir or STATE_DIR / "content-actions")
 
     triage_summary, depth_count = load_triage_summary(triage_path)
@@ -182,6 +219,7 @@ def load_inputs(args: argparse.Namespace) -> FormatInputs:
         morning=truncate(read_text(morning_path), 9000),
         synthesis=truncate(read_text(synthesis_path), 6000),
         cross_day_context=load_cross_day_context(cross_day_path),
+        improvements=load_improvements(improvements_path),
         actions=load_pending_actions(actions_dir),
         triage_summary=triage_summary,
         depth_count=depth_count,
@@ -236,9 +274,18 @@ Use these exact markdown section headings, in this order:
    3-7 items from depth tier. Each: source-tagged title link, one-sentence operator-relevance summary written in your own voice, audio/article link when present.
 5. ## Worth a skim
    5-12 items from highest-scoring skim items. One-line each, source-tagged. Group by lane if it adds clarity; flat list is also fine.
-6. ## What's out
+6. ## System improvements proposed
+   For each candidate from the input JSON, format as:
+   **[IMP-id]: <proposed_change>** (avg score: <aggregate_score>/10)
+   - *Source:* [<title>](<url>)
+   - *What it entails:* <what_it_entails>
+   - *Risks:* <risks>; *Reversibility:* <reversibility>
+   - *Model opinions:* claude <score>/10 (<opinion>); kimi <score>/10 (<opinion>); gpt-codex <score>/10 (<opinion>)
+   - If divergence >= 3: *⚠️ models disagree*
+   If the input JSON has no candidates, skip this section entirely.
+7. ## What's out
    1 sentence or skip if uninteresting. If anything notable was muted/dropped, mention by source/topic.
-7. SUBJECT:
+8. SUBJECT:
    Last block only. One line, <=80 chars, reflects today's lead story, no quotes, no "Daily Brief" prefix.
 
 Constraints:
@@ -257,6 +304,9 @@ Input:
 
 === CROSS-DAY CONTEXT ===
 {inputs.cross_day_context}
+
+=== SYSTEM IMPROVEMENTS PROPOSED ===
+{inputs.improvements}
 
 === PENDING ACTION CARDS ===
 {pending_actions}

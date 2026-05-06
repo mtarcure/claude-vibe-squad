@@ -206,6 +206,18 @@ feeds:
     processor: kimi-summarize
     output_dir: _state/blog-summaries/
 
+  - name: "Twitter via search (followed_people needs_adapter)"
+    type: twitter-via-search
+    query_source: operator-interests.yaml#followed_people[*] where source==needs_adapter
+    lane: practitioner
+    expected_cadence: daily
+    processor: kimi-summarize
+    output_dir: _state/blog-summaries/
+    notes: |
+      Uses xai_search first, perplexity_search_web fallback, via headless Claude
+      subprocess. Caps at 5 results per person per day. Auth: ANTHROPIC_API_KEY
+      unset for the Claude subprocess (subscription path).
+
 # Cadence audit: feed-sweep.sh tags each new item:
 #   - "on-schedule" if matches expected pattern
 #   - "off-schedule" if extra release (highlighted in brief)

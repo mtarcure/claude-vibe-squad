@@ -23,6 +23,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 import time
 import uuid
@@ -42,7 +44,12 @@ PROCESSED_IDS_PATH = STATE_DIR / "processed-ids.json"
 LOG_DIR = STATE_DIR / "cleanup-logs"
 DATE = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 LOG_PATH = LOG_DIR / f"{DATE}-feed-sweep.md"
+TWITTER_LOG_PATH = LOG_DIR / f"{DATE}-twitter-search.md"
 NEW_ITEMS_PATH = STATE_DIR / f"new-items-{DATE}.json"
+OPERATOR_INTERESTS_PATH = STATE_DIR / "operator-interests.yaml"
+CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "claude")
+XAI_TOOL = "mcp__plugin_chrono-research-arsenal_chrono-research-arsenal__xai_search"
+PERPLEXITY_TOOL = "mcp__plugin_chrono-research-arsenal_perplexity__perplexity_search_web"
 
 DAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 
@@ -60,6 +67,7 @@ class NewItem:
     cadence_tag: str  # on-schedule | off-schedule | unknown
     processor: str
     output_dir: str
+    source_type: str | None = None
 
 
 @dataclass
@@ -91,6 +99,15 @@ def load_config() -> dict[str, Any]:
     return yaml.safe_load(CONFIG_PATH.read_text())
 
 
+def load_operator_interests() -> dict[str, Any]:
+    if not OPERATOR_INTERESTS_PATH.exists():
+        return {}
+    try:
+        return yaml.safe_load(OPERATOR_INTERESTS_PATH.read_text()) or {}
+    except yaml.YAMLError:
+        return {}
+
+
 def load_processed_ids() -> dict[str, list[str]]:
     if not PROCESSED_IDS_PATH.exists():
         return {}
@@ -102,6 +119,62 @@ def load_processed_ids() -> dict[str, list[str]]:
 
 def save_processed_ids(ids: dict[str, list[str]]) -> None:
     atomic_write(PROCESSED_IDS_PATH, json.dumps(ids, indent=2, sort_keys=True))
+
+
+def strip_json_fence(raw: str) -> str:
+    raw = (raw or "").strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
+        raw = re.sub(r"\s*```$", "", raw)
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        return raw[start:end + 1]
+    return raw
+
+
+def clean_text(value: Any, max_chars: int) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars].rstrip() + "..."
+
+
+def twitter_side_log(entries: list[dict[str, Any]]) -> str:
+    lines = [
+        f"# Twitter Search — {DATE}",
+        "",
+        f"Run at: {datetime.now(timezone.utc).isoformat()}",
+        "",
+        "## Per-person",
+    ]
+    for entry in entries:
+        lines.append(
+            f"- **{entry.get('name')}** (@{entry.get('handle')}): "
+            f"transport={entry.get('transport', 'none')}, results={entry.get('result_count', 0)}, "
+            f"new={entry.get('new_count', 0)}, skipped={entry.get('skipped', 0)}"
+        )
+        if entry.get("error"):
+            lines.append(f"  - error: {entry['error']}")
+        if entry.get("returncode") is not None:
+            lines.append(
+                f"  - claude: rc={entry.get('returncode')}, duration={entry.get('duration_s', 0):.1f}s, "
+                f"stdout={entry.get('stdout_len', 0)}, stderr={entry.get('stderr_len', 0)}"
+            )
+        if entry.get("stderr"):
+            lines.append("  - stderr first 1000:")
+            lines.append("")
+            lines.append("```")
+            lines.append(str(entry["stderr"])[:1000])
+            lines.append("```")
+    return "\n".join(lines) + "\n"
+
+
+def item_dict(item: NewItem) -> dict[str, Any]:
+    data = asdict(item)
+    if data.get("source_type") is None:
+        data.pop("source_type", None)
+    return data
 
 
 def parse_published(entry: Any) -> datetime | None:
@@ -226,11 +299,189 @@ def scrape_html_index(url: str, link_pattern: str, timeout: float = 30.0) -> lis
     return found[:25]  # cap to 25 newest as with RSS
 
 
+def followed_people_needing_adapter() -> list[dict[str, str]]:
+    interests = load_operator_interests()
+    people: list[dict[str, str]] = []
+    for person in interests.get("followed_people", []) or []:
+        if str(person.get("source", "")).strip() != "needs_adapter":
+            continue
+        name = str(person.get("name", "")).strip()
+        handle = str(person.get("handle", "")).lstrip("@").strip()
+        if name and handle:
+            people.append({"name": name, "handle": handle})
+    return people
+
+
+def twitter_search_prompt(name: str, handle: str) -> str:
+    seven_days_ago = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")
+    return f"""You are a JSON-only search adapter for Vibe Squad feed-sweep.
+
+Goal: find recent X/Twitter posts from @{handle} ({name}) from the past 7 days.
+
+Use tools exactly this way:
+1. First call {XAI_TOOL} with query: "recent posts by @{handle} on X / Twitter, past 7 days".
+2. If xAI returns no useful results or errors, call {PERPLEXITY_TOOL} with query: "site:x.com from:{handle} after:{seven_days_ago}" and recency "week".
+3. Do not call any other tools.
+
+Return JSON only, no prose, with this schema:
+{{
+  "transport": "xai" | "perplexity-fallback" | "none",
+  "error": null | "short reason",
+  "results": [
+    {{
+      "title": "short title",
+      "url": "https://x.com/... or source URL",
+      "snippet": "short snippet/content",
+      "published": "ISO date if available, else empty string"
+    }}
+  ]
+}}
+
+Rules:
+- Include at most 5 results.
+- Prefer direct x.com tweet/status URLs.
+- If results are not actually by @{handle}, omit them.
+- Preserve URLs verbatim.
+"""
+
+
+def call_twitter_search(name: str, handle: str, timeout: float = 120.0) -> tuple[dict[str, Any], dict[str, Any]]:
+    log_entry: dict[str, Any] = {
+        "name": name,
+        "handle": handle,
+        "transport": "none",
+        "result_count": 0,
+        "new_count": 0,
+        "skipped": 0,
+    }
+    if not shutil.which(CLAUDE_BIN):
+        log_entry["error"] = f"{CLAUDE_BIN} not found"
+        return {"transport": "none", "error": log_entry["error"], "results": []}, log_entry
+
+    prompt = twitter_search_prompt(name, handle)
+    env = os.environ.copy()
+    env.pop("ANTHROPIC_API_KEY", None)
+    cmd = [
+        CLAUDE_BIN,
+        "-p",
+        "--output-format",
+        "text",
+        "--no-session-persistence",
+        "--allowed-tools",
+        f"{XAI_TOOL},{PERPLEXITY_TOOL}",
+    ]
+    start = time.monotonic()
+    try:
+        result = subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=timeout, env=env)
+        log_entry.update({
+            "returncode": result.returncode,
+            "duration_s": time.monotonic() - start,
+            "stdout_len": len(result.stdout or ""),
+            "stderr_len": len(result.stderr or ""),
+            "stderr": result.stderr or "",
+        })
+    except subprocess.TimeoutExpired as exc:
+        log_entry.update({
+            "returncode": 124,
+            "duration_s": time.monotonic() - start,
+            "stdout_len": len(exc.stdout or ""),
+            "stderr_len": len(exc.stderr or ""),
+            "stderr": (exc.stderr or "") + f"\nclaude command timed out after {timeout}s",
+            "error": "timeout",
+        })
+        return {"transport": "none", "error": "timeout", "results": []}, log_entry
+
+    if result.returncode != 0:
+        log_entry["error"] = f"claude exited {result.returncode}"
+        return {"transport": "none", "error": log_entry["error"], "results": []}, log_entry
+
+    try:
+        payload = json.loads(strip_json_fence(result.stdout or ""))
+    except json.JSONDecodeError as exc:
+        log_entry["error"] = f"malformed-json: {exc}"
+        return {"transport": "none", "error": log_entry["error"], "results": []}, log_entry
+
+    if not isinstance(payload, dict):
+        log_entry["error"] = "malformed-json: root not object"
+        return {"transport": "none", "error": log_entry["error"], "results": []}, log_entry
+
+    results = payload.get("results") if isinstance(payload.get("results"), list) else []
+    payload["results"] = results[:5]
+    payload["transport"] = payload.get("transport") or ("none" if not payload["results"] else "xai")
+    payload["error"] = payload.get("error")
+    log_entry["transport"] = payload["transport"]
+    log_entry["result_count"] = len(payload["results"])
+    if payload.get("error"):
+        log_entry["error"] = str(payload["error"])
+    return payload, log_entry
+
+
+def sweep_twitter_via_search(feed_cfg: dict[str, Any], processed_ids: dict[str, list[str]]) -> tuple[FeedReport, list[NewItem]]:
+    name = feed_cfg["name"]
+    feed_type = feed_cfg.get("type", "twitter-via-search")
+    report = FeedReport(name=name, type=feed_type, fetched=True, new_count=0, skipped=0)
+    new_items: list[NewItem] = []
+    log_entries: list[dict[str, Any]] = []
+    today_iso = datetime.now(timezone.utc).date().isoformat()
+
+    people = followed_people_needing_adapter()
+    if not people:
+        report.error = "no followed_people with source=needs_adapter"
+        atomic_write(TWITTER_LOG_PATH, twitter_side_log(log_entries))
+        return report, new_items
+
+    for person in people:
+        person_feed = f"Twitter — {person['name']}"
+        payload, log_entry = call_twitter_search(person["name"], person["handle"])
+        seen_ids = set(processed_ids.get(person_feed, []))
+        feed_seen: list[str] = []
+        for result in payload.get("results", [])[:5]:
+            if not isinstance(result, dict):
+                continue
+            url = clean_text(result.get("url"), 500)
+            if not url:
+                continue
+            feed_seen.append(url)
+            if url in seen_ids:
+                report.skipped += 1
+                log_entry["skipped"] = log_entry.get("skipped", 0) + 1
+                continue
+            title = clean_text(result.get("title") or result.get("snippet") or url, 100)
+            summary = clean_text(result.get("snippet") or result.get("title") or "", 500)
+            published = clean_text(result.get("published") or "", 80) or today_iso
+            new_items.append(NewItem(
+                feed_name=person_feed,
+                feed_type=feed_type,
+                item_id=url,
+                title=title or url,
+                url=url,
+                published_iso=published,
+                audio_url=None,
+                summary_short=summary,
+                cadence_tag="unknown",
+                processor=feed_cfg.get("processor", "kimi-summarize"),
+                output_dir=feed_cfg.get("output_dir", "_state/blog-summaries/"),
+                source_type="twitter-via-search",
+            ))
+            report.new_count += 1
+            log_entry["new_count"] = log_entry.get("new_count", 0) + 1
+        processed_ids[person_feed] = list(dict.fromkeys((feed_seen + list(seen_ids))[:200]))
+        if payload.get("error") and not payload.get("results"):
+            report.cadence_notes.append(f"{person['name']}: {payload['error']}")
+        log_entries.append(log_entry)
+
+    atomic_write(TWITTER_LOG_PATH, twitter_side_log(log_entries))
+    return report, new_items
+
+
 def sweep_feed(feed_cfg: dict[str, Any], processed_ids: dict[str, list[str]]) -> tuple[FeedReport, list[NewItem]]:
     name = feed_cfg["name"]
     feed_type = feed_cfg.get("type", "rss-text")
     report = FeedReport(name=name, type=feed_type, fetched=False, new_count=0, skipped=0)
     new_items: list[NewItem] = []
+
+    if feed_type == "twitter-via-search":
+        return sweep_twitter_via_search(feed_cfg, processed_ids)
 
     if feed_type == "html-scrape":
         url = feed_cfg.get("url")
@@ -380,7 +631,7 @@ def main() -> int:
         time.sleep(0.5)  # gentle on origin servers
 
     save_processed_ids(processed_ids)
-    atomic_write(NEW_ITEMS_PATH, json.dumps([asdict(i) for i in all_new], indent=2))
+    atomic_write(NEW_ITEMS_PATH, json.dumps([item_dict(i) for i in all_new], indent=2))
     atomic_write(LOG_PATH, render_log(all_reports, all_new))
 
     print(f"Feed sweep log: {LOG_PATH}")
