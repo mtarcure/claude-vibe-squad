@@ -100,9 +100,8 @@ audit_path = Path(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2] else None
 text = task_path.read_text(errors="replace")
 
 blocked_names = {
-    "perplexity_search_web": "chrono-research-arsenal currently exposes arxiv_search,xai_search only",
-    "brave_search": "chrono-research-arsenal currently exposes arxiv_search,xai_search only",
-    "serper_search": "chrono-research-arsenal currently exposes arxiv_search,xai_search only",
+    "brave_search": "chrono-research-arsenal currently exposes arxiv_search,xai_search,perplexity_search_web only",
+    "serper_search": "chrono-research-arsenal currently exposes arxiv_search,xai_search,perplexity_search_web only",
     "elevenlabs__check_subscription": "chrono-content-engineer currently exposes generate_audio,generate_image,generate_video only",
 }
 issues = []

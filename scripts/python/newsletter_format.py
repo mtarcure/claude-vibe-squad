@@ -5,6 +5,7 @@ Inputs:
 - `_state/morning-briefs/<utc-date>.md`
 - `_state/content-synthesis-<utc-date>.md`
 - `_state/content-triage-<utc-date>.json`
+- `_state/cross-day-<utc-date>.md`
 - `_state/content-actions/*.md` with `status: pending`
 
 Output:
@@ -38,6 +39,7 @@ class FormatInputs:
     date: str
     morning: str
     synthesis: str
+    cross_day_context: str
     actions: list[str]
     triage_summary: str
     depth_count: int
@@ -159,11 +161,19 @@ def load_triage_summary(path: Path) -> tuple[str, int]:
     return json.dumps(payload, ensure_ascii=False, indent=2), int(summary.get("depth_count") or len(depth_items))
 
 
+def load_cross_day_context(path: Path) -> str:
+    text = read_text(path).strip()
+    if not text or text == "insufficient history; skipping":
+        return "no continuity context for today"
+    return truncate(text, 1800)
+
+
 def load_inputs(args: argparse.Namespace) -> FormatInputs:
     date = args.date or utc_date()
     morning_path = Path(args.morning or STATE_DIR / "morning-briefs" / f"{date}.md")
     synthesis_path = Path(args.synthesis or STATE_DIR / f"content-synthesis-{date}.md")
     triage_path = Path(args.triage or STATE_DIR / f"content-triage-{date}.json")
+    cross_day_path = STATE_DIR / f"cross-day-{date}.md"
     actions_dir = Path(args.actions_dir or STATE_DIR / "content-actions")
 
     triage_summary, depth_count = load_triage_summary(triage_path)
@@ -171,6 +181,7 @@ def load_inputs(args: argparse.Namespace) -> FormatInputs:
         date=date,
         morning=truncate(read_text(morning_path), 9000),
         synthesis=truncate(read_text(synthesis_path), 6000),
+        cross_day_context=load_cross_day_context(cross_day_path),
         actions=load_pending_actions(actions_dir),
         triage_summary=triage_summary,
         depth_count=depth_count,
@@ -219,13 +230,15 @@ Use these exact markdown section headings, in this order:
    1-2 sentences: the single most important thing in today's brief, named explicitly. Picked from depth-tier items. If a content-action card is pending APPROVE, that takes precedence as the lead.
 2. ## Decisions to make
    Only if pending action cards exist. List each card as a 2-3 line item with: title, why it matters, "Reply APPROVE or REJECT [card-id]". Skip section entirely if no cards.
-3. ## Top reads today
+3. ## Continuity
+   Use this as the cross-day context if present and non-empty. If CROSS-DAY CONTEXT is exactly "no continuity context for today", do not print this section.
+4. ## Top reads today
    3-7 items from depth tier. Each: source-tagged title link, one-sentence operator-relevance summary written in your own voice, audio/article link when present.
-4. ## Worth a skim
+5. ## Worth a skim
    5-12 items from highest-scoring skim items. One-line each, source-tagged. Group by lane if it adds clarity; flat list is also fine.
-5. ## What's out
+6. ## What's out
    1 sentence or skip if uninteresting. If anything notable was muted/dropped, mention by source/topic.
-6. SUBJECT:
+7. SUBJECT:
    Last block only. One line, <=80 chars, reflects today's lead story, no quotes, no "Daily Brief" prefix.
 
 Constraints:
@@ -241,6 +254,9 @@ Input:
 
 === CONTENT SYNTHESIS ===
 {inputs.synthesis or "(missing)"}
+
+=== CROSS-DAY CONTEXT ===
+{inputs.cross_day_context}
 
 === PENDING ACTION CARDS ===
 {pending_actions}
@@ -310,7 +326,12 @@ def normalize_body(body: str) -> str:
     text = body.strip()
     lead_match = re.search(r"(?m)^## Lead\s*$", text)
     if lead_match:
-        return text[lead_match.start() :].strip()
+        text = text[lead_match.start() :].strip()
+        return re.sub(
+            r"(?ms)^## Continuity\s*\n\s*no continuity context for today\s*(?=\n## |\Z)",
+            "",
+            text,
+        ).strip()
 
     split_match = re.search(r"(?m)^## Top reads today\s*$", text)
     if split_match:

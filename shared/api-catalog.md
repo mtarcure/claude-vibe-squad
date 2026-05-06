@@ -939,16 +939,16 @@ Per-pane verification matrix for each chrono-* family MCP. Claude pane verificat
 - last_checked: 2026-05-03 for claude panes; 2026-05-02 for codex/kimi; 2026-05-02 for gemini (absent)
 
 ### chrono-research-arsenal MCP
-- purpose: Current live research wrapper exposing `arxiv_search` and `xai_search`. Perplexity, Brave, Apify, and Serper are planned/unverified child routes until the wrapper exports tool names and lane smoke tests prove them.
+- purpose: Current live research wrapper exposing `arxiv_search`, `xai_search`, and `perplexity_search_web` (the last as a sibling MCP under the same plugin namespace via `uvx perplexity-mcp`). Brave, Apify, and Serper remain planned/unverified.
 - specialists: research, scout, large-context-analyst, fact-checker
 - verified per pane:
-  - chrono pane (claude): yes — wrapper registered; current wrapper tool proof is `arxiv_search`, `xai_search`
+  - chrono pane (claude): yes — wrapper registered; verified live tools: `arxiv_search`, `xai_search`, `perplexity_search_web`. Perplexity smoke test 2026-05-05 (headless `claude -p --allowed-tools mcp__plugin_chrono-research-arsenal_perplexity__perplexity_search_web` returned 2 results with valid citations).
   - security pane (claude): yes — same
   - sysmgmt pane (claude): yes — same
   - coding pane (codex): yes — registered; task packets must still verify `tools/list` before naming provider-specific tools
   - content pane (gemini): no — **INTENTIONALLY SKIPPED in Hybrid Path A.** Google Search grounding (built into `gemini-3.1-pro-preview`) is the substitute. Gemini pane research uses native grounding, not chrono-research-arsenal.
-  - research pane (kimi): yes — registered; current wrapper tool proof is `arxiv_search`, `xai_search`
-- last_checked: 2026-05-05 for current wrapper tool names; gemini remains intentional-skip
+  - research pane (kimi): yes — registered; current wrapper tool proof is `arxiv_search`, `xai_search`, `perplexity_search_web`
+- last_checked: 2026-05-05 for perplexity smoke test; xai/arxiv last verified 2026-05-05
 
 ### chrono-content-engineer MCP
 - purpose: Current live content/media wrapper exposing `generate_image`, `generate_video`, and `generate_audio`. Provider-specific child routes such as ElevenLabs and Higgsfield are separate surfaces unless the active lane schema exposes them.
