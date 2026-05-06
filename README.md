@@ -188,6 +188,20 @@ Modes are operator-consented workflows. They do not auto-fire on vague phrase ma
 
 Mode instructions live in `shared/modes/*.md`. Target profiles live in `shared/mode-profiles/`.
 
+## Nightly Content Pipeline
+
+A launchd-driven nightly run sweeps tracked sources, scores items against operator interest, summarizes the survivors, and ships a single phone-readable digest. As of 2026-05-06 the pipeline reaches 30+ sources across four lanes (`vendor-pr`, `practitioner`, `research`, `podcast`), including YouTube channels transcribed via `yt-dlp` + ElevenLabs Scribe for depth-tier items.
+
+Phase ordering and exit codes are owned by `bin/run-nightly.sh`. The source list is owned by `_state/feed-config.yaml`. The README does not enumerate either; treat those files as canonical.
+
+Ranking is steered by `_state/operator-interests.yaml`, a versioned profile that the triage scorer consults to decide depth vs. skim vs. drop. Depth items are summarized; skim items get headlines; drops are recorded for cadence audits but not summarized. Cross-day continuity is held in a per-date context file so the next morning's brief inherits open threads.
+
+A `## System improvements proposed` section in the morning brief surfaces self-improvement candidates extracted from the day's reading, with independent claude/kimi/gpt-codex scores and a model-disagreement flag. Proposals never auto-apply; the operator picks what to act on.
+
+The current delivery target is Telegram (post-DISPATCH-2 state). Earlier email-draft delivery exists in the tree as a fallback path but is no longer the primary output.
+
+Research-pane lookups (chrono and kimi) have access to `arxiv_search`, `xai_search`, and `perplexity_search_web` via the `chrono-research-arsenal` MCP. The gemini content pane intentionally relies on Google Search grounding instead.
+
 ## Terminal Experience
 
 `squad up` creates a terminal command center:

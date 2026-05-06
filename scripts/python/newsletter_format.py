@@ -116,19 +116,109 @@ def load_depth_signals(date: str, triage_path: Path) -> str:
         title = fm.get("title", "")
         if depth_titles and title not in depth_titles:
             continue
+        raw_analysis = fm["analysis_json"]
         try:
-            analysis = json.loads(fm["analysis_json"])
+            analysis = json.loads(raw_analysis)
         except json.JSONDecodeError:
-            continue
+            try:
+                analysis = json.loads(raw_analysis.replace('\\"', '"'))
+            except json.JSONDecodeError:
+                continue
+        def short(value: Any, limit: int = 700) -> str:
+            text = str(value or "").strip()
+            return text if len(text) <= limit else text[:limit].rstrip() + "..."
+
+        def short_list(value: Any, limit: int = 260, max_items: int = 4) -> list[str]:
+            return [short(v, limit) for v in nonempty_values(value)[:max_items]]
+
+        compact_analysis = {
+            "core_finding": short(analysis.get("core_finding"), 900),
+            "relevance_to_me": {
+                "current_work_connections": short_list((analysis.get("relevance_to_me") or {}).get("current_work_connections") if isinstance(analysis.get("relevance_to_me"), dict) else [], 260, 3),
+                "why_now": short((analysis.get("relevance_to_me") or {}).get("why_now") if isinstance(analysis.get("relevance_to_me"), dict) else "", 260),
+            },
+            "time_horizon": analysis.get("time_horizon") or fm.get("time_horizon") or "near-term",
+            "what_it_enables": short_list(analysis.get("what_it_enables"), 260, 3),
+            "immediate_fixes": short_list(analysis.get("immediate_fixes"), 260, 3),
+            "hypothetical_combinations": short_list(analysis.get("hypothetical_combinations"), 260, 2),
+            "risks_of_action": short_list(analysis.get("risks_of_action"), 260, 3),
+            "connections": short_list(analysis.get("connections"), 260, 3),
+        }
         signals.append({
             "lane": fm.get("source_lane") or "unknown",
             "title": title,
             "url": fm.get("url"),
             "source": fm.get("feed"),
-            "time_horizon": analysis.get("time_horizon") or fm.get("time_horizon") or "near-term",
-            "analysis": analysis,
+            "time_horizon": compact_analysis["time_horizon"],
+            "analysis": compact_analysis,
         })
-    return truncate(json.dumps(signals, ensure_ascii=False, indent=2), 12000) if signals else "[]"
+        if len(signals) >= 3:
+            break
+    return json.dumps(signals, ensure_ascii=False, indent=2) if signals else "[]"
+
+
+def nonempty_values(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        value = [value] if value else []
+    out = []
+    for item in value:
+        text = str(item or "").strip()
+        if text and text.lower() not in {"none", "(none)", "none observed", "(none observed)"}:
+            out.append(text)
+    return out
+
+
+def render_signal_cards(signals_json: str) -> str:
+    try:
+        signals = json.loads(signals_json)
+    except json.JSONDecodeError:
+        return ""
+    if not isinstance(signals, list) or not signals:
+        return ""
+    cards: list[str] = []
+    for signal in signals:
+        if not isinstance(signal, dict):
+            continue
+        analysis = signal.get("analysis") if isinstance(signal.get("analysis"), dict) else {}
+        relevance = analysis.get("relevance_to_me") if isinstance(analysis.get("relevance_to_me"), dict) else {}
+        card = [
+            f"### [{signal.get('lane', 'unknown')}] {signal.get('title', '(untitled)')}",
+            f"*Source: [{signal.get('source') or 'source'}]({signal.get('url')}) | time horizon: {signal.get('time_horizon') or analysis.get('time_horizon') or 'near-term'}*",
+            "",
+            f"**Core:** {analysis.get('core_finding') or '(missing core finding)'}",
+            "",
+        ]
+        why_parts = nonempty_values(relevance.get("current_work_connections"))
+        why_now = str(relevance.get("why_now") or "").strip()
+        if why_parts or why_now:
+            card += [f"**Why for you:** {'; '.join(why_parts)}" + (f" — {why_now}" if why_now else ""), ""]
+        for label, key in (
+            ("What it enables", "what_it_enables"),
+            ("Immediate fixes", "immediate_fixes"),
+            ("Hypothetical combos", "hypothetical_combinations"),
+            ("Risks", "risks_of_action"),
+            ("Connections", "connections"),
+        ):
+            values = nonempty_values(analysis.get(key))
+            if not values:
+                continue
+            card += [f"**{label}:**", "", *(f"- {v}" for v in values), ""]
+        cards.append("\n".join(card).strip())
+    return "\n\n".join(cards)
+
+
+def enforce_todays_signals(body: str, signals_json: str) -> str:
+    rendered = render_signal_cards(signals_json)
+    if not rendered:
+        return body
+    section = f"## Today's signals\n\n{rendered}\n"
+    pattern = r"(?ms)^## Today's signals\s*\n.*?(?=^## |\Z)"
+    if re.search(pattern, body):
+        return re.sub(pattern, section, body, count=1)
+    marker = re.search(r"(?m)^## Continuity\s*$|^## Skim queue\s*$|^## What's out\s*$", body)
+    if marker:
+        return body[:marker.start()].rstrip() + "\n\n" + section + "\n" + body[marker.start():].lstrip()
+    return body.rstrip() + "\n\n" + section
 
 
 def load_pending_actions(actions_dir: Path) -> list[str]:
@@ -304,6 +394,23 @@ def build_no_signal_newsletter(inputs: FormatInputs) -> tuple[str, str]:
     subject = "No notable signal today"
     body = "## Lead\nNo notable signal today.\n\n## Today's signals\nNothing cleared the depth bar."
     return body, subject
+
+
+def deterministic_newsletter(inputs: FormatInputs, reason: str) -> tuple[str, str]:
+    signal_cards = render_signal_cards(inputs.todays_signals)
+    improvements = inputs.improvements if inputs.improvements != "no proposals today" else ""
+    parts = [
+        "## Lead",
+        f"Formatter fallback used because {reason}. See Today's signals for the depth analysis cards.",
+        "",
+    ]
+    if improvements:
+        parts += ["## System improvements proposed", "", "```json", truncate(improvements, 7000), "```", ""]
+    parts += ["## Today's signals", "", signal_cards or "No depth signal cards available.", ""]
+    if inputs.cross_day_context != "no continuity context for today":
+        parts += ["## Continuity", "", inputs.cross_day_context, ""]
+    parts += ["## Skim queue", "", "See triage summary for skim items.", "", "## What's out", "", "See triage summary for dropped items."]
+    return "\n".join(parts).strip(), "Structured signals fallback"
 
 
 def build_prompt(inputs: FormatInputs) -> str:
@@ -535,17 +642,22 @@ def main() -> int:
     rc, stdout, stderr, duration = call_claude(prompt)
     if rc != 0:
         write_failure_log(log_path, inputs.date, f"claude exited {rc}", prompt, stdout, stderr, duration)
-        print(f"newsletter-format failed - claude exited {rc}", file=sys.stderr)
-        return 1
+        body, subject = deterministic_newsletter(inputs, f"claude exited {rc}")
+        atomic_write(output_path, render_newsletter(inputs.date, body, subject))
+        print(f"Newsletter: {output_path} (fallback)")
+        return 0
 
     try:
         body, subject = extract_subject(stdout)
     except ValueError as exc:
         write_failure_log(log_path, inputs.date, str(exc), prompt, stdout, stderr, duration)
-        print(f"newsletter-format failed - {exc}", file=sys.stderr)
-        return 1
+        body, subject = deterministic_newsletter(inputs, str(exc))
+        atomic_write(output_path, render_newsletter(inputs.date, body, subject))
+        print(f"Newsletter: {output_path} (fallback)")
+        return 0
 
     body = normalize_body(body)
+    body = enforce_todays_signals(body, inputs.todays_signals)
     atomic_write(output_path, render_newsletter(inputs.date, body, subject))
     print(f"Newsletter: {output_path}")
     return 0

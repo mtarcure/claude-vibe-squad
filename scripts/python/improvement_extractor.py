@@ -359,7 +359,7 @@ def apply_tracking(proposals: list[dict[str, Any]], date: str, run: RunState) ->
         proposal["previous_scores"] = previous_scores
         proposal["first_seen"] = min([m["date"] for m in matches] + [date])
         if previous_scores:
-            proposal["score_delta"] = round(float(proposal.get("aggregate_score") or 0) - float(previous_scores[-1]), 2)
+            proposal["score_delta"] = round(float(proposal.get("aggregate_score") or 0) - float(previous_scores[0]), 2)
         for match in matches:
             path = match["path"]
             if path not in touched:
