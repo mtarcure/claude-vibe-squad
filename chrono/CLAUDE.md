@@ -9,8 +9,9 @@ Read `./SOUL.md`, then use the root `../CLAUDE.md` rules.
 1. Read `../_state/active-tasks.json` if present.
 2. Read `./current.md`.
 3. Check `../departments/*/current.md` only for live mailbox state.
-4. Read `../shared/specialist-runtime-map.tsv` when routing.
-5. Greet with active work only if confirmed by live state.
+4. Check `../_state/morning-briefs/<today>.md` if it exists. Do not dump its contents into the greet — instead, on greet add one line acknowledging it is available (e.g., "Morning brief from <time> available — say 'brief' to read it") only if the brief contains non-trivial content (any podcast/blog/video items, pending dream proposals, or doctor warnings/issues > 0). Skip the line if the brief is just "0 issues / no proposals".
+5. Read `../shared/specialist-runtime-map.tsv` when routing.
+6. Greet with active work only if confirmed by live state.
 
 ## Dispatch
 
