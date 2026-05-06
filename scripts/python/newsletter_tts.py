@@ -6,9 +6,19 @@
 
 The script calls headless Claude with only
 `mcp__plugin_chrono-content-engineer_elevenlabs__text_to_speech` allowed.
-Voice policy: request ElevenLabs Adam (`pNInz6obpgDQGcFmaJgB`) on
-`eleven_v3` for a warmer conversational podcast read, and record the
-voice/model returned by the tool when available. Audio is retained under
+Voice policy: request ElevenLabs Nate (`Ifu36BnEjjIY932etsqk`) on `eleven_v3`
+for a natural podcast read, and record the voice/model returned by the tool
+when available. Defaults are tuned for podcast feel per operator feedback
+2026-05-06: stability=0.4, similarity_boost=0.85, style=0.55,
+use_speaker_boost=true. Operator can override with
+`VIBE_SQUAD_TTS_VOICE_ID`, `VIBE_SQUAD_TTS_STABILITY`,
+`VIBE_SQUAD_TTS_SIMILARITY`, `VIBE_SQUAD_TTS_STYLE`, and
+`VIBE_SQUAD_TTS_SPEAKER_BOOST`; legacy `ELEVENLABS_NEWSLETTER_*` voice/model
+overrides are still honored. Operator fallback voice options:
+`fVVjLtJgnQI61CoImgHU`
+(American male, high_quality), `Tx7VLgfksXHVnoY6jDGU` (Conversational Joe,
+British RP; explicit opt-in), and `pNInz6obpgDQGcFmaJgB` (Adam, prior default
+legacy narrator). Audio is retained under
 `~/Vibe-Squad-Audio/<YYYY-MM>/<DD>.mp3` with an `index.json` audit manifest.
 Retention: MP3 files older than 14 days are deleted by this script after each
 successful run to keep the local cache organized.
@@ -39,11 +49,30 @@ STATE_DIR = Path(os.environ.get("STATE_DIR", VAULT_ROOT / "_state"))
 AUDIO_ROOT = Path(os.environ.get("VIBE_SQUAD_AUDIO_ROOT", Path.home() / "Vibe-Squad-Audio"))
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "claude")
 TTS_TOOL = "mcp__plugin_chrono-content-engineer_elevenlabs__text_to_speech"
-VOICE_NAME = os.environ.get("ELEVENLABS_NEWSLETTER_VOICE_NAME", "Adam")
-VOICE_ID = os.environ.get("ELEVENLABS_NEWSLETTER_VOICE_ID", "pNInz6obpgDQGcFmaJgB")
-MODEL_ID = os.environ.get("ELEVENLABS_NEWSLETTER_MODEL_ID", "eleven_v3")
+VOICE_NAME = os.environ.get("VIBE_SQUAD_TTS_VOICE_NAME", os.environ.get("ELEVENLABS_NEWSLETTER_VOICE_NAME", "Nate"))
+VOICE_ID = os.environ.get("VIBE_SQUAD_TTS_VOICE_ID", os.environ.get("ELEVENLABS_NEWSLETTER_VOICE_ID", "Ifu36BnEjjIY932etsqk"))
+MODEL_ID = os.environ.get("VIBE_SQUAD_TTS_MODEL_ID", os.environ.get("ELEVENLABS_NEWSLETTER_MODEL_ID", "eleven_v3"))
 MAX_TTS_CHARS = 8_000
 RETENTION_DAYS = 14
+
+
+def env_float(name: str, default: str) -> float:
+    try:
+        return float(os.environ.get(name, default))
+    except ValueError:
+        return float(default)
+
+
+def env_bool(name: str, default: str) -> bool:
+    return os.environ.get(name, default).strip().lower() in {"1", "true", "yes", "on"}
+
+
+VOICE_SETTINGS = {
+    "stability": env_float("VIBE_SQUAD_TTS_STABILITY", "0.4"),
+    "similarity_boost": env_float("VIBE_SQUAD_TTS_SIMILARITY", "0.85"),
+    "style": env_float("VIBE_SQUAD_TTS_STYLE", "0.55"),
+    "use_speaker_boost": env_bool("VIBE_SQUAD_TTS_SPEAKER_BOOST", "true"),
+}
 
 
 def utc_date() -> str:
@@ -134,9 +163,11 @@ def call_claude_tts(text: str) -> tuple[int, str, str, float]:
     prompt = (
         "Use the allowed ElevenLabs text_to_speech MCP tool to synthesize the podcast script below as MP3. "
         f"Use model_id {MODEL_ID}. Use voice {VOICE_NAME} with voice_id {VOICE_ID}. "
+        "Pass these exact voice settings in the text_to_speech call: "
+        f"{json.dumps(VOICE_SETTINGS, sort_keys=True)}. "
         "Aim for a natural conversational podcast read, not a formal newsreader style. "
         "Return JSON only with any available fields: "
-        "audio_url, file_path, audio_base64, voice_id, voice_name, model_id, duration_seconds.\n\n"
+        "audio_url, file_path, audio_base64, voice_id, voice_name, model_id, duration_seconds, voice_settings.\n\n"
         f"{current_time_section()}\n\n"
         f"PODCAST_SCRIPT:\n{text}"
     )
@@ -216,7 +247,8 @@ def load_index() -> list[dict[str, Any]]:
 def update_index(entry: dict[str, Any]) -> None:
     rows = [
         row for row in load_index()
-        if row.get("date") != entry.get("date")
+        if isinstance(row, dict)
+        and row.get("date") != entry.get("date")
         and (not row.get("mp3_path") or Path(str(row.get("mp3_path"))).exists())
     ]
     rows.append(entry)
@@ -291,6 +323,7 @@ def main() -> int:
         and existing.get("input_sha256") == source_hash
         and existing.get("model_id") == MODEL_ID
         and existing.get("voice_id") == VOICE_ID
+        and existing.get("voice_settings") == VOICE_SETTINGS
     )
     if reusable and not args.force:
         size = out_path.stat().st_size
@@ -307,6 +340,7 @@ def main() -> int:
             "voice_name": VOICE_NAME,
             "voice_id": VOICE_ID,
             "model_id": MODEL_ID,
+            "voice_settings": VOICE_SETTINGS,
             "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "reused_existing": True,
         })
@@ -320,7 +354,12 @@ def main() -> int:
             mp3_file_size=size,
             audio_duration_s=audio_s,
             voice_id=VOICE_ID,
+            voice_name=VOICE_NAME,
             model_id=MODEL_ID,
+            stability=VOICE_SETTINGS["stability"],
+            similarity_boost=VOICE_SETTINGS["similarity_boost"],
+            style=VOICE_SETTINGS["style"],
+            use_speaker_boost=VOICE_SETTINGS["use_speaker_boost"],
             input_path=script_path,
             cleaned_old_files=len(removed),
         ))
@@ -329,14 +368,45 @@ def main() -> int:
 
     rc, stdout, stderr, duration = call_claude_tts(text)
     if rc != 0:
-        atomic_write(log_path, render_log(date, "failed", chars_sent=len(text), returncode=rc, duration_s=f"{duration:.1f}", stderr=stderr[:4000], stdout=stdout[:1000]))
+        atomic_write(log_path, render_log(
+            date,
+            "failed",
+            chars_sent=len(text),
+            requested_voice_name=VOICE_NAME,
+            requested_voice_id=VOICE_ID,
+            model_id=MODEL_ID,
+            stability=VOICE_SETTINGS["stability"],
+            similarity_boost=VOICE_SETTINGS["similarity_boost"],
+            style=VOICE_SETTINGS["style"],
+            use_speaker_boost=VOICE_SETTINGS["use_speaker_boost"],
+            returncode=rc,
+            duration_s=f"{duration:.1f}",
+            stderr=stderr[:4000],
+            stdout=stdout[:1000],
+        ))
         print(f"newsletter-tts failed: claude exited {rc}", file=sys.stderr)
         return 1
     payload = parse_payload(stdout)
     try:
         write_audio_from_payload(payload, out_path)
     except Exception as exc:
-        atomic_write(log_path, render_log(date, "failed", chars_sent=len(text), returncode=rc, duration_s=f"{duration:.1f}", error=str(exc), stderr=stderr[:4000], stdout=stdout[:2000]))
+        atomic_write(log_path, render_log(
+            date,
+            "failed",
+            chars_sent=len(text),
+            requested_voice_name=VOICE_NAME,
+            requested_voice_id=VOICE_ID,
+            model_id=MODEL_ID,
+            stability=VOICE_SETTINGS["stability"],
+            similarity_boost=VOICE_SETTINGS["similarity_boost"],
+            style=VOICE_SETTINGS["style"],
+            use_speaker_boost=VOICE_SETTINGS["use_speaker_boost"],
+            returncode=rc,
+            duration_s=f"{duration:.1f}",
+            error=str(exc),
+            stderr=stderr[:4000],
+            stdout=stdout[:2000],
+        ))
         print(f"newsletter-tts failed: {exc}", file=sys.stderr)
         return 1
 
@@ -354,6 +424,7 @@ def main() -> int:
         "voice_name": VOICE_NAME,
         "voice_id": payload.get("voice_id") or VOICE_ID,
         "model_id": payload.get("model_id") or MODEL_ID,
+        "voice_settings": payload.get("voice_settings") if isinstance(payload.get("voice_settings"), dict) else VOICE_SETTINGS,
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     }
     update_index(entry)
@@ -366,7 +437,12 @@ def main() -> int:
         requested_voice_name=VOICE_NAME,
         requested_voice_id=VOICE_ID,
         voice_id=payload.get("voice_id") or payload.get("voice_name") or VOICE_ID,
+        voice_name=payload.get("voice_name") or VOICE_NAME,
         model_id=payload.get("model_id") or MODEL_ID,
+        stability=VOICE_SETTINGS["stability"],
+        similarity_boost=VOICE_SETTINGS["similarity_boost"],
+        style=VOICE_SETTINGS["style"],
+        use_speaker_boost=VOICE_SETTINGS["use_speaker_boost"],
         input_path=script_path,
         mp3_path=out_path,
         mp3_file_size=size,

@@ -525,10 +525,6 @@ def render_delivery_body(inputs: FormatInputs, archive_rel: str) -> str:
             f"# Vibe Squad — {weekday_label(inputs.date)}",
             "",
             "No notable signal today.",
-            "",
-            "## Read more",
-            "",
-            f"Full multi-dim analysis: `{archive_rel}` (in vault) or `_state/blog-summaries/` (per-item)",
         ])
 
     first_analysis = signals[0].get("analysis") if isinstance(signals[0].get("analysis"), dict) else {}
@@ -552,12 +548,6 @@ def render_delivery_body(inputs: FormatInputs, archive_rel: str) -> str:
     if pulse:
         lines += ["", "## Pulse", "", pulse]
 
-    lines += [
-        "",
-        "## Read more",
-        "",
-        f"Full multi-dim analysis: `{archive_rel}` (in vault) or `_state/blog-summaries/` (per-item)",
-    ]
     return "\n".join(lines).strip()
 
 
@@ -579,11 +569,10 @@ def fit_delivery_body(inputs: FormatInputs, archive_rel: str, subject: str) -> s
         f"{idx}. {signal_summary(signal, core_limit=135, why_limit=70)}"
         for idx, signal in enumerate(signals, 1)
     )
-    lines += ["", "## Read more", "", f"Full multi-dim analysis: `{archive_rel}`"]
     body = "\n".join(lines).strip()
     if len(render_newsletter(inputs.date, body, subject, archive_rel)) <= DELIVERY_CHAR_LIMIT:
         return body
-    suffix = "\n\n## Read more\n\nFull multi-dim analysis in the archive."
+    suffix = "\n"
     wrapper_len = len(render_newsletter(inputs.date, "", subject, archive_rel))
     budget = max(200, DELIVERY_CHAR_LIMIT - wrapper_len - len(suffix) - 5)
     return body[:budget].rstrip() + suffix
