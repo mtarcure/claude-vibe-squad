@@ -11,6 +11,12 @@
 # - today's brief looks trivial (no issues, no processed content, no actions)
 # - `_state/email-brief-<date>.delivered` already exists
 #
+# Optional input:
+# - `_state/newsletter-<date>.md` overrides the email body and subject when it
+#   has parseable YAML frontmatter with a `subject` field. If missing or
+#   malformed, this script falls back to the raw morning brief + synthesis +
+#   triage summary.
+#
 # Disable for a day:
 #   touch _state/email-brief-$(date +%F).delivered
 #
@@ -39,11 +45,14 @@ WEEKDAY="$(date -u +%A)"
 BRIEF="${STATE_DIR}/morning-briefs/${DATE}.md"
 SYNTHESIS="${STATE_DIR}/content-synthesis-${DATE}.md"
 TRIAGE="${STATE_DIR}/content-triage-${DATE}.json"
+NEWSLETTER="${STATE_DIR}/newsletter-${DATE}.md"
 LOG="${STATE_DIR}/cleanup-logs/${DATE}-email-brief.md"
 MARKER="${STATE_DIR}/email-brief-${DATE}.delivered"
 RECIPIENT="redacted@example.com"
 SUBJECT="Vibe Squad morning brief — ${WEEKDAY} ${DATE}"
 MAX_BODY_CHARS=6000
+NEWSLETTER_BODY_CHARS=16000
+NEWSLETTER_STATUS="not-present"
 
 mkdir -p "${STATE_DIR}/cleanup-logs"
 
@@ -130,37 +139,94 @@ if is_trivial_brief "${BRIEF_TEXT}"; then
     skip_with_log "nothing to deliver"
 fi
 
-TRIAGE_SUMMARY=""
-if [[ -f "${TRIAGE}" ]]; then
-    if command -v jq >/dev/null 2>&1; then
-        TRIAGE_SUMMARY="$( {
-            echo "## Content triage summary"
-            jq -r '"- total: \(.summary.total_items // 0), depth: \(.summary.depth_count // 0), skim: \(.summary.skim_count // 0), drop: \(.summary.drop_count // 0)"' "${TRIAGE}" 2>/dev/null || true
-            jq -r '.items[]? | select(.tier=="depth") | "- [" + .source_lane + "] " + .source_name + " — " + .feed_metadata.title + " (" + (.relevance_score|tostring) + "): " + .reason' "${TRIAGE}" 2>/dev/null | head -10 || true
-        } )"
+BODY=""
+if [[ -f "${NEWSLETTER}" ]]; then
+    NEWSLETTER_RESULT="$(python3 - "${NEWSLETTER}" <<'PY'
+import json
+import re
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+try:
+    text = path.read_text(encoding="utf-8")
+except OSError as exc:
+    print(json.dumps({"ok": False, "reason": str(exc)}))
+    raise SystemExit(0)
+
+match = re.match(r"^---\s*\n(.*?)\n---\s*(?:\n|$)(.*)$", text, re.S)
+if not match:
+    print(json.dumps({"ok": False, "reason": "missing frontmatter"}))
+    raise SystemExit(0)
+
+subject = ""
+for line in match.group(1).splitlines():
+    if not line.strip().startswith("subject:"):
+        continue
+    raw = line.split(":", 1)[1].strip()
+    try:
+        subject = json.loads(raw)
+    except json.JSONDecodeError:
+        subject = raw.strip("\"'")
+    break
+
+body = match.group(2).strip()
+if not subject:
+    print(json.dumps({"ok": False, "reason": "missing subject"}))
+elif not body:
+    print(json.dumps({"ok": False, "reason": "empty body"}))
+else:
+    print(json.dumps({"ok": True, "subject": " ".join(str(subject).split())[:120], "body": body}))
+PY
+)"
+    NEWSLETTER_OK="$(printf "%s" "${NEWSLETTER_RESULT}" | python3 -c 'import json,sys; print(str(json.load(sys.stdin).get("ok", False)).lower())')"
+    if [[ "${NEWSLETTER_OK}" == "true" ]]; then
+        SUBJECT="$(printf "%s" "${NEWSLETTER_RESULT}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["subject"], end="")')"
+        BODY="$(printf "%s" "${NEWSLETTER_RESULT}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["body"], end="")')"
+        NEWSLETTER_STATUS="used"
     else
-        TRIAGE_SUMMARY="## Content triage summary
-- content-triage-${DATE}.json present; install jq for inline counts."
+        NEWSLETTER_REASON="$(printf "%s" "${NEWSLETTER_RESULT}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("reason", "malformed"), end="")')"
+        NEWSLETTER_STATUS="fallback: ${NEWSLETTER_REASON}"
     fi
 fi
 
-BODY="${BRIEF_TEXT}"
-if [[ -f "${SYNTHESIS}" ]]; then
-    BODY="${BODY}
+if [[ -z "${BODY}" ]]; then
+    TRIAGE_SUMMARY=""
+    if [[ -f "${TRIAGE}" ]]; then
+        if command -v jq >/dev/null 2>&1; then
+            TRIAGE_SUMMARY="$( {
+                echo "## Content triage summary"
+                jq -r '"- total: \(.summary.total_items // 0), depth: \(.summary.depth_count // 0), skim: \(.summary.skim_count // 0), drop: \(.summary.drop_count // 0)"' "${TRIAGE}" 2>/dev/null || true
+                jq -r '.items[]? | select(.tier=="depth") | "- [" + .source_lane + "] " + .source_name + " — " + .feed_metadata.title + " (" + (.relevance_score|tostring) + "): " + .reason' "${TRIAGE}" 2>/dev/null | head -10 || true
+            } )"
+        else
+            TRIAGE_SUMMARY="## Content triage summary
+- content-triage-${DATE}.json present; install jq for inline counts."
+        fi
+    fi
+
+    BODY="${BRIEF_TEXT}"
+    if [[ -f "${SYNTHESIS}" ]]; then
+        BODY="${BODY}
 
 ---
 
 $(cat "${SYNTHESIS}")"
-fi
-if [[ -n "${TRIAGE_SUMMARY}" ]]; then
-    BODY="${BODY}
+    fi
+    if [[ -n "${TRIAGE_SUMMARY}" ]]; then
+        BODY="${BODY}
 
 ---
 
 ${TRIAGE_SUMMARY}"
+    fi
 fi
 
-BODY="$(printf "%s" "${BODY}" | python3 -c 'import sys; data=sys.stdin.read(); limit=int(sys.argv[1]); print(data[:limit] + ("\n\n[truncated for email prompt]" if len(data) > limit else ""), end="")' "${MAX_BODY_CHARS}")"
+BODY_LIMIT="${MAX_BODY_CHARS}"
+if [[ "${NEWSLETTER_STATUS}" == "used" ]]; then
+    BODY_LIMIT="${NEWSLETTER_BODY_CHARS}"
+fi
+BODY="$(printf "%s" "${BODY}" | python3 -c 'import sys; data=sys.stdin.read(); limit=int(sys.argv[1]); print(data[:limit] + ("\n\n[truncated for email prompt]" if len(data) > limit else ""), end="")' "${BODY_LIMIT}")"
 
 ESCAPED_SUBJECT="$(printf "%s" "${SUBJECT}" | json_escape)"
 
@@ -237,6 +303,7 @@ LOG_BODY="# Email Brief — ${DATE}
 Run at: $(date -u +%FT%TZ)
 Recipient: ${RECIPIENT}
 Subject: ${SUBJECT}
+Newsletter: ${NEWSLETTER_STATUS}
 Command: claude -p --output-format text --no-session-persistence --allowed-tools mcp__claude_ai_Gmail__create_draft
 Return code: ${CLAUDE_RC}
 Stdout length: ${#STDOUT_CONTENT}
