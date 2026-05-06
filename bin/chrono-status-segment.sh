@@ -16,7 +16,7 @@ count_glob() {
 
 doctor_state() {
     local today summary issues warnings
-    today="$(date +%Y-%m-%d)"
+    today="$(date -u +%Y-%m-%d)"
     summary="${VAULT_ROOT}/_state/doctor-logs/${today}-summary.json"
     [[ -f "$summary" ]] || return 0
     issues="$(jq -r '.issue_count // 0' "$summary" 2>/dev/null || echo 0)"

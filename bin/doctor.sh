@@ -22,7 +22,7 @@ set -uo pipefail
 export PATH="${HOME}/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:${PATH}"
 
 VAULT_ROOT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
-DATE="$(date +%Y-%m-%d)"
+DATE="$(date -u +%Y-%m-%d)"
 DOCTOR_LOG="${VAULT_ROOT}/_state/doctor-logs/${DATE}.md"
 SUMMARY="${VAULT_ROOT}/_state/doctor-logs/${DATE}-summary.json"
 

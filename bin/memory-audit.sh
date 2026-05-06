@@ -5,7 +5,7 @@
 set -uo pipefail
 
 VAULT_ROOT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
-DATE="$(date +%Y-%m-%d)"
+DATE="$(date -u +%Y-%m-%d)"
 LOG="${VAULT_ROOT}/_state/audit-logs/${DATE}-memory-audit.md"
 
 mkdir -p "$(dirname "$LOG")"

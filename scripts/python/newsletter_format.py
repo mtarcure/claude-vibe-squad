@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 
 VAULT_ROOT = Path(os.environ.get("VAULT_ROOT", Path.home() / "Obsidian-Claude-Vibe-Squad"))
@@ -44,11 +45,18 @@ class FormatInputs:
     improvements: str
     actions: list[str]
     triage_summary: str
+    todays_signals: str
     depth_count: int
 
 
 def utc_date() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def current_time_section() -> str:
+    now_utc = datetime.now(timezone.utc)
+    local = now_utc.astimezone(ZoneInfo("America/Los_Angeles"))
+    return f"=== CURRENT TIME ===\nUTC: {now_utc.isoformat()}\nLocal (PDT/PST): {local.isoformat()}"
 
 
 def atomic_write(path: Path, content: str) -> None:
@@ -87,6 +95,40 @@ def parse_frontmatter(text: str) -> dict[str, str]:
         key, value = line.split(":", 1)
         data[key.strip()] = value.strip().strip('"').strip("'")
     return data
+
+
+def load_depth_signals(date: str, triage_path: Path) -> str:
+    try:
+        triage = json.loads(triage_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return "[]"
+    depth_titles = {
+        str((item.get("feed_metadata") or {}).get("title") or "")
+        for item in triage.get("items") or []
+        if item.get("tier") == "depth"
+    }
+    signals: list[dict[str, Any]] = []
+    for path in sorted((STATE_DIR / "blog-summaries").glob(f"{date}-*.md")):
+        text = read_text(path)
+        fm = parse_frontmatter(text)
+        if not fm.get("analysis_json"):
+            continue
+        title = fm.get("title", "")
+        if depth_titles and title not in depth_titles:
+            continue
+        try:
+            analysis = json.loads(fm["analysis_json"])
+        except json.JSONDecodeError:
+            continue
+        signals.append({
+            "lane": fm.get("source_lane") or "unknown",
+            "title": title,
+            "url": fm.get("url"),
+            "source": fm.get("feed"),
+            "time_horizon": analysis.get("time_horizon") or fm.get("time_horizon") or "near-term",
+            "analysis": analysis,
+        })
+    return truncate(json.dumps(signals, ensure_ascii=False, indent=2), 12000) if signals else "[]"
 
 
 def load_pending_actions(actions_dir: Path) -> list[str]:
@@ -200,6 +242,10 @@ def load_improvements(path: Path) -> str:
             "model_opinions": candidate.get("model_opinions"),
             "aggregate_score": candidate.get("aggregate_score"),
             "divergence": candidate.get("divergence"),
+            "recurrence_count": candidate.get("recurrence_count"),
+            "previous_scores": candidate.get("previous_scores"),
+            "first_seen": candidate.get("first_seen"),
+            "score_delta": candidate.get("score_delta"),
         })
     return truncate(json.dumps({"candidates": compact}, ensure_ascii=False, indent=2), 9000)
 
@@ -222,6 +268,7 @@ def load_inputs(args: argparse.Namespace) -> FormatInputs:
         improvements=load_improvements(improvements_path),
         actions=load_pending_actions(actions_dir),
         triage_summary=triage_summary,
+        todays_signals=load_depth_signals(date, triage_path),
         depth_count=depth_count,
     )
 
@@ -255,7 +302,7 @@ def no_signal(inputs: FormatInputs) -> bool:
 
 def build_no_signal_newsletter(inputs: FormatInputs) -> tuple[str, str]:
     subject = "No notable signal today"
-    body = "## Lead\nNo notable signal today.\n\n## Top reads today\nNothing cleared the depth bar."
+    body = "## Lead\nNo notable signal today.\n\n## Today's signals\nNothing cleared the depth bar."
     return body, subject
 
 
@@ -263,26 +310,38 @@ def build_prompt(inputs: FormatInputs) -> str:
     pending_actions = "\n\n---\n\n".join(inputs.actions) if inputs.actions else "none"
     return f"""You are the daily-newsletter editor for Vibe Squad's content brief. Produce a single markdown digest under 16 KB suitable for email. Required structure in this order:
 
+{current_time_section()}
+
 Use these exact markdown section headings, in this order:
 1. ## Lead
    1-2 sentences: the single most important thing in today's brief, named explicitly. Picked from depth-tier items. If a content-action card is pending APPROVE, that takes precedence as the lead.
 2. ## Decisions to make
    Only if pending action cards exist. List each card as a 2-3 line item with: title, why it matters, "Reply APPROVE or REJECT [card-id]". Skip section entirely if no cards.
-3. ## Continuity
-   Use this as the cross-day context if present and non-empty. If CROSS-DAY CONTEXT is exactly "no continuity context for today", do not print this section.
-4. ## Top reads today
-   3-7 items from depth tier. Each: source-tagged title link, one-sentence operator-relevance summary written in your own voice, audio/article link when present.
-5. ## Worth a skim
-   5-12 items from highest-scoring skim items. One-line each, source-tagged. Group by lane if it adds clarity; flat list is also fine.
-6. ## System improvements proposed
+3. ## System improvements proposed
    For each candidate from the input JSON, format as:
-   **[IMP-id]: <proposed_change>** (avg score: <aggregate_score>/10)
+   **[IMP-id]: <proposed_change>** (avg score: <aggregate_score>/10) plus `🔁 recurring across N days` when recurrence_count >= 3 and `📈 score +X.X` or `📉 score -X.X` when absolute score_delta >= 1.5.
    - *Source:* [<title>](<url>)
    - *What it entails:* <what_it_entails>
    - *Risks:* <risks>; *Reversibility:* <reversibility>
    - *Model opinions:* claude <score>/10 (<opinion>); kimi <score>/10 (<opinion>); gpt-codex <score>/10 (<opinion>)
    - If divergence >= 3: *⚠️ models disagree*
    If the input JSON has no candidates, skip this section entirely.
+4. ## Today's signals
+   Render each item from TODAY'S SIGNALS exactly as:
+   ### [<lane>] <Title>
+   *Source: <link> | time horizon: <horizon>*
+   **Core:** <core_finding>
+   **Why for you:** <current_work_connections semicolon-joined> — <why_now>
+   **What it enables:** bullet list
+   **Immediate fixes:** bullet list, skip if empty
+   **Hypothetical combos:** bullet list, skip if empty
+   **Risks:** bullet/list
+   **Connections:** bullet/list
+   Skip subsections whose arrays are empty or contain only none/none observed.
+5. ## Continuity
+   Use this as the cross-day context if present and non-empty. If CROSS-DAY CONTEXT is exactly "no continuity context for today", do not print this section.
+6. ## Skim queue
+   5-12 items from highest-scoring skim items. One-line each, source-tagged. Group by lane if it adds clarity; flat list is also fine.
 7. ## What's out
    1 sentence or skip if uninteresting. If anything notable was muted/dropped, mention by source/topic.
 8. SUBJECT:
@@ -307,6 +366,9 @@ Input:
 
 === SYSTEM IMPROVEMENTS PROPOSED ===
 {inputs.improvements}
+
+=== TODAY'S SIGNALS ===
+{inputs.todays_signals}
 
 === PENDING ACTION CARDS ===
 {pending_actions}
@@ -383,7 +445,7 @@ def normalize_body(body: str) -> str:
             text,
         ).strip()
 
-    split_match = re.search(r"(?m)^## Top reads today\s*$", text)
+    split_match = re.search(r"(?m)^## Today's signals\s*$", text)
     if split_match:
         lead = text[: split_match.start()].strip()
         rest = text[split_match.start() :].lstrip()

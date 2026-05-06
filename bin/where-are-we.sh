@@ -6,7 +6,7 @@ set -uo pipefail
 
 VAULT_ROOT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
 source "${VAULT_ROOT}/shared/lead-windows.sh"
-DATE="$(date +%Y-%m-%d)"
+DATE="$(date -u +%Y-%m-%d)"
 
 color() { echo -e "\033[${1}m${2}\033[0m"; }
 hr()    { color '0;36' '─────────────────────────────────────────────────────────────'; }

@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 
 VAULT_ROOT = Path(os.environ.get("VAULT_ROOT", Path.home() / "Obsidian-Claude-Vibe-Squad"))
@@ -47,6 +48,12 @@ class DayBundle:
 
 def utc_date() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def current_time_section() -> str:
+    now_utc = datetime.now(timezone.utc)
+    local = now_utc.astimezone(ZoneInfo("America/Los_Angeles"))
+    return f"=== CURRENT TIME ===\nUTC: {now_utc.isoformat()}\nLocal (PDT/PST): {local.isoformat()}"
 
 
 def atomic_write(path: Path, content: str) -> None:
@@ -128,6 +135,7 @@ def build_input(prior_days: list[DayBundle], today: DayBundle) -> str:
         f"{current}\n\n"
         "=== TODAY UTC DATE ===\n"
         f"{today.date}\n"
+        f"{current_time_section()}\n"
     )
     if len(combined) <= MAX_INPUT_CHARS:
         return combined
@@ -141,6 +149,7 @@ def build_input(prior_days: list[DayBundle], today: DayBundle) -> str:
         f"{current}\n\n"
         "=== TODAY UTC DATE ===\n"
         f"{today.date}\n"
+        f"{current_time_section()}\n"
     )
     return combined[:MAX_INPUT_CHARS]
 

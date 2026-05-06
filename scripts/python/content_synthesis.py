@@ -17,6 +17,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 VAULT_ROOT = Path(os.environ.get("VAULT_ROOT", str(Path.home() / "Obsidian-Claude-Vibe-Squad")))
 STATE_DIR = VAULT_ROOT / "_state"
@@ -26,6 +27,12 @@ TRIAGE_PATH = STATE_DIR / f"content-triage-{DATE}.json"
 OUTPUT_PATH = STATE_DIR / f"content-synthesis-{DATE}.md"
 LOG_PATH = STATE_DIR / "cleanup-logs" / f"{DATE}-content-synthesis.md"
 KIMI_BIN = os.environ.get("KIMI_BIN", "kimi")
+
+
+def current_time_section() -> str:
+    now_utc = datetime.now(timezone.utc)
+    local = now_utc.astimezone(ZoneInfo("America/Los_Angeles"))
+    return f"=== CURRENT TIME ===\nUTC: {now_utc.isoformat()}\nLocal (PDT/PST): {local.isoformat()}"
 
 
 def atomic_write(path: Path, content: str) -> None:
@@ -110,6 +117,7 @@ def fallback_synthesis(triage: dict, reason: str) -> str:
 def call_kimi(context: str) -> tuple[str | None, str]:
     prompt = (
         "Cluster these depth-tier content briefs for a morning brief. Output markdown with exactly:\n"
+        f"{current_time_section()}\n\n"
         "## Clusters\n- 2-5 bullets, grouping related items.\n\n"
         "## Contradictions\n- contradictions or deltas vs prior assumptions; write none observed if absent.\n\n"
         "## Action Cards\n- 1-3 operator decisions in the form: **title** — action and rationale. Use none if no action is warranted.\n\n"
@@ -134,6 +142,7 @@ def call_kimi(context: str) -> tuple[str | None, str]:
         f"- returncode: {result.returncode}\n"
         f"- stdout_len: {len(result.stdout or '')}\n"
         f"- duration_s: {duration:.1f}\n"
+        f"- current_time:\n\n```\n{current_time_section()}\n```\n"
         f"- stderr:\n\n```\n{(result.stderr or '')[:1200]}\n```\n"
     )
     atomic_write(LOG_PATH, log)

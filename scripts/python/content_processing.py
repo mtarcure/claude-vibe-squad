@@ -3,6 +3,7 @@
 # requires-python = ">=3.11"
 # dependencies = [
 #     "httpx>=0.28",
+#     "pypdf>=5.0",
 #     "trafilatura>=2.0",
 # ]
 # ///
@@ -10,8 +11,9 @@
 
 Reads `_state/new-items-<date>.json` from feed-sweep, processes each item:
 
-- **Blog text** (`processor: kimi-summarize`): fetch URL, extract main text with
-  trafilatura, summarize via `kimi -p`, write to `_state/blog-summaries/`.
+- **Depth items**: fetch deep source content where possible, then run a
+  Claude sequential-thinking analysis pass that writes structured frontmatter
+  for downstream newsletter formatting.
 
 - **Podcast** (`processor: gemini-transcribe + kimi-synthesize`): write a
   headline brief from RSS metadata with audio URL prominent. Full transcription
@@ -26,7 +28,8 @@ YouTube depth-tier items use a retained transcription cache under
 `_state/transcription-cache/`: downloaded audio and `.txt` transcripts are kept
 for audit and re-runs. The processor does not delete cached audio. The normal
 depth `--limit` is applied first; `YOUTUBE_TRANSCRIPTION_LIMIT` is an additional
-per-run cap inside that depth queue.
+per-run cap inside that depth queue. YouTube/podcast Scribe is capped at 30
+minutes per item and 300 total audio minutes per run.
 """
 
 from __future__ import annotations
@@ -42,10 +45,12 @@ import subprocess
 import sys
 import time
 import uuid
+from io import BytesIO
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import httpx
 import trafilatura
@@ -59,13 +64,19 @@ PROCESSED_CONTENT_PATH = STATE_DIR / "processed-content.json"
 LOG_DIR = STATE_DIR / "cleanup-logs"
 LOG_PATH = LOG_DIR / f"{DATE}-content-processing.md"
 TRANSCRIPTION_CACHE_DIR = STATE_DIR / "transcription-cache"
+CONTENT_CACHE_DIR = STATE_DIR / "content-cache"
+OPERATOR_INTERESTS_PATH = STATE_DIR / "operator-interests.yaml"
 
 KIMI_BIN = os.environ.get("KIMI_BIN", "kimi")
 GEMINI_BIN = os.environ.get("GEMINI_BIN", "gemini")
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "claude")
 SCRIBE_TOOL = "mcp__plugin_chrono-content-engineer_elevenlabs__speech_to_text"
+SEQUENTIAL_THINKING_TOOL = "mcp__sequential-thinking__sequentialthinking"
 YOUTUBE_TRANSCRIPTION_LIMIT = 10
 FINAL_AUDIO_EXTENSIONS = {".mp3"}
+SCRIBE_ITEM_MAX_SECONDS = 1800
+SCRIBE_RUN_MAX_MINUTES = 300.0
+DEPTH_ANALYSIS_LIMIT = 10
 
 SUMMARY_PROMPT = (
     "Summarize the article below in 5-8 bullet points. Lead with the news / claim. "
@@ -99,10 +110,13 @@ class RunReport:
     item_results: list[ItemResult] = field(default_factory=list)
     llm_calls: list[dict[str, Any]] = field(default_factory=list)
     transcriptions: list[dict[str, Any]] = field(default_factory=list)
+    content_fetches: list[dict[str, Any]] = field(default_factory=list)
 
 
 LLM_CALLS: list[dict[str, Any]] = []
 TRANSCRIPTION_EVENTS: list[dict[str, Any]] = []
+CONTENT_FETCH_EVENTS: list[dict[str, Any]] = []
+SCRIBE_MINUTES_USED = 0.0
 
 
 def atomic_write(path: Path, content: str) -> None:
@@ -115,6 +129,31 @@ def atomic_write(path: Path, content: str) -> None:
     except OSError:
         pass
     tmp.rename(path)
+
+
+def current_time_section() -> str:
+    now_utc = datetime.now(timezone.utc)
+    local = now_utc.astimezone(ZoneInfo("America/Los_Angeles"))
+    return f"=== CURRENT TIME ===\nUTC: {now_utc.isoformat()}\nLocal (PDT/PST): {local.isoformat()}"
+
+
+def strip_json_fence(raw: str) -> str:
+    raw = (raw or "").split("To resume this session:")[0].strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
+        raw = re.sub(r"\s*```$", "", raw)
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        return raw[start:end + 1]
+    return raw
+
+
+def load_operator_profile() -> str:
+    try:
+        return OPERATOR_INTERESTS_PATH.read_text(encoding="utf-8")[:12000]
+    except OSError:
+        return "(operator interests unavailable)"
 
 
 def load_new_items() -> list[dict[str, Any]]:
@@ -250,7 +289,60 @@ def render_blog_brief(item: dict[str, Any], summary: str) -> str:
     )
 
 
-def render_youtube_brief(item: dict[str, Any], summary: str) -> str:
+def normalize_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(v).strip() for v in value if str(v).strip() and str(v).strip().lower() not in {"none", "(none)", "none observed", "(none observed)"}]
+    if isinstance(value, str) and value.strip() and value.strip().lower() not in {"none", "(none)", "none observed", "(none observed)"}:
+        return [value.strip()]
+    return []
+
+
+def render_structured_analysis_body(item: dict[str, Any], analysis: dict[str, Any], content_source: str) -> str:
+    relevance = analysis.get("relevance_to_me") if isinstance(analysis.get("relevance_to_me"), dict) else {}
+    connections = normalize_list(relevance.get("current_work_connections"))
+    what_it_enables = normalize_list(analysis.get("what_it_enables"))
+    immediate_fixes = normalize_list(analysis.get("immediate_fixes"))
+    hypothetical = normalize_list(analysis.get("hypothetical_combinations"))
+    risks = normalize_list(analysis.get("risks_of_action"))
+    links = normalize_list(analysis.get("connections"))
+
+    def bullets(values: list[str]) -> str:
+        return "\n".join(f"- {v}" for v in values)
+
+    parts = [
+        f"# {item['title']}",
+        "",
+        f"**Source:** [{item['feed_name']}]({item['url']})",
+        f"**Lane:** {item.get('source_lane') or item.get('lane') or 'unknown'}",
+        f"**Content source:** {content_source}",
+        "",
+        "## Core finding",
+        "",
+        str(analysis.get("core_finding") or "").strip() or "(analysis unavailable)",
+        "",
+        "## Why for you",
+        "",
+        (("; ".join(connections) + " — ") if connections else "") + str(relevance.get("why_now") or "").strip(),
+        "",
+        "## What it enables",
+        "",
+        bullets(what_it_enables) or "- none observed",
+    ]
+    if immediate_fixes:
+        parts += ["", "## Immediate fixes", "", bullets(immediate_fixes)]
+    if hypothetical:
+        parts += ["", "## Hypothetical combinations", "", bullets(hypothetical)]
+    if risks:
+        parts += ["", "## Risks", "", bullets(risks)]
+    if links:
+        parts += ["", "## Connections", "", bullets(links)]
+    parts += ["", "## Original", "", item["url"]]
+    return "\n".join(parts) + "\n"
+
+
+def render_analysis_brief(item: dict[str, Any], analysis: dict[str, Any], content_source: str) -> str:
+    analysis_json = json.dumps(analysis, ensure_ascii=False)
+    lane = item.get("source_lane") or item.get("lane") or "unknown"
     return (
         f"---\n"
         f"feed: {item['feed_name']}\n"
@@ -259,16 +351,15 @@ def render_youtube_brief(item: dict[str, Any], summary: str) -> str:
         f"published: {item.get('published_iso', '')}\n"
         f"cadence_tag: {item.get('cadence_tag', 'unknown')}\n"
         f"processed_at: {datetime.now(timezone.utc).isoformat()}\n"
-        f"processor: yt-dlp + elevenlabs-scribe + kimi-summarize\n"
+        f"processor: claude-sequential-thinking\n"
         f"tier: full\n"
-        f"source_type: youtube-channel\n"
+        f"source_lane: {lane}\n"
+        f"source_type: {item.get('source_type') or item.get('feed_type') or ''}\n"
+        f"time_horizon: {analysis.get('time_horizon', 'near-term')}\n"
+        f"content_source: {content_source}\n"
+        f"analysis_json: {json.dumps(analysis_json, ensure_ascii=False)}\n"
         f"---\n\n"
-        f"# {item['title']}\n\n"
-        f"**Source:** [{item['feed_name']}]({item['url']})\n\n"
-        f"## Summary\n\n"
-        f"{summary}\n\n"
-        f"## Original\n\n"
-        f"{item['url']}\n"
+        f"{render_structured_analysis_body(item, analysis, content_source)}"
     )
 
 
@@ -428,6 +519,255 @@ def output_path_for(item: dict[str, Any]) -> Path:
     return out_dir / f"{DATE}-{item['feed_name'][:20].strip().replace(' ', '-')}-{slug}.md"
 
 
+def output_has_structured_analysis(item: dict[str, Any]) -> bool:
+    path = output_path_for(item)
+    if not path.exists():
+        return False
+    try:
+        head = path.read_text(encoding="utf-8", errors="replace")[:4000]
+    except OSError:
+        return False
+    return "analysis_json:" in head and "processor: claude-sequential-thinking" in head
+
+
+def cache_key(value: str) -> str:
+    return hashlib.sha256(value.encode()).hexdigest()[:24]
+
+
+def arxiv_id_from_url(url: str) -> str | None:
+    match = re.search(r"arxiv\.org/(?:abs|pdf)/([0-9]{4}\.[0-9]{4,5})(?:v\d+)?", url)
+    if match:
+        return match.group(1)
+    return None
+
+
+def cache_read(path: Path) -> str | None:
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    return text if text.strip() else None
+
+
+def cache_write(path: Path, text: str) -> None:
+    atomic_write(path, text[:32000].rstrip() + "\n")
+
+
+def fetch_arxiv_pdf_text(item: dict[str, Any]) -> tuple[str | None, str]:
+    arxiv_id = arxiv_id_from_url(item.get("url", ""))
+    if not arxiv_id:
+        return None, "arxiv-id-missing"
+    cache_path = CONTENT_CACHE_DIR / "arxiv" / f"{arxiv_id}.txt"
+    cached = cache_read(cache_path)
+    if cached:
+        return cached[:32000], "cache:arxiv"
+    pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
+    headers = {"User-Agent": "Claude-Vibe-Squad-content-processing/0.1 (polite; contact local operator)"}
+    try:
+        with httpx.Client(timeout=5.0, follow_redirects=True, headers=headers) as client:
+            resp = client.get(pdf_url)
+            resp.raise_for_status()
+        from pypdf import PdfReader
+
+        reader = PdfReader(BytesIO(resp.content))
+        pages = []
+        for page in reader.pages:
+            pages.append(page.extract_text() or "")
+            if sum(len(p) for p in pages) >= 32000:
+                break
+        text = re.sub(r"\s+", " ", "\n".join(pages)).strip()
+    except Exception as exc:
+        return None, f"arxiv-pdf-failed: {exc}"
+    if not text:
+        return None, "arxiv-pdf-empty"
+    cache_write(cache_path, text)
+    return text[:32000], "fetch:arxiv-pdf"
+
+
+def fetch_html_deep_text(item: dict[str, Any]) -> tuple[str | None, str]:
+    url = item.get("url", "")
+    if not url:
+        return None, "html-url-missing"
+    cache_path = CONTENT_CACHE_DIR / "html" / f"{cache_key(canonical_url(url))}.txt"
+    cached = cache_read(cache_path)
+    if cached:
+        return cached[:32000], "cache:html"
+    text = fetch_article_text(url, timeout=5.0)
+    if not text:
+        return None, "html-extract-empty"
+    text = text[:32000]
+    cache_write(cache_path, text)
+    return text, "fetch:html"
+
+
+def youtube_transcript_content(item: dict[str, Any]) -> tuple[str | None, str]:
+    stem = youtube_cache_stem(item)
+    transcript_path = TRANSCRIPTION_CACHE_DIR / f"{stem}.txt"
+    cached = cache_read(transcript_path)
+    if cached:
+        content_cache_path = CONTENT_CACHE_DIR / "youtube" / f"{stem}.txt"
+        if not content_cache_path.exists():
+            cache_write(content_cache_path, cached)
+        return cached[:32000], "cache:youtube-transcript"
+    return None, "youtube-transcript-missing"
+
+
+def podcast_transcript_content(item: dict[str, Any]) -> tuple[str | None, str]:
+    stem = cache_key(item.get("audio_url") or item.get("url") or item.get("item_id") or item.get("title") or "")
+    transcript_path = TRANSCRIPTION_CACHE_DIR / f"{stem}.txt"
+    cached = cache_read(transcript_path)
+    if cached:
+        content_cache_path = CONTENT_CACHE_DIR / "podcast" / f"{stem}.txt"
+        if not content_cache_path.exists():
+            cache_write(content_cache_path, cached)
+        return cached[:32000], "cache:podcast-transcript"
+    return None, "podcast-transcript-missing"
+
+
+def deep_content_for_item(item: dict[str, Any]) -> tuple[str, str]:
+    feed_type = item.get("feed_type")
+    source_type = item.get("source_type")
+    fallback = item.get("summary_short") or item.get("triage_reason") or ""
+    if source_type == "youtube-channel" or feed_type == "youtube-channel":
+        text, source = youtube_transcript_content(item)
+    elif feed_type == "podcast":
+        text, source = podcast_transcript_content(item)
+    elif "arxiv.org/" in str(item.get("url", "")):
+        text, source = fetch_arxiv_pdf_text(item)
+    elif feed_type in ("rss-text", "html-scrape"):
+        text, source = fetch_html_deep_text(item)
+    else:
+        text, source = None, "no-deep-fetcher"
+    event = {
+        "title": item.get("title", ""),
+        "url": item.get("url", ""),
+        "source": source,
+        "chars": len(text or ""),
+        "fallback": not bool(text),
+    }
+    if not text:
+        text = fallback or "(no RSS description available)"
+    CONTENT_FETCH_EVENTS.append(event)
+    return text[:32000], source if not event["fallback"] else f"fallback:{source}"
+
+
+def recent_depth_titles(limit: int = 40) -> str:
+    titles: list[str] = []
+    for path in sorted((STATE_DIR / "blog-summaries").glob("*.md"), reverse=True)[:200]:
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")[:1200]
+        except OSError:
+            continue
+        fm = re.search(r"^---\s*\n(.*?)\n---", text, re.S)
+        if not fm or "tier: full" not in fm.group(1):
+            continue
+        title_match = re.search(r"^title:\s*(.+)$", fm.group(1), re.M)
+        feed_match = re.search(r"^feed:\s*(.+)$", fm.group(1), re.M)
+        if title_match:
+            title = title_match.group(1).strip().strip('"')
+            feed = feed_match.group(1).strip() if feed_match else path.stem
+            titles.append(f"- {title} — {feed}")
+        if len(titles) >= limit:
+            break
+    return "\n".join(titles) or "(none found)"
+
+
+def default_analysis(item: dict[str, Any], text: str, reason: str) -> dict[str, Any]:
+    return {
+        "core_finding": (text[:400].strip() or item.get("title", "")),
+        "relevance_to_me": {
+            "current_work_connections": [item.get("triage_reason") or "Depth item selected by triage."],
+            "why_now": "This was surfaced in today's depth queue.",
+        },
+        "time_horizon": "near-term",
+        "what_it_enables": ["Manual review of the source with context preserved."],
+        "immediate_fixes": [],
+        "hypothetical_combinations": [],
+        "risks_of_action": [f"Structured analysis fallback used because {reason}."],
+        "connections": [],
+    }
+
+
+def analysis_prompt(item: dict[str, Any], deep_text: str, content_source: str) -> str:
+    triage_context = item.get("triage_entry") or {
+        "tier": item.get("triage_tier"),
+        "reason": item.get("triage_reason"),
+        "source_lane": item.get("source_lane"),
+    }
+    payload = {
+        "item": {
+            "feed_name": item.get("feed_name"),
+            "title": item.get("title"),
+            "url": item.get("url"),
+            "source_lane": item.get("source_lane"),
+            "published_iso": item.get("published_iso"),
+            "content_source": content_source,
+        },
+        "triage_manifest_entry": triage_context,
+        "operator_interests_profile": load_operator_profile(),
+        "recent_week_depth_titles": recent_depth_titles(),
+        "deep_content_text": deep_text[:32000],
+    }
+    return (
+        "You are the depth-analysis pass for Vibe Squad. Use the allowed sequentialthinking MCP tool "
+        "for 5-12 thoughts before finalizing. Think about why this source matters, when it matters, "
+        "what it could improve, hypothetical combinations, and risks. Then return JSON only.\n\n"
+        f"{current_time_section()}\n\n"
+        "Required JSON schema:\n"
+        "{\"core_finding\":\"2-3 sentences\",\"relevance_to_me\":{\"current_work_connections\":[\"specific connections\"],"
+        "\"why_now\":\"one sentence\"},\"time_horizon\":\"immediate|near-term|speculative-future|archival\","
+        "\"what_it_enables\":[\"...\"],\"immediate_fixes\":[\"...\"],\"hypothetical_combinations\":[\"...\"],"
+        "\"risks_of_action\":[\"...\"],\"connections\":[\"...\"]}\n\n"
+        "Rules: output JSON only after tool use; do not include chain-of-thought; do not invent file paths or dates; "
+        "empty lists are allowed when there is no evidence.\n\n"
+        f"Input:\n{json.dumps(payload, ensure_ascii=False)}"
+    )
+
+
+def call_depth_analysis(item: dict[str, Any], deep_text: str, content_source: str) -> tuple[dict[str, Any], str | None]:
+    if not shutil.which(CLAUDE_BIN):
+        return default_analysis(item, deep_text, f"{CLAUDE_BIN} not found"), f"{CLAUDE_BIN} not found"
+    prompt = analysis_prompt(item, deep_text, content_source)
+    started = time.monotonic()
+    try:
+        result = subprocess.run(
+            [
+                CLAUDE_BIN,
+                "-p",
+                "--output-format",
+                "text",
+                "--no-session-persistence",
+                "--allowed-tools",
+                SEQUENTIAL_THINKING_TOOL,
+            ],
+            input=prompt,
+            capture_output=True,
+            text=True,
+            timeout=180,
+            env=oauth_env(),
+        )
+    except subprocess.TimeoutExpired:
+        LLM_CALLS.append({"name": "claude-depth-analysis", "returncode": "timeout", "stdout_len": 0, "stderr": "", "duration_s": time.monotonic() - started})
+        return default_analysis(item, deep_text, "claude depth analysis timeout"), "claude depth analysis timeout"
+
+    LLM_CALLS.append({
+        "name": "claude-depth-analysis",
+        "returncode": result.returncode,
+        "stdout_len": len(result.stdout or ""),
+        "stderr": (result.stderr or "")[:1200],
+        "duration_s": time.monotonic() - started,
+    })
+    if result.returncode != 0:
+        return default_analysis(item, deep_text, f"claude exited {result.returncode}"), f"claude exited {result.returncode}"
+    try:
+        analysis = json.loads(strip_json_fence(result.stdout or ""))
+    except json.JSONDecodeError as exc:
+        return default_analysis(item, deep_text, f"malformed analysis JSON: {exc}"), f"malformed analysis JSON: {exc}"
+    if not isinstance(analysis, dict):
+        return default_analysis(item, deep_text, "analysis root not object"), "analysis root not object"
+    return analysis, None
+
+
 def youtube_cache_stem(item: dict[str, Any]) -> str:
     source = item.get("item_id") or item.get("url") or item.get("title") or ""
     return hashlib.sha256(str(source).encode()).hexdigest()[:24]
@@ -534,6 +874,54 @@ def download_youtube_audio(item: dict[str, Any], stem: str) -> tuple[Path | None
     return audio_path, event
 
 
+def download_podcast_audio(item: dict[str, Any], stem: str) -> tuple[Path | None, dict[str, Any]]:
+    TRANSCRIPTION_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    event: dict[str, Any] = {
+        "feed_name": item.get("feed_name", ""),
+        "title": item.get("title", ""),
+        "url": item.get("audio_url") or item.get("url", ""),
+        "cache_stem": stem,
+        "download_rc": None,
+        "scribe_rc": None,
+        "audio_duration_s": None,
+        "transcript_chars": 0,
+        "scribe_duration_s": 0.0,
+        "status": "pending",
+    }
+    audio_path = TRANSCRIPTION_CACHE_DIR / f"{stem}.mp3"
+    if audio_path.exists():
+        event["download_rc"] = "cached"
+        event["audio_path"] = str(audio_path.relative_to(VAULT_ROOT))
+        event["audio_duration_s"] = audio_duration_seconds(audio_path)
+        return audio_path, event
+    audio_url = item.get("audio_url")
+    if not audio_url:
+        event.update({"download_rc": "missing-audio-url", "status": "fallback", "error": "audio_url missing"})
+        return None, event
+    started = time.monotonic()
+    try:
+        with httpx.Client(timeout=120, follow_redirects=True, headers={"User-Agent": "Claude-Vibe-Squad-content-processing/0.1"}) as client:
+            with client.stream("GET", audio_url) as resp:
+                resp.raise_for_status()
+                tmp = audio_path.with_suffix(".mp3.tmp")
+                with tmp.open("wb") as fh:
+                    for chunk in resp.iter_bytes(chunk_size=256 * 1024):
+                        fh.write(chunk)
+                    fh.flush()
+                    os.fsync(fh.fileno())
+                tmp.rename(audio_path)
+    except (httpx.HTTPError, OSError) as exc:
+        event.update({"download_rc": "failed", "download_duration_s": time.monotonic() - started, "status": "fallback", "error": f"podcast download failed: {exc}"})
+        return None, event
+    event.update({
+        "download_rc": 0,
+        "download_duration_s": time.monotonic() - started,
+        "audio_path": str(audio_path.relative_to(VAULT_ROOT)),
+        "audio_duration_s": audio_duration_seconds(audio_path),
+    })
+    return audio_path, event
+
+
 def transcribe_youtube_audio(audio_path: Path, transcript_path: Path, event: dict[str, Any]) -> str | None:
     if transcript_path.exists():
         transcript = transcript_path.read_text(errors="replace")
@@ -613,33 +1001,74 @@ def transcribe_youtube_audio(audio_path: Path, transcript_path: Path, event: dic
     return transcript
 
 
-def process_youtube_depth_item(item: dict[str, Any]) -> tuple[str, str | None, str | None]:
+def scribe_cap_error(event: dict[str, Any]) -> str | None:
+    global SCRIBE_MINUTES_USED
+    audio_s = event.get("audio_duration_s")
+    if isinstance(audio_s, (int, float)):
+        if audio_s > SCRIBE_ITEM_MAX_SECONDS:
+            event.update({"status": "fallback", "error": f"audio duration {audio_s:.1f}s exceeds {SCRIBE_ITEM_MAX_SECONDS}s cap"})
+            return event["error"]
+        minutes = audio_s / 60.0
+        if SCRIBE_MINUTES_USED + minutes > SCRIBE_RUN_MAX_MINUTES:
+            event.update({"status": "fallback", "error": f"Scribe run cap would exceed {SCRIBE_RUN_MAX_MINUTES:.0f} minutes"})
+            return event["error"]
+        SCRIBE_MINUTES_USED += minutes
+    return None
+
+
+def ensure_youtube_transcript(item: dict[str, Any]) -> str | None:
     stem = youtube_cache_stem(item)
     transcript_path = TRANSCRIPTION_CACHE_DIR / f"{stem}.txt"
+    cached = cache_read(transcript_path)
+    if cached:
+        return cached
     audio_path, event = download_youtube_audio(item, stem)
     if not audio_path:
         TRANSCRIPTION_EVENTS.append(event)
-        status, out_path, _ = process_skim_item(item)
-        return status, out_path, event.get("error") or "YouTube audio download failed; used headline fallback"
-
+        return None
+    cap_err = scribe_cap_error(event)
+    if cap_err:
+        TRANSCRIPTION_EVENTS.append(event)
+        return None
     transcript = transcribe_youtube_audio(audio_path, transcript_path, event)
-    if not transcript:
-        TRANSCRIPTION_EVENTS.append(event)
-        status, out_path, _ = process_skim_item(item)
-        return status, out_path, event.get("error") or "Scribe transcription failed; used headline fallback"
-
-    summary = kimi_summarize(transcript, max_chars=16000)
-    if not summary:
-        event.update({"status": "fallback", "error": "kimi summarization returned empty after transcript"})
-        TRANSCRIPTION_EVENTS.append(event)
-        status, out_path, _ = process_skim_item(item)
-        return status, out_path, event["error"]
-
-    out_path = output_path_for(item)
-    atomic_write(out_path, render_youtube_brief(item, summary))
-    event["status"] = "ok"
+    if transcript:
+        event["status"] = "ok"
     TRANSCRIPTION_EVENTS.append(event)
-    return ("ok", str(out_path.relative_to(VAULT_ROOT)), None)
+    return transcript
+
+
+def ensure_podcast_transcript(item: dict[str, Any]) -> str | None:
+    stem = cache_key(item.get("audio_url") or item.get("url") or item.get("item_id") or item.get("title") or "")
+    transcript_path = TRANSCRIPTION_CACHE_DIR / f"{stem}.txt"
+    cached = cache_read(transcript_path)
+    if cached:
+        return cached
+    audio_path, event = download_podcast_audio(item, stem)
+    if not audio_path:
+        TRANSCRIPTION_EVENTS.append(event)
+        return None
+    cap_err = scribe_cap_error(event)
+    if cap_err:
+        TRANSCRIPTION_EVENTS.append(event)
+        return None
+    transcript = transcribe_youtube_audio(audio_path, transcript_path, event)
+    if transcript:
+        cache_write(CONTENT_CACHE_DIR / "podcast" / f"{stem}.txt", transcript)
+        event["status"] = "ok"
+    TRANSCRIPTION_EVENTS.append(event)
+    return transcript
+
+
+def process_depth_item(item: dict[str, Any]) -> tuple[str, str | None, str | None]:
+    if item.get("source_type") == "youtube-channel" or item.get("feed_type") == "youtube-channel":
+        ensure_youtube_transcript(item)
+    elif item.get("feed_type") == "podcast" and item.get("audio_url"):
+        ensure_podcast_transcript(item)
+    deep_text, content_source = deep_content_for_item(item)
+    analysis, err = call_depth_analysis(item, deep_text, content_source)
+    out_path = output_path_for(item)
+    atomic_write(out_path, render_analysis_brief(item, analysis, content_source))
+    return ("ok", str(out_path.relative_to(VAULT_ROOT)), err)
 
 
 def process_blog_item(item: dict[str, Any]) -> tuple[str, str | None, str | None]:
@@ -736,6 +1165,7 @@ def item_from_triage(triage_item: dict[str, Any], raw_by_id: dict[str, dict[str,
     item["triage_tier"] = triage_item.get("tier", "skim")
     item["source_lane"] = triage_item.get("source_lane", "unknown")
     item["triage_reason"] = triage_item.get("reason", "")
+    item["triage_entry"] = triage_item
     return item
 
 
@@ -749,6 +1179,10 @@ def build_queue_from_triage(manifest: dict[str, Any], raw_items: list[dict[str, 
 def render_log(report: RunReport) -> str:
     lines = [f"# Content Processing — {DATE}", "",
              f"Run at: {datetime.now(timezone.utc).isoformat()}",
+             "",
+             "## Prompt time grounding",
+             current_time_section(),
+             "",
              f"Duration: {report.duration_s:.1f}s",
              ""]
     lines.append("## Summary")
@@ -803,6 +1237,14 @@ def render_log(report: RunReport) -> str:
                 lines.append("      " + str(event["scribe_stderr"]).replace("\n", "\n      "))
                 lines.append("      ```")
         lines.append(f"- Total Scribe audio minutes this run: {total_minutes:.2f}")
+    if report.content_fetches:
+        lines.append("")
+        lines.append("## Deep content fetches")
+        for event in report.content_fetches:
+            lines.append(
+                f"- **{str(event.get('title', ''))[:80]}** source={event.get('source')} "
+                f"chars={event.get('chars', 0)} fallback={str(event.get('fallback')).lower()}"
+            )
     return "\n".join(lines) + "\n"
 
 
@@ -831,8 +1273,12 @@ def main() -> int:
     for item in queue:
         processed_id = item.get("triage_item_id") or item.get("item_id")
         if processed_id in processed:
-            skipped_count += 1
-            continue
+            if item.get("triage_tier") == "depth" and not output_has_structured_analysis(item):
+                item = dict(item)
+                item["needs_analysis_upgrade"] = True
+            else:
+                skipped_count += 1
+                continue
         if args.filter and args.filter.lower() not in item["feed_name"].lower():
             continue
         if args.podcasts_only and item["feed_type"] != "podcast":
@@ -854,6 +1300,7 @@ def main() -> int:
     )
     run_start = time.monotonic()
     youtube_transcriptions_seen = 0
+    depth_analysis_seen = 0
 
     for item in queue:
         item_start = time.monotonic()
@@ -877,6 +1324,10 @@ def main() -> int:
             else:
                 status, out_path, err = process_skim_item(item)
             tier = "headline-only"
+        elif depth_analysis_seen >= DEPTH_ANALYSIS_LIMIT:
+            status, out_path, _ = process_skim_item(item)
+            err = f"Depth analysis cap exceeded ({DEPTH_ANALYSIS_LIMIT}); used headline fallback"
+            tier = "headline-only"
         elif is_youtube:
             if youtube_transcriptions_seen >= YOUTUBE_TRANSCRIPTION_LIMIT:
                 status, out_path, _ = process_skim_item(item)
@@ -884,15 +1335,17 @@ def main() -> int:
                 tier = "headline-only"
             else:
                 youtube_transcriptions_seen += 1
-                status, out_path, err = process_youtube_depth_item(item)
-                tier = "full" if not err else "headline-only"
+                depth_analysis_seen += 1
+                status, out_path, err = process_depth_item(item)
+                tier = "full"
         elif item["feed_type"] in ("rss-text", "html-scrape"):
-            status, out_path, err = process_blog_item(item)
+            depth_analysis_seen += 1
+            status, out_path, err = process_depth_item(item)
             tier = "full"
         elif item["feed_type"] == "podcast":
-            status, out_path, err = process_podcast_item(
-                item, enable_transcription=args.enable_transcription)
-            tier = "full" if args.enable_transcription else "headline-only"
+            depth_analysis_seen += 1
+            status, out_path, err = process_depth_item(item)
+            tier = "full"
         else:
             status, out_path, err, tier = "skipped", None, f"unknown feed_type: {item['feed_type']}", "headline-only"
 
@@ -912,6 +1365,7 @@ def main() -> int:
     report.duration_s = time.monotonic() - run_start
     report.llm_calls = LLM_CALLS
     report.transcriptions = TRANSCRIPTION_EVENTS
+    report.content_fetches = CONTENT_FETCH_EVENTS
     save_processed_set(processed)
     atomic_write(LOG_PATH, render_log(report))
     print(f"\nLog: {LOG_PATH}")

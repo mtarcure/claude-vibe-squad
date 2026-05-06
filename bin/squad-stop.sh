@@ -17,7 +17,7 @@ set -uo pipefail
 
 VAULT_ROOT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
 SUMMARY_DIR="${VAULT_ROOT}/_state/shutdown-summaries"
-DATESTAMP="$(date +%Y-%m-%d-%H%M)"
+DATESTAMP="$(date -u +%Y-%m-%d-%H%M)"
 SUMMARY_FILE="${SUMMARY_DIR}/${DATESTAMP}-session-end.md"
 
 mkdir -p "${SUMMARY_DIR}"
@@ -89,7 +89,7 @@ if [[ ${chrono_responded} -eq 0 ]]; then
         echo "## In-flight outboxes (today's responses awaiting Chrono surfacing)"
         echo ""
         for namespace in coding security content sysmgmt research; do
-            today=$(date +%Y-%m-%d)
+            today=$(date -u +%Y-%m-%d)
             files=$(ls -1 "${VAULT_ROOT}/departments/${namespace}/outbox/" 2>/dev/null | grep "${today}" || true)
             if [[ -n "${files}" ]]; then
                 echo "- **${namespace}**: ${files}"

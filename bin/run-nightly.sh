@@ -29,7 +29,7 @@ export PATH="${HOME}/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:${PATH}"
 
 VAULT_ROOT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
 STATE_DIR="${VAULT_ROOT}/_state"
-DATE="$(date +%Y-%m-%d)"
+DATE="$(date -u +%Y-%m-%d)"
 LOG_DIR="${STATE_DIR}/nightly-failures"
 DAILY_LOG="${LOG_DIR}/${DATE}.log"
 

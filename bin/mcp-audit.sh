@@ -9,7 +9,7 @@ VAULT_ROOT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
 CHRONO_PY="${CHRONO_PY:-${HOME}/chrono/.venv/bin/python}"
 CHRONO_PLUGINS="${CHRONO_PLUGINS:-${HOME}/chrono/plugins}"
 PROBE="${VAULT_ROOT}/scripts/python/mcp_probe.py"
-DATE="$(date +%Y-%m-%d)"
+DATE="$(date -u +%Y-%m-%d)"
 LOG="${VAULT_ROOT}/_state/audit-logs/${DATE}-mcp-audit.md"
 
 mkdir -p "$(dirname "${LOG}")"

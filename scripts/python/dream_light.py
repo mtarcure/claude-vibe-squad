@@ -39,6 +39,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import yaml
 
@@ -57,6 +58,12 @@ KIMI_BIN = os.environ.get("KIMI_BIN", "kimi")
 # (opposite family). But codex login state is uncertain in launchd context, so
 # fall back to kimi review when codex isn't available.
 CODEX_BIN = os.environ.get("CODEX_BIN", "codex")
+
+
+def current_time_section() -> str:
+    now_utc = datetime.now(timezone.utc)
+    local = now_utc.astimezone(ZoneInfo("America/Los_Angeles"))
+    return f"=== CURRENT TIME ===\nUTC: {now_utc.isoformat()}\nLocal (PDT/PST): {local.isoformat()}"
 
 JOURNAL_PROMPT = """\
 You are the dream-journaler for Claude-Vibe-Squad. Read the activity log below
@@ -87,6 +94,8 @@ Rules:
 - Under 400 words total.
 - Output only the markdown — no preface like "Here is the journal".
 
+{current_time}
+
 ACTIVITY LOG:
 {activity}
 """
@@ -113,6 +122,8 @@ Rules:
 - Empty list `[]` is a valid output if nothing's worth proposing.
 - No commentary outside the YAML.
 
+{current_time}
+
 JOURNAL:
 {journal}
 """
@@ -138,6 +149,8 @@ Rules:
 - Cite specific text from the draft when flagging issues.
 - Do not propose substantial rewrites — just flag.
 - Under 200 words.
+
+{current_time}
 
 JOURNAL DRAFT:
 {journal}
@@ -409,7 +422,7 @@ def call_cli(bin_path: str, prompt: str, *, extra_args: list[str] | None = None,
 
 
 def gemini_journal(activity: str) -> str | None:
-    return call_cli(GEMINI_BIN, JOURNAL_PROMPT.format(activity=activity), timeout=300)
+    return call_cli(GEMINI_BIN, JOURNAL_PROMPT.format(activity=activity, current_time=current_time_section()), timeout=300)
 
 
 def gemini_proposals(journal: str) -> list[dict] | None:
@@ -417,7 +430,7 @@ def gemini_proposals(journal: str) -> list[dict] | None:
 
     Returns parsed YAML list. Empty list is valid (means no actionable proposals).
     """
-    raw = call_cli(GEMINI_BIN, PROPOSAL_PROMPT.format(journal=journal), timeout=300)
+    raw = call_cli(GEMINI_BIN, PROPOSAL_PROMPT.format(journal=journal, current_time=current_time_section()), timeout=300)
     if not raw:
         return None
     # Strip markdown code fences if model wrapped output despite instruction
@@ -477,7 +490,7 @@ def codex_review(journal: str) -> str | None:
     if shutil.which(CODEX_BIN):
         out = subprocess.run(
             [CODEX_BIN, "exec", "--skip-git-repo-check", "--sandbox", "read-only",
-             REVIEW_PROMPT.format(journal=journal)],
+             REVIEW_PROMPT.format(journal=journal, current_time=current_time_section())],
             capture_output=True, text=True, timeout=300, env=oauth_env(),
         )
         if out.returncode == 0 and out.stdout.strip():
@@ -486,7 +499,7 @@ def codex_review(journal: str) -> str | None:
             text = text.split("tokens used")[-1] if "tokens used" in text else text
             return text.strip() or None
     # Fallback: kimi reviews (different family from gemini, still satisfies rule)
-    return call_cli(KIMI_BIN, REVIEW_PROMPT.format(journal=journal), timeout=240)
+    return call_cli(KIMI_BIN, REVIEW_PROMPT.format(journal=journal, current_time=current_time_section()), timeout=240)
 
 
 def render_dream_log(activity_files: list[ActivityFile], journal: str | None,

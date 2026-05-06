@@ -9,7 +9,7 @@
 set -uo pipefail
 
 VAULT_ROOT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
-DATE="$(date +%Y-%m-%d)"
+DATE="$(date -u +%Y-%m-%d)"
 LOG="${VAULT_ROOT}/_state/cleanup-logs/${DATE}-product-hygiene.md"
 APPLY=0
 PUBLIC_EXPORT=0

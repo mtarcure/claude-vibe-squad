@@ -17,6 +17,7 @@ while still giving subscription-auth CLIs enough room for structured JSON.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -25,9 +26,10 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 
 VAULT_ROOT = Path(os.environ.get("VAULT_ROOT", Path.home() / "Obsidian-Claude-Vibe-Squad"))
@@ -70,6 +72,12 @@ def utc_date() -> str:
 
 def generated_at() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def current_time_section() -> str:
+    now_utc = datetime.now(timezone.utc)
+    local = now_utc.astimezone(ZoneInfo("America/Los_Angeles"))
+    return f"=== CURRENT TIME ===\nUTC: {now_utc.isoformat()}\nLocal (PDT/PST): {local.isoformat()}"
 
 
 def atomic_write(path: Path, content: str) -> None:
@@ -231,6 +239,7 @@ def extraction_prompt(candidate: CandidateInput) -> str:
     }
     return (
         "You are an improvement extractor for Vibe Squad. This is surface-only: do not propose auto-execution.\n"
+        f"{current_time_section()}\n\n"
         "Does this paper/post propose a technique Vibe Squad could adopt? If yes, describe: "
         "(a) the change in 1-2 sentences, (b) what it would entail with specific files/specialists affected, "
         "(c) risks, (d) reversibility high/medium/low. If no, mark has_proposal false.\n"
@@ -244,6 +253,7 @@ def extraction_prompt(candidate: CandidateInput) -> str:
 def scoring_prompt(candidate: dict[str, Any]) -> str:
     return (
         "You are independently scoring a proposed Vibe Squad self-improvement. Return JSON only.\n"
+        f"{current_time_section()}\n\n"
         "Score 0-10 using this rubric: 0-3 vague/unsafe/no provenance; 4-6 plausible but risky or broad; "
         "7-8 concrete, reversible, aligns with HITL/write-scope safety; 9-10 urgent, low-risk, clearly high-leverage.\n"
         "Prefer lower scores for overcomplication or corruption risk. Provide exactly one sentence opinion.\n"
@@ -289,6 +299,82 @@ def score_with_model(model: str, proposal: dict[str, Any], run: RunState) -> dic
 def proposal_id(date: str, title: str, proposed_change: str) -> str:
     base = slug(proposed_change or title)[:48].strip("-") or slug(title)[:48] or "proposal"
     return f"IMP-{date}-{base}"
+
+
+def tracking_hash(source_url: str, proposed_change: str) -> str:
+    prefix = " ".join(str(proposed_change or "").split())[:120]
+    return hashlib.sha256(f"{source_url}\n{prefix}".encode()).hexdigest()[:24]
+
+
+def prior_improvement_files(date: str, days: int = 14) -> list[Path]:
+    try:
+        today = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return []
+    paths = []
+    for offset in range(1, days + 1):
+        day = (today - timedelta(days=offset)).strftime("%Y-%m-%d")
+        path = STATE_DIR / f"improvements-{day}.json"
+        if path.exists():
+            paths.append(path)
+    return paths
+
+
+def load_prior_index(date: str) -> dict[str, list[dict[str, Any]]]:
+    index: dict[str, list[dict[str, Any]]] = {}
+    for path in prior_improvement_files(date):
+        try:
+            manifest = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        prior_date = str(manifest.get("date") or path.stem.removeprefix("improvements-"))
+        for candidate in manifest.get("candidates") or []:
+            if not isinstance(candidate, dict):
+                continue
+            source = candidate.get("source") or {}
+            key = candidate.get("tracking_hash") or tracking_hash(str(source.get("url") or ""), str(candidate.get("proposed_change") or ""))
+            if key:
+                index.setdefault(key, []).append({
+                    "path": path,
+                    "date": prior_date,
+                    "candidate": candidate,
+                })
+    return index
+
+
+def apply_tracking(proposals: list[dict[str, Any]], date: str, run: RunState) -> None:
+    prior = load_prior_index(date)
+    touched: dict[Path, dict[str, Any]] = {}
+    for proposal in proposals:
+        source = proposal.get("source") or {}
+        key = tracking_hash(str(source.get("url") or ""), str(proposal.get("proposed_change") or ""))
+        proposal["tracking_hash"] = key
+        matches = prior.get(key, [])
+        previous_scores = [
+            m["candidate"].get("aggregate_score")
+            for m in matches
+            if isinstance(m["candidate"].get("aggregate_score"), (int, float))
+        ]
+        proposal["recurrence_count"] = len(matches) + 1
+        proposal["previous_scores"] = previous_scores
+        proposal["first_seen"] = min([m["date"] for m in matches] + [date])
+        if previous_scores:
+            proposal["score_delta"] = round(float(proposal.get("aggregate_score") or 0) - float(previous_scores[-1]), 2)
+        for match in matches:
+            path = match["path"]
+            if path not in touched:
+                try:
+                    touched[path] = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    run.warnings.append(f"could not mark superseded in {path}")
+                    continue
+            for prior_candidate in touched[path].get("candidates") or []:
+                prior_source = prior_candidate.get("source") or {}
+                prior_key = prior_candidate.get("tracking_hash") or tracking_hash(str(prior_source.get("url") or ""), str(prior_candidate.get("proposed_change") or ""))
+                if prior_key == key:
+                    prior_candidate["superseded"] = True
+    for path, manifest in touched.items():
+        atomic_write(path, json.dumps(manifest, indent=2, ensure_ascii=False))
 
 
 def aggregate_scores(opinions: dict[str, dict[str, Any]]) -> tuple[float | None, float | None]:
@@ -417,6 +503,7 @@ def main() -> int:
         return 0
 
     proposals = extract_proposals(candidates, date, run)
+    apply_tracking(proposals, date, run)
     manifest = {
         "generated_at": generated_at(),
         "generation_id": f"{date}-{int(time.time())}",

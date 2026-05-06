@@ -18,7 +18,7 @@
 #   triage summary.
 #
 # Disable for a day:
-#   touch _state/email-brief-$(date +%F).delivered
+#   touch _state/email-brief-$(date -u +%F).delivered
 #
 # Manual test:
 #   bash bin/email-brief.sh
