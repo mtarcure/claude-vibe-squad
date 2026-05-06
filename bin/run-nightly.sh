@@ -15,9 +15,10 @@
 #   10. Daily morning brief generator (synthesizes everything)
 #   11. Cross-day context (continuity for newsletter)
 #   12. Improvement extractor (surfaced-only system proposals)
-#   13. Newsletter formatter (phone-readable digest + smart subject)
-#   14. Newsletter TTS (ElevenLabs MP3 via Telegram-native attachment)
-#   15. Telegram delivery (formatted text + audio to operator phone)
+#   13. Newsletter formatter (short Telegram digest + full archive)
+#   14. Podcast script (conversational 4-5 minute audio prose)
+#   15. Newsletter TTS (ElevenLabs MP3 via Telegram-native attachment)
+#   16. Telegram delivery (formatted text + audio to operator phone)
 #   Email brief is retained as a manual fallback, no longer invoked by default.
 #
 # Each phase logs separately. Failures don't block subsequent phases.
@@ -87,6 +88,7 @@ run_phase "morning-brief"        "${VAULT_ROOT}/bin/morning-brief.sh"
 run_phase "cross-day-context"    "${VAULT_ROOT}/bin/cross-day-context.sh"
 run_phase "improvement-extractor"  "${VAULT_ROOT}/bin/improvement-extractor.sh"
 run_phase "newsletter-format"    "${VAULT_ROOT}/bin/newsletter-format.sh"
+run_phase "podcast-script"       "${VAULT_ROOT}/bin/podcast-script.sh"
 run_phase "newsletter-tts"       "${VAULT_ROOT}/bin/newsletter-tts.sh"
 run_phase "telegram-deliver"     "${VAULT_ROOT}/bin/telegram-deliver.sh"
 # Email fallback retained but retired from default nightly delivery.

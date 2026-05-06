@@ -2,11 +2,12 @@
 # /// script
 # requires-python = ">=3.11"
 # ///
-"""Synthesize the daily newsletter to MP3 via ElevenLabs MCP.
+"""Synthesize the daily podcast script to MP3 via ElevenLabs MCP.
 
 The script calls headless Claude with only
 `mcp__plugin_chrono-content-engineer_elevenlabs__text_to_speech` allowed.
-Voice policy: request the ElevenLabs MCP default narrator preset and record the
+Voice policy: request ElevenLabs Adam (`pNInz6obpgDQGcFmaJgB`) on
+`eleven_v3` for a warmer conversational podcast read, and record the
 voice/model returned by the tool when available. Audio is retained under
 `~/Vibe-Squad-Audio/<YYYY-MM>/<DD>.mp3` with an `index.json` audit manifest.
 Retention: MP3 files older than 14 days are deleted by this script after each
@@ -17,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import json
 import os
 import re
@@ -37,7 +39,10 @@ STATE_DIR = Path(os.environ.get("STATE_DIR", VAULT_ROOT / "_state"))
 AUDIO_ROOT = Path(os.environ.get("VIBE_SQUAD_AUDIO_ROOT", Path.home() / "Vibe-Squad-Audio"))
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "claude")
 TTS_TOOL = "mcp__plugin_chrono-content-engineer_elevenlabs__text_to_speech"
-MAX_TTS_CHARS = 24_000
+VOICE_NAME = os.environ.get("ELEVENLABS_NEWSLETTER_VOICE_NAME", "Adam")
+VOICE_ID = os.environ.get("ELEVENLABS_NEWSLETTER_VOICE_ID", "pNInz6obpgDQGcFmaJgB")
+MODEL_ID = os.environ.get("ELEVENLABS_NEWSLETTER_MODEL_ID", "eleven_v3")
+MAX_TTS_CHARS = 8_000
 RETENTION_DAYS = 14
 
 
@@ -101,6 +106,10 @@ def speech_text(markdown: str) -> str:
     return text.strip()
 
 
+def text_hash(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 def oauth_env() -> dict[str, str]:
     env = os.environ.copy()
     env.pop("ANTHROPIC_API_KEY", None)
@@ -123,11 +132,13 @@ def call_claude_tts(text: str) -> tuple[int, str, str, float]:
     if not shutil.which(CLAUDE_BIN):
         return 127, "", f"{CLAUDE_BIN} not found", 0.0
     prompt = (
-        "Use the allowed ElevenLabs text_to_speech MCP tool to synthesize the newsletter text below as MP3. "
-        "Use the default narrator preset/voice. Return JSON only with any available fields: "
+        "Use the allowed ElevenLabs text_to_speech MCP tool to synthesize the podcast script below as MP3. "
+        f"Use model_id {MODEL_ID}. Use voice {VOICE_NAME} with voice_id {VOICE_ID}. "
+        "Aim for a natural conversational podcast read, not a formal newsreader style. "
+        "Return JSON only with any available fields: "
         "audio_url, file_path, audio_base64, voice_id, voice_name, model_id, duration_seconds.\n\n"
         f"{current_time_section()}\n\n"
-        f"NEWSLETTER_TEXT:\n{text}"
+        f"PODCAST_SCRIPT:\n{text}"
     )
     start = time.monotonic()
     try:
@@ -213,6 +224,13 @@ def update_index(entry: dict[str, Any]) -> None:
     atomic_write(AUDIO_ROOT / "index.json", json.dumps(rows, indent=2, ensure_ascii=False) + "\n")
 
 
+def existing_index_entry(date: str) -> dict[str, Any]:
+    for row in load_index():
+        if isinstance(row, dict) and row.get("date") == date:
+            return row
+    return {}
+
+
 def cleanup_old_audio(now: datetime) -> list[str]:
     removed: list[str] = []
     cutoff = now - timedelta(days=RETENTION_DAYS)
@@ -245,25 +263,36 @@ def main() -> int:
     parser.add_argument("--force", action="store_true", help="regenerate even when the dated MP3 already exists")
     args = parser.parse_args()
     date = args.date or utc_date()
+    script_path = STATE_DIR / f"podcast-script-{date}.md"
     newsletter_path = STATE_DIR / f"newsletter-{date}.md"
     log_path = STATE_DIR / "cleanup-logs" / f"{date}-newsletter-tts.md"
     month, day = date[:7], date[-2:]
     out_path = AUDIO_ROOT / month / f"{day}.mp3"
 
-    raw = read_text(newsletter_path)
+    raw = read_text(script_path)
     if not raw.strip():
-        atomic_write(log_path, render_log(date, "skipped", reason=f"missing newsletter {newsletter_path}"))
-        print(f"Newsletter TTS skipped: missing {newsletter_path}")
+        atomic_write(log_path, render_log(date, "skipped", reason=f"missing podcast script {script_path}"))
+        print(f"Newsletter TTS skipped: missing {script_path}")
         return 0
-    meta, body = strip_frontmatter(raw)
+    newsletter_meta, _ = strip_frontmatter(read_text(newsletter_path))
+    _, body = strip_frontmatter(raw)
     raw_text = speech_text(body)
     text = raw_text[:MAX_TTS_CHARS]
     chars_truncated = max(0, len(raw_text) - len(text))
+    source_hash = text_hash(text)
     if not text or "No notable signal today" in text[:200]:
         atomic_write(log_path, render_log(date, "skipped", reason="nothing substantive to synthesize"))
         print("Newsletter TTS skipped: no substantive newsletter")
         return 0
-    if out_path.exists() and out_path.stat().st_size > 0 and not args.force:
+    existing = existing_index_entry(date)
+    reusable = (
+        out_path.exists()
+        and out_path.stat().st_size > 0
+        and existing.get("input_sha256") == source_hash
+        and existing.get("model_id") == MODEL_ID
+        and existing.get("voice_id") == VOICE_ID
+    )
+    if reusable and not args.force:
         size = out_path.stat().st_size
         audio_s = audio_duration(out_path)
         removed = cleanup_old_audio(datetime.now(timezone.utc))
@@ -272,7 +301,12 @@ def main() -> int:
             "mp3_path": str(out_path),
             "file_size_bytes": size,
             "duration_seconds": audio_s,
-            "subject": meta.get("subject", ""),
+            "subject": newsletter_meta.get("subject", ""),
+            "input_path": str(script_path),
+            "input_sha256": source_hash,
+            "voice_name": VOICE_NAME,
+            "voice_id": VOICE_ID,
+            "model_id": MODEL_ID,
             "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "reused_existing": True,
         })
@@ -285,6 +319,9 @@ def main() -> int:
             mp3_path=out_path,
             mp3_file_size=size,
             audio_duration_s=audio_s,
+            voice_id=VOICE_ID,
+            model_id=MODEL_ID,
+            input_path=script_path,
             cleaned_old_files=len(removed),
         ))
         print(f"Newsletter TTS: {out_path} (already exists)")
@@ -311,7 +348,12 @@ def main() -> int:
         "mp3_path": str(out_path),
         "file_size_bytes": size,
         "duration_seconds": audio_s,
-        "subject": meta.get("subject", ""),
+        "subject": newsletter_meta.get("subject", ""),
+        "input_path": str(script_path),
+        "input_sha256": source_hash,
+        "voice_name": VOICE_NAME,
+        "voice_id": payload.get("voice_id") or VOICE_ID,
+        "model_id": payload.get("model_id") or MODEL_ID,
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     }
     update_index(entry)
@@ -321,8 +363,11 @@ def main() -> int:
         chars_available=len(raw_text),
         chars_sent=len(text),
         chars_truncated=chars_truncated,
-        voice_id=payload.get("voice_id") or payload.get("voice_name") or "default narrator preset",
-        model_id=payload.get("model_id") or "mcp-default",
+        requested_voice_name=VOICE_NAME,
+        requested_voice_id=VOICE_ID,
+        voice_id=payload.get("voice_id") or payload.get("voice_name") or VOICE_ID,
+        model_id=payload.get("model_id") or MODEL_ID,
+        input_path=script_path,
         mp3_path=out_path,
         mp3_file_size=size,
         audio_duration_s=audio_s,

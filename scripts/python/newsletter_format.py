@@ -10,7 +10,8 @@ Inputs:
 - `_state/content-actions/*.md` with `status: pending`
 
 Output:
-- `_state/newsletter-<utc-date>.md`
+- `_state/newsletter-<utc-date>.md` as the Telegram-targeted digest
+- `_state/newsletter-archive-<utc-date>.md` as the full multi-dimensional archive
 - `_state/cleanup-logs/<utc-date>-newsletter-format.md` on failure
 """
 
@@ -34,6 +35,9 @@ from zoneinfo import ZoneInfo
 VAULT_ROOT = Path(os.environ.get("VAULT_ROOT", Path.home() / "Obsidian-Claude-Vibe-Squad"))
 STATE_DIR = Path(os.environ.get("STATE_DIR", VAULT_ROOT / "_state"))
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "claude")
+DELIVERY_CHAR_LIMIT = 2500
+DELIVERY_TOP_ITEMS = 3
+ARCHIVE_SIGNAL_LIMIT = 8
 
 
 @dataclass
@@ -152,7 +156,7 @@ def load_depth_signals(date: str, triage_path: Path) -> str:
             "time_horizon": compact_analysis["time_horizon"],
             "analysis": compact_analysis,
         })
-        if len(signals) >= 3:
+        if len(signals) >= ARCHIVE_SIGNAL_LIMIT:
             break
     return json.dumps(signals, ensure_ascii=False, indent=2) if signals else "[]"
 
@@ -214,7 +218,7 @@ def enforce_todays_signals(body: str, signals_json: str) -> str:
     section = f"## Today's signals\n\n{rendered}\n"
     pattern = r"(?ms)^## Today's signals\s*\n.*?(?=^## |\Z)"
     if re.search(pattern, body):
-        return re.sub(pattern, section, body, count=1)
+        return re.sub(pattern, lambda _match: section, body, count=1)
     marker = re.search(r"(?m)^## Continuity\s*$|^## Skim queue\s*$|^## What's out\s*$", body)
     if marker:
         return body[:marker.start()].rstrip() + "\n\n" + section + "\n" + body[marker.start():].lstrip()
@@ -396,9 +400,200 @@ def build_no_signal_newsletter(inputs: FormatInputs) -> tuple[str, str]:
     return body, subject
 
 
+def weekday_label(date: str) -> str:
+    try:
+        dt = datetime.strptime(date, "%Y-%m-%d")
+    except ValueError:
+        return date
+    return f"{dt.strftime('%A')}, {dt.strftime('%B')} {dt.day}"
+
+
+def clean_inline(value: Any) -> str:
+    text = str(value or "").strip()
+    text = re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)", r"\1", text)
+    text = re.sub(r"https?://\S+", "", text)
+    text = text.replace("_", " ")
+    text = re.sub(r"[*`#]+", "", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip(" -")
+
+
+def clip(value: Any, limit: int) -> str:
+    text = clean_inline(value)
+    if len(text) <= limit:
+        return text
+    clipped = text[:limit].rstrip()
+    sentence_end = max(clipped.rfind("."), clipped.rfind(";"), clipped.rfind(":"))
+    if sentence_end >= max(40, limit // 2):
+        clipped = clipped[: sentence_end + 1]
+    elif " " in clipped:
+        clipped = clipped.rsplit(" ", 1)[0]
+    return clipped.rstrip(" .,:;") + "..."
+
+
+def parse_json_object(value: str) -> dict[str, Any]:
+    try:
+        data = json.loads(value)
+        return data if isinstance(data, dict) else {}
+    except json.JSONDecodeError:
+        return {}
+
+
+def parse_json_list(value: str) -> list[dict[str, Any]]:
+    try:
+        data = json.loads(value)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(data, list):
+        return []
+    return [item for item in data if isinstance(item, dict)]
+
+
+def top_signals(inputs: FormatInputs) -> list[dict[str, Any]]:
+    return parse_json_list(inputs.todays_signals)[:DELIVERY_TOP_ITEMS]
+
+
+def signal_summary(signal: dict[str, Any], core_limit: int = 190, why_limit: int = 120) -> str:
+    analysis = signal.get("analysis") if isinstance(signal.get("analysis"), dict) else {}
+    relevance = analysis.get("relevance_to_me") if isinstance(analysis.get("relevance_to_me"), dict) else {}
+    core = clip(analysis.get("core_finding"), core_limit) or "Depth signal available in the archive."
+    why_parts = nonempty_values(relevance.get("current_work_connections"))
+    why_now = clean_inline(relevance.get("why_now"))
+    why = clip("; ".join(why_parts[:1]) or why_now, why_limit)
+    source = clean_inline(signal.get("source")) or "source"
+    url = str(signal.get("url") or "").strip()
+    link = f"[{source}]({url})" if url.startswith("http") else source
+    title = clip(signal.get("title") or "(untitled)", 90)
+    why_sentence = f" {why}" if why else ""
+    return f"**{title}** — {core}{why_sentence} {link}".strip()
+
+
+def selected_decisions(inputs: FormatInputs) -> list[str]:
+    decisions: list[str] = []
+    for action in inputs.actions[:3]:
+        title = re.search(r"(?m)^title:\s*(.+)$", action)
+        proposed = re.search(r"(?m)^proposed_action:\s*(.+)$", action)
+        card_id = re.search(r"(?m)^id:\s*(.+)$", action)
+        label = clean_inline(title.group(1) if title else "Pending action")
+        detail = clean_inline(proposed.group(1) if proposed else "")
+        suffix = f" [{clean_inline(card_id.group(1))}]" if card_id else ""
+        decisions.append(clip(f"{label}: {detail}{suffix}", 180))
+
+    improvements = parse_json_object(inputs.improvements)
+    for candidate in (improvements.get("candidates") or [])[:5]:
+        if not isinstance(candidate, dict):
+            continue
+        try:
+            score = float(candidate.get("aggregate_score") or 0)
+        except (TypeError, ValueError):
+            score = 0.0
+        if score < 7:
+            continue
+        change = clip(candidate.get("proposed_change"), 170)
+        if change:
+            decisions.append(f"{change} (score {score:g}/10)")
+        if len(decisions) >= 4:
+            break
+    return decisions
+
+
+def pulse_line(inputs: FormatInputs) -> str:
+    if inputs.cross_day_context == "no continuity context for today":
+        return ""
+    triage = parse_json_object(inputs.triage_summary)
+    total = triage.get("total")
+    depth = triage.get("depth")
+    improvements = parse_json_object(inputs.improvements)
+    recurring = 0
+    for candidate in improvements.get("candidates") or []:
+        if isinstance(candidate, dict) and int(candidate.get("recurrence_count") or 0) >= 3:
+            recurring += 1
+    pieces = []
+    if total is not None:
+        pieces.append(f"{total} items")
+    if depth is not None:
+        pieces.append(f"{depth} depth")
+    if recurring:
+        pieces.append(f"{recurring} recurring")
+    return "; ".join(pieces)[:100]
+
+
+def render_delivery_body(inputs: FormatInputs, archive_rel: str) -> str:
+    signals = top_signals(inputs)
+    if not signals:
+        return "\n".join([
+            f"# Vibe Squad — {weekday_label(inputs.date)}",
+            "",
+            "No notable signal today.",
+            "",
+            "## Read more",
+            "",
+            f"Full multi-dim analysis: `{archive_rel}` (in vault) or `_state/blog-summaries/` (per-item)",
+        ])
+
+    first_analysis = signals[0].get("analysis") if isinstance(signals[0].get("analysis"), dict) else {}
+    lead = clip(first_analysis.get("core_finding"), 260)
+    lines = [
+        f"# Vibe Squad — {weekday_label(inputs.date)}",
+        "",
+        lead,
+        "",
+        "## Worth your time today (top 3)",
+        "",
+    ]
+    lines.extend(f"{idx}. {signal_summary(signal)}" for idx, signal in enumerate(signals, 1))
+
+    decisions = selected_decisions(inputs)
+    if decisions:
+        lines += ["", "## Decisions for you", ""]
+        lines.extend(f"- {decision}" for decision in decisions)
+
+    pulse = pulse_line(inputs)
+    if pulse:
+        lines += ["", "## Pulse", "", pulse]
+
+    lines += [
+        "",
+        "## Read more",
+        "",
+        f"Full multi-dim analysis: `{archive_rel}` (in vault) or `_state/blog-summaries/` (per-item)",
+    ]
+    return "\n".join(lines).strip()
+
+
+def fit_delivery_body(inputs: FormatInputs, archive_rel: str, subject: str) -> str:
+    body = render_delivery_body(inputs, archive_rel)
+    if len(render_newsletter(inputs.date, body, subject, archive_rel)) <= DELIVERY_CHAR_LIMIT:
+        return body
+
+    signals = top_signals(inputs)
+    lines = [
+        f"# Vibe Squad — {weekday_label(inputs.date)}",
+        "",
+        clip((signals[0].get("analysis") or {}).get("core_finding") if signals else "No notable signal today.", 180),
+        "",
+        "## Worth your time today (top 3)",
+        "",
+    ]
+    lines.extend(
+        f"{idx}. {signal_summary(signal, core_limit=135, why_limit=70)}"
+        for idx, signal in enumerate(signals, 1)
+    )
+    lines += ["", "## Read more", "", f"Full multi-dim analysis: `{archive_rel}`"]
+    body = "\n".join(lines).strip()
+    if len(render_newsletter(inputs.date, body, subject, archive_rel)) <= DELIVERY_CHAR_LIMIT:
+        return body
+    suffix = "\n\n## Read more\n\nFull multi-dim analysis in the archive."
+    wrapper_len = len(render_newsletter(inputs.date, "", subject, archive_rel))
+    budget = max(200, DELIVERY_CHAR_LIMIT - wrapper_len - len(suffix) - 5)
+    return body[:budget].rstrip() + suffix
+
+
 def deterministic_newsletter(inputs: FormatInputs, reason: str) -> tuple[str, str]:
     signal_cards = render_signal_cards(inputs.todays_signals)
     improvements = inputs.improvements if inputs.improvements != "no proposals today" else ""
+    signals = top_signals(inputs)
+    subject = clip(signals[0].get("title") if signals else "Structured signals fallback", 80)
     parts = [
         "## Lead",
         f"Formatter fallback used because {reason}. See Today's signals for the depth analysis cards.",
@@ -410,7 +605,7 @@ def deterministic_newsletter(inputs: FormatInputs, reason: str) -> tuple[str, st
     if inputs.cross_day_context != "no continuity context for today":
         parts += ["## Continuity", "", inputs.cross_day_context, ""]
     parts += ["## Skim queue", "", "See triage summary for skim items.", "", "## What's out", "", "See triage summary for dropped items."]
-    return "\n".join(parts).strip(), "Structured signals fallback"
+    return "\n".join(parts).strip(), subject or "Structured signals fallback"
 
 
 def build_prompt(inputs: FormatInputs) -> str:
@@ -456,6 +651,7 @@ Use these exact markdown section headings, in this order:
 
 Constraints:
 - Researcher-voice prose, not AI rhetorical tells. No "let me know if you have questions," no "I hope this helps," no triple-bullet emoji headers.
+- Output only the newsletter markdown and final SUBJECT block. No preface, no analysis, no insight block.
 - Do not call tools. This is a text-generation-only formatting pass.
 - Do not invent content. Every named item, link, or fact must come from the input.
 - Preserve all URLs verbatim from the input.
@@ -582,10 +778,11 @@ def clamp_subject(subject: str, limit: int = 80) -> str:
     return clipped.rstrip(" .:-")
 
 
-def render_newsletter(date: str, body: str, subject: str) -> str:
+def render_newsletter(date: str, body: str, subject: str, archive_path: str = "") -> str:
     subject = clamp_subject(subject)
     generated_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    return f"---\ndate: {date}\nsubject: {yaml_quote(subject)}\ngenerated_at: {generated_at}\n---\n\n{body.strip()}\n"
+    archive_line = f"archive_path: {archive_path}\n" if archive_path else ""
+    return f"---\ndate: {date}\nsubject: {yaml_quote(subject)}\ngenerated_at: {generated_at}\n{archive_line}---\n\n{body.strip()}\n"
 
 
 def write_failure_log(path: Path, date: str, reason: str, prompt: str, stdout: str = "", stderr: str = "", duration: float = 0.0) -> None:
@@ -630,11 +827,14 @@ def main() -> int:
     args = parse_args()
     inputs = load_inputs(args)
     output_path = Path(args.output or STATE_DIR / f"newsletter-{inputs.date}.md")
+    archive_path = STATE_DIR / f"newsletter-archive-{inputs.date}.md"
+    archive_rel = f"_state/newsletter-archive-{inputs.date}.md"
     log_path = Path(args.log or STATE_DIR / "cleanup-logs" / f"{inputs.date}-newsletter-format.md")
 
     if no_signal(inputs):
         body, subject = build_no_signal_newsletter(inputs)
-        atomic_write(output_path, render_newsletter(inputs.date, body, subject))
+        atomic_write(archive_path, render_newsletter(inputs.date, body, subject))
+        atomic_write(output_path, render_newsletter(inputs.date, body, subject, archive_rel))
         print(f"Newsletter: {output_path}")
         return 0
 
@@ -642,24 +842,30 @@ def main() -> int:
     rc, stdout, stderr, duration = call_claude(prompt)
     if rc != 0:
         write_failure_log(log_path, inputs.date, f"claude exited {rc}", prompt, stdout, stderr, duration)
-        body, subject = deterministic_newsletter(inputs, f"claude exited {rc}")
-        atomic_write(output_path, render_newsletter(inputs.date, body, subject))
+        archive_body, subject = deterministic_newsletter(inputs, f"claude exited {rc}")
+        delivery_body = fit_delivery_body(inputs, archive_rel, subject)
+        atomic_write(archive_path, render_newsletter(inputs.date, archive_body, subject))
+        atomic_write(output_path, render_newsletter(inputs.date, delivery_body, subject, archive_rel))
         print(f"Newsletter: {output_path} (fallback)")
         return 0
 
     try:
-        body, subject = extract_subject(stdout)
+        archive_body, subject = extract_subject(stdout)
     except ValueError as exc:
         write_failure_log(log_path, inputs.date, str(exc), prompt, stdout, stderr, duration)
-        body, subject = deterministic_newsletter(inputs, str(exc))
-        atomic_write(output_path, render_newsletter(inputs.date, body, subject))
+        archive_body, subject = deterministic_newsletter(inputs, str(exc))
+        delivery_body = fit_delivery_body(inputs, archive_rel, subject)
+        atomic_write(archive_path, render_newsletter(inputs.date, archive_body, subject))
+        atomic_write(output_path, render_newsletter(inputs.date, delivery_body, subject, archive_rel))
         print(f"Newsletter: {output_path} (fallback)")
         return 0
 
-    body = normalize_body(body)
-    body = enforce_todays_signals(body, inputs.todays_signals)
-    atomic_write(output_path, render_newsletter(inputs.date, body, subject))
-    print(f"Newsletter: {output_path}")
+    archive_body = normalize_body(archive_body)
+    archive_body = enforce_todays_signals(archive_body, inputs.todays_signals)
+    delivery_body = fit_delivery_body(inputs, archive_rel, subject)
+    atomic_write(archive_path, render_newsletter(inputs.date, archive_body, subject))
+    atomic_write(output_path, render_newsletter(inputs.date, delivery_body, subject, archive_rel))
+    print(f"Newsletter: {output_path}; archive: {archive_path}")
     return 0
 
 
