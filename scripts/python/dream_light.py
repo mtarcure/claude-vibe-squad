@@ -49,6 +49,7 @@ LOG_DIR = STATE_DIR / "dream-logs"
 PROPOSALS_DIR = STATE_DIR / "dream-proposals"
 PID_FILE = STATE_DIR / "dream-light.pid"
 DATE = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+DREAM_SIDELOG_PATH = STATE_DIR / "cleanup-logs" / f"{DATE}-dream-light.md"
 
 GEMINI_BIN = os.environ.get("GEMINI_BIN", "gemini")
 KIMI_BIN = os.environ.get("KIMI_BIN", "kimi")
@@ -167,6 +168,17 @@ def atomic_write(path: Path, content: str) -> None:
     except OSError:
         pass
     tmp.rename(path)
+
+
+def append_side_log(entry: str) -> None:
+    """Append subprocess diagnostics via atomic rewrite."""
+    existing = ""
+    if DREAM_SIDELOG_PATH.exists():
+        try:
+            existing = DREAM_SIDELOG_PATH.read_text()
+        except OSError:
+            existing = ""
+    atomic_write(DREAM_SIDELOG_PATH, existing + entry)
 
 
 def check_skip_conditions(cfg: dict) -> str | None:
@@ -347,13 +359,48 @@ def call_cli(bin_path: str, prompt: str, *, extra_args: list[str] | None = None,
         args += extra_args
     args += ["-p" if "codex" not in bin_path else "", prompt]
     args = [a for a in args if a != ""]
+    start = time.monotonic()
+    timestamp = datetime.now(timezone.utc).isoformat()
     try:
         result = subprocess.run(args, capture_output=True, text=True, timeout=timeout,
                                 env=oauth_env())
     except subprocess.TimeoutExpired:
+        append_side_log(
+            f"## CLI call — {timestamp}\n\n"
+            f"- bin_path: `{bin_path}`\n"
+            f"- args: `{args[:-1] + ['<prompt>']}`\n"
+            f"- prompt_length: {len(prompt)} chars\n"
+            f"- returncode: timeout\n"
+            f"- stdout_len: 0\n"
+            f"- duration_s: {time.monotonic() - start:.1f}\n"
+            f"- stdout_first_500:\n\n```\n\n```\n\n"
+            f"- stderr_first_4k:\n\n```\nsubprocess timed out after {timeout}s\n```\n\n"
+        )
         return None
     except FileNotFoundError:
+        append_side_log(
+            f"## CLI call — {timestamp}\n\n"
+            f"- bin_path: `{bin_path}`\n"
+            f"- args: `{args[:-1] + ['<prompt>']}`\n"
+            f"- prompt_length: {len(prompt)} chars\n"
+            f"- returncode: missing-binary\n"
+            f"- stdout_len: 0\n"
+            f"- duration_s: {time.monotonic() - start:.1f}\n"
+            f"- stdout_first_500:\n\n```\n\n```\n\n"
+            f"- stderr_first_4k:\n\n```\n{bin_path} not found\n```\n\n"
+        )
         return None
+    append_side_log(
+        f"## CLI call — {timestamp}\n\n"
+        f"- bin_path: `{bin_path}`\n"
+        f"- args: `{args[:-1] + ['<prompt>']}`\n"
+        f"- prompt_length: {len(prompt)} chars\n"
+        f"- returncode: {result.returncode}\n"
+        f"- stdout_len: {len(result.stdout or '')}\n"
+        f"- duration_s: {time.monotonic() - start:.1f}\n"
+        f"- stdout_first_500:\n\n```\n{(result.stdout or '')[:500]}\n```\n\n"
+        f"- stderr_first_4k:\n\n```\n{(result.stderr or '')[:4096]}\n```\n\n"
+    )
     if result.returncode != 0:
         return None
     out = result.stdout.strip()

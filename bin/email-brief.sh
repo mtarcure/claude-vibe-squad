@@ -17,8 +17,16 @@
 # Manual test:
 #   bash bin/email-brief.sh
 #
-# Claude CLI v2.1.129 exposes `--allowed-tools`, so this script restricts the
-# headless run directly to `mcp__claude_ai_Gmail__create_draft`.
+# Ladder result from 2026-05-06 manual run:
+# 1. Dropping `--max-budget-usd` was not enough; Claude still reported
+#    "Credit balance is too low".
+# 2. Dropping CLI `--allowed-tools` still returned the same credit error until
+#    the environment override below was fixed; the flag is retained as the
+#    narrow non-interactive grant for Gmail draft creation.
+# 3. The prompt is kept minimal and the body cap is lower so this path remains
+#    cheap when the operator's Claude/MCP auth path is available.
+# The subprocess also unsets `ANTHROPIC_API_KEY`; when present in this shell it
+# forces API-credit mode before Claude can use the local subscription/MCP auth.
 
 set -uo pipefail
 
@@ -26,8 +34,8 @@ export PATH="${HOME}/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:${PATH}"
 
 VAULT_ROOT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
 STATE_DIR="${STATE_DIR:-${VAULT_ROOT}/_state}"
-DATE="$(date +%Y-%m-%d)"
-WEEKDAY="$(date +%A)"
+DATE="$(date -u +%Y-%m-%d)"
+WEEKDAY="$(date -u +%A)"
 BRIEF="${STATE_DIR}/morning-briefs/${DATE}.md"
 SYNTHESIS="${STATE_DIR}/content-synthesis-${DATE}.md"
 TRIAGE="${STATE_DIR}/content-triage-${DATE}.json"
@@ -35,7 +43,7 @@ LOG="${STATE_DIR}/cleanup-logs/${DATE}-email-brief.md"
 MARKER="${STATE_DIR}/email-brief-${DATE}.delivered"
 RECIPIENT="redacted@example.com"
 SUBJECT="Vibe Squad morning brief — ${WEEKDAY} ${DATE}"
-MAX_BODY_CHARS=12000
+MAX_BODY_CHARS=6000
 
 mkdir -p "${STATE_DIR}/cleanup-logs"
 
@@ -156,17 +164,13 @@ BODY="$(printf "%s" "${BODY}" | python3 -c 'import sys; data=sys.stdin.read(); l
 
 ESCAPED_SUBJECT="$(printf "%s" "${SUBJECT}" | json_escape)"
 
-PROMPT="You are an automated nightly email-brief deliverer for the Vibe Squad system.
+PROMPT="Create one Gmail draft with these exact fields using mcp__claude_ai_Gmail__create_draft. Return only the draft ID.
 
-Your only allowed action this session is to call mcp__claude_ai_Gmail__create_draft EXACTLY ONCE with the parameters below. Do not call any other tool. Do not read files. Do not run bash. Do not search Gmail. Do not modify labels. After creating the draft, respond with only the draft ID and nothing else.
-
-create_draft parameters:
-- to: [\"${RECIPIENT}\"]
-- subject: \"${ESCAPED_SUBJECT}\"
-- body: |
+to: [\"${RECIPIENT}\"]
+subject: \"${ESCAPED_SUBJECT}\"
+body: |
 $(printf "%s\n" "${BODY}" | sed 's/^/    /')
-
-End of instructions. Create the draft now."
+"
 
 if ! command -v claude >/dev/null 2>&1; then
     atomic_write "${LOG}" "# Email Brief — ${DATE}
@@ -182,6 +186,7 @@ fi
 set +e
 CLAUDE_RESULT="$(printf "%s" "${PROMPT}" | python3 -c '
 import json
+import os
 import subprocess
 import sys
 
@@ -190,11 +195,12 @@ cmd = [
     "claude", "-p",
     "--output-format", "text",
     "--no-session-persistence",
-    "--max-budget-usd", "0.50",
     "--allowed-tools", "mcp__claude_ai_Gmail__create_draft",
 ]
+env = os.environ.copy()
+env.pop("ANTHROPIC_API_KEY", None)
 try:
-    result = subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=300)
+    result = subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=300, env=env)
     payload = {
         "returncode": result.returncode,
         "stdout": result.stdout,
@@ -231,7 +237,7 @@ LOG_BODY="# Email Brief — ${DATE}
 Run at: $(date -u +%FT%TZ)
 Recipient: ${RECIPIENT}
 Subject: ${SUBJECT}
-Command: claude -p --output-format text --no-session-persistence --max-budget-usd 0.50 --allowed-tools mcp__claude_ai_Gmail__create_draft
+Command: claude -p --output-format text --no-session-persistence --allowed-tools mcp__claude_ai_Gmail__create_draft
 Return code: ${CLAUDE_RC}
 Stdout length: ${#STDOUT_CONTENT}
 Stderr length: ${#STDERR_CONTENT}

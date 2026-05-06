@@ -5,8 +5,8 @@
 set -uo pipefail
 
 VAULT_ROOT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
-DATE="$(date +%Y-%m-%d)"
-DAY_OF_WEEK="$(date +%A)"
+DATE="$(date -u +%Y-%m-%d)"
+DAY_OF_WEEK="$(date -u +%A)"
 BRIEF="${VAULT_ROOT}/_state/morning-briefs/${DATE}.md"
 
 mkdir -p "$(dirname "${BRIEF}")"
