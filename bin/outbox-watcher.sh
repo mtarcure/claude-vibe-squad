@@ -4,7 +4,7 @@
 # gap: chrono's CLAUDE.md says "scan outboxes at start of every operator turn"
 # but that's pull-based and only fires when the operator types. This watcher
 # is push-based — when a Lead finishes work, chrono is notified immediately
-# and can surface to operator (or queue for Telegram via a separate layer).
+# and a durable chrono-side queue entry is written for next-session surfacing.
 #
 # Architectural symmetry with inbox-watcher.sh:
 #   - inbox-watcher: outside-world (Chrono) -> namespace inbox -> nudge model lane pane
@@ -34,6 +34,7 @@ fi
 VAULT_ROOT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
 SESSION="${SQUAD_SESSION:-squad}"
 OUTBOX="${VAULT_ROOT}/departments/${NAMESPACE}/outbox"
+STATE_DIR="${VAULT_ROOT}/_state"
 
 mkdir -p "${OUTBOX}"
 
@@ -98,11 +99,112 @@ status_nudge_prefix() {
     esac
 }
 
+response_summary() {
+    local file="$1"
+    awk '
+        function emit() {
+            gsub(/[|]/, "/", para)
+            gsub(/[^ -~]/, "?", para)
+            print substr(para, 1, 220)
+            printed=1
+        }
+        NR == 1 && /^---$/ {fm=1; next}
+        fm && /^---$/ {fm=0; body=1; next}
+        fm {next}
+        !body {body=1}
+        body {
+            if ($0 ~ /^[[:space:]]*$/) {
+                if (para != "") { emit(); exit }
+                next
+            }
+            line=$0
+            sub(/^#+[[:space:]]*/, "", line)
+            gsub(/[[:space:]]+/, " ", line)
+            para = para (para ? " " : "") line
+        }
+        END { if (para != "" && !printed) emit() }
+    ' "$file"
+}
+
+release_chrono_queue_lock() {
+    local lockdir="$1" tmp="$2" lock_acquired="$3"
+    rm -f "$tmp"
+    if [[ "$lock_acquired" == 1 ]]; then
+        rm -f "$lockdir/owner.pid"
+        rmdir "$lockdir" 2>/dev/null || true
+    fi
+}
+
+append_chrono_queue() {
+    local task_id="$1" status="$2" file="$3" queue lockdir tmp timestamp summary task_ref lock_acquired owner mtime now age
+    queue="${STATE_DIR}/chrono-queue.md"
+    lockdir="${queue}.lockdir"
+    tmp="${queue}.tmp.$$.$RANDOM"
+    lock_acquired=0
+    mkdir -p "${STATE_DIR}"
+    trap 'release_chrono_queue_lock "$lockdir" "$tmp" "${lock_acquired:-0}"' RETURN
+    trap 'release_chrono_queue_lock "$lockdir" "$tmp" "${lock_acquired:-0}"; exit 130' HUP INT TERM
+    while ! mkdir "$lockdir" 2>/dev/null; do
+        owner="$(cat "$lockdir/owner.pid" 2>/dev/null || true)"
+        if [[ "$owner" =~ ^[0-9]+$ ]]; then
+            if kill -0 "$owner" 2>/dev/null; then
+                sleep 0.1
+                continue
+            fi
+            rm -f "$lockdir/owner.pid" 2>/dev/null || true
+            rmdir "$lockdir" 2>/dev/null || true
+            continue
+        fi
+        mtime="$(stat -f %m "$lockdir" 2>/dev/null || stat -c %Y "$lockdir" 2>/dev/null || echo 0)"
+        now="$(date +%s)"
+        age=$((now - mtime))
+        if [[ "$age" -gt 300 ]]; then
+            rm -f "$lockdir/owner.pid" 2>/dev/null || true
+            rmdir "$lockdir" 2>/dev/null || true
+            continue
+        fi
+        sleep 0.1
+    done
+    lock_acquired=1
+    printf '%s\n' "$$" > "$lockdir/owner.pid"
+    timestamp="$(date -u +%FT%TZ)"
+    summary="$(response_summary "$file")"
+    [[ -n "$summary" ]] || summary="(no response summary)"
+    task_ref="${NAMESPACE}/${task_id}"
+    {
+        if [[ -f "$queue" ]]; then
+            cat "$queue"
+        else
+            echo "# Chrono Queue"
+            echo "# timestamp | status | namespace/task-id | summary"
+            echo
+        fi
+        echo "${timestamp} | ${status} | ${task_ref} | ${summary}"
+    } > "$tmp" || {
+        release_chrono_queue_lock "$lockdir" "$tmp" "$lock_acquired"
+        lock_acquired=0
+        trap - RETURN HUP INT TERM
+        return 1
+    }
+    sync
+    mv "$tmp" "$queue" || {
+        release_chrono_queue_lock "$lockdir" "$tmp" "$lock_acquired"
+        lock_acquired=0
+        trap - RETURN HUP INT TERM
+        return 1
+    }
+    sync
+    rm -f "$lockdir/owner.pid"
+    rmdir "$lockdir"
+    lock_acquired=0
+    trap - RETURN HUP INT TERM
+}
+
 PROCESSED_PATHS="|"
 PENDING_PATHS="|"
 
 handle_response_path() {
-    local path="$1" fname ctx status status_prefix task_id scope_output NUDGE_MSG state task_file
+    local path="$1" fname ctx status status_prefix task_id NUDGE_MSG state task_file can_nudge
     # Only react to actual response files — not partial writes or unrelated edits.
     case "$path" in
         */TASK-*-response.md|*/RESP-*.md) ;;
@@ -111,10 +213,6 @@ handle_response_path() {
     case "$PROCESSED_PATHS" in
         *"|$path|"*) return ;;
     esac
-
-    # Only nudge if the squad session and chrono window are alive.
-    if ! tmux has-session -t "$SESSION" 2>/dev/null; then return; fi
-    if ! tmux list-windows -t "$SESSION" -F '#{window_name}' 2>/dev/null | grep -qx "chrono"; then return; fi
 
     fname="$(basename "$path")"
     ctx="$(response_context "$fname")"
@@ -139,7 +237,13 @@ handle_response_path() {
         fi
     fi
     PROCESSED_PATHS="${PROCESSED_PATHS}${path}|"
-    echo "[$(date '+%H:%M:%S')] new: ${fname} from ${ctx} via ${NAMESPACE} namespace -> nudging squad:chrono"
+    can_nudge=1
+    if ! tmux has-session -t "$SESSION" 2>/dev/null; then
+        can_nudge=0
+    elif ! tmux list-windows -t "$SESSION" -F '#{window_name}' 2>/dev/null | grep -qx "chrono"; then
+        can_nudge=0
+    fi
+    echo "[$(date '+%H:%M:%S')] new: ${fname} from ${ctx} via ${NAMESPACE} namespace -> queueing chrono status"
 
     if [[ "$fname" == TASK-*-response.md ]]; then
         if "${VAULT_ROOT}/bin/registry-reconciler.sh" --task-id "$task_id" >/dev/null 2>&1
@@ -148,12 +252,10 @@ handle_response_path() {
         else
             echo "[$(date '+%H:%M:%S')] warning: failed registry reconciliation for: ${task_id}" >&2
         fi
-        scope_output="$("${VAULT_ROOT}/scripts/python/scope_validator.py" "$task_id" "$NAMESPACE" 2>/dev/null || true)"
-        if [[ -n "$scope_output" ]]; then
-            echo "[$(date '+%H:%M:%S')] ${scope_output}"
-        fi
-        if [[ "$status" == "needs_human" || "$status" == "BLOCKED" ]]; then
-            "${VAULT_ROOT}/bin/notify-blocker.sh" "$task_id" "$NAMESPACE" >/dev/null 2>&1 &
+        if append_chrono_queue "$task_id" "$status" "$path"; then
+            echo "[$(date '+%H:%M:%S')] queued chrono status entry: ${status} ${NAMESPACE}/${task_id}"
+        else
+            echo "[$(date '+%H:%M:%S')] warning: failed to queue chrono status entry: ${status} ${NAMESPACE}/${task_id}" >&2
         fi
         for state in inbox active; do
             task_file="${VAULT_ROOT}/departments/${NAMESPACE}/${state}/${task_id}.md"
@@ -169,20 +271,21 @@ handle_response_path() {
     # operator typed it, then chooses to read + surface per its own protocol.
     if [[ -n "${task_id}" ]]; then
         NUDGE_MSG="${status_prefix}: ${task_id} — RESP from model lane ${ctx}: ${fname} landed in compatibility mailbox departments/${NAMESPACE}/outbox/. Read and surface to operator per chrono/CLAUDE.md protocol."
-        if [[ -n "${scope_output:-}" ]]; then
-            NUDGE_MSG="${NUDGE_MSG} ${scope_output}"
-        fi
     else
         NUDGE_MSG="RESP from model lane ${ctx}: ${fname} landed in compatibility mailbox departments/${NAMESPACE}/outbox/. Read and surface to operator per chrono/CLAUDE.md protocol."
     fi
     echo "[$(date '+%H:%M:%S')] nudge: ${NUDGE_MSG}"
 
-    # Match inbox-watcher.sh keystroke pattern: literal text, sleep, then Enter.
-    # The 0.3s sleep gives the receiving CLI time to settle before Enter is
-    # interpreted as submit.
-    tmux send-keys -l -t "${SESSION}:chrono" "${NUDGE_MSG}"
-    sleep 0.3
-    tmux send-keys -t "${SESSION}:chrono" Enter
+    if [[ "$can_nudge" == 1 ]]; then
+        # Match inbox-watcher.sh keystroke pattern: literal text, sleep, then Enter.
+        # The 0.3s sleep gives the receiving CLI time to settle before Enter is
+        # interpreted as submit.
+        tmux send-keys -l -t "${SESSION}:chrono" "${NUDGE_MSG}"
+        sleep 0.3
+        tmux send-keys -t "${SESSION}:chrono" Enter
+    else
+        echo "[$(date '+%H:%M:%S')] chrono pane unavailable; queued without tmux nudge: ${fname}"
+    fi
 }
 
 fswatch -0 --event=Created --event=Updated --event=Renamed --event=MovedTo \
