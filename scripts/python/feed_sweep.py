@@ -45,6 +45,7 @@ LOG_DIR = STATE_DIR / "cleanup-logs"
 DATE = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 LOG_PATH = LOG_DIR / f"{DATE}-feed-sweep.md"
 TWITTER_LOG_PATH = LOG_DIR / f"{DATE}-twitter-search.md"
+YOUTUBE_LOG_PATH = LOG_DIR / f"{DATE}-youtube-sweep.md"
 NEW_ITEMS_PATH = STATE_DIR / f"new-items-{DATE}.json"
 OPERATOR_INTERESTS_PATH = STATE_DIR / "operator-interests.yaml"
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "claude")
@@ -52,12 +53,13 @@ XAI_TOOL = "mcp__plugin_chrono-research-arsenal_chrono-research-arsenal__xai_sea
 PERPLEXITY_TOOL = "mcp__plugin_chrono-research-arsenal_perplexity__perplexity_search_web"
 
 DAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+YOUTUBE_LOG_ENTRIES: list[dict[str, Any]] = []
 
 
 @dataclass
 class NewItem:
     feed_name: str
-    feed_type: str  # podcast | rss-text | html-scrape
+    feed_type: str  # podcast | rss-text | html-scrape | youtube-channel
     item_id: str
     title: str
     url: str
@@ -140,6 +142,51 @@ def clean_text(value: Any, max_chars: int) -> str:
     return text[:max_chars].rstrip() + "..."
 
 
+def parse_youtube_published(video: dict[str, Any]) -> str:
+    upload_date = str(video.get("upload_date") or "").strip()
+    if re.fullmatch(r"\d{8}", upload_date):
+        return f"{upload_date[:4]}-{upload_date[4:6]}-{upload_date[6:8]}T00:00:00+00:00"
+    timestamp = video.get("timestamp") or video.get("release_timestamp")
+    if isinstance(timestamp, (int, float)):
+        return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat()
+    return ""
+
+
+def youtube_watch_url(video: dict[str, Any]) -> str | None:
+    webpage_url = str(video.get("webpage_url") or "").strip()
+    if webpage_url.startswith("http"):
+        return webpage_url.split("&list=")[0]
+    video_id = str(video.get("id") or "").strip()
+    if video_id:
+        return f"https://www.youtube.com/watch?v={video_id}"
+    url = str(video.get("url") or "").strip()
+    if url.startswith("http"):
+        return url
+    if url:
+        return f"https://www.youtube.com/watch?v={url}"
+    return None
+
+
+def fetch_youtube_video_details(video_url: str, timeout: float = 60.0) -> tuple[dict[str, Any], str | None]:
+    if not shutil.which("yt-dlp"):
+        return {}, "yt-dlp not found"
+    cmd = ["yt-dlp", "--no-warnings", "--dump-json", "--skip-download", video_url]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return {}, "detail fetch timed out"
+    if result.returncode != 0:
+        return {}, f"detail fetch exited {result.returncode}: {(result.stderr or '')[:300]}"
+    line = next((line.strip() for line in (result.stdout or "").splitlines() if line.strip()), "")
+    if not line:
+        return {}, "detail fetch returned no JSON"
+    try:
+        payload = json.loads(line)
+    except json.JSONDecodeError as exc:
+        return {}, f"detail fetch malformed JSON: {exc}"
+    return (payload if isinstance(payload, dict) else {}), None
+
+
 def twitter_side_log(entries: list[dict[str, Any]]) -> str:
     lines = [
         f"# Twitter Search — {DATE}",
@@ -161,6 +208,39 @@ def twitter_side_log(entries: list[dict[str, Any]]) -> str:
                 f"  - claude: rc={entry.get('returncode')}, duration={entry.get('duration_s', 0):.1f}s, "
                 f"stdout={entry.get('stdout_len', 0)}, stderr={entry.get('stderr_len', 0)}"
             )
+        if entry.get("stderr"):
+            lines.append("  - stderr first 1000:")
+            lines.append("")
+            lines.append("```")
+            lines.append(str(entry["stderr"])[:1000])
+            lines.append("```")
+    return "\n".join(lines) + "\n"
+
+
+def youtube_side_log(entries: list[dict[str, Any]]) -> str:
+    lines = [
+        f"# YouTube Sweep — {DATE}",
+        "",
+        f"Run at: {datetime.now(timezone.utc).isoformat()}",
+        "",
+        "## Per-channel",
+    ]
+    for entry in entries:
+        lines.append(
+            f"- **{entry.get('name')}**: status={entry.get('status', 'unknown')}, "
+            f"videos={entry.get('video_count', 0)}, new={entry.get('new_count', 0)}, "
+            f"skipped={entry.get('skipped', 0)}"
+        )
+        lines.append(f"  - channel: {entry.get('channel_url', '')}")
+        if entry.get("returncode") is not None:
+            lines.append(
+                f"  - yt-dlp: rc={entry.get('returncode')}, duration={entry.get('duration_s', 0):.1f}s, "
+                f"stdout={entry.get('stdout_len', 0)}, stderr={entry.get('stderr_len', 0)}"
+            )
+        if entry.get("error"):
+            lines.append(f"  - error: {entry['error']}")
+        for detail_error in entry.get("detail_errors", [])[:10]:
+            lines.append(f"  - detail: {detail_error}")
         if entry.get("stderr"):
             lines.append("  - stderr first 1000:")
             lines.append("")
@@ -474,6 +554,131 @@ def sweep_twitter_via_search(feed_cfg: dict[str, Any], processed_ids: dict[str, 
     return report, new_items
 
 
+def fetch_youtube_channel(channel_url: str, timeout: float = 120.0) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    log_entry: dict[str, Any] = {
+        "channel_url": channel_url,
+        "status": "pending",
+        "video_count": 0,
+        "new_count": 0,
+        "skipped": 0,
+    }
+    if not shutil.which("yt-dlp"):
+        log_entry.update({"status": "failed", "error": "yt-dlp not found"})
+        return [], log_entry
+
+    cmd = [
+        "yt-dlp",
+        "--flat-playlist",
+        "--no-warnings",
+        "--dump-json",
+        "--playlist-end",
+        "10",
+        channel_url,
+    ]
+    started = time.monotonic()
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        log_entry.update({
+            "status": "failed",
+            "returncode": 124,
+            "duration_s": time.monotonic() - started,
+            "stdout_len": len(exc.stdout or ""),
+            "stderr_len": len(exc.stderr or ""),
+            "stderr": (exc.stderr or "") + f"\nyt-dlp timed out after {timeout}s",
+            "error": "timeout",
+        })
+        return [], log_entry
+
+    log_entry.update({
+        "returncode": result.returncode,
+        "duration_s": time.monotonic() - started,
+        "stdout_len": len(result.stdout or ""),
+        "stderr_len": len(result.stderr or ""),
+        "stderr": result.stderr or "",
+    })
+    if result.returncode != 0:
+        log_entry.update({"status": "failed", "error": f"yt-dlp exited {result.returncode}"})
+        return [], log_entry
+
+    videos: list[dict[str, Any]] = []
+    for line in (result.stdout or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            video = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(video, dict) and youtube_watch_url(video):
+            videos.append(video)
+
+    log_entry["video_count"] = min(len(videos), 10)
+    log_entry["status"] = "ok" if videos else "empty"
+    if not videos:
+        log_entry["error"] = "yt-dlp returned no videos"
+    return videos[:10], log_entry
+
+
+def sweep_youtube_channel(feed_cfg: dict[str, Any], processed_ids: dict[str, list[str]]) -> tuple[FeedReport, list[NewItem]]:
+    name = feed_cfg["name"]
+    feed_type = feed_cfg.get("type", "youtube-channel")
+    channel_url = str(feed_cfg.get("channel_url") or "").strip()
+    report = FeedReport(name=name, type=feed_type, fetched=False, new_count=0, skipped=0)
+    new_items: list[NewItem] = []
+
+    if not channel_url:
+        report.error = "youtube-channel mode but no channel_url configured"
+        return report, new_items
+
+    videos, log_entry = fetch_youtube_channel(channel_url)
+    log_entry["name"] = name
+    seen_ids = set(processed_ids.get(name, []))
+    feed_seen: list[str] = []
+
+    if log_entry.get("status") == "ok":
+        report.fetched = True
+    else:
+        report.error = str(log_entry.get("error") or log_entry.get("status") or "youtube fetch failed")
+
+    for video in videos[:10]:
+        video_url = youtube_watch_url(video)
+        if not video_url:
+            continue
+        feed_seen.append(video_url)
+        if video_url in seen_ids:
+            report.skipped += 1
+            log_entry["skipped"] = log_entry.get("skipped", 0) + 1
+            continue
+        if not parse_youtube_published(video) or not video.get("description"):
+            details, detail_error = fetch_youtube_video_details(video_url)
+            if details:
+                video = {**video, **details}
+            if detail_error:
+                log_entry.setdefault("detail_errors", []).append(f"{video_url}: {detail_error}")
+        new_items.append(NewItem(
+            feed_name=name,
+            feed_type=feed_type,
+            item_id=video_url,
+            title=clean_text(video.get("title") or video_url, 200),
+            url=video_url,
+            published_iso=parse_youtube_published(video),
+            audio_url=None,
+            summary_short=clean_text(video.get("description") or "", 500),
+            cadence_tag="unknown",
+            processor=feed_cfg.get("processor", "kimi-summarize"),
+            output_dir=feed_cfg.get("output_dir", "_state/blog-summaries/"),
+            source_type="youtube-channel",
+        ))
+        report.new_count += 1
+        log_entry["new_count"] = log_entry.get("new_count", 0) + 1
+
+    processed_ids[name] = list(dict.fromkeys((feed_seen + list(seen_ids))[:200]))
+    YOUTUBE_LOG_ENTRIES.append(log_entry)
+    atomic_write(YOUTUBE_LOG_PATH, youtube_side_log(YOUTUBE_LOG_ENTRIES))
+    return report, new_items
+
+
 def sweep_feed(feed_cfg: dict[str, Any], processed_ids: dict[str, list[str]]) -> tuple[FeedReport, list[NewItem]]:
     name = feed_cfg["name"]
     feed_type = feed_cfg.get("type", "rss-text")
@@ -482,6 +687,9 @@ def sweep_feed(feed_cfg: dict[str, Any], processed_ids: dict[str, list[str]]) ->
 
     if feed_type == "twitter-via-search":
         return sweep_twitter_via_search(feed_cfg, processed_ids)
+
+    if feed_type == "youtube-channel":
+        return sweep_youtube_channel(feed_cfg, processed_ids)
 
     if feed_type == "html-scrape":
         url = feed_cfg.get("url")

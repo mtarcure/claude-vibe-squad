@@ -21,6 +21,12 @@ Defaults to processing 5 items per run (`--limit 5`) to keep API spend bounded.
 Use `--limit 0` to dry-run (list what would be processed without invoking LLMs).
 
 Idempotent via `_state/processed-content.json` — items already briefed are skipped.
+
+YouTube depth-tier items use a retained transcription cache under
+`_state/transcription-cache/`: downloaded audio and `.txt` transcripts are kept
+for audit and re-runs. The processor does not delete cached audio. The normal
+depth `--limit` is applied first; `YOUTUBE_TRANSCRIPTION_LIMIT` is an additional
+per-run cap inside that depth queue.
 """
 
 from __future__ import annotations
@@ -31,6 +37,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -51,9 +58,14 @@ TRIAGE_PATH = STATE_DIR / f"content-triage-{DATE}.json"
 PROCESSED_CONTENT_PATH = STATE_DIR / "processed-content.json"
 LOG_DIR = STATE_DIR / "cleanup-logs"
 LOG_PATH = LOG_DIR / f"{DATE}-content-processing.md"
+TRANSCRIPTION_CACHE_DIR = STATE_DIR / "transcription-cache"
 
 KIMI_BIN = os.environ.get("KIMI_BIN", "kimi")
 GEMINI_BIN = os.environ.get("GEMINI_BIN", "gemini")
+CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "claude")
+SCRIBE_TOOL = "mcp__plugin_chrono-content-engineer_elevenlabs__speech_to_text"
+YOUTUBE_TRANSCRIPTION_LIMIT = 10
+FINAL_AUDIO_EXTENSIONS = {".mp3"}
 
 SUMMARY_PROMPT = (
     "Summarize the article below in 5-8 bullet points. Lead with the news / claim. "
@@ -86,9 +98,11 @@ class RunReport:
     duration_s: float
     item_results: list[ItemResult] = field(default_factory=list)
     llm_calls: list[dict[str, Any]] = field(default_factory=list)
+    transcriptions: list[dict[str, Any]] = field(default_factory=list)
 
 
 LLM_CALLS: list[dict[str, Any]] = []
+TRANSCRIPTION_EVENTS: list[dict[str, Any]] = []
 
 
 def atomic_write(path: Path, content: str) -> None:
@@ -226,6 +240,28 @@ def render_blog_brief(item: dict[str, Any], summary: str) -> str:
         f"processed_at: {datetime.now(timezone.utc).isoformat()}\n"
         f"processor: kimi-summarize\n"
         f"tier: full\n"
+        f"---\n\n"
+        f"# {item['title']}\n\n"
+        f"**Source:** [{item['feed_name']}]({item['url']})\n\n"
+        f"## Summary\n\n"
+        f"{summary}\n\n"
+        f"## Original\n\n"
+        f"{item['url']}\n"
+    )
+
+
+def render_youtube_brief(item: dict[str, Any], summary: str) -> str:
+    return (
+        f"---\n"
+        f"feed: {item['feed_name']}\n"
+        f"title: {json.dumps(item['title'])}\n"
+        f"url: {item['url']}\n"
+        f"published: {item.get('published_iso', '')}\n"
+        f"cadence_tag: {item.get('cadence_tag', 'unknown')}\n"
+        f"processed_at: {datetime.now(timezone.utc).isoformat()}\n"
+        f"processor: yt-dlp + elevenlabs-scribe + kimi-summarize\n"
+        f"tier: full\n"
+        f"source_type: youtube-channel\n"
         f"---\n\n"
         f"# {item['title']}\n\n"
         f"**Source:** [{item['feed_name']}]({item['url']})\n\n"
@@ -392,6 +428,220 @@ def output_path_for(item: dict[str, Any]) -> Path:
     return out_dir / f"{DATE}-{item['feed_name'][:20].strip().replace(' ', '-')}-{slug}.md"
 
 
+def youtube_cache_stem(item: dict[str, Any]) -> str:
+    source = item.get("item_id") or item.get("url") or item.get("title") or ""
+    return hashlib.sha256(str(source).encode()).hexdigest()[:24]
+
+
+def cached_audio_path(stem: str) -> Path | None:
+    if not TRANSCRIPTION_CACHE_DIR.exists():
+        return None
+    candidates = [
+        p for p in TRANSCRIPTION_CACHE_DIR.glob(f"{stem}.*")
+        if p.is_file() and p.suffix.lower() in FINAL_AUDIO_EXTENSIONS
+    ]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda p: p.stat().st_mtime)
+
+
+def audio_duration_seconds(path: Path) -> float | None:
+    if not shutil.which("ffprobe"):
+        return None
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=nk=1:nw=1", str(path)],
+            capture_output=True, text=True, timeout=30,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        return float((result.stdout or "").strip())
+    except ValueError:
+        return None
+
+
+def download_youtube_audio(item: dict[str, Any], stem: str) -> tuple[Path | None, dict[str, Any]]:
+    TRANSCRIPTION_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    event: dict[str, Any] = {
+        "feed_name": item.get("feed_name", ""),
+        "title": item.get("title", ""),
+        "url": item.get("url", ""),
+        "cache_stem": stem,
+        "download_rc": None,
+        "scribe_rc": None,
+        "audio_duration_s": None,
+        "transcript_chars": 0,
+        "scribe_duration_s": 0.0,
+        "status": "pending",
+    }
+    existing = cached_audio_path(stem)
+    if existing:
+        event["download_rc"] = "cached"
+        event["audio_path"] = str(existing.relative_to(VAULT_ROOT))
+        event["audio_duration_s"] = audio_duration_seconds(existing)
+        return existing, event
+    if not shutil.which("yt-dlp"):
+        event.update({"download_rc": "missing-binary", "status": "fallback", "error": "yt-dlp not found"})
+        return None, event
+
+    output_template = str(TRANSCRIPTION_CACHE_DIR / f"{stem}.%(ext)s")
+    started = time.monotonic()
+    try:
+        result = subprocess.run(
+            [
+                "yt-dlp",
+                "-x",
+                "--audio-format",
+                "mp3",
+                "--audio-quality",
+                "5",
+                "-o",
+                output_template,
+                item["url"],
+            ],
+            capture_output=True,
+            text=True,
+            timeout=900,
+        )
+    except subprocess.TimeoutExpired as exc:
+        event.update({
+            "download_rc": 124,
+            "download_duration_s": time.monotonic() - started,
+            "stderr": (exc.stderr or "")[:1200],
+            "status": "fallback",
+            "error": "yt-dlp download timed out",
+        })
+        return None, event
+
+    event.update({
+        "download_rc": result.returncode,
+        "download_duration_s": time.monotonic() - started,
+        "stderr": (result.stderr or "")[:1200],
+    })
+    if result.returncode != 0:
+        event.update({"status": "fallback", "error": f"yt-dlp download exited {result.returncode}"})
+        return None, event
+
+    audio_path = cached_audio_path(stem)
+    if not audio_path:
+        event.update({"status": "fallback", "error": "yt-dlp download produced no audio file"})
+        return None, event
+    event["audio_path"] = str(audio_path.relative_to(VAULT_ROOT))
+    event["audio_duration_s"] = audio_duration_seconds(audio_path)
+    return audio_path, event
+
+
+def transcribe_youtube_audio(audio_path: Path, transcript_path: Path, event: dict[str, Any]) -> str | None:
+    if transcript_path.exists():
+        transcript = transcript_path.read_text(errors="replace")
+        event.update({
+            "scribe_rc": "cached",
+            "transcript_path": str(transcript_path.relative_to(VAULT_ROOT)),
+            "transcript_chars": len(transcript),
+            "status": "transcribed",
+        })
+        return transcript
+    if not shutil.which(CLAUDE_BIN):
+        event.update({"scribe_rc": "missing-binary", "status": "fallback", "error": f"{CLAUDE_BIN} not found"})
+        return None
+
+    prompt = (
+        "Use the allowed ElevenLabs speech_to_text MCP tool to transcribe this local audio file "
+        f"with model_id scribe_v1: {audio_path}\n\n"
+        "Output ONLY the transcript text. No preamble, no labels, no closing remarks. "
+        "If the tool returns structured JSON, output only the transcript text field."
+    )
+    env = oauth_env()
+    env.pop("ANTHROPIC_API_KEY", None)
+    started = time.monotonic()
+    try:
+        result = subprocess.run(
+            [
+                CLAUDE_BIN,
+                "-p",
+                "--output-format",
+                "text",
+                "--no-session-persistence",
+                "--allowed-tools",
+                SCRIBE_TOOL,
+            ],
+            input=prompt,
+            capture_output=True,
+            text=True,
+            timeout=900,
+            env=env,
+        )
+    except subprocess.TimeoutExpired as exc:
+        event.update({
+            "scribe_rc": 124,
+            "scribe_duration_s": time.monotonic() - started,
+            "scribe_stderr": (exc.stderr or "")[:1200],
+            "status": "fallback",
+            "error": "Claude Scribe transcription timed out",
+        })
+        return None
+
+    event.update({
+        "scribe_rc": result.returncode,
+        "scribe_duration_s": time.monotonic() - started,
+        "scribe_stderr": (result.stderr or "")[:1200],
+    })
+    LLM_CALLS.append({
+        "name": "claude-elevenlabs-scribe",
+        "returncode": result.returncode,
+        "stdout_len": len(result.stdout or ""),
+        "stderr": (result.stderr or "")[:1200],
+        "duration_s": event["scribe_duration_s"],
+    })
+    if result.returncode != 0:
+        event.update({"status": "fallback", "error": f"Claude Scribe exited {result.returncode}"})
+        return None
+
+    transcript = (result.stdout or "").split("To resume this session:")[0].strip()
+    if not transcript:
+        event.update({"status": "fallback", "error": "Claude Scribe returned empty transcript"})
+        return None
+    atomic_write(transcript_path, transcript + "\n")
+    event.update({
+        "transcript_path": str(transcript_path.relative_to(VAULT_ROOT)),
+        "transcript_chars": len(transcript),
+        "status": "transcribed",
+    })
+    return transcript
+
+
+def process_youtube_depth_item(item: dict[str, Any]) -> tuple[str, str | None, str | None]:
+    stem = youtube_cache_stem(item)
+    transcript_path = TRANSCRIPTION_CACHE_DIR / f"{stem}.txt"
+    audio_path, event = download_youtube_audio(item, stem)
+    if not audio_path:
+        TRANSCRIPTION_EVENTS.append(event)
+        status, out_path, _ = process_skim_item(item)
+        return status, out_path, event.get("error") or "YouTube audio download failed; used headline fallback"
+
+    transcript = transcribe_youtube_audio(audio_path, transcript_path, event)
+    if not transcript:
+        TRANSCRIPTION_EVENTS.append(event)
+        status, out_path, _ = process_skim_item(item)
+        return status, out_path, event.get("error") or "Scribe transcription failed; used headline fallback"
+
+    summary = kimi_summarize(transcript, max_chars=16000)
+    if not summary:
+        event.update({"status": "fallback", "error": "kimi summarization returned empty after transcript"})
+        TRANSCRIPTION_EVENTS.append(event)
+        status, out_path, _ = process_skim_item(item)
+        return status, out_path, event["error"]
+
+    out_path = output_path_for(item)
+    atomic_write(out_path, render_youtube_brief(item, summary))
+    event["status"] = "ok"
+    TRANSCRIPTION_EVENTS.append(event)
+    return ("ok", str(out_path.relative_to(VAULT_ROOT)), None)
+
+
 def process_blog_item(item: dict[str, Any]) -> tuple[str, str | None, str | None]:
     """Returns (status, output_path_str, error)."""
     text = fetch_article_text(item["url"])
@@ -479,6 +729,7 @@ def item_from_triage(triage_item: dict[str, Any], raw_by_id: dict[str, dict[str,
     item.setdefault("summary_short", meta.get("summary", ""))
     item.setdefault("cadence_tag", meta.get("cadence_tag", "unknown"))
     item.setdefault("processor", meta.get("processor", "kimi-summarize"))
+    item.setdefault("source_type", meta.get("source_type") or meta.get("feed_type"))
     item.setdefault("output_dir", "_state/podcast-briefs/" if item["feed_type"] == "podcast" else "_state/blog-summaries/")
     item.setdefault("item_id", triage_item["item_id"])
     item["triage_item_id"] = triage_item["item_id"]
@@ -525,6 +776,33 @@ def render_log(report: RunReport) -> str:
                 lines.append("      ```")
                 lines.append("      " + str(c["stderr"]).replace("\n", "\n      "))
                 lines.append("      ```")
+    if report.transcriptions:
+        lines.append("")
+        lines.append("## YouTube transcriptions")
+        total_minutes = 0.0
+        for event in report.transcriptions:
+            audio_s = event.get("audio_duration_s")
+            if isinstance(audio_s, (int, float)):
+                total_minutes += float(audio_s) / 60.0
+            lines.append(
+                f"- **{str(event.get('title', ''))[:80]}** status={event.get('status')} "
+                f"download_rc={event.get('download_rc')} scribe_rc={event.get('scribe_rc')} "
+                f"audio_s={audio_s if audio_s is not None else 'unknown'} "
+                f"transcript_chars={event.get('transcript_chars', 0)} "
+                f"scribe_duration_s={event.get('scribe_duration_s', 0):.1f}"
+            )
+            if event.get("audio_path"):
+                lines.append(f"    - audio: `{event['audio_path']}`")
+            if event.get("transcript_path"):
+                lines.append(f"    - transcript: `{event['transcript_path']}`")
+            if event.get("error"):
+                lines.append(f"    - error: {event['error']}")
+            if event.get("scribe_stderr"):
+                lines.append("    - scribe stderr:")
+                lines.append("      ```")
+                lines.append("      " + str(event["scribe_stderr"]).replace("\n", "\n      "))
+                lines.append("      ```")
+        lines.append(f"- Total Scribe audio minutes this run: {total_minutes:.2f}")
     return "\n".join(lines) + "\n"
 
 
@@ -575,6 +853,7 @@ def main() -> int:
         items_skipped=skipped_count, items_failed=0, duration_s=0.0,
     )
     run_start = time.monotonic()
+    youtube_transcriptions_seen = 0
 
     for item in queue:
         item_start = time.monotonic()
@@ -589,6 +868,7 @@ def main() -> int:
             continue
 
         print(f"Processing: [{item['feed_name']}] {item['title'][:80]}")
+        is_youtube = item.get("source_type") == "youtube-channel" and item.get("feed_type") == "youtube-channel"
         if tier_name == "drop":
             status, out_path, err, tier = "skipped", None, "triage tier=drop", "drop"
         elif tier_name == "skim":
@@ -597,6 +877,15 @@ def main() -> int:
             else:
                 status, out_path, err = process_skim_item(item)
             tier = "headline-only"
+        elif is_youtube:
+            if youtube_transcriptions_seen >= YOUTUBE_TRANSCRIPTION_LIMIT:
+                status, out_path, _ = process_skim_item(item)
+                err = f"YouTube transcription cap exceeded ({YOUTUBE_TRANSCRIPTION_LIMIT}); used headline fallback"
+                tier = "headline-only"
+            else:
+                youtube_transcriptions_seen += 1
+                status, out_path, err = process_youtube_depth_item(item)
+                tier = "full" if not err else "headline-only"
         elif item["feed_type"] in ("rss-text", "html-scrape"):
             status, out_path, err = process_blog_item(item)
             tier = "full"
@@ -622,6 +911,7 @@ def main() -> int:
 
     report.duration_s = time.monotonic() - run_start
     report.llm_calls = LLM_CALLS
+    report.transcriptions = TRANSCRIPTION_EVENTS
     save_processed_set(processed)
     atomic_write(LOG_PATH, render_log(report))
     print(f"\nLog: {LOG_PATH}")

@@ -218,6 +218,96 @@ feeds:
       subprocess. Caps at 5 results per person per day. Auth: ANTHROPIC_API_KEY
       unset for the Claude subprocess (subscription path).
 
+  - name: "Matthew Berman"
+    type: youtube-channel
+    channel_url: https://www.youtube.com/@matthewberman
+    lane: practitioner
+    expected_cadence: daily
+    processor: kimi-summarize
+    output_dir: _state/blog-summaries/
+    notes: "yt-dlp + Scribe transcription for depth-tier items"
+
+  - name: "AI Jason"
+    type: youtube-channel
+    channel_url: https://www.youtube.com/@AIJasonZ
+    lane: practitioner
+    expected_cadence: weekly
+    processor: kimi-summarize
+    output_dir: _state/blog-summaries/
+    notes: "yt-dlp + Scribe transcription for depth-tier items"
+
+  - name: "All About AI"
+    type: youtube-channel
+    channel_url: https://www.youtube.com/@AllAboutAI
+    lane: practitioner
+    expected_cadence: daily
+    processor: kimi-summarize
+    output_dir: _state/blog-summaries/
+    notes: "yt-dlp + Scribe transcription for depth-tier items"
+
+  - name: "LangChain (official)"
+    type: youtube-channel
+    channel_url: https://www.youtube.com/@LangChain
+    lane: practitioner
+    expected_cadence: weekly
+    processor: kimi-summarize
+    output_dir: _state/blog-summaries/
+    notes: "yt-dlp + Scribe transcription for depth-tier items"
+
+  - name: "Fireship"
+    type: youtube-channel
+    channel_url: https://www.youtube.com/@Fireship
+    lane: practitioner
+    expected_cadence: weekly
+    processor: kimi-summarize
+    output_dir: _state/blog-summaries/
+    notes: "yt-dlp + Scribe transcription for depth-tier items"
+
+  - name: "Sentdex"
+    type: youtube-channel
+    channel_url: https://www.youtube.com/@sentdex
+    lane: practitioner
+    expected_cadence: irregular
+    processor: kimi-summarize
+    output_dir: _state/blog-summaries/
+    notes: "yt-dlp + Scribe transcription for depth-tier items"
+
+  - name: "Tina Huang"
+    type: youtube-channel
+    channel_url: https://www.youtube.com/@TinaHuang1
+    lane: practitioner
+    expected_cadence: weekly
+    processor: kimi-summarize
+    output_dir: _state/blog-summaries/
+    notes: "yt-dlp + Scribe transcription for depth-tier items"
+
+  - name: "Two Minute Papers"
+    type: youtube-channel
+    channel_url: https://www.youtube.com/@TwoMinutePapers
+    lane: research
+    expected_cadence: daily
+    processor: kimi-summarize
+    output_dir: _state/blog-summaries/
+    notes: "yt-dlp + Scribe transcription for depth-tier items"
+
+  - name: "Computerphile"
+    type: youtube-channel
+    channel_url: https://www.youtube.com/@Computerphile
+    lane: research
+    expected_cadence: weekly
+    processor: kimi-summarize
+    output_dir: _state/blog-summaries/
+    notes: "yt-dlp + Scribe transcription for depth-tier items"
+
+  - name: "Lex Fridman"
+    type: youtube-channel
+    channel_url: https://www.youtube.com/@lexfridman
+    lane: research
+    expected_cadence: weekly
+    processor: kimi-summarize
+    output_dir: _state/blog-summaries/
+    notes: "yt-dlp + Scribe transcription for depth-tier items"
+
 # Cadence audit: feed-sweep.sh tags each new item:
 #   - "on-schedule" if matches expected pattern
 #   - "off-schedule" if extra release (highlighted in brief)
