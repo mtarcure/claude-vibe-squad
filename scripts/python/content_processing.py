@@ -26,8 +26,10 @@ Idempotent via `_state/processed-content.json` — items already briefed are ski
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -45,6 +47,7 @@ VAULT_ROOT = Path(os.environ.get("VAULT_ROOT", str(Path.home() / "Obsidian-Claud
 STATE_DIR = VAULT_ROOT / "_state"
 DATE = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 NEW_ITEMS_PATH = STATE_DIR / f"new-items-{DATE}.json"
+TRIAGE_PATH = STATE_DIR / f"content-triage-{DATE}.json"
 PROCESSED_CONTENT_PATH = STATE_DIR / "processed-content.json"
 LOG_DIR = STATE_DIR / "cleanup-logs"
 LOG_PATH = LOG_DIR / f"{DATE}-content-processing.md"
@@ -82,6 +85,10 @@ class RunReport:
     items_failed: int
     duration_s: float
     item_results: list[ItemResult] = field(default_factory=list)
+    llm_calls: list[dict[str, Any]] = field(default_factory=list)
+
+
+LLM_CALLS: list[dict[str, Any]] = []
 
 
 def atomic_write(path: Path, content: str) -> None:
@@ -102,6 +109,15 @@ def load_new_items() -> list[dict[str, Any]]:
     return json.loads(NEW_ITEMS_PATH.read_text())
 
 
+def load_triage_manifest() -> dict[str, Any] | None:
+    if not TRIAGE_PATH.exists():
+        return None
+    try:
+        return json.loads(TRIAGE_PATH.read_text())
+    except json.JSONDecodeError:
+        return None
+
+
 def load_processed_set() -> set[str]:
     if not PROCESSED_CONTENT_PATH.exists():
         return set()
@@ -115,6 +131,17 @@ def load_processed_set() -> set[str]:
 def save_processed_set(ids: set[str]) -> None:
     payload = {"updated": datetime.now(timezone.utc).isoformat(), "ids": sorted(ids)}
     atomic_write(PROCESSED_CONTENT_PATH, json.dumps(payload, indent=2))
+
+
+def canonical_url(url: str) -> str:
+    return re.sub(r"#.*$", "", url.strip()).rstrip("/")
+
+
+def stable_item_id(item: dict[str, Any]) -> str:
+    feed = str(item.get("feed_name", "")).strip().lower()
+    url = canonical_url(str(item.get("url", "")))
+    published = str(item.get("published_iso", "")).strip()
+    return hashlib.sha256(f"{feed}\n{url}\n{published}".encode()).hexdigest()[:24]
 
 
 def oauth_env() -> dict:
@@ -151,6 +178,8 @@ def kimi_summarize(text: str, max_chars: int = 12000) -> str | None:
     if len(text) > max_chars:
         snippet += "\n\n[truncated for processing]"
     prompt = SUMMARY_PROMPT.format(text=snippet)
+    started = time.monotonic()
+    call = {"name": "kimi-summarize", "returncode": None, "stdout_len": 0, "stderr": "", "duration_s": 0.0}
     try:
         # --quiet = --print --output-format text --final-message-only
         # --no-thinking suppresses intermediate reasoning emission.
@@ -160,11 +189,22 @@ def kimi_summarize(text: str, max_chars: int = 12000) -> str | None:
             capture_output=True, text=True, timeout=180, env=oauth_env(),
         )
     except subprocess.TimeoutExpired:
+        call.update({"returncode": "timeout", "duration_s": time.monotonic() - started})
+        LLM_CALLS.append(call)
         return None
     except FileNotFoundError:
         print(f"  kimi binary not found at {KIMI_BIN}", file=sys.stderr)
+        call.update({"returncode": "missing-binary", "duration_s": time.monotonic() - started})
+        LLM_CALLS.append(call)
         return None
 
+    call.update({
+        "returncode": result.returncode,
+        "stdout_len": len(result.stdout or ""),
+        "stderr": (result.stderr or "")[:1200],
+        "duration_s": time.monotonic() - started,
+    })
+    LLM_CALLS.append(call)
     if result.returncode != 0:
         print(f"  kimi exit {result.returncode}: {result.stderr[:300]}", file=sys.stderr)
         return None
@@ -218,6 +258,31 @@ def render_podcast_headline(item: dict[str, Any]) -> str:
         f"{item['summary_short'] or '(no summary in feed)'}\n\n"
         f"---\n"
         f"*Headline-only. Run with `--enable-transcription` for full transcript brief (uses ElevenLabs Scribe — pay-per-minute).*\n"
+    )
+
+
+def render_text_skim(item: dict[str, Any]) -> str:
+    summary = item.get("summary_short") or item.get("triage_reason") or "(no summary in feed)"
+    lane = item.get("source_lane") or item.get("lane") or "unknown"
+    return (
+        f"---\n"
+        f"feed: {item['feed_name']}\n"
+        f"title: {json.dumps(item['title'])}\n"
+        f"url: {item['url']}\n"
+        f"published: {item.get('published_iso', '')}\n"
+        f"cadence_tag: {item.get('cadence_tag', 'unknown')}\n"
+        f"processed_at: {datetime.now(timezone.utc).isoformat()}\n"
+        f"processor: rss-headline\n"
+        f"tier: headline-only\n"
+        f"source_lane: {lane}\n"
+        f"---\n\n"
+        f"# {item['title']}\n\n"
+        f"**Source:** [{item['feed_name']}]({item['url']})\n"
+        f"**Lane:** {lane}\n\n"
+        f"## Headline\n\n"
+        f"{summary}\n\n"
+        f"---\n"
+        f"*Headline-only skim from triage. Promote to `depth` for full article summary.*\n"
     )
 
 
@@ -340,6 +405,12 @@ def process_blog_item(item: dict[str, Any]) -> tuple[str, str | None, str | None
     return ("ok", str(out_path.relative_to(VAULT_ROOT)), None)
 
 
+def process_skim_item(item: dict[str, Any]) -> tuple[str, str | None, str | None]:
+    out_path = output_path_for(item)
+    atomic_write(out_path, render_text_skim(item))
+    return ("ok", str(out_path.relative_to(VAULT_ROOT)), None)
+
+
 def process_podcast_item(item: dict[str, Any], enable_transcription: bool = False) -> tuple[str, str | None, str | None]:
     out_path = output_path_for(item)
     if enable_transcription and item.get("audio_url"):
@@ -350,17 +421,32 @@ def process_podcast_item(item: dict[str, Any], enable_transcription: bool = Fals
                 # Reuse the summarize path but with podcast-specific framing
                 synth_prompt = PODCAST_SYNTHESIS_PROMPT.format(text=transcript[:18000])
                 try:
+                    started = time.monotonic()
                     result = subprocess.run(
                         [KIMI_BIN, "--quiet", "--no-thinking", "-p", synth_prompt,
                          "--max-steps-per-turn", "5"],
                         capture_output=True, text=True, timeout=240, env=oauth_env(),
                     )
+                    LLM_CALLS.append({
+                        "name": "kimi-podcast-synthesize",
+                        "returncode": result.returncode,
+                        "stdout_len": len(result.stdout or ""),
+                        "stderr": (result.stderr or "")[:1200],
+                        "duration_s": time.monotonic() - started,
+                    })
                     if result.returncode == 0:
                         out = result.stdout.split("To resume this session:")[0].strip()
                         if out:
                             atomic_write(out_path, render_podcast_full(item, out))
                             return ("ok", str(out_path.relative_to(VAULT_ROOT)), None)
                 except subprocess.TimeoutExpired:
+                    LLM_CALLS.append({
+                        "name": "kimi-podcast-synthesize",
+                        "returncode": "timeout",
+                        "stdout_len": 0,
+                        "stderr": "",
+                        "duration_s": 240.0,
+                    })
                     pass
         # Fall through to headline if transcription path failed
     atomic_write(out_path, render_podcast_headline(item))
@@ -369,8 +455,8 @@ def process_podcast_item(item: dict[str, Any], enable_transcription: bool = Fals
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Process feed-sweep items into briefs.")
-    parser.add_argument("--limit", type=int, default=5,
-                        help="Max items to process this run (0 = dry-run, default 5)")
+    parser.add_argument("--limit", type=int, default=10,
+                        help="Max depth items to process this run (0 = dry-run, default 10)")
     parser.add_argument("--filter", default=None,
                         help="Only process items whose feed_name contains this substring")
     parser.add_argument("--podcasts-only", action="store_true")
@@ -379,6 +465,34 @@ def parse_args() -> argparse.Namespace:
                         help="Run full ElevenLabs Scribe transcription on podcasts "
                         "(pay-per-minute; default is headline-only)")
     return parser.parse_args()
+
+
+def item_from_triage(triage_item: dict[str, Any], raw_by_id: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    item = dict(raw_by_id.get(triage_item["item_id"], {}))
+    meta = triage_item.get("feed_metadata", {})
+    item.setdefault("feed_name", triage_item.get("source_name", ""))
+    item.setdefault("feed_type", meta.get("feed_type", "rss-text"))
+    item.setdefault("title", meta.get("title", ""))
+    item.setdefault("url", meta.get("url", ""))
+    item.setdefault("published_iso", meta.get("published", ""))
+    item.setdefault("audio_url", meta.get("audio_url"))
+    item.setdefault("summary_short", meta.get("summary", ""))
+    item.setdefault("cadence_tag", meta.get("cadence_tag", "unknown"))
+    item.setdefault("processor", meta.get("processor", "kimi-summarize"))
+    item.setdefault("output_dir", "_state/podcast-briefs/" if item["feed_type"] == "podcast" else "_state/blog-summaries/")
+    item.setdefault("item_id", triage_item["item_id"])
+    item["triage_item_id"] = triage_item["item_id"]
+    item["triage_tier"] = triage_item.get("tier", "skim")
+    item["source_lane"] = triage_item.get("source_lane", "unknown")
+    item["triage_reason"] = triage_item.get("reason", "")
+    return item
+
+
+def build_queue_from_triage(manifest: dict[str, Any], raw_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    raw_by_id = {stable_item_id(item): item for item in raw_items}
+    items = [item_from_triage(t, raw_by_id) for t in manifest.get("items", [])]
+    order = {"depth": 0, "skim": 1, "drop": 2}
+    return sorted(items, key=lambda i: (order.get(i.get("triage_tier", "skim"), 1), i.get("source_lane", ""), i.get("feed_name", "")))
 
 
 def render_log(report: RunReport) -> str:
@@ -401,21 +515,44 @@ def render_log(report: RunReport) -> str:
                 lines.append(f"    - output: `{r.output_path}`")
             if r.error:
                 lines.append(f"    - error: {r.error}")
+    if report.llm_calls:
+        lines.append("")
+        lines.append("## LLM calls")
+        for c in report.llm_calls:
+            lines.append(f"- **{c['name']}** rc={c['returncode']} stdout_len={c['stdout_len']} duration={c['duration_s']:.1f}s")
+            if c.get("stderr"):
+                lines.append("    - stderr:")
+                lines.append("      ```")
+                lines.append("      " + str(c["stderr"]).replace("\n", "\n      "))
+                lines.append("      ```")
     return "\n".join(lines) + "\n"
 
 
 def main() -> int:
     args = parse_args()
     items = load_new_items()
-    if not items:
+    triage = load_triage_manifest()
+    if not items and not triage:
         print(f"No new-items file at {NEW_ITEMS_PATH}; nothing to do.")
         return 0
 
     processed = load_processed_set()
-    queue: list[dict[str, Any]] = []
+    queue: list[dict[str, Any]]
     skipped_count = 0
-    for item in items:
-        if item["item_id"] in processed:
+    if triage:
+        queue = build_queue_from_triage(triage, items)
+    else:
+        queue = []
+        for item in items:
+            item["triage_item_id"] = item["item_id"]
+            item["triage_tier"] = "depth" if item["feed_type"] in ("rss-text", "html-scrape") else "skim"
+            queue.append(item)
+
+    filtered: list[dict[str, Any]] = []
+    depth_seen = 0
+    for item in queue:
+        processed_id = item.get("triage_item_id") or item.get("item_id")
+        if processed_id in processed:
             skipped_count += 1
             continue
         if args.filter and args.filter.lower() not in item["feed_name"].lower():
@@ -424,9 +561,14 @@ def main() -> int:
             continue
         if args.blogs_only and item["feed_type"] not in ("rss-text", "html-scrape"):
             continue
-        queue.append(item)
-
-    queue = queue[: max(args.limit, 0)] if args.limit > 0 else queue
+        if item.get("triage_tier") == "depth":
+            if args.limit > 0 and depth_seen >= args.limit:
+                item = dict(item)
+                item["triage_tier"] = "skim"
+            else:
+                depth_seen += 1
+        filtered.append(item)
+    queue = filtered
 
     report = RunReport(
         items_total=len(items), items_processed=0,
@@ -436,17 +578,26 @@ def main() -> int:
 
     for item in queue:
         item_start = time.monotonic()
+        tier_name = item.get("triage_tier", "depth")
         if args.limit == 0:
             report.item_results.append(ItemResult(
                 feed_name=item["feed_name"], item_id=item["item_id"],
                 title=item["title"], url=item["url"],
-                tier="full" if item["feed_type"] == "rss-text" else "headline-only",
+                tier=tier_name,
                 status="dry-run",
             ))
             continue
 
         print(f"Processing: [{item['feed_name']}] {item['title'][:80]}")
-        if item["feed_type"] in ("rss-text", "html-scrape"):
+        if tier_name == "drop":
+            status, out_path, err, tier = "skipped", None, "triage tier=drop", "drop"
+        elif tier_name == "skim":
+            if item["feed_type"] == "podcast":
+                status, out_path, err = process_podcast_item(item, enable_transcription=False)
+            else:
+                status, out_path, err = process_skim_item(item)
+            tier = "headline-only"
+        elif item["feed_type"] in ("rss-text", "html-scrape"):
             status, out_path, err = process_blog_item(item)
             tier = "full"
         elif item["feed_type"] == "podcast":
@@ -465,11 +616,12 @@ def main() -> int:
         report.item_results.append(result)
         if status == "ok":
             report.items_processed += 1
-            processed.add(item["item_id"])
+            processed.add(item.get("triage_item_id") or item["item_id"])
         elif status == "failed":
             report.items_failed += 1
 
     report.duration_s = time.monotonic() - run_start
+    report.llm_calls = LLM_CALLS
     save_processed_set(processed)
     atomic_write(LOG_PATH, render_log(report))
     print(f"\nLog: {LOG_PATH}")

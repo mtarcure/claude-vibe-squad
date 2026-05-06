@@ -1,0 +1,13 @@
+feeds:
+  - {name: "OpenAI Blog", type: rss-text, lane: vendor-pr}
+  - {name: "Anthropic Blog", type: rss-text, lane: vendor-pr}
+  - {name: "Google DeepMind Blog", type: rss-text, lane: vendor-pr}
+  - {name: "Simon Willison", type: rss-text, lane: practitioner}
+  - {name: "Hamel Husain", type: rss-text, lane: practitioner}
+  - {name: "Elvis Saravia — DAIR.AI", type: rss-text, lane: practitioner}
+  - {name: "Eugene Yan", type: rss-text, lane: practitioner}
+  - {name: "arXiv cs.AI", type: rss-text, lane: research}
+  - {name: "arXiv cs.MA", type: rss-text, lane: research}
+  - {name: "TLDR AI", type: rss-text, lane: research}
+  - {name: "The AI Daily Brief", type: podcast, lane: podcast}
+  - {name: "Latent Space", type: podcast, lane: podcast}

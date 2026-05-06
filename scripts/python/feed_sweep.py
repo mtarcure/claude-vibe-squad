@@ -13,7 +13,7 @@ Reads `_state/feed-config.yaml`, fetches each RSS feed, dedups against
 `_state/processed-ids.json`, tags cadence (on/off/skipped), and writes
 `_state/new-items-<date>.json` for content-processing.sh to consume.
 
-HTML-scrape feeds are listed in the log as TODO; not fetched yet.
+HTML-scrape feeds are fetched from configured index pages via `scrape_html_index`.
 
 Atomic writes throughout: temp + rename.
 """

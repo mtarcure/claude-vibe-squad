@@ -1,0 +1,29 @@
+schema_version: 1
+privacy_mode: derived-tags-only
+static_interests:
+  - {phrase: "agent runtime architecture", weight: 1.0}
+  - {phrase: "HITL gates", weight: 1.0}
+  - {phrase: "skill verification", weight: 1.0}
+  - {phrase: "specialist routing", weight: 0.95}
+  - {phrase: "write-scope policy", weight: 0.95}
+  - {phrase: "capability gates", weight: 0.95}
+  - {phrase: "MCP tooling", weight: 0.85}
+  - {phrase: "bug bounty research", weight: 0.85}
+  - {phrase: "freelance ops", weight: 0.65}
+followed_people:
+  - {name: "Simon Willison", source: "simonwillison.net"}
+  - {name: "Hamel Husain", source: "hamel.dev"}
+  - {name: "Elvis Saravia", handle: "omarsar0", source: "DAIR.AI"}
+followed_orgs: ["Anthropic", "OpenAI", "Google DeepMind"]
+positive_signatures:
+  - "agent runtime trust schemas"
+  - "untrusted skills until verified"
+  - "portable runtime profiles"
+  - "human approval tied to verification level"
+negative_interest_examples:
+  - "vendor pricing news without operator impact"
+  - "general AI market commentary"
+  - "valuation/funding-only posts"
+feedback:
+  approved_items: []
+  rejected_items: []

@@ -7,10 +7,12 @@
 #   2. Browser session keep-alive (refresh bounty platform sessions)
 #   3. System cleanup (light)
 #   4. Brain cleanup (KG contradiction sweep)
-#   5. Feed sweep with cadence audit (vendor blogs + podcasts)
-#   6. Content processing (transcribe + brief whatever's new)
-#   7. Light dream (journal only — no proposals on weekdays)
-#   8. Daily morning brief generator (synthesizes everything)
+#   5. Feed sweep with cadence audit (vendor/practitioner/research/podcasts)
+#   6. Content triage (score new items into depth / skim / drop)
+#   7. Content processing (summarize depth items, headline-skim the rest)
+#   8. Content synthesis (cluster depth summaries)
+#   9. Light dream (journal only — no proposals on weekdays)
+#   10. Daily morning brief generator (synthesizes everything)
 #
 # Each phase logs separately. Failures don't block subsequent phases.
 # All output ends up in _state/morning-briefs/<date>.md as the unified brief.
@@ -71,7 +73,9 @@ run_phase "browser-keep-alive"   "${VAULT_ROOT}/bin/browser-keep-alive.sh"
 run_phase "system-cleanup"       "${VAULT_ROOT}/bin/system-cleanup.sh"
 run_phase "brain-cleanup"        "${VAULT_ROOT}/bin/brain-cleanup.sh"
 run_phase "feed-sweep"           "${VAULT_ROOT}/bin/feed-sweep.sh"
+run_phase "content-triage"       "${VAULT_ROOT}/bin/content-triage.sh"
 run_phase "content-processing"   "${VAULT_ROOT}/bin/content-processing.sh"
+run_phase "content-synthesis"    "${VAULT_ROOT}/bin/content-synthesis.sh"
 run_phase "dream-light"          "${VAULT_ROOT}/bin/dream-light.sh"
 run_phase "morning-brief"        "${VAULT_ROOT}/bin/morning-brief.sh"
 

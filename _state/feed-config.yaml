@@ -6,6 +6,7 @@ feeds:
   - name: "The Artificial Intelligence Show"
     type: podcast
     rss: https://feeds.megaphone.fm/marketingai
+    lane: podcast
     expected_cadence: weekly
     expected_day: tuesday
     processor: gemini-transcribe + kimi-synthesize
@@ -14,6 +15,7 @@ feeds:
   - name: "The AI Daily Brief"
     type: podcast
     rss: https://anchor.fm/s/f7cac464/podcast/rss
+    lane: podcast
     expected_cadence: daily
     expected_days: [mon, tue, wed, thu, fri]
     processor: gemini-transcribe + kimi-synthesize
@@ -22,6 +24,7 @@ feeds:
   - name: "Latent Space"
     type: podcast
     rss: https://api.substack.com/feed/podcast/1084089.rss
+    lane: podcast
     expected_cadence: weekly
     expected_day: any  # varies — sometimes Wed, sometimes Thu/Fri
     processor: gemini-transcribe + kimi-synthesize
@@ -31,6 +34,7 @@ feeds:
   - name: "OpenAI Blog"
     type: rss-text
     rss: https://openai.com/news/rss.xml
+    lane: vendor-pr
     expected_cadence: irregular
     processor: kimi-summarize
     output_dir: _state/blog-summaries/
@@ -38,6 +42,7 @@ feeds:
   - name: "Google DeepMind Blog"
     type: rss-text
     rss: https://deepmind.google/blog/rss.xml
+    lane: vendor-pr
     expected_cadence: irregular
     processor: kimi-summarize
     output_dir: _state/blog-summaries/
@@ -47,6 +52,7 @@ feeds:
     type: html-scrape
     url: https://www.anthropic.com/news
     link_pattern: '/news/[a-z0-9][a-z0-9-]*$'
+    lane: vendor-pr
     expected_cadence: irregular
     processor: kimi-summarize
     output_dir: _state/blog-summaries/
@@ -58,11 +64,147 @@ feeds:
     type: html-scrape
     url: https://x.ai/news
     link_pattern: '/news/[a-z0-9][a-z0-9-]*$'
+    lane: vendor-pr
     expected_cadence: irregular
     processor: kimi-summarize
     output_dir: _state/blog-summaries/
     notes: |
       Same pattern as Anthropic. Implemented 2026-05-02.
+
+  # === PRACTITIONER SOURCES ===
+  - name: "Simon Willison"
+    type: rss-text
+    rss: https://simonwillison.net/atom/everything/
+    lane: practitioner
+    expected_cadence: daily
+    processor: kimi-summarize
+    output_dir: _state/blog-summaries/
+
+  - name: "Eugene Yan"
+    type: rss-text
+    rss: https://eugeneyan.com/rss/
+    lane: practitioner
+    expected_cadence: irregular
+    processor: kimi-summarize
+    output_dir: _state/blog-summaries/
+
+  - name: "Hamel Husain"
+    type: rss-text
+    rss: https://hamel.dev/index.xml
+    lane: practitioner
+    expected_cadence: irregular
+    processor: kimi-summarize
+    output_dir: _state/blog-summaries/
+
+  - name: "Latent Space (blog)"
+    type: rss-text
+    rss: https://www.latent.space/feed
+    lane: practitioner
+    expected_cadence: weekly
+    processor: kimi-summarize
+    output_dir: _state/blog-summaries/
+
+  - name: "Sebastian Raschka — Ahead of AI"
+    type: rss-text
+    rss: https://magazine.sebastianraschka.com/feed
+    lane: practitioner
+    expected_cadence: weekly
+    processor: kimi-summarize
+    output_dir: _state/blog-summaries/
+
+  - name: "Chip Huyen"
+    type: rss-text
+    rss: https://huyenchip.com/feed.xml
+    lane: practitioner
+    expected_cadence: irregular
+    processor: kimi-summarize
+    output_dir: _state/blog-summaries/
+
+  - name: "Lilian Weng"
+    type: rss-text
+    rss: https://lilianweng.github.io/index.xml
+    lane: practitioner
+    expected_cadence: irregular
+    processor: kimi-summarize
+    output_dir: _state/blog-summaries/
+
+  - name: "Elvis Saravia — DAIR.AI"
+    type: rss-text
+    rss: https://nlp.elvissaravia.com/feed
+    lane: practitioner
+    expected_cadence: weekly
+    processor: kimi-summarize
+    output_dir: _state/blog-summaries/
+
+  - name: "Nathan Lambert — Interconnects"
+    type: rss-text
+    rss: https://www.interconnects.ai/feed
+    lane: practitioner
+    expected_cadence: weekly
+    processor: kimi-summarize
+    output_dir: _state/blog-summaries/
+
+  - name: "AI Snake Oil"
+    type: rss-text
+    rss: https://www.normaltech.ai/feed
+    lane: practitioner
+    expected_cadence: weekly
+    processor: kimi-summarize
+    output_dir: _state/blog-summaries/
+
+  # === RESEARCH SOURCES ===
+  - name: "arXiv cs.AI"
+    type: rss-text
+    rss: https://export.arxiv.org/rss/cs.AI
+    lane: research
+    expected_cadence: daily
+    processor: kimi-summarize
+    output_dir: _state/blog-summaries/
+    notes: |
+      High volume (~30-50 papers/day). Triage scorer must filter aggressively.
+      cs.AI is the canonical agent/architecture firehose.
+
+  - name: "arXiv cs.CL"
+    type: rss-text
+    rss: https://export.arxiv.org/rss/cs.CL
+    lane: research
+    expected_cadence: daily
+    processor: kimi-summarize
+    output_dir: _state/blog-summaries/
+
+  - name: "arXiv cs.MA"
+    type: rss-text
+    rss: https://export.arxiv.org/rss/cs.MA
+    lane: research
+    expected_cadence: daily
+    processor: kimi-summarize
+    output_dir: _state/blog-summaries/
+    notes: Multi-Agent Systems — lower volume, high precision for the operator's interests.
+
+  - name: "Import AI — Jack Clark"
+    type: rss-text
+    rss: https://importai.substack.com/feed
+    lane: research
+    expected_cadence: weekly
+    processor: kimi-summarize
+    output_dir: _state/blog-summaries/
+
+  - name: "TLDR AI"
+    type: rss-text
+    rss: https://tldr.tech/ai/rss
+    lane: research
+    expected_cadence: daily
+    processor: kimi-summarize
+    output_dir: _state/blog-summaries/
+    notes: Use as triage signal not primary read; headlines shallow but useful for radar.
+
+  - name: "The Gradient"
+    type: rss-text
+    rss: https://thegradient.pub/rss/
+    lane: research
+    expected_cadence: irregular
+    processor: kimi-summarize
+    output_dir: _state/blog-summaries/
 
 # Cadence audit: feed-sweep.sh tags each new item:
 #   - "on-schedule" if matches expected pattern
