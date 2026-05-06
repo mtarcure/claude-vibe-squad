@@ -13,6 +13,7 @@
 #   8. Content synthesis (cluster depth summaries)
 #   9. Light dream (journal only — no proposals on weekdays)
 #   10. Daily morning brief generator (synthesizes everything)
+#   11. Email brief (headless Claude creates a Gmail draft)
 #
 # Each phase logs separately. Failures don't block subsequent phases.
 # All output ends up in _state/morning-briefs/<date>.md as the unified brief.
@@ -78,6 +79,7 @@ run_phase "content-processing"   "${VAULT_ROOT}/bin/content-processing.sh"
 run_phase "content-synthesis"    "${VAULT_ROOT}/bin/content-synthesis.sh"
 run_phase "dream-light"          "${VAULT_ROOT}/bin/dream-light.sh"
 run_phase "morning-brief"        "${VAULT_ROOT}/bin/morning-brief.sh"
+run_phase "email-brief"          "${VAULT_ROOT}/bin/email-brief.sh"
 
 # Sunday: also run weekly deep
 if [[ "$(date +%u)" == "7" ]]; then
