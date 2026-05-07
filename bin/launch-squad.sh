@@ -151,6 +151,11 @@ PATH_PREFIX='export PATH="$HOME/.local/bin:$PATH"'
 # Interactive launches typically prefer OAuth anyway, but this is belt-and-suspenders.
 AUTH_PREFIX='unset ANTHROPIC_API_KEY OPENAI_API_KEY GEMINI_API_KEY GOOGLE_API_KEY'
 
+# Claude panes host Claude plugins, including chrono-content-engineer. Keep the
+# OpenAI key only there so Sora can authenticate without exposing media creds to
+# non-media model lanes.
+MEDIA_AUTH_PREFIX='unset ANTHROPIC_API_KEY GEMINI_API_KEY GOOGLE_API_KEY'
+
 acknowledge_gemini_agents() {
     python3 - "$VAULT_ROOT" <<'PY'
 import hashlib
@@ -203,7 +208,7 @@ fi
 tmux new-session -d -s "${SESSION}" -n "chrono" -c "${VAULT_ROOT}/chrono"
 tmux pipe-pane -t "${SESSION}:chrono" -o "cat >> ${TMUX_LOG_DIR}/chrono.log"
 tmux send-keys -t "${SESSION}:chrono" "${PATH_PREFIX}" C-m
-tmux send-keys -t "${SESSION}:chrono" "${AUTH_PREFIX}" C-m
+tmux send-keys -t "${SESSION}:chrono" "${MEDIA_AUTH_PREFIX}" C-m
 tmux send-keys -t "${SESSION}:chrono" "clear; echo '=== CHRONO COORDINATOR (Claude Code) ==='" C-m
 tmux send-keys -t "${SESSION}:chrono" "claude --permission-mode acceptEdits --model opus --effort xhigh --add-dir ${VAULT_ROOT}" C-m
 
@@ -236,7 +241,7 @@ tmux send-keys -t "${SESSION}:${GPT_CODEX_WIN}" "${CODEX_CMD}" C-m
 tmux new-window -t "${SESSION}" -n "${CLAUDE_WIN}" -c "${VAULT_ROOT}/model-lanes/claude"
 tmux pipe-pane -t "${SESSION}:${CLAUDE_WIN}" -o "cat >> ${TMUX_LOG_DIR}/claude.log"
 tmux send-keys -t "${SESSION}:${CLAUDE_WIN}" "${PATH_PREFIX}" C-m
-tmux send-keys -t "${SESSION}:${CLAUDE_WIN}" "${AUTH_PREFIX}" C-m
+tmux send-keys -t "${SESSION}:${CLAUDE_WIN}" "${MEDIA_AUTH_PREFIX}" C-m
 tmux send-keys -t "${SESSION}:${CLAUDE_WIN}" "clear; echo '=== CLAUDE MODEL LEAD (judgment, safety review, careful reasoning) ==='" C-m
 tmux send-keys -t "${SESSION}:${CLAUDE_WIN}" "${CLAUDE_CMD}" C-m
 
