@@ -154,8 +154,10 @@ feeds:
 
   # === RESEARCH SOURCES ===
   - name: "arXiv cs.AI"
-    type: rss-text
-    rss: https://export.arxiv.org/rss/cs.AI
+    type: arxiv-api
+    arxiv_category: cs.AI
+    arxiv_api_window_days: 14
+    arxiv_api_max_results: 200
     lane: research
     expected_cadence: daily
     processor: kimi-summarize
@@ -165,16 +167,20 @@ feeds:
       cs.AI is the canonical agent/architecture firehose.
 
   - name: "arXiv cs.CL"
-    type: rss-text
-    rss: https://export.arxiv.org/rss/cs.CL
+    type: arxiv-api
+    arxiv_category: cs.CL
+    arxiv_api_window_days: 14
+    arxiv_api_max_results: 200
     lane: research
     expected_cadence: daily
     processor: kimi-summarize
     output_dir: _state/blog-summaries/
 
   - name: "arXiv cs.MA"
-    type: rss-text
-    rss: https://export.arxiv.org/rss/cs.MA
+    type: arxiv-api
+    arxiv_category: cs.MA
+    arxiv_api_window_days: 14
+    arxiv_api_max_results: 200
     lane: research
     expected_cadence: daily
     processor: kimi-summarize

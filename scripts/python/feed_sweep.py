@@ -30,8 +30,11 @@ import time
 import uuid
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone, timedelta
+from hashlib import sha256
+from html import unescape
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import feedparser
 import httpx
@@ -48,12 +51,17 @@ TWITTER_LOG_PATH = LOG_DIR / f"{DATE}-twitter-search.md"
 YOUTUBE_LOG_PATH = LOG_DIR / f"{DATE}-youtube-sweep.md"
 NEW_ITEMS_PATH = STATE_DIR / f"new-items-{DATE}.json"
 OPERATOR_INTERESTS_PATH = STATE_DIR / "operator-interests.yaml"
+MANUAL_QUEUE_PATH = STATE_DIR / "manual-queue.txt"
+MANUAL_QUEUE_DONE_PATH = STATE_DIR / "manual-queue-done.txt"
+MANUAL_QUEUE_FAILED_PATH = STATE_DIR / "manual-queue-failed.txt"
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "claude")
 XAI_TOOL = "mcp__plugin_chrono-research-arsenal_chrono-research-arsenal__xai_search"
 PERPLEXITY_TOOL = "mcp__plugin_chrono-research-arsenal_perplexity__perplexity_search_web"
+ARXIV_API_LAST_FETCH_MONO: float | None = None
 
 DAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 YOUTUBE_LOG_ENTRIES: list[dict[str, Any]] = []
+FEED_SWEEP_EXTRA_LOG_LINES: list[str] = []
 
 
 @dataclass
@@ -70,6 +78,7 @@ class NewItem:
     processor: str
     output_dir: str
     source_type: str | None = None
+    source_lane: str | None = None
 
 
 @dataclass
@@ -93,6 +102,15 @@ def atomic_write(path: Path, content: str) -> None:
     except OSError:
         pass
     tmp.rename(path)
+
+
+def append_atomic(path: Path, line: str) -> None:
+    existing = path.read_text() if path.exists() else ""
+    atomic_write(path, existing + line)
+
+
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def load_config() -> dict[str, Any]:
@@ -254,6 +272,8 @@ def item_dict(item: NewItem) -> dict[str, Any]:
     data = asdict(item)
     if data.get("source_type") is None:
         data.pop("source_type", None)
+    if data.get("source_lane") is None:
+        data.pop("source_lane", None)
     return data
 
 
@@ -279,11 +299,18 @@ def find_audio_url(entry: Any) -> str | None:
 
 def short_summary(entry: Any, max_chars: int = 400) -> str:
     raw = ""
-    if isinstance(entry, dict):
-        raw = entry.get("summary") or entry.get("description") or ""
-    else:
-        raw = getattr(entry, "summary", "") or getattr(entry, "description", "")
+    content_list = entry.get("content") if isinstance(entry, dict) else getattr(entry, "content", None)
+    if content_list:
+        first = content_list[0] if len(content_list) > 0 else None
+        if first:
+            raw = first.get("value") if isinstance(first, dict) else getattr(first, "value", "") or ""
+    if not raw:
+        if isinstance(entry, dict):
+            raw = entry.get("summary") or entry.get("description") or ""
+        else:
+            raw = getattr(entry, "summary", "") or getattr(entry, "description", "")
     text = re.sub(r"<[^>]+>", "", raw)
+    text = unescape(text)
     text = re.sub(r"\s+", " ", text).strip()
     return text[:max_chars] + ("..." if len(text) > max_chars else "")
 
@@ -320,6 +347,39 @@ def fetch_feed(url: str, timeout: float = 30.0) -> Any:
         resp = client.get(url)
         resp.raise_for_status()
         return feedparser.parse(resp.content)
+
+
+def fetch_arxiv_api(category: str, max_results: int, start: int = 0, timeout: float = 30.0) -> Any:
+    global ARXIV_API_LAST_FETCH_MONO
+    if ARXIV_API_LAST_FETCH_MONO is not None:
+        elapsed = time.monotonic() - ARXIV_API_LAST_FETCH_MONO
+        if elapsed < 3.0:
+            time.sleep(3.0 - elapsed)
+    params = {
+        "search_query": f"cat:{category}",
+        "sortBy": "submittedDate",
+        "sortOrder": "descending",
+        "max_results": str(max_results),
+        "start": str(start),
+    }
+    headers = {"User-Agent": "Claude-Vibe-Squad-feed-sweep/0.1"}
+    with httpx.Client(timeout=timeout, follow_redirects=True, headers=headers) as client:
+        resp = client.get("http://export.arxiv.org/api/query", params=params)
+        resp.raise_for_status()
+        ARXIV_API_LAST_FETCH_MONO = time.monotonic()
+        return feedparser.parse(resp.content)
+
+
+def fetch_arxiv_by_id(arxiv_id: str, timeout: float = 30.0) -> Any:
+    headers = {"User-Agent": "Claude-Vibe-Squad-feed-sweep/0.1"}
+    with httpx.Client(timeout=timeout, follow_redirects=True, headers=headers) as client:
+        resp = client.get("http://export.arxiv.org/api/query", params={"id_list": arxiv_id})
+        resp.raise_for_status()
+        return feedparser.parse(resp.content)
+
+
+def log_extra(line: str) -> None:
+    FEED_SWEEP_EXTRA_LOG_LINES.append(line)
 
 
 # Browser-mimicking UA for vendor sites that block generic UAs.
@@ -542,6 +602,7 @@ def sweep_twitter_via_search(feed_cfg: dict[str, Any], processed_ids: dict[str, 
                 processor=feed_cfg.get("processor", "kimi-summarize"),
                 output_dir=feed_cfg.get("output_dir", "_state/blog-summaries/"),
                 source_type="twitter-via-search",
+                source_lane=feed_cfg.get("lane"),
             ))
             report.new_count += 1
             log_entry["new_count"] = log_entry.get("new_count", 0) + 1
@@ -669,6 +730,7 @@ def sweep_youtube_channel(feed_cfg: dict[str, Any], processed_ids: dict[str, lis
             processor=feed_cfg.get("processor", "kimi-summarize"),
             output_dir=feed_cfg.get("output_dir", "_state/blog-summaries/"),
             source_type="youtube-channel",
+            source_lane=feed_cfg.get("lane"),
         ))
         report.new_count += 1
         log_entry["new_count"] = log_entry.get("new_count", 0) + 1
@@ -676,6 +738,167 @@ def sweep_youtube_channel(feed_cfg: dict[str, Any], processed_ids: dict[str, lis
     processed_ids[name] = list(dict.fromkeys((feed_seen + list(seen_ids))[:200]))
     YOUTUBE_LOG_ENTRIES.append(log_entry)
     atomic_write(YOUTUBE_LOG_PATH, youtube_side_log(YOUTUBE_LOG_ENTRIES))
+    return report, new_items
+
+
+def init_manual_queue() -> None:
+    if not MANUAL_QUEUE_PATH.exists():
+        atomic_write(
+            MANUAL_QUEUE_PATH,
+            "# Manual feed queue - one URL per line.\n"
+            "# Blank lines and # comments are ignored. Processed URLs move to manual-queue-done.txt.\n",
+        )
+    if not MANUAL_QUEUE_DONE_PATH.exists():
+        atomic_write(MANUAL_QUEUE_DONE_PATH, "")
+
+
+def manual_item_id(url: str) -> str:
+    return "manual:" + sha256(url.encode("utf-8")).hexdigest()[:24]
+
+
+def classify_manual_url(url: str) -> str:
+    parsed = urlparse(url)
+    host = parsed.netloc.lower()
+    path = parsed.path
+    if host in {"x.com", "www.x.com", "twitter.com", "www.twitter.com"} and path.startswith("/i/broadcasts/"):
+        return "x-broadcast"
+    if host in {"youtube.com", "www.youtube.com", "m.youtube.com"} and path == "/watch":
+        return "youtube"
+    if host in {"youtu.be", "www.youtu.be"}:
+        return "youtube"
+    if host in {"arxiv.org", "www.arxiv.org", "alphaxiv.org", "www.alphaxiv.org"} and re.match(r"^/(abs|pdf)/", path):
+        return "arxiv"
+    return "generic-blog"
+
+
+def extract_arxiv_id(url: str) -> str:
+    match = re.search(r"/(?:abs|pdf)/([^/?#]+)", url)
+    if not match:
+        raise ValueError("no arxiv id in URL")
+    return re.sub(r"\.pdf$", "", match.group(1))
+
+
+def today_iso_date() -> str:
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def generic_blog_metadata(url: str, timeout: float = 30.0) -> tuple[str, str, str]:
+    with httpx.Client(timeout=timeout, follow_redirects=True, headers=HTML_SCRAPE_HEADERS) as client:
+        resp = client.get(url)
+        resp.raise_for_status()
+        html = resp.text
+    title_match = re.search(r"<title[^>]*>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
+    title = clean_text(unescape(re.sub(r"<[^>]+>", " ", title_match.group(1))) if title_match else url, 200)
+    desc_match = re.search(
+        r'<meta[^>]+(?:name|property)=["\'](?:description|og:description)["\'][^>]+content=["\'](.*?)["\']',
+        html,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if not desc_match:
+        desc_match = re.search(
+            r'<meta[^>]+content=["\'](.*?)["\'][^>]+(?:name|property)=["\'](?:description|og:description)["\']',
+            html,
+            re.IGNORECASE | re.DOTALL,
+        )
+    if desc_match:
+        summary = clean_text(unescape(desc_match.group(1)), 500)
+    else:
+        body_match = re.search(r"<article[^>]*>(.*?)</article>", html, re.IGNORECASE | re.DOTALL)
+        body = body_match.group(1) if body_match else html
+        summary = clean_text(unescape(re.sub(r"<[^>]+>", " ", body)), 500)
+    return title or url, summary, today_iso_date()
+
+
+def manual_arxiv_item(url: str) -> tuple[str, str, str]:
+    arxiv_id = extract_arxiv_id(url)
+    parsed = fetch_arxiv_by_id(arxiv_id)
+    if not parsed.entries:
+        raise ValueError(f"arxiv API returned no entry for {arxiv_id}")
+    entry = parsed.entries[0]
+    published_at = parse_published(entry)
+    return (
+        clean_text(entry.get("title") or f"arXiv {arxiv_id}", 200),
+        short_summary(entry, 500),
+        published_at.isoformat() if published_at else today_iso_date(),
+    )
+
+
+def manual_media_item(url: str) -> tuple[str, str, str]:
+    details, error = fetch_youtube_video_details(url)
+    if error:
+        raise ValueError(error)
+    return (
+        clean_text(details.get("title") or url, 200),
+        clean_text(details.get("description") or "", 500),
+        parse_youtube_published(details) or today_iso_date(),
+    )
+
+
+def build_manual_item(url: str) -> NewItem:
+    url_type = classify_manual_url(url)
+    audio_url: str | None = None
+    if url_type in {"x-broadcast", "youtube"}:
+        title, summary, published = manual_media_item(url)
+        audio_url = url
+    elif url_type == "arxiv":
+        title, summary, published = manual_arxiv_item(url)
+    else:
+        title, summary, published = generic_blog_metadata(url)
+    return NewItem(
+        feed_name="Manual queue",
+        feed_type="manual-queue",
+        item_id=manual_item_id(url),
+        title=title,
+        url=url,
+        published_iso=published,
+        audio_url=audio_url,
+        summary_short=summary[:500],
+        cadence_tag="unknown",
+        processor="kimi-summarize",
+        output_dir="_state/blog-summaries/",
+        source_type="manual-queue",
+        source_lane="practitioner",
+    )
+
+
+def sweep_manual_queue(processed_ids: dict[str, list[str]]) -> tuple[FeedReport, list[NewItem]]:
+    init_manual_queue()
+    name = "Manual queue"
+    report = FeedReport(name=name, type="manual-queue", fetched=True, new_count=0, skipped=0)
+    new_items: list[NewItem] = []
+    lines = MANUAL_QUEUE_PATH.read_text().splitlines()
+    keep_lines: list[str] = []
+    seen_ids = set(processed_ids.get(name, []))
+    feed_seen: list[str] = []
+
+    for raw_line in lines:
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#"):
+            keep_lines.append(raw_line)
+            continue
+        url = stripped.split()[0]
+        item_id = manual_item_id(url)
+        if item_id in seen_ids:
+            report.skipped += 1
+            append_atomic(MANUAL_QUEUE_DONE_PATH, f"{utc_now_iso()}\talready-processed\t{url}\n")
+            log_extra(f"- Manual queue: already-processed `{url}`")
+            continue
+        try:
+            item = build_manual_item(url)
+        except Exception as exc:
+            reason = clean_text(exc, 300)
+            append_atomic(MANUAL_QUEUE_FAILED_PATH, f"{utc_now_iso()}\tfailed\t{url}\t{reason}\n")
+            log_extra(f"- Manual queue: failed `{url}` — {reason}")
+            report.skipped += 1
+            continue
+        new_items.append(item)
+        report.new_count += 1
+        feed_seen.append(item_id)
+        append_atomic(MANUAL_QUEUE_DONE_PATH, f"{utc_now_iso()}\tprocessed\t{url}\t{item.item_id}\n")
+        log_extra(f"- Manual queue: processed `{url}` as {classify_manual_url(url)}")
+
+    processed_ids[name] = list(dict.fromkeys((feed_seen + list(seen_ids))[:200]))
+    atomic_write(MANUAL_QUEUE_PATH, "\n".join(keep_lines).rstrip() + "\n")
     return report, new_items
 
 
@@ -690,6 +913,69 @@ def sweep_feed(feed_cfg: dict[str, Any], processed_ids: dict[str, list[str]]) ->
 
     if feed_type == "youtube-channel":
         return sweep_youtube_channel(feed_cfg, processed_ids)
+
+    if feed_type == "arxiv-api":
+        category = str(feed_cfg.get("arxiv_category") or "").strip()
+        if not category:
+            report.error = "arxiv-api mode but no arxiv_category configured"
+            return report, new_items
+        window_days = int(feed_cfg.get("arxiv_api_window_days") or 14)
+        max_results = int(feed_cfg.get("arxiv_api_max_results") or 200)
+        max_pages = int(feed_cfg.get("arxiv_api_max_pages") or 20)
+        try:
+            parsed_entries: list[Any] = []
+            for page in range(max_pages):
+                parsed = fetch_arxiv_api(category, max_results, start=page * max_results)
+                entries = list(parsed.entries or [])
+                parsed_entries.extend(entries)
+                if not entries:
+                    break
+                cutoff = datetime.now(timezone.utc) - timedelta(days=window_days)
+                oldest = parse_published(entries[-1])
+                if oldest and oldest < cutoff:
+                    break
+        except Exception as e:
+            report.error = f"arxiv-api fetch failed: {e}"
+            log_extra(f"- arxiv-api {category}: failed — {clean_text(e, 300)}")
+            return report, new_items
+        report.fetched = True
+        cutoff = datetime.now(timezone.utc) - timedelta(days=window_days)
+        seen_ids = set(processed_ids.get(name, []))
+        feed_seen: list[str] = []
+        for entry in parsed_entries:
+            item_id = entry.get("id") or entry.get("guid") or entry.get("link") or ""
+            if not item_id:
+                continue
+            published_at = parse_published(entry)
+            if published_at and published_at < cutoff:
+                continue
+            feed_seen.append(item_id)
+            if item_id in seen_ids:
+                report.skipped += 1
+                continue
+            tag, note = cadence_tag(feed_cfg, published_at)
+            if note:
+                report.cadence_notes.append(f"{entry.get('title', '?')}: {note}")
+            new_items.append(NewItem(
+                feed_name=name,
+                feed_type=feed_type,
+                item_id=item_id,
+                title=entry.get("title") or "(untitled)",
+                url=entry.get("link") or item_id,
+                published_iso=(published_at.isoformat() if published_at else ""),
+                audio_url=None,
+                summary_short=short_summary(entry),
+                cadence_tag=tag,
+                processor=feed_cfg.get("processor", "kimi-summarize"),
+                output_dir=feed_cfg.get("output_dir", "_state/blog-summaries/"),
+                source_type="arxiv-api",
+                source_lane=feed_cfg.get("lane"),
+            ))
+            report.new_count += 1
+        retention = max(max_results * max_pages, 200)
+        processed_ids[name] = list(dict.fromkeys((feed_seen + list(seen_ids))[:retention]))
+        log_extra(f"- arxiv-api {category}: fetched={len(parsed_entries)} window_new={report.new_count} skipped={report.skipped}")
+        return report, new_items
 
     if feed_type == "html-scrape":
         url = feed_cfg.get("url")
@@ -722,6 +1008,7 @@ def sweep_feed(feed_cfg: dict[str, Any], processed_ids: dict[str, list[str]]) ->
                 cadence_tag="unknown",
                 processor=feed_cfg.get("processor", "kimi-summarize"),
                 output_dir=feed_cfg.get("output_dir", "_state/blog-summaries/"),
+                source_lane=feed_cfg.get("lane"),
             ))
             report.new_count += 1
         processed_ids[name] = list(dict.fromkeys((feed_seen + list(seen_ids))[:200]))
@@ -775,6 +1062,7 @@ def sweep_feed(feed_cfg: dict[str, Any], processed_ids: dict[str, list[str]]) ->
             cadence_tag=tag,
             processor=feed_cfg.get("processor", "kimi-summarize"),
             output_dir=feed_cfg.get("output_dir", "_state/blog-summaries/"),
+            source_lane=feed_cfg.get("lane"),
         ))
         report.new_count += 1
 
@@ -817,6 +1105,11 @@ def render_log(reports: list[FeedReport], new_items: list[NewItem]) -> str:
                 lines.append(f"    - audio: {item.audio_url}")
         lines.append("")
 
+    if FEED_SWEEP_EXTRA_LOG_LINES:
+        lines.append("## Sidecar events")
+        lines.extend(FEED_SWEEP_EXTRA_LOG_LINES)
+        lines.append("")
+
     lines.append("---")
     lines.append(f"*New items written to `{NEW_ITEMS_PATH.relative_to(VAULT_ROOT)}` for content-processing.sh*")
     return "\n".join(lines) + "\n"
@@ -831,6 +1124,10 @@ def main() -> int:
     processed_ids = load_processed_ids()
     all_reports: list[FeedReport] = []
     all_new: list[NewItem] = []
+
+    manual_report, manual_items = sweep_manual_queue(processed_ids)
+    all_reports.append(manual_report)
+    all_new.extend(manual_items)
 
     for feed_cfg in feeds:
         report, items = sweep_feed(feed_cfg, processed_ids)
