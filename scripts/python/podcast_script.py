@@ -33,15 +33,28 @@ VAULT_ROOT = Path(os.environ.get("VAULT_ROOT", Path.home() / "Obsidian-Claude-Vi
 STATE_DIR = Path(os.environ.get("STATE_DIR", VAULT_ROOT / "_state"))
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "claude")
 DEPTH_CONTEXT_LIMIT = 8_000
+LOCAL_TZ = ZoneInfo("America/Los_Angeles")
 
 
 def utc_date() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
+def local_date() -> str:
+    return datetime.now(timezone.utc).astimezone(LOCAL_TZ).strftime("%Y-%m-%d")
+
+
+def is_sunday(date: str | None = None) -> bool:
+    try:
+        dt = datetime.strptime(date or local_date(), "%Y-%m-%d")
+    except ValueError:
+        return False
+    return dt.weekday() == 6
+
+
 def current_time_section() -> str:
     now = datetime.now(timezone.utc)
-    local = now.astimezone(ZoneInfo("America/Los_Angeles"))
+    local = now.astimezone(LOCAL_TZ)
     return f"=== CURRENT TIME ===\nUTC: {now.isoformat()}\nLocal (PDT/PST): {local.isoformat()}"
 
 
@@ -142,21 +155,45 @@ def load_depth_context(date: str) -> str:
     return payload[:DEPTH_CONTEXT_LIMIT].rstrip() + "\n[truncated for podcast-script prompt]"
 
 
-def build_prompt(newsletter: str, depth_context: str) -> str:
-    return f"""You are writing a 4-5 minute podcast script for a daily AI/agent-infrastructure brief. The listener is on transit (phone, AirPods, distracted attention). Write FOR THE EAR, not the eye.
+def load_weekly_context(date: str) -> str:
+    cross_day = read_text(STATE_DIR / f"cross-day-{date}.md", "no weekly context available")
+    improvements = read_text(STATE_DIR / f"improvements-{date}.json", "{}")
+    payload = f"=== WEEK THEMES / CROSS-DAY CONTEXT ===\n{cross_day}\n\n=== RECURRING IMPROVEMENTS ===\n{improvements}"
+    return payload[:6_000].rstrip() + ("\n[truncated for weekly podcast prompt]" if len(payload) > 6_000 else "")
+
+
+def vibecoder_voice_constraints() -> str:
+    return """- Explain what changes for the listener's agent setup, model orchestration, review gates, or tool-calling workflow.
+- Use vibecoder-accessible language. Avoid bare internal terms like specialist-runtime-map, mailbox, compatibility namespace, or model lane; say "when you route work between models" or "when one agent reviews another's output" instead.
+- Major model releases stay prominent when they change what an agent pipeline can do."""
+
+
+def build_prompt(newsletter: str, depth_context: str, weekly_context: str = "", weekly: bool = False) -> str:
+    if weekly:
+        duration = "8-12 minute"
+        target = "11,000-15,000 chars"
+        hard_max = "16,000 chars"
+        scope = 'Cover the "Worth your week" items, the week themes, and recurring system improvements without enumerating every archive item.'
+    else:
+        duration = "4-5 minute"
+        target = "5,000-6,500 chars"
+        hard_max = "7,500 chars"
+        scope = 'Cover the top 3 items from "Worth your time today" with about 1 minute each: what it is, why it matters to them, and the one thing they should think about.'
+    return f"""You are writing a {duration} podcast script for an AI/agent-infrastructure brief. The listener is on transit (phone, AirPods, distracted attention). Write FOR THE EAR, not the eye.
 
 Constraints:
-- Target output: 5,000-6,500 chars (approximately 4-5 min spoken at about 180 WPM via ElevenLabs).
-- Hard maximum output: 7,500 chars. End naturally; do not run long and rely on truncation.
+- Target output: {target}.
+- Hard maximum output: {hard_max}. End naturally; do not run long and rely on truncation.
 - Conversational tone, like a podcast cohost talking to one person. NOT a news broadcast or formal briefing. NOT a TTS of markdown.
 - Open with a brief greeting that acknowledges the day. Close with a brief sign-off.
-- Cover the top 3 items from "Worth your time today" with about 1 minute each: what it is, why it matters to them, and the one thing they should think about.
+- {scope}
 - If there's a system-improvement proposal with score >=7, mention it briefly as "something to think about doing."
 - DO NOT enumerate every item. DO NOT list URLs (mention sources by name only). DO NOT read section headings aloud.
 - DO NOT use markdown formatting in the output. Plain prose only. No bullets, no asterisks, no code fences.
 - Use natural speech patterns: contractions ("we're", "don't"), occasional "and", brief asides.
 - DO NOT include sponsor reads, calls to subscribe, or any marketing fluff.
 - If today's signal is thin (no depth items, no improvements), produce a short 60-second "quiet day" script acknowledging that and pointing at one thing worth catching up on.
+{vibecoder_voice_constraints()}
 
 Input materials:
 === TRIMMED NEWSLETTER ===
@@ -165,13 +202,16 @@ Input materials:
 === TODAY'S DEPTH ITEMS (full multi-dim analysis) ===
 {depth_context}
 
+=== WEEKLY CONTEXT (Sunday branch only; otherwise may be empty) ===
+{weekly_context}
+
 {current_time_section()}
 
 Output ONLY the script body. No preface, no metadata, no labels.
 """
 
 
-def call_claude(prompt: str) -> tuple[int, str, str, float]:
+def call_claude(prompt: str, timeout_seconds: int = 300) -> tuple[int, str, str, float]:
     if not shutil.which(CLAUDE_BIN):
         return 127, "", f"{CLAUDE_BIN} not found", 0.0
     env = os.environ.copy()
@@ -183,12 +223,12 @@ def call_claude(prompt: str) -> tuple[int, str, str, float]:
             input=prompt,
             capture_output=True,
             text=True,
-            timeout=300,
+            timeout=timeout_seconds,
             env=env,
         )
         return result.returncode, result.stdout or "", result.stderr or "", time.monotonic() - start
     except subprocess.TimeoutExpired as exc:
-        return 124, exc.stdout or "", (exc.stderr or "") + "\nclaude command timed out after 300s", time.monotonic() - start
+        return 124, exc.stdout or "", (exc.stderr or "") + f"\nclaude command timed out after {timeout_seconds}s", time.monotonic() - start
 
 
 def clean_script(raw: str) -> str:
@@ -240,8 +280,11 @@ def main() -> int:
         return 0
 
     depth_context = load_depth_context(date)
-    prompt = build_prompt(newsletter, depth_context)
-    rc, stdout, stderr, duration = call_claude(prompt)
+    weekly = is_sunday(date)
+    weekly_context = load_weekly_context(date) if weekly else ""
+    timeout_seconds = 480 if weekly else 300
+    prompt = build_prompt(newsletter, depth_context, weekly_context, weekly)
+    rc, stdout, stderr, duration = call_claude(prompt, timeout_seconds)
     if rc == 0:
         script = clean_script(stdout)
     else:
@@ -257,6 +300,8 @@ def main() -> int:
         output_path=output_path,
         script_chars=len(script),
         depth_context_chars=len(depth_context),
+        weekly_context_chars=len(weekly_context),
+        timeout_seconds=timeout_seconds,
         returncode=rc,
         subprocess_duration_s=f"{duration:.1f}",
         stderr=(stderr or "")[:2000],

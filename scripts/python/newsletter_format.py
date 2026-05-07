@@ -35,9 +35,21 @@ from zoneinfo import ZoneInfo
 VAULT_ROOT = Path(os.environ.get("VAULT_ROOT", Path.home() / "Obsidian-Claude-Vibe-Squad"))
 STATE_DIR = Path(os.environ.get("STATE_DIR", VAULT_ROOT / "_state"))
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "claude")
-DELIVERY_CHAR_LIMIT = 2500
+DELIVERY_CHAR_LIMIT = 1800
+WEEKLY_DELIVERY_CHAR_LIMIT = 2400
 DELIVERY_TOP_ITEMS = 3
 ARCHIVE_SIGNAL_LIMIT = 8
+LOCAL_TZ = ZoneInfo("America/Los_Angeles")
+INTEREST_PHRASES = (
+    "agent runtime architecture",
+    "HITL gates",
+    "skill verification",
+    "specialist routing",
+    "write-scope policy",
+    "capability gates",
+    "MCP tooling",
+    "bug bounty research",
+)
 
 
 @dataclass
@@ -57,9 +69,26 @@ def utc_date() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
+def local_date() -> str:
+    return datetime.now(timezone.utc).astimezone(LOCAL_TZ).strftime("%Y-%m-%d")
+
+
+def is_sunday(date: str | None = None) -> bool:
+    if os.environ.get("NEWSLETTER_FORCE_SUNDAY") == "1":
+        return True
+    try:
+        if date:
+            dt = datetime.strptime(date, "%Y-%m-%d")
+        else:
+            dt = datetime.strptime(local_date(), "%Y-%m-%d")
+    except ValueError:
+        return False
+    return dt.weekday() == 6
+
+
 def current_time_section() -> str:
     now_utc = datetime.now(timezone.utc)
-    local = now_utc.astimezone(ZoneInfo("America/Los_Angeles"))
+    local = now_utc.astimezone(LOCAL_TZ)
     return f"=== CURRENT TIME ===\nUTC: {now_utc.isoformat()}\nLocal (PDT/PST): {local.isoformat()}"
 
 
@@ -418,17 +447,49 @@ def clean_inline(value: Any) -> str:
     return text.strip(" -")
 
 
-def clip(value: Any, limit: int) -> str:
+def accessible_inline(value: Any) -> str:
     text = clean_inline(value)
+    replacements = {
+        "Vibe Squad's specialist runtime map.tsv + dispatch protocol": "your routing config",
+        "specialist runtime map.tsv": "routing config",
+        "specialist-runtime-map.tsv": "routing config",
+        "specialist routing": "routing work between models",
+        "dispatch protocol": "task routing setup",
+        "model lane": "model route",
+        "mailbox": "task queue",
+        "compatibility namespace": "workflow category",
+        "Vibe Squad's": "your agent setup's",
+        "Vibe Squad": "your agent setup",
+        "operator's": "your",
+    }
+    for old, new in replacements.items():
+        text = re.sub(re.escape(old), new, text, flags=re.I)
+    return text
+
+
+def clip(value: Any, limit: int) -> str:
+    text = accessible_inline(value)
     if len(text) <= limit:
         return text
     clipped = text[:limit].rstrip()
-    sentence_end = max(clipped.rfind("."), clipped.rfind(";"), clipped.rfind(":"))
-    if sentence_end >= max(40, limit // 2):
+    sentence_end = max(clipped.rfind("."), clipped.rfind("?"), clipped.rfind("!"))
+    if sentence_end >= max(40, int(limit * 0.4)):
         clipped = clipped[: sentence_end + 1]
     elif " " in clipped:
         clipped = clipped.rsplit(" ", 1)[0]
-    return clipped.rstrip(" .,:;") + "..."
+    return clipped.rstrip(" .,:;?!") + "..."
+
+
+def extract_markdown_section(body: str, heading: str) -> str:
+    pattern = rf"(?ms)^## {re.escape(heading)}\s*\n(.*?)(?=^## |\Z)"
+    match = re.search(pattern, body or "")
+    return match.group(1).strip() if match else ""
+
+
+def archive_lead_from_body(archive_body: str) -> str:
+    lead = extract_markdown_section(archive_body, "Lead")
+    lines = [line.strip() for line in lead.splitlines() if line.strip()]
+    return clip(" ".join(lines), 300)
 
 
 def parse_json_object(value: str) -> dict[str, Any]:
@@ -459,7 +520,11 @@ def signal_summary(signal: dict[str, Any], core_limit: int = 190, why_limit: int
     core = clip(analysis.get("core_finding"), core_limit) or "Depth signal available in the archive."
     why_parts = nonempty_values(relevance.get("current_work_connections"))
     why_now = clean_inline(relevance.get("why_now"))
-    why = clip("; ".join(why_parts[:1]) or why_now, why_limit)
+    why_source = sorted(why_parts, key=lambda item: (
+        0 if any(phrase.lower() in item.lower() for phrase in INTEREST_PHRASES) else 1,
+        len(item),
+    ))
+    why = clip((why_source[0] if why_source else why_now), why_limit)
     source = clean_inline(signal.get("source")) or "source"
     url = str(signal.get("url") or "").strip()
     link = f"[{source}]({url})" if url.startswith("http") else source
@@ -470,6 +535,15 @@ def signal_summary(signal: dict[str, Any], core_limit: int = 190, why_limit: int
 
 def selected_decisions(inputs: FormatInputs) -> list[str]:
     decisions: list[str] = []
+    seen: set[str] = set()
+
+    def add_decision(text: str) -> None:
+        key = re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()[:90]
+        if not text or key in seen:
+            return
+        seen.add(key)
+        decisions.append(text)
+
     for action in inputs.actions[:3]:
         title = re.search(r"(?m)^title:\s*(.+)$", action)
         proposed = re.search(r"(?m)^proposed_action:\s*(.+)$", action)
@@ -477,7 +551,7 @@ def selected_decisions(inputs: FormatInputs) -> list[str]:
         label = clean_inline(title.group(1) if title else "Pending action")
         detail = clean_inline(proposed.group(1) if proposed else "")
         suffix = f" [{clean_inline(card_id.group(1))}]" if card_id else ""
-        decisions.append(clip(f"{label}: {detail}{suffix}", 180))
+        add_decision(clip(f"{label}: {detail}{suffix}", 180))
 
     improvements = parse_json_object(inputs.improvements)
     for candidate in (improvements.get("candidates") or [])[:5]:
@@ -487,19 +561,22 @@ def selected_decisions(inputs: FormatInputs) -> list[str]:
             score = float(candidate.get("aggregate_score") or 0)
         except (TypeError, ValueError):
             score = 0.0
-        if score < 7:
+        try:
+            recurrence = int(candidate.get("recurrence_count") or 0)
+        except (TypeError, ValueError):
+            recurrence = 0
+        if score < 7 and not (recurrence >= 4 and score >= 5):
             continue
         change = clip(candidate.get("proposed_change"), 170)
         if change:
-            decisions.append(f"{change} (score {score:g}/10)")
+            suffix = f" (recurring {recurrence} days)" if recurrence >= 4 else f" (score {score:g}/10)"
+            add_decision(f"{change}{suffix}")
         if len(decisions) >= 4:
             break
     return decisions
 
 
 def pulse_line(inputs: FormatInputs) -> str:
-    if inputs.cross_day_context == "no continuity context for today":
-        return ""
     triage = parse_json_object(inputs.triage_summary)
     total = triage.get("total")
     depth = triage.get("depth")
@@ -518,63 +595,192 @@ def pulse_line(inputs: FormatInputs) -> str:
     return "; ".join(pieces)[:100]
 
 
-def render_delivery_body(inputs: FormatInputs, archive_rel: str) -> str:
+def archive_pointer(archive_rel: str) -> str:
+    return f"Full archive: {archive_rel}"
+
+
+def week_dates(date: str) -> list[str]:
+    try:
+        end = datetime.strptime(date, "%Y-%m-%d")
+    except ValueError:
+        return [date]
+    start = end.fromordinal(end.toordinal() - end.weekday())
+    return [(start.fromordinal(start.toordinal() + offset)).strftime("%Y-%m-%d") for offset in range(7)]
+
+
+def week_themes(inputs: FormatInputs) -> list[str]:
+    section = extract_markdown_section(inputs.cross_day_context, "Week themes") or extract_markdown_section(inputs.cross_day_context, "Themes")
+    themes = [
+        clean_inline(re.sub(r"^\s*[-*]\s*", "", line))
+        for line in section.splitlines()
+        if re.match(r"^\s*[-*]\s+", line)
+    ]
+    if themes:
+        return [clip(theme, 150) for theme in themes[:4]]
+    return [clip((signal.get("analysis") or {}).get("core_finding"), 150) for signal in top_signals(inputs)[:4]]
+
+
+def weekly_signals(inputs: FormatInputs) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for date in week_dates(inputs.date):
+        for path in sorted((STATE_DIR / "blog-summaries").glob(f"{date}-*.md")):
+            text = read_text(path)
+            fm = parse_frontmatter(text)
+            raw_analysis = fm.get("analysis_json")
+            if not raw_analysis:
+                continue
+            try:
+                analysis = json.loads(raw_analysis)
+            except json.JSONDecodeError:
+                try:
+                    analysis = json.loads(raw_analysis.replace('\\"', '"'))
+                except json.JSONDecodeError:
+                    continue
+            key = clean_inline(fm.get("title") or path.stem).lower()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            relevance = analysis.get("relevance_to_me") if isinstance(analysis.get("relevance_to_me"), dict) else {}
+            text_blob = " ".join([
+                str(analysis.get("core_finding") or ""),
+                " ".join(nonempty_values(relevance.get("current_work_connections"))),
+                str(relevance.get("why_now") or ""),
+            ]).lower()
+            interest_hits = sum(1 for phrase in INTEREST_PHRASES if phrase.lower() in text_blob)
+            try:
+                score = float(fm.get("relevance_score") or 0)
+            except (TypeError, ValueError):
+                score = 0.0
+            candidates.append({
+                "lane": fm.get("source_lane") or "unknown",
+                "title": fm.get("title") or path.stem,
+                "url": fm.get("url"),
+                "source": fm.get("feed"),
+                "time_horizon": fm.get("time_horizon") or analysis.get("time_horizon"),
+                "week_rank": score + interest_hits * 0.5,
+                "analysis": {
+                    "core_finding": analysis.get("core_finding"),
+                    "relevance_to_me": relevance,
+                },
+            })
+    if not candidates:
+        return top_signals(inputs)
+    return sorted(candidates, key=lambda item: item.get("week_rank") or 0, reverse=True)[:DELIVERY_TOP_ITEMS]
+
+
+def recurring_improvements(inputs: FormatInputs, minimum: int = 3) -> list[str]:
+    improvements = parse_json_object(inputs.improvements)
+    lines: list[str] = []
+    for candidate in improvements.get("candidates") or []:
+        if not isinstance(candidate, dict):
+            continue
+        try:
+            recurrence = int(candidate.get("recurrence_count") or 0)
+            score = float(candidate.get("aggregate_score") or 0)
+        except (TypeError, ValueError):
+            recurrence, score = 0, 0.0
+        if recurrence < minimum:
+            continue
+        change = clip(candidate.get("proposed_change"), 150)
+        if change:
+            lines.append(f"{change} ({recurrence} days, score {score:g})")
+    return lines[:5]
+
+
+def _render_daily_body(inputs: FormatInputs, archive_rel: str, archive_lead: str = "", compact: bool = False) -> str:
     signals = top_signals(inputs)
     if not signals:
         return "\n".join([
             f"# Vibe Squad — {weekday_label(inputs.date)}",
             "",
             "No notable signal today.",
+            "",
+            archive_pointer(archive_rel),
         ])
 
     first_analysis = signals[0].get("analysis") if isinstance(signals[0].get("analysis"), dict) else {}
-    lead = clip(first_analysis.get("core_finding"), 260)
+    lead = clip(archive_lead or first_analysis.get("core_finding"), 300 if compact else 300)
     lines = [
         f"# Vibe Squad — {weekday_label(inputs.date)}",
         "",
         lead,
-        "",
-        "## Worth your time today (top 3)",
-        "",
     ]
-    lines.extend(f"{idx}. {signal_summary(signal)}" for idx, signal in enumerate(signals, 1))
 
     decisions = selected_decisions(inputs)
     if decisions:
         lines += ["", "## Decisions for you", ""]
         lines.extend(f"- {decision}" for decision in decisions)
 
+    lines += ["", "## Worth your time today", ""]
+    lines.extend(
+        f"{idx}. {signal_summary(signal, core_limit=100 if compact else 180, why_limit=50 if compact else 110)}"
+        for idx, signal in enumerate(signals, 1)
+    )
+
     pulse = pulse_line(inputs)
     if pulse:
         lines += ["", "## Pulse", "", pulse]
 
+    lines += ["", archive_pointer(archive_rel)]
     return "\n".join(lines).strip()
 
 
-def fit_delivery_body(inputs: FormatInputs, archive_rel: str, subject: str) -> str:
-    body = render_delivery_body(inputs, archive_rel)
-    if len(render_newsletter(inputs.date, body, subject, archive_rel)) <= DELIVERY_CHAR_LIMIT:
-        return body
-
-    signals = top_signals(inputs)
+def _render_weekly_body(inputs: FormatInputs, archive_rel: str, archive_lead: str = "", compact: bool = False) -> str:
+    dates = week_dates(inputs.date)
+    signals = weekly_signals(inputs)
+    lead = clip(archive_lead or "This week's signal is about what changes for AI-assisted coding work next.", 240 if compact else 320)
     lines = [
-        f"# Vibe Squad — {weekday_label(inputs.date)}",
+        f"# Vibe Squad — {weekday_label(inputs.date)} — Week of {dates[0][5:]}-{dates[-1][5:]}",
         "",
-        clip((signals[0].get("analysis") or {}).get("core_finding") if signals else "No notable signal today.", 180),
+        lead,
         "",
-        "## Worth your time today (top 3)",
+        "## Week themes",
         "",
     ]
+    lines.extend(f"- {theme}" for theme in week_themes(inputs)[:4] if theme)
+    lines += ["", "## Worth your week", ""]
     lines.extend(
-        f"{idx}. {signal_summary(signal, core_limit=135, why_limit=70)}"
+        f"{idx}. {signal_summary(signal, core_limit=150 if compact else 190, why_limit=75 if compact else 120)}"
         for idx, signal in enumerate(signals, 1)
     )
-    body = "\n".join(lines).strip()
-    if len(render_newsletter(inputs.date, body, subject, archive_rel)) <= DELIVERY_CHAR_LIMIT:
+    decisions = selected_decisions(inputs)
+    if decisions:
+        lines += ["", "## Decisions for the week ahead", ""]
+        lines.extend(f"- {decision}" for decision in decisions)
+    recurring = recurring_improvements(inputs, minimum=3)
+    if recurring:
+        lines += ["", "## Recurring system improvements", ""]
+        lines.extend(f"- {line}" for line in recurring)
+    pulse = pulse_line(inputs)
+    if pulse:
+        lines += ["", "## Pulse", "", f"This week: {pulse}"]
+    lines += ["", archive_pointer(archive_rel)]
+    return "\n".join(lines).strip()
+
+
+def render_delivery_body(inputs: FormatInputs, archive_rel: str, archive_lead: str = "") -> str:
+    if is_sunday(inputs.date):
+        return _render_weekly_body(inputs, archive_rel, archive_lead)
+    return _render_daily_body(inputs, archive_rel, archive_lead)
+
+
+def fit_delivery_body(inputs: FormatInputs, archive_rel: str, subject: str, archive_lead: str = "") -> str:
+    limit = WEEKLY_DELIVERY_CHAR_LIMIT if is_sunday(inputs.date) else DELIVERY_CHAR_LIMIT
+    body = render_delivery_body(inputs, archive_rel, archive_lead)
+    if len(render_newsletter(inputs.date, body, subject, archive_rel)) <= limit:
         return body
-    suffix = "\n"
+
+    body = _render_weekly_body(inputs, archive_rel, archive_lead, compact=True) if is_sunday(inputs.date) else _render_daily_body(inputs, archive_rel, archive_lead, compact=True)
+    if len(render_newsletter(inputs.date, body, subject, archive_rel)) <= limit:
+        return body
+    suffix_parts = [archive_pointer(archive_rel)]
+    pulse = pulse_line(inputs)
+    if pulse:
+        suffix_parts.insert(0, f"Pulse: {pulse}")
+    suffix = "\n\n" + "\n".join(suffix_parts)
     wrapper_len = len(render_newsletter(inputs.date, "", subject, archive_rel))
-    budget = max(200, DELIVERY_CHAR_LIMIT - wrapper_len - len(suffix) - 5)
+    budget = max(200, limit - wrapper_len - len(suffix) - 5)
     return body[:budget].rstrip() + suffix
 
 
@@ -597,17 +803,30 @@ def deterministic_newsletter(inputs: FormatInputs, reason: str) -> tuple[str, st
     return "\n".join(parts).strip(), subject or "Structured signals fallback"
 
 
+def vibecoder_voice_constraints() -> str:
+    return """Vibecoder-accessible voice:
+- Write for a basic Claude Code user who knows agents, MCPs, tool calling, and AI-assisted coding, but not this repo's internal architecture.
+- Keep the system-relevance lens: explain what changes for the reader's agent setup, model orchestration, review gates, or tool-calling workflow.
+- Major model releases and platform launches stay prominent when they change what an agent pipeline can do.
+- Use plain language over internal labels. Avoid phrases like "Vibe-Squad-shaped", "specialist-runtime-map", "mailbox", "compatibility namespace", and "model lane". Translate them into phrases like "when you route work between models", "when one agent reviews another's output", "your agent setup", and "model orchestration".
+- Practitioner-to-peer, not architect-to-architect. Show the implication for an AI agent setup, not internal implementation trivia.
+- Researcher voice still holds: no AI tells, no marketing language, no rhetorical flourishes, no calls to subscribe."""
+
+
 def build_prompt(inputs: FormatInputs) -> str:
     pending_actions = "\n\n---\n\n".join(inputs.actions) if inputs.actions else "none"
-    return f"""You are the daily-newsletter editor for Vibe Squad's content brief. Produce a single markdown digest under 16 KB suitable for email. Required structure in this order:
+    weekly = is_sunday(inputs.date)
+    weekly_sections = """
+For Sunday weekly runs, still output the full archive under the same headings, but make the Lead a weekly connecting claim and include week-level context in the Lead, Continuity, and System improvements sections. The short Telegram delivery will derive Week themes, Worth your week, Recurring system improvements, weekly Pulse, and archive pointer deterministically from this archive and the structured inputs."""
+    return f"""You are the daily-newsletter editor for an AI-assisted coding/content brief. Produce a single markdown digest under 16 KB suitable for an archive. Required structure in this order:
 
-{current_time_section()}
+	{current_time_section()}
 
-Use these exact markdown section headings, in this order:
-1. ## Lead
-   1-2 sentences: the single most important thing in today's brief, named explicitly. Picked from depth-tier items. If a content-action card is pending APPROVE, that takes precedence as the lead.
-2. ## Decisions to make
-   Only if pending action cards exist. List each card as a 2-3 line item with: title, why it matters, "Reply APPROVE or REJECT [card-id]". Skip section entirely if no cards.
+	Use these exact markdown section headings, in this order:
+	1. ## Lead
+	   ONE sentence only: a claim-first, operator-framed line about what changes for the reader's AI-assisted coding work. Pick from depth-tier items. If a content-action card is pending APPROVE, that takes precedence as the lead.
+	2. ## Decisions to make
+	   Only if pending action cards exist. List each card as a 2-3 line item with: title, why it matters, "Reply APPROVE or REJECT [card-id]". Skip section entirely if no cards.
 3. ## System improvements proposed
    For each candidate from the input JSON, format as:
    **[IMP-id]: <proposed_change>** (avg score: <aggregate_score>/10) plus `🔁 recurring across N days` when recurrence_count >= 3 and `📈 score +X.X` or `📉 score -X.X` when absolute score_delta >= 1.5.
@@ -635,13 +854,16 @@ Use these exact markdown section headings, in this order:
    5-12 items from highest-scoring skim items. One-line each, source-tagged. Group by lane if it adds clarity; flat list is also fine.
 7. ## What's out
    1 sentence or skip if uninteresting. If anything notable was muted/dropped, mention by source/topic.
-8. SUBJECT:
-   Last block only. One line, <=80 chars, reflects today's lead story, no quotes, no "Daily Brief" prefix.
+	8. SUBJECT:
+	   Last block only. One line, <=80 chars, no quotes, no "Daily Brief" prefix. Subject must be a claim in operator-framed voice, leading with what changes for the reader's work, not who shipped what. It must be vibecoder-accessible: no internal Vibe Squad jargon, no insider phrases like "Vibe-Squad-shaped" or "specialist-runtime-map".
 
-Constraints:
-- Researcher-voice prose, not AI rhetorical tells. No "let me know if you have questions," no "I hope this helps," no triple-bullet emoji headers.
-- Output only the newsletter markdown and final SUBJECT block. No preface, no analysis, no insight block.
-- Do not call tools. This is a text-generation-only formatting pass.
+	Constraints:
+	{vibecoder_voice_constraints()}
+	{weekly_sections if weekly else ""}
+	- Researcher-voice prose, not AI rhetorical tells. No "let me know if you have questions," no "I hope this helps," no triple-bullet emoji headers.
+	- No emoji in the Lead, Today's signals, or SUBJECT. Existing emoji markers are allowed only in System improvements metadata where the schema already calls for them.
+	- Output only the newsletter markdown and final SUBJECT block. No preface, no analysis, no insight block.
+	- Do not call tools. This is a text-generation-only formatting pass.
 - Do not invent content. Every named item, link, or fact must come from the input.
 - Preserve all URLs verbatim from the input.
 - If input is empty or near-empty, produce a 2-line "no notable signal today" digest.
@@ -832,7 +1054,7 @@ def main() -> int:
     if rc != 0:
         write_failure_log(log_path, inputs.date, f"claude exited {rc}", prompt, stdout, stderr, duration)
         archive_body, subject = deterministic_newsletter(inputs, f"claude exited {rc}")
-        delivery_body = fit_delivery_body(inputs, archive_rel, subject)
+        delivery_body = fit_delivery_body(inputs, archive_rel, subject, archive_lead_from_body(archive_body))
         atomic_write(archive_path, render_newsletter(inputs.date, archive_body, subject))
         atomic_write(output_path, render_newsletter(inputs.date, delivery_body, subject, archive_rel))
         print(f"Newsletter: {output_path} (fallback)")
@@ -843,7 +1065,7 @@ def main() -> int:
     except ValueError as exc:
         write_failure_log(log_path, inputs.date, str(exc), prompt, stdout, stderr, duration)
         archive_body, subject = deterministic_newsletter(inputs, str(exc))
-        delivery_body = fit_delivery_body(inputs, archive_rel, subject)
+        delivery_body = fit_delivery_body(inputs, archive_rel, subject, archive_lead_from_body(archive_body))
         atomic_write(archive_path, render_newsletter(inputs.date, archive_body, subject))
         atomic_write(output_path, render_newsletter(inputs.date, delivery_body, subject, archive_rel))
         print(f"Newsletter: {output_path} (fallback)")
@@ -851,7 +1073,7 @@ def main() -> int:
 
     archive_body = normalize_body(archive_body)
     archive_body = enforce_todays_signals(archive_body, inputs.todays_signals)
-    delivery_body = fit_delivery_body(inputs, archive_rel, subject)
+    delivery_body = fit_delivery_body(inputs, archive_rel, subject, archive_lead_from_body(archive_body))
     atomic_write(archive_path, render_newsletter(inputs.date, archive_body, subject))
     atomic_write(output_path, render_newsletter(inputs.date, delivery_body, subject, archive_rel))
     print(f"Newsletter: {output_path}; archive: {archive_path}")
