@@ -11,7 +11,10 @@ import fcntl
 import json
 import os
 import re
+import subprocess
+import time
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -20,6 +23,12 @@ from typing import Any
 VAULT_ROOT = Path(os.environ.get("VAULT_ROOT", Path.home() / "Obsidian-Claude-Vibe-Squad"))
 STATE_DIR = Path(os.environ.get("STATE_DIR", VAULT_ROOT / "_state"))
 REGISTRY_PATH = STATE_DIR / "active-tasks.json"
+CHRONO_QUEUE_PATH = STATE_DIR / "chrono-queue.md"
+LONG_RUNNING_NOTED_DIR = STATE_DIR / "long-running-noted"
+LONG_RUNNING_MIN_AGE = timedelta(minutes=15)
+LONG_RUNNING_DEBOUNCE = timedelta(minutes=15)
+LONG_RUNNING_STALE_AGE = timedelta(hours=12)
+SQUAD_SESSION = os.environ.get("SQUAD_SESSION", "squad")
 CANONICAL_RESPONSE_STATUSES = {
     "completed",
     "completed_with_partials",
@@ -54,11 +63,76 @@ def atomic_write(path: Path, content: str) -> None:
     tmp.replace(path)
 
 
+@contextmanager
+def lockdir(path: Path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    acquired = False
+    while not acquired:
+        try:
+            path.mkdir()
+            acquired = True
+            (path / "owner.pid").write_text(f"{os.getpid()}\n", encoding="utf-8")
+            break
+        except FileExistsError:
+            owner_text = read_text(path / "owner.pid").strip()
+            if owner_text.isdigit():
+                try:
+                    os.kill(int(owner_text), 0)
+                    time.sleep(0.1)
+                    continue
+                except ProcessLookupError:
+                    try:
+                        (path / "owner.pid").unlink(missing_ok=True)
+                        path.rmdir()
+                    except OSError:
+                        time.sleep(0.1)
+                    continue
+                except PermissionError:
+                    time.sleep(0.1)
+                    continue
+            try:
+                age = datetime.now(timezone.utc) - datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+            except OSError:
+                time.sleep(0.1)
+                continue
+            if age > timedelta(minutes=5):
+                try:
+                    (path / "owner.pid").unlink(missing_ok=True)
+                    path.rmdir()
+                except OSError:
+                    time.sleep(0.1)
+                continue
+            time.sleep(0.1)
+    try:
+        yield
+    finally:
+        if acquired:
+            try:
+                (path / "owner.pid").unlink(missing_ok=True)
+                path.rmdir()
+            except OSError:
+                pass
+
+
 def read_text(path: Path, default: str = "") -> str:
     try:
         return path.read_text(encoding="utf-8")
     except FileNotFoundError:
         return default
+
+
+def append_chrono_queue(status: str, task_ref: str, summary: str) -> None:
+    safe_summary = re.sub(r"\s+", " ", summary or "").strip().replace("|", "/")
+    if not safe_summary:
+        safe_summary = "(no pane snippet)"
+    safe_summary = safe_summary[:200]
+    line = f"{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')} | {status} | {task_ref} | {safe_summary}\n"
+    with lockdir(CHRONO_QUEUE_PATH.with_suffix(CHRONO_QUEUE_PATH.suffix + ".lockdir")):
+        existing = read_text(
+            CHRONO_QUEUE_PATH,
+            "# Chrono Queue\n# timestamp | status | namespace/task-id | summary\n\n",
+        )
+        atomic_write(CHRONO_QUEUE_PATH, existing + line)
 
 
 def load_registry() -> dict[str, Any]:
@@ -128,6 +202,76 @@ def append_drift(task_id: str, detail: str) -> None:
     atomic_write(path, existing + f"- {datetime.now(timezone.utc).isoformat()} {task_id}: {detail}\n")
 
 
+def marker_recent(task_id: str, now: datetime) -> bool:
+    marker = LONG_RUNNING_NOTED_DIR / f"{task_id}.noted"
+    try:
+        age = now - datetime.fromtimestamp(marker.stat().st_mtime, tz=timezone.utc)
+    except FileNotFoundError:
+        return False
+    return age < LONG_RUNNING_DEBOUNCE
+
+
+def touch_marker(task_id: str) -> None:
+    LONG_RUNNING_NOTED_DIR.mkdir(parents=True, exist_ok=True)
+    marker = LONG_RUNNING_NOTED_DIR / f"{task_id}.noted"
+    marker.touch()
+
+
+def meaningful_lines(text: str, limit: int = 3) -> list[str]:
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return lines[-limit:]
+
+
+def pane_snapshot(to_model: str) -> tuple[str, str]:
+    target = f"{SQUAD_SESSION}:{to_model}"
+    try:
+        result = subprocess.run(
+            ["tmux", "capture-pane", "-t", target, "-p"],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=5,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return "unknown", "pane unreachable"
+    if result.returncode != 0:
+        return "unknown", "pane unreachable"
+    lines = meaningful_lines(result.stdout or "")
+    snippet = " / ".join(lines)[:200] if lines else "(pane blank)"
+    joined = "\n".join(lines)
+    active_re = re.compile(
+        r"(Working|Waiting for background|esc to interrupt|Wandering|Thinking|Brewed|Running|Applying patch)",
+        re.I,
+    )
+    idle_re = re.compile(r"(Explain this codebase|^▶|❯|^\$|^%|^>)", re.I | re.M)
+    if active_re.search(joined):
+        return "active", snippet
+    if idle_re.search(joined):
+        return "idle", snippet
+    return "unknown", snippet
+
+
+def note_long_running(task_id: str, entry: dict[str, Any], now: datetime, dry_run: bool) -> str | None:
+    if entry.get("chrono_reconciled") is True:
+        return None
+    dispatched = parse_dt(entry.get("dispatched_at"))
+    if not dispatched:
+        return None
+    elapsed = now - dispatched
+    if elapsed < LONG_RUNNING_MIN_AGE or elapsed >= LONG_RUNNING_STALE_AGE:
+        return None
+    response = expected_response(task_id, entry)
+    if response.exists() or marker_recent(task_id, now):
+        return None
+    namespace = str(entry.get("compatibility_namespace") or "coding")
+    to_model = str(entry.get("to_model") or "unknown-model")
+    state, snippet = pane_snapshot(to_model)
+    if not dry_run:
+        append_chrono_queue(f"long-running:{state}", f"{namespace}/{task_id}", snippet)
+        touch_marker(task_id)
+    return f"long-running:{state} {task_id}"
+
+
 def expected_response(task_id: str, entry: dict[str, Any]) -> Path:
     namespace = entry.get("compatibility_namespace") or "coding"
     return VAULT_ROOT / "departments" / str(namespace) / "outbox" / f"{task_id}-response.md"
@@ -170,6 +314,9 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                     if not dry_run:
                         append_drift(task_id, f"no response after >12h; status={current_status}")
                     messages.append(f"drift {task_id}")
+                long_running_message = note_long_running(task_id, raw_entry, now, dry_run)
+                if long_running_message:
+                    messages.append(long_running_message)
         if changed and not dry_run:
             atomic_write(REGISTRY_PATH, json.dumps(registry, indent=2, ensure_ascii=False) + "\n")
         return changed, messages

@@ -40,6 +40,19 @@ mkdir -p "${OUTBOX}"
 
 echo "Watching ${OUTBOX}/ for new responses; will nudge squad:chrono pane on each."
 
+if [[ "$NAMESPACE" == "coding" ]]; then
+    (
+        while true; do
+            sleep 900
+            if ! "${VAULT_ROOT}/bin/registry-reconciler.sh" >/dev/null 2>&1; then
+                echo "[$(date '+%H:%M:%S')] warning: periodic registry reconciliation failed" >&2
+            fi
+        done
+    ) &
+    PERIODIC_RECONCILER_PID=$!
+    trap 'kill "${PERIODIC_RECONCILER_PID}" 2>/dev/null || true' EXIT INT TERM
+fi
+
 frontmatter_field() {
     local file="$1" field="$2"
     awk -v key="$field" '/^---$/{p=!p; next} p && index($0, key ":") == 1 {sub("^[^:]+:[[:space:]]*", ""); print; exit}' "$file"
