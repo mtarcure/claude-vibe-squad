@@ -28,7 +28,7 @@ Generated adapters, stale handoffs, old specs, and runtime logs are not source o
 5. Reviewers are read-only unless Chrono serializes a later write packet.
 6. Deletes, credential changes, public release changes, cleanup actions, live outreach/email sends, and paid media generation require explicit operator approval.
 7. Write shared state atomically with temp + fsync/sync + rename.
-8. Verify before claiming done. No fabricated citations or unverifiable provider claims.
+8. Verify before claiming done. No fabricated citations or unverifiable provider claims. Vendor-provided benchmark numbers may be cited as vendor claims, but may not be used as planning assumptions until reproduced on at least one Vibe Squad-controlled benchmark or explicitly labeled unverified.
 
 ## Session Resume
 

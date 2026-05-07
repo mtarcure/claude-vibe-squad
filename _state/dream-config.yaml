@@ -34,10 +34,17 @@ operator_opt_in:
 opt_in_paths: []  # currently no opt-ins
 
 # Mode of operation
-mode: shadow  # shadow | propose | aggressive
-              # shadow = journal only (default)
-              # propose = also generate diff-format proposals
-              # aggressive = also auto-apply proposals (NOT recommended)
+# Safety pattern (input-never-modified, borrowed from Anthropic Managed Agents Dreams):
+# - dream_light reads inputs (allowlisted paths above) but NEVER modifies them.
+# - In `propose` mode, generated proposals land in _state/dream-proposals/<run-id>-<id>.md
+#   as separate artifacts with status: pending. Operator manually flips status to APPROVE
+#   or REJECT; nothing applies automatically.
+# - This makes propose-mode safe to enable: worst case is a pile of unactioned proposals
+#   that auto-expire after proposal_ttl_days (default 30).
+mode: propose  # shadow | propose | aggressive
+               # shadow = journal only
+               # propose = also generate diff-format proposals (current — operator-curated approval)
+               # aggressive = also auto-apply proposals (NOT recommended; would violate input-never-modified)
 
 # Anti-hallucination thresholds
 min_signal_instances: 3        # pattern must appear N times to surface

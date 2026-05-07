@@ -18,11 +18,23 @@ Phases:
   4. Gemini journal pass — drafts structured insights
   5. Codex adversarial review — flags hallucinations, over-reach, sensitive content
   6. Write `_state/dream-logs/<date>.md` (journal + review verdict)
-  7. If mode=propose: write proposals to `_state/dream-proposals/<date>.md`
+  7. If mode=propose: write proposals to `_state/dream-proposals/<run-id>-<id>.md`
 
 Multi-model: writer family (Gemini) ≠ reviewer family (Codex). Per CLAUDE.md.
 
-Default mode: shadow (no proposals). Toggle via dream-config.yaml.
+Safety pattern (input-never-modified, borrowed from Anthropic Managed Agents Dreams,
+2026-04-21 release):
+
+  - This pipeline READS the allowlisted paths in dream-config.yaml; it NEVER modifies them.
+  - In `mode: propose`, generated proposals are written as SEPARATE artifacts in
+    `_state/dream-proposals/<run-id>-<id>.md`. Each proposal carries `status: pending`.
+  - Operator manually flips `status` to `APPROVE` or `REJECT` (with optional `reason`).
+  - Nothing is auto-applied. The morning-brief surfaces pending proposals for review.
+  - Worst-case if operator never reviews: proposals auto-expire after
+    `proposal_ttl_days` (default 30) and are pruned from the surface.
+
+Mode default is `propose` (was `shadow` until 2026-05-06; flipped after the safety
+pattern was documented and the dream-proposals/ directory mechanism verified).
 """
 
 from __future__ import annotations
