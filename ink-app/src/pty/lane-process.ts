@@ -1,4 +1,4 @@
-import { spawn as childSpawn, ChildProcess } from 'child_process';
+import { IPty, spawn } from 'node-pty';
 
 type LaneName = 'claude' | 'codex' | 'gemini' | 'kimi';
 
@@ -12,9 +12,12 @@ const COMMANDS: Record<LaneName, string> = {
 const UNSET_ENV_KEYS = ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY'];
 
 export class LaneProcess {
-  private process: ChildProcess | null = null;
+  private pty: IPty | null = null;
   private dataHandlers: ((chunk: string) => void)[] = [];
   private exitHandlers: ((code: number) => void)[] = [];
+  private crashCount = 0;
+  private lastCrashTs = 0;
+  private crashHandlers: ((info: {crashCount: number}) => void)[] = [];
 
   constructor(public readonly name: LaneName, private readonly args: string[] = []) {}
 
@@ -23,44 +26,32 @@ export class LaneProcess {
     for (const [k, v] of Object.entries(process.env)) {
       if (v !== undefined && !UNSET_ENV_KEYS.includes(k)) env[k] = v;
     }
-    // Ensure critical paths are available
-    if (!env.PATH) env.PATH = process.env.PATH || '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin';
-    if (!env.HOME) env.HOME = process.env.HOME || '/Users/user';
-    if (!env.TERM) env.TERM = 'xterm-color';
+    this.pty = spawn(COMMANDS[this.name], this.args, {
+      name: 'xterm-color',
+      cols: 120,
+      rows: 30,
+      cwd: process.env.HOME,
+      env,
+    });
+    this.pty.onData((chunk: string) => {
+      for (const h of this.dataHandlers) h(chunk);
+    });
+    this.pty.onExit(({exitCode}) => {
+      for (const h of this.exitHandlers) h(exitCode);
+      this.handleExit();
+    });
+  }
 
-    const cmd = COMMANDS[this.name];
-
-    try {
-      this.process = childSpawn(cmd, this.args, {
-        cwd: env.HOME,
-        env,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-
-      if (this.process.stdout) {
-        this.process.stdout.on('data', (chunk: Buffer) => {
-          const str = chunk.toString('utf8');
-          for (const h of this.dataHandlers) h(str);
-        });
-      }
-
-      if (this.process.stderr) {
-        this.process.stderr.on('data', (chunk: Buffer) => {
-          const str = chunk.toString('utf8');
-          for (const h of this.dataHandlers) h(str);
-        });
-      }
-
-      this.process.on('exit', (code: number | null) => {
-        for (const h of this.exitHandlers) h(code ?? 1);
-      });
-    } catch (err) {
-      throw new Error(`Failed to spawn process: ${err}`);
-    }
+  private handleExit() {
+    const now = Date.now();
+    if (now - this.lastCrashTs > 5 * 60_000) this.crashCount = 0;
+    this.crashCount += 1;
+    this.lastCrashTs = now;
+    for (const h of this.crashHandlers) h({crashCount: this.crashCount});
   }
 
   write(input: string): void {
-    this.process?.stdin?.write(input);
+    this.pty?.write(input);
   }
 
   onData(cb: (chunk: string) => void): void {
@@ -71,14 +62,12 @@ export class LaneProcess {
     this.exitHandlers.push(cb);
   }
 
+  onCrash(cb: (info: {crashCount: number}) => void): void {
+    this.crashHandlers.push(cb);
+  }
+
   kill(): void {
-    if (this.process) {
-      try {
-        this.process.kill();
-      } catch (e) {
-        // Already dead
-      }
-      this.process = null;
-    }
+    this.pty?.kill();
+    this.pty = null;
   }
 }
