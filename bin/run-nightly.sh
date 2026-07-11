@@ -12,15 +12,10 @@
 #   7. Content triage (score new items into depth / skim / drop)
 #   8. Content processing (summarize depth items, headline-skim the rest)
 #   9. Content synthesis (cluster depth summaries)
-#   10. Light dream (journal only — no proposals on weekdays)
-#   11. Daily morning brief generator (synthesizes everything)
-#   12. Cross-day context (continuity for newsletter)
-#   13. Improvement extractor (surfaced-only system proposals)
-#   14. Newsletter formatter (short Telegram digest + full archive)
-#   15. Podcast script (conversational 4-5 minute audio prose)
-#   16. Newsletter TTS (ElevenLabs MP3 via Telegram-native attachment)
-#   17. Telegram delivery (formatted text + audio to operator phone)
+#   10. Daily morning brief generator (synthesizes everything)
+#   11. Cross-day context (continuity for downstream)
 #   Email brief is retained as a manual fallback, no longer invoked by default.
+#   DEPRECATED: dream-light, improvement-extractor, newsletter-format, podcast-script, newsletter-tts, telegram-deliver.
 #
 # Each phase logs separately. Failures don't block subsequent phases.
 # All output ends up in _state/morning-briefs/<date>.md as the unified brief.
@@ -85,14 +80,8 @@ run_phase "feed-sweep"           "${VAULT_ROOT}/bin/feed-sweep.sh"
 run_phase "content-triage"       "${VAULT_ROOT}/bin/content-triage.sh"
 run_phase "content-processing"   "${VAULT_ROOT}/bin/content-processing.sh"
 run_phase "content-synthesis"    "${VAULT_ROOT}/bin/content-synthesis.sh"
-run_phase "dream-light"          "${VAULT_ROOT}/bin/dream-light.sh"
 run_phase "morning-brief"        "${VAULT_ROOT}/bin/morning-brief.sh"
 run_phase "cross-day-context"    "${VAULT_ROOT}/bin/cross-day-context.sh"
-run_phase "improvement-extractor"  "${VAULT_ROOT}/bin/improvement-extractor.sh"
-run_phase "newsletter-format"    "${VAULT_ROOT}/bin/newsletter-format.sh"
-run_phase "podcast-script"       "${VAULT_ROOT}/bin/podcast-script.sh"
-run_phase "newsletter-tts"       "${VAULT_ROOT}/bin/newsletter-tts.sh"
-run_phase "telegram-deliver"     "${VAULT_ROOT}/bin/telegram-deliver.sh"
 # Email fallback retained but retired from default nightly delivery.
 # Manual fallback: bash bin/email-brief.sh
 
