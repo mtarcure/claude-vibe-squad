@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.vibesquad.transcription-cache-ttl</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/user/Obsidian-Claude-Vibe-Squad/bin/transcription-cache-ttl.sh</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>4</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+        <key>Weekday</key>
+        <integer>0</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/tmp/vibesquad-ttl-stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/vibesquad-ttl-stderr.log</string>
+</dict>
+</plist>
