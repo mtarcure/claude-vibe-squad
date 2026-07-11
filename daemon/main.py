@@ -1,17 +1,26 @@
+import asyncio
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from daemon.routes import health, task, mcp, events
 from daemon.watcher import WATCHER
-import asyncio
 
-app = FastAPI(title="vibe-squad daemon", version="0.1.0")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    watcher_task = asyncio.create_task(WATCHER.run())
+    try:
+        yield
+    finally:
+        watcher_task.cancel()
+        try:
+            await watcher_task
+        except asyncio.CancelledError:
+            pass
+
+app = FastAPI(title="vibe-squad daemon", version="0.1.0", lifespan=lifespan)
 app.include_router(health.router)
 app.include_router(task.router)
 app.include_router(mcp.router)
 app.include_router(events.router)
-
-@app.on_event("startup")
-async def start_watcher():
-    asyncio.create_task(WATCHER.run())
 
 if __name__ == "__main__":
     import uvicorn
