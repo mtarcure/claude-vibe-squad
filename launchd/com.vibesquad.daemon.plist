@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.vibesquad.daemon</string>
+    <key>WorkingDirectory</key>
+    <string>/Users/user/Obsidian-Claude-Vibe-Squad</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/user/Obsidian-Claude-Vibe-Squad/.venv/bin/python</string>
+        <string>-m</string>
+        <string>daemon.main</string>
+    </array>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/vibesquad-daemon-stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/vibesquad-daemon-stderr.log</string>
+</dict>
+</plist>
