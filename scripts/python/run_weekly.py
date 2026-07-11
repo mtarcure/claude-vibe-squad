@@ -9,11 +9,10 @@
 
 Phases:
   1. Deep KG cleanup (longer-threshold orphan scan, dupe consolidation candidates)
-  2. Deep dream (7-day activity pattern, propose-mode proposals if config flips)
-  3. Subscription audit (CLI auth health for all 4)
-  4. Mode archival (runs >30d to cold storage — extends nightly's 30d threshold)
-  5. Cross-source synthesis (kimi summarizes the week's blog summaries + podcast briefs)
-  6. Weekly brief generator
+  2. Subscription audit (CLI auth health for all 4)
+  3. Mode archival (runs >30d to cold storage — extends nightly's 30d threshold)
+  4. Cross-source synthesis (kimi summarizes the week's blog summaries + podcast briefs)
+  5. Weekly brief generator
 
 Output: `_state/cleanup-logs/<date>-weekly.md` + `_state/weekly-briefs/<date>-week.md`
 """
@@ -71,23 +70,7 @@ def deep_kg_cleanup() -> dict:
     return {"summary": result.stdout.strip(), "rc": result.returncode}
 
 
-# ─── Phase 2: Deep dream ────────────────────────────────────────────
-
-def deep_dream() -> dict:
-    """7-day window. Reuses dream_light with extended hours param via env override."""
-    script = VAULT_ROOT / "scripts" / "python" / "dream_light.py"
-    if not script.exists():
-        return {"summary": "dream_light.py not found"}
-    env = oauth_env()
-    env["DREAM_HOURS"] = "168"  # 7 days
-    result = subprocess.run(
-        ["uv", "run", "--quiet", str(script)],
-        capture_output=True, text=True, timeout=900, env=env,
-    )
-    return {"summary": result.stdout.strip()[:500], "rc": result.returncode}
-
-
-# ─── Phase 3: Subscription audit ──────────────────────────────────
+# ─── Phase 2: Subscription audit ──────────────────────────────────
 
 def subscription_audit() -> dict:
     """Check OAuth/login state for each CLI. Doesn't query usage (CLI APIs vary)."""
@@ -118,7 +101,7 @@ def subscription_audit() -> dict:
     return results
 
 
-# ─── Phase 4: Mode archival (extended) ─────────────────────────────
+# ─── Phase 3: Mode archival (extended) ─────────────────────────────
 
 def mode_archival(days: int = 60) -> dict:
     """Same idea as system-cleanup, but with longer threshold for the weekly pass."""
@@ -141,7 +124,7 @@ def mode_archival(days: int = 60) -> dict:
     return {"archived_count": archived, "threshold_days": days}
 
 
-# ─── Phase 5: Cross-source synthesis (week in AI) ─────────────────
+# ─── Phase 4: Cross-source synthesis (week in AI) ─────────────────
 
 def cross_source_synthesis(days: int = 7) -> str | None:
     """Concatenate the past week's blog summaries + podcast briefs and ask kimi
@@ -188,10 +171,10 @@ def cross_source_synthesis(days: int = 7) -> str | None:
     return out or None
 
 
-# ─── Phase 6: Weekly brief ────────────────────────────────────────
+# ─── Phase 5: Weekly brief ────────────────────────────────────────
 
 def render_weekly_brief(synthesis: str | None, sub_audit: dict, archived: int,
-                        kg_summary: str, dream_summary: str) -> str:
+                        kg_summary: str) -> str:
     week_end = (datetime.now() + timedelta(days=(5 - datetime.now().weekday()) % 7)).strftime("%Y-%m-%d")
     lines = [f"# Weekly Brief — week ending {week_end}", ""]
     lines.append("## The Week in AI\n")
@@ -204,7 +187,6 @@ def render_weekly_brief(synthesis: str | None, sub_audit: dict, archived: int,
     lines.append("## Housekeeping")
     lines.append(f"- Mode archival: {archived} runs moved to cold storage")
     lines.append(f"- KG cleanup: {kg_summary.splitlines()[-1] if kg_summary else 'no run'}")
-    lines.append(f"- Deep dream: see `_state/dream-logs/{DATE}.md`")
     lines.append("")
     lines.append("## Suggested next steps")
     lines.append("- Review pending dream proposals (if any)")
@@ -231,27 +213,24 @@ def render_log(phases: dict) -> str:
 
 def main() -> int:
     phases: dict = {}
-    print("Phase 1/6: deep KG cleanup")
+    print("Phase 1/5: deep KG cleanup")
     phases["Deep KG Cleanup"] = deep_kg_cleanup()
-    print("Phase 2/6: deep dream (7-day)")
-    phases["Deep Dream"] = deep_dream()
-    print("Phase 3/6: subscription audit")
+    print("Phase 2/5: subscription audit")
     phases["Subscription Audit"] = subscription_audit()
-    print("Phase 4/6: mode archival")
+    print("Phase 3/5: mode archival")
     phases["Mode Archival"] = mode_archival()
-    print("Phase 5/6: cross-source synthesis")
+    print("Phase 4/5: cross-source synthesis")
     synth = cross_source_synthesis()
     phases["Cross-Source Synthesis"] = synth or "(no briefs to synthesize)"
 
     atomic_write(LOG_PATH, render_log(phases))
 
-    print("Phase 6/6: weekly brief")
+    print("Phase 5/5: weekly brief")
     brief = render_weekly_brief(
         synthesis=synth,
         sub_audit=phases["Subscription Audit"] if isinstance(phases["Subscription Audit"], dict) else {},
         archived=phases["Mode Archival"].get("archived_count", 0) if isinstance(phases["Mode Archival"], dict) else 0,
         kg_summary=phases["Deep KG Cleanup"].get("summary", "") if isinstance(phases["Deep KG Cleanup"], dict) else "",
-        dream_summary=phases["Deep Dream"].get("summary", "") if isinstance(phases["Deep Dream"], dict) else "",
     )
     atomic_write(WEEKLY_BRIEF_PATH, brief)
     print(f"Weekly brief: {WEEKLY_BRIEF_PATH}")
