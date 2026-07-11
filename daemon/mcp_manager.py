@@ -14,6 +14,7 @@ MCP_REGISTRY = {
 class MCPManager:
     def __init__(self):
         self.processes: dict[str, subprocess.Popen] = {}
+        self.initialized: set[str] = set()
         self._request_id: int = 0
 
     def ensure_running(self, server: str) -> subprocess.Popen:
@@ -29,6 +30,8 @@ class MCPManager:
                     sys.stderr.write(f"[mcp_manager] {server} exited rc={rc}: {stderr_bytes.decode('utf-8', errors='replace')[:500]}\n")
             except Exception:
                 pass
+            # Mark as uninitialized since we're restarting
+            self.initialized.discard(server)
         if server not in MCP_REGISTRY:
             raise ValueError(f"unknown MCP server: {server}")
         proc = subprocess.Popen(
@@ -41,8 +44,41 @@ class MCPManager:
         self.processes[server] = proc
         return proc
 
+    async def _initialize_server(self, server: str, proc: subprocess.Popen) -> None:
+        """Send MCP initialize request if not already done."""
+        if server in self.initialized:
+            return
+        self._request_id += 1
+        init_request = {
+            "jsonrpc": "2.0",
+            "id": self._request_id,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {
+                    "name": "vibe-squad-daemon",
+                    "version": "1.0"
+                }
+            }
+        }
+        payload = (json.dumps(init_request) + "\n").encode()
+        await asyncio.to_thread(proc.stdin.write, payload)
+        await asyncio.to_thread(proc.stdin.flush)
+        response_line = await asyncio.to_thread(proc.stdout.readline)
+        if not response_line:
+            raise RuntimeError(f"MCP server {server} closed stdout during initialization")
+        try:
+            response = json.loads(response_line)
+            if "error" in response:
+                raise RuntimeError(f"MCP server {server} initialization failed: {response['error']}")
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"MCP server {server} returned invalid JSON during init: {response_line[:200]!r}") from e
+        self.initialized.add(server)
+
     async def call_tool(self, server: str, tool: str, arguments: dict) -> dict:
         proc = self.ensure_running(server)
+        await self._initialize_server(server, proc)
         self._request_id += 1
         request = {
             "jsonrpc": "2.0",
