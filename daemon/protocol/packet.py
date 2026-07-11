@@ -1,9 +1,10 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional
 import uuid
-from datetime import datetime
+from datetime import datetime, UTC
 
 class TaskPacket(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
     task_id: str = Field(default_factory=lambda: f"t-{uuid.uuid4()}")
     project: Optional[str] = None
     specialist: str
@@ -17,4 +18,4 @@ class TaskPacket(BaseModel):
     requires_approval: list[str] = []
     prompt: str
     context: dict = {}
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
