@@ -1,21 +1,62 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Box } from 'ink';
 import { Header } from './components/Header.js';
 import { ChronoPane } from './components/ChronoPane.js';
 import { LanePane } from './components/LanePane.js';
+import { LaneProcess } from './pty/lane-process.js';
+import { parseOutput } from './pty/output-parser.js';
+
+type LaneName = 'claude' | 'codex' | 'gemini' | 'kimi';
+
+interface LaneState {
+  status: 'idle' | 'thinking' | 'tool' | 'waiting' | 'done' | 'error' | 'stuck' | 'starting';
+  detail: string;
+}
 
 export const App: React.FC = () => {
-  const [now] = useState(new Date().toLocaleTimeString());
+  const [lanes, setLanes] = useState<Record<LaneName, LaneState>>({
+    claude: {status: 'starting', detail: 'booting'},
+    codex: {status: 'starting', detail: 'booting'},
+    gemini: {status: 'starting', detail: 'booting'},
+    kimi: {status: 'starting', detail: 'booting'},
+  });
+
+  useEffect(() => {
+    const processes: Record<LaneName, LaneProcess> = {} as any;
+    (['claude', 'codex', 'gemini', 'kimi'] as LaneName[]).forEach(name => {
+      const proc = new LaneProcess(name);
+      proc.start().then(() => {
+        setLanes(prev => ({...prev, [name]: {status: 'idle', detail: 'ready'}}));
+      }).catch(err => {
+        console.error(`Failed to start ${name}:`, err);
+        setLanes(prev => ({...prev, [name]: {status: 'error', detail: 'launch failed'}}));
+      });
+      proc.onData(chunk => {
+        const hint = parseOutput(chunk);
+        if (hint) setLanes(prev => ({...prev, [name]: {status: hint.status, detail: hint.detail ?? ''}}));
+      });
+      proc.onExit(code => {
+        setLanes(prev => ({...prev, [name]: {status: 'error', detail: `exited (${code})`}}));
+      });
+      processes[name] = proc;
+    });
+    return () => {
+      Object.values(processes).forEach(p => p.kill());
+    };
+  }, []);
+
+  const readyCount = Object.values(lanes).filter(l => l.status !== 'starting').length;
+
   return (
     <Box flexDirection="column">
-      <Header project="none" readyCount={0} totalLanes={4} timestamp={now}
+      <Header project="none" readyCount={readyCount} totalLanes={4}
+        timestamp={new Date().toLocaleTimeString()}
         usage={{claude: 0, codex: 0, gemini: 0, kimi: 0}} />
-      <ChronoPane status="starting" transcript={[{role: 'chrono', text: 'starting up...'}]} />
+      <ChronoPane status="idle" transcript={[{role: 'chrono', text: 'ready'}]} />
       <Box flexDirection="row" width="100%">
-        <LanePane name="Claude" status="starting" />
-        <LanePane name="Codex" status="starting" />
-        <LanePane name="Gemini" status="starting" />
-        <LanePane name="Kimi" status="starting" />
+        {(['claude', 'codex', 'gemini', 'kimi'] as LaneName[]).map(name => (
+          <LanePane key={name} name={name} status={lanes[name].status} detail={lanes[name].detail} />
+        ))}
       </Box>
     </Box>
   );
