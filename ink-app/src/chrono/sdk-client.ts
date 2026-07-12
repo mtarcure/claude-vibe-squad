@@ -1,34 +1,65 @@
-import Anthropic from '@anthropic-ai/sdk';
+import { spawn } from 'child_process';
 
 export interface ChronoEvent {
-  type: 'text' | 'dispatch' | 'question';
-  content: any;
+  type: 'text' | 'error' | 'done';
+  content: string;
 }
 
-export class ChronoClient {
-  private client: Anthropic;
-  private conversation: {role: 'user' | 'assistant'; content: string}[] = [];
+const CLAUDE_PATH = '/Users/user/.local/bin/claude';
+const UNSET_ENV_KEYS = ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY'];
 
-  constructor(private systemPrompt: string, private model: string = 'claude-fable-5') {
-    this.client = new Anthropic({
-      apiKey: process.env.ANTHROPIC_API_KEY,
-    });
+// Chrono runs as a subprocess of the operator's `claude` CLI so it uses the
+// Max subscription (OAuth), not direct API credits. Each send() invocation
+// spawns `claude -p -c` in non-interactive mode; -c preserves session state
+// across turns via filesystem-backed session persistence in ~/.claude/.
+// child_process.spawn is the right tool for this because -p mode is batch,
+// not interactive — node-pty is only needed for the interactive model lanes.
+export class ChronoClient {
+  private systemPrompt: string;
+  private mcpConfigPath?: string;
+
+  constructor(systemPrompt: string, mcpConfigPath?: string) {
+    this.systemPrompt = systemPrompt;
+    this.mcpConfigPath = mcpConfigPath;
   }
 
-  async *send(userMessage: string): AsyncIterator<ChronoEvent> {
-    this.conversation.push({role: 'user', content: userMessage});
-    const response = await this.client.messages.create({
-      model: this.model,
-      system: this.systemPrompt,
-      messages: this.conversation,
-      max_tokens: 4096,
+  async *send(userMessage: string): AsyncGenerator<ChronoEvent> {
+    const env: Record<string, string> = {};
+    for (const [k, v] of Object.entries(process.env)) {
+      if (v !== undefined && !UNSET_ENV_KEYS.includes(k)) env[k] = v as string;
+    }
+
+    const args = [
+      '-p',
+      '-c',
+      '--append-system-prompt', this.systemPrompt,
+    ];
+    if (this.mcpConfigPath) {
+      args.push('--mcp-config', this.mcpConfigPath);
+    }
+    args.push(userMessage);
+
+    const child = spawn(CLAUDE_PATH, args, {
+      cwd: env.HOME || '/Users/user',
+      env,
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
 
-    for (const block of response.content) {
-      if (block.type === 'text') {
-        this.conversation.push({role: 'assistant', content: block.text});
-        yield {type: 'text', content: block.text};
-      }
+    let stdout = '';
+    let stderr = '';
+    child.stdout?.on('data', (d) => { stdout += d.toString(); });
+    child.stderr?.on('data', (d) => { stderr += d.toString(); });
+
+    const exitCode = await new Promise<number>((resolve) => {
+      child.on('exit', (code) => resolve(code ?? 1));
+    });
+
+    if (exitCode !== 0) {
+      yield { type: 'error', content: `claude exited with code ${exitCode}: ${(stderr || stdout).slice(0, 500)}` };
+      return;
     }
+
+    yield { type: 'text', content: stdout.trim() };
+    yield { type: 'done', content: '' };
   }
 }
