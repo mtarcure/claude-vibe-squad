@@ -187,6 +187,14 @@ AUTH_PREFIX='unset ANTHROPIC_API_KEY OPENAI_API_KEY GEMINI_API_KEY GOOGLE_API_KE
 # non-media model lanes.
 MEDIA_AUTH_PREFIX='unset ANTHROPIC_API_KEY GEMINI_API_KEY GOOGLE_API_KEY'
 
+# Gemini lane is the exception: Google deprecated the individual Code Assist
+# OAuth client (2026-07), so the gemini CLI can no longer log in via
+# subscription and MUST authenticate with GEMINI_API_KEY (settings.json auth
+# selectedType: gemini-api-key). Source secrets to guarantee the key is present,
+# but still unset GOOGLE_API_KEY — the secrets.zsh note warns gemini-cli grabbing
+# the GCP project key routes Gemini calls through the wrong project (403).
+GEMINI_AUTH_PREFIX='source ~/.config/shell/secrets.zsh 2>/dev/null; unset ANTHROPIC_API_KEY OPENAI_API_KEY GOOGLE_API_KEY'
+
 acknowledge_gemini_agents() {
     python3 - "$VAULT_ROOT" <<'PY'
 import hashlib
@@ -282,7 +290,7 @@ tmux send-keys -t "${SESSION}:${CLAUDE_WIN}" "${CLAUDE_CMD}" C-m
 tmux new-window -t "${SESSION}" -n "${GEMINI_WIN}" -c "${VAULT_ROOT}/model-lanes/gemini"
 tmux pipe-pane -t "${SESSION}:${GEMINI_WIN}" -o "cat >> ${TMUX_LOG_DIR}/gemini.log"
 tmux send-keys -t "${SESSION}:${GEMINI_WIN}" "${PATH_PREFIX}" C-m
-tmux send-keys -t "${SESSION}:${GEMINI_WIN}" "${AUTH_PREFIX}" C-m
+tmux send-keys -t "${SESSION}:${GEMINI_WIN}" "${GEMINI_AUTH_PREFIX}" C-m
 tmux send-keys -t "${SESSION}:${GEMINI_WIN}" "clear; echo '=== GEMINI MODEL LEAD (multimodal, media, grounded content) ==='" C-m
 tmux send-keys -t "${SESSION}:${GEMINI_WIN}" "${CONTENT_CMD}" C-m
 
