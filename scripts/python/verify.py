@@ -9,17 +9,10 @@ reviewer per CLAUDE.md routing rules.
 Per system rule: "Reviewer family ≠ writer family. If Codex wrote, Claude or
 Gemini reviews — never Codex."
 
-STATUS (2026-05-03): Ad-hoc utility for manual / mode-driven multi-model review.
-NOT load-bearing in nightly automation. `dream_light.py` has its own hardcoded
-reviewer logic (Gemini journal → Codex review with Kimi fallback) which is a
-deliberate choice with different reviewer preferences than this script's
-REVIEWER_CHAIN. Do not refactor `dream_light.py` to delegate to this script
-without explicit operator approval — the reviewer family preferences differ
-(this script's chain is Claude-first for Gemini writers; dream_light's is
-Codex-first), and switching them is a behavior change.
-
-If you want to unify them later, update REVIEWER_CHAIN below to match
-dream_light's preferences (gemini → codex, kimi) BEFORE refactoring any consumer.
+STATUS (2026-07-12): Ad-hoc utility for manual / mode-driven multi-model review.
+NOT load-bearing in nightly automation. (The `dream_light.py` reviewer logic
+this docstring previously coordinated with was deleted in the redesign; kept
+this docstring updated so future maintainers aren't confused.)
 
 Usage:
   scripts/python/verify.py --writer <writer-cli> --output <file> [--prompt <text>]
