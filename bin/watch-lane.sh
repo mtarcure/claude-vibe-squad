@@ -394,9 +394,20 @@ printf '\033[2J'
 while true; do
     cols=$(pane_cols)
     rows=$(pane_rows)
+    # Never render wider than the pane, or lines wrap into a garbled mess. Only
+    # cap DOWN (readability max 78); a narrow pane just gets narrow cards.
     width=$((cols - 1))
-    [[ "$width" -lt 34 ]] && width=34
     [[ "$width" -gt 78 ]] && width=78
+    [[ "$width" -lt 1 ]] && width=1
+
+    # Full-clear whenever the pane is resized. The per-frame redraw only does
+    # home + clear-to-end, which leaves stale reflowed lines behind when the
+    # pane width/height changes (client attach/detach, divider drag). Clearing
+    # on a size change wipes those artifacts without per-frame flicker.
+    if [[ "$cols" != "${_prev_cols:-}" || "$rows" != "${_prev_rows:-}" ]]; then
+        printf '\033[2J'
+        _prev_cols="$cols"; _prev_rows="$rows"
+    fi
 
     home
     compact=false
