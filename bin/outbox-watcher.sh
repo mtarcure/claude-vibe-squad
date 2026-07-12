@@ -83,7 +83,7 @@ response_ready_for_status() {
     mtime="$(stat -f %m "$file" 2>/dev/null || stat -c %Y "$file" 2>/dev/null || echo 0)"
     now="$(date +%s)"
     age=$((now - mtime))
-    [[ "$age" -ge 60 ]] || return 1
+    [[ "$age" -ge 5 ]] || return 1
     awk '/^---$/{p=!p; next} p && /^status:[[:space:]]*/ {found=1; exit} END{exit found ? 0 : 1}' "$file"
 }
 
@@ -243,7 +243,7 @@ handle_response_path() {
                 *"|$path|"*) ;;
                 *)
                     PENDING_PATHS="${PENDING_PATHS}${path}|"
-                    ( sleep 65; handle_response_path "$path" ) &
+                    ( sleep 6; handle_response_path "$path" ) &
                     ;;
             esac
             return

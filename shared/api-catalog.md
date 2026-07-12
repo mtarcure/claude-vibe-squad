@@ -942,13 +942,13 @@ Per-pane verification matrix for each chrono-* family MCP. Claude pane verificat
 - purpose: Current live research wrapper exposing `arxiv_search`, `xai_search`, and `perplexity_search_web` (the last as a sibling MCP under the same plugin namespace via `uvx perplexity-mcp`). Brave, Apify, and Serper remain planned/unverified.
 - specialists: research, scout, large-context-analyst, fact-checker
 - verified per pane:
-  - chrono pane (claude): yes — wrapper registered; verified live tools: `arxiv_search`, `xai_search`, `perplexity_search_web`. Perplexity smoke test 2026-05-05 (headless `claude -p --allowed-tools mcp__plugin_chrono-research-arsenal_perplexity__perplexity_search_web` returned 2 results with valid citations).
+  - chrono pane (claude): partial — wrapper registered; verified live: `arxiv_search`, `perplexity_search_web` (Perplexity smoke test 2026-05-05, 2 results w/ citations). **`xai_search` returns HTTP 404 (re-tested 2026-07-12 from chrono pane) — broken tool-wide, do not rely on it until the endpoint is fixed.**
   - security pane (claude): yes — same
   - sysmgmt pane (claude): yes — same
   - coding pane (codex): yes — registered; task packets must still verify `tools/list` before naming provider-specific tools
   - content pane (gemini): no — **INTENTIONALLY SKIPPED in Hybrid Path A.** Google Search grounding (built into `gemini-3.1-pro-preview`) is the substitute. Gemini pane research uses native grounding, not chrono-research-arsenal.
-  - research pane (kimi): yes — registered; current wrapper tool proof is `arxiv_search`, `xai_search`, `perplexity_search_web`
-- last_checked: 2026-05-05 for perplexity smoke test; xai/arxiv last verified 2026-05-05
+  - research pane (kimi): partial — registered; `arxiv_search` + `perplexity_search_web` work; **`xai_search` returns HTTP 404 (broken 2026-07-12, tool-wide — not lane-specific)**
+- last_checked: 2026-05-05 perplexity/arxiv; `xai_search` re-tested 2026-07-12 → HTTP 404 (broken, endpoint fix needed)
 
 ### chrono-content-engineer MCP
 - purpose: Current live content/media wrapper exposing `generate_image`, `generate_video`, and `generate_audio`. Provider-specific child routes such as ElevenLabs and Higgsfield are separate surfaces unless the active lane schema exposes them.

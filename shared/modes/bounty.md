@@ -36,6 +36,7 @@ For bug bounty and vulnerability research. Chrono owns target selection, safety 
 ## Gates
 
 - Operator approval before engaging a target, touching authenticated scope, submitting a report, contacting a program, or writing private bounty details to durable public-facing files.
+- **Pre-submit G1–G4 gate (`impact-validator` owns it):** no finding is submitted unless it clears G1 impact-realized · G2 third-party-reproduced · G3 dedup'd · G4 in-scope defended-boundary, plus its per-class add-on — any FAIL is no-submit. Full gate: `departments/security/specialists/impact-validator.md` → "Pre-Submit Gate (G1–G4)".
 - Mandatory multi-model review for exploitability, impact, privacy, auth, and final report claims.
 - No destructive testing, rate-limit abuse, persistence, credential use, or out-of-scope probing.
 - Run `vibecoding-check` before final operator summary.
