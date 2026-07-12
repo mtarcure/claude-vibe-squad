@@ -1210,7 +1210,7 @@ All `--version` output below was reproduced live on 2026-07-12 (root CLAUDE.md r
 - specialists: scout, exploit-developer
 - verified: yes
 - last_checked: 2026-07-12
-- test_reference: `ffuf --version` → `v2.1.0-dev` (/opt/homebrew/bin/ffuf). NOTE: this is a dev build, not a tagged release.
+- test_reference: `ffuf -V` → `ffuf version: 2.1.0-dev` (/opt/homebrew/bin/ffuf). NOTE: version flag is `-V`; `--version` is not defined and exits non-zero. This is a dev build, not a tagged release.
 - notes: Use for content/parameter fuzzing on an in-scope web app. (Specialist mapping is my judgment — packet didn't assign ffuf/gau explicitly.)
 
 #### waybackurls
@@ -1278,7 +1278,9 @@ All `--version` output below was reproduced live on 2026-07-12 (root CLAUDE.md r
 - test_reference: `trivy --version` → `Version: 0.72.0` (/opt/homebrew/bin/trivy; installed via `brew install trivy` 2026-07-12)
 - notes: Use for container/filesystem/IaC vulnerability + misconfig scanning.
 
-### Not installed — flagged, not forced (per packet "STOP and flag if risky")
+### Active scanners (installed) → scout, security-analyst, exploit-developer
+
+Installed and runnable high-blast-radius active tools. Usable for authorized bounty work with **no per-use operator approval required**, but scope-gated in each entry's notes: run only against explicitly in-scope targets per the program's rules of engagement.
 
 #### nikto
 - url: https://github.com/sullo/nikto
@@ -1286,8 +1288,8 @@ All `--version` output below was reproduced live on 2026-07-12 (root CLAUDE.md r
 - specialists: scout, security-analyst
 - verified: yes
 - last_checked: 2026-07-12
-- test_reference: `nikto -Version` → Nikto 2.6.0 (LW 2.5); installed 2026-07-12 via brew
-- notes: Aggressive active web scanner. Brew formula exists but it is noisy/intrusive; not in the packet's safe-install set. Install deferred to operator decision.
+- test_reference: `nikto -Version` → `Nikto 2.6.0 (LW 2.5)` (/opt/homebrew/bin/nikto; installed 2026-07-12 via brew)
+- notes: Installed, active web server/vuln scanner (noisy/intrusive by design). Active scanner — run only against explicitly in-scope bounty targets per the program's rules of engagement; never against out-of-scope or third-party hosts.
 
 #### sqlmap
 - url: https://github.com/sqlmapproject/sqlmap
@@ -1295,8 +1297,10 @@ All `--version` output below was reproduced live on 2026-07-12 (root CLAUDE.md r
 - specialists: exploit-developer, security-analyst
 - verified: yes
 - last_checked: 2026-07-12
-- test_reference: `sqlmap --version` → 1.10.7#stable; installed 2026-07-12 via brew
-- notes: Active SQLi exploitation tool — high blast-radius against live targets. Not in the safe-install set; install deferred to operator decision.
+- test_reference: `sqlmap --version` → `1.10.7#stable` (/opt/homebrew/bin/sqlmap; installed 2026-07-12 via brew)
+- notes: Installed, active SQLi detection/exploitation tool (high blast-radius against live targets). Active scanner — run only against explicitly in-scope bounty targets per the program's rules of engagement; never against out-of-scope or third-party hosts.
+
+### Not installed / unverified
 
 #### manticore
 - url: https://github.com/trailofbits/manticore
