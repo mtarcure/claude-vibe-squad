@@ -1030,6 +1030,287 @@ These show `Failed to connect` in `claude mcp list` post-2026-05-03 tilde fix an
 
 ---
 
+## 12. Local Security Toolchain
+
+Local security/bounty CLIs installed on the operator's Mac, invoked via **Bash** (these are CLIs, not MCPs). Specialists in the `security` and smart-contract namespaces may now cite any `verified: yes` entry here (this section is the sanction that unblocks the `## Tools` prose in those briefs).
+
+All `--version` output below was reproduced live on 2026-07-12 (root CLAUDE.md rule 8). `access: Public` = locally installed binary, no subscription/API gate.
+
+**PATH caveat:** `waybackurls` and `interactsh-client` are installed under `~/go/bin` (`/Users/user/go/bin`), which is NOT on the default login PATH. Invoke them by absolute path, or add `~/go/bin` to PATH (operator action — not done by this task). All other tools are on PATH via `/opt/homebrew/bin` or `~/.local/bin`.
+
+### Smart-contract tooling → `smart-contract-engineer`, `exploit-developer`
+
+#### forge (Foundry)
+- url: https://getfoundry.sh
+- access: Public
+- specialists: smart-contract-engineer, exploit-developer
+- verified: yes
+- last_checked: 2026-07-12
+- test_reference: `forge --version` → `forge Version: 1.5.1-Homebrew` (/opt/homebrew/bin/forge)
+- notes: Use when writing Foundry PoC tests / fork-testing a fund-loss finding before submission (the profile that actually pays — see `_state/bounty-retro-2026-07-12/SUMMARY.md`).
+
+#### cast (Foundry)
+- url: https://getfoundry.sh
+- access: Public
+- specialists: smart-contract-engineer, exploit-developer
+- verified: yes
+- last_checked: 2026-07-12
+- test_reference: `cast --version` → `cast Version: 1.5.1-Homebrew` (/opt/homebrew/bin/cast)
+- notes: Use when reading on-chain state / encoding calldata / verifying an exploit tx against a fork.
+
+#### anvil (Foundry)
+- url: https://getfoundry.sh
+- access: Public
+- specialists: smart-contract-engineer, exploit-developer
+- verified: yes
+- last_checked: 2026-07-12
+- test_reference: `anvil --version` → `anvil Version: 1.5.1-Homebrew` (/opt/homebrew/bin/anvil)
+- notes: Use when standing up a local/forked EVM to reproduce a smart-contract PoC deterministically.
+
+#### chisel (Foundry)
+- url: https://getfoundry.sh
+- access: Public
+- specialists: smart-contract-engineer, exploit-developer
+- verified: yes
+- last_checked: 2026-07-12
+- test_reference: `chisel --version` → `chisel Version: 1.5.1-Homebrew` (/opt/homebrew/bin/chisel)
+- notes: Use when scratch-testing Solidity snippets / arithmetic (e.g. reproducing an underflow) in a REPL.
+
+#### slither
+- url: https://github.com/crytic/slither
+- access: Public
+- specialists: smart-contract-engineer, exploit-developer
+- verified: yes
+- last_checked: 2026-07-12
+- test_reference: `slither --version` → `0.11.5` (/Users/user/.local/bin/slither)
+- notes: Use when static-analysing Solidity source for known vuln patterns before manual review.
+
+#### myth (Mythril)
+- url: https://github.com/Consensys/mythril
+- access: Public
+- specialists: smart-contract-engineer, exploit-developer
+- verified: yes
+- last_checked: 2026-07-12
+- test_reference: `myth version` → `Mythril version v0.24.8` (/Users/user/.local/bin/myth). NOTE: version flag is `myth version`, not `--version`.
+- notes: Use when symbolic-executing EVM bytecode to confirm reachability of a suspected bug.
+
+#### echidna
+- url: https://github.com/crytic/echidna
+- access: Public
+- specialists: smart-contract-engineer, exploit-developer
+- verified: yes
+- last_checked: 2026-07-12
+- test_reference: `echidna --version` → `Echidna 2.3.2` (/opt/homebrew/bin/echidna)
+- notes: Use when property/invariant fuzzing a contract to find fund-loss violations.
+
+#### medusa
+- url: https://github.com/crytic/medusa
+- access: Public
+- specialists: smart-contract-engineer, exploit-developer
+- verified: yes
+- last_checked: 2026-07-12
+- test_reference: `medusa --version` → `medusa version 1.5.1` (/opt/homebrew/bin/medusa)
+- notes: Use as a parallel/coverage-guided fuzzer alongside echidna for invariant checks.
+
+#### halmos
+- url: https://github.com/a16z/halmos
+- access: Public
+- specialists: smart-contract-engineer, exploit-developer
+- verified: yes
+- last_checked: 2026-07-12
+- test_reference: `halmos --version` → `halmos 0.3.3` (/Users/user/.local/bin/halmos)
+- notes: Use when symbolic-testing Foundry test suites to prove/disprove invariants exhaustively.
+
+#### aderyn
+- url: https://github.com/Cyfrin/aderyn
+- access: Public
+- specialists: smart-contract-engineer, exploit-developer
+- verified: yes
+- last_checked: 2026-07-12
+- test_reference: `aderyn --version` → `aderyn 0.6.8` (/opt/homebrew/bin/aderyn)
+- notes: Use as a fast Rust-based Solidity static analyzer for a first-pass issue sweep.
+
+### Web / recon tooling → `scout`
+
+#### nuclei
+- url: https://github.com/projectdiscovery/nuclei
+- access: Public
+- specialists: scout
+- verified: yes
+- last_checked: 2026-07-12
+- test_reference: `nuclei --version` → `Nuclei Engine Version: v3.8.0` (/opt/homebrew/bin/nuclei)
+- notes: Use when template-scanning an in-scope web target for known CVEs/misconfigs during recon.
+
+#### subfinder
+- url: https://github.com/projectdiscovery/subfinder
+- access: Public
+- specialists: scout
+- verified: yes
+- last_checked: 2026-07-12
+- test_reference: `subfinder --version` → `Current Version: v2.13.0` (/opt/homebrew/bin/subfinder)
+- notes: Use when passively enumerating subdomains of an in-scope program asset.
+
+#### httpx
+- url: https://github.com/projectdiscovery/httpx
+- access: Public
+- specialists: scout
+- verified: yes
+- last_checked: 2026-07-12
+- test_reference: `httpx -version` → `Current Version: v1.9.0` (/opt/homebrew/bin/httpx). NOTE: single-dash `-version`; reads stdin by default.
+- notes: Use when probing which enumerated hosts are live / their tech stack. (This is the ProjectDiscovery httpx, not the Python HTTP lib.)
+
+#### katana
+- url: https://github.com/projectdiscovery/katana
+- access: Public
+- specialists: scout
+- verified: yes
+- last_checked: 2026-07-12
+- test_reference: `katana -version` → `Current version: v1.5.0` (/opt/homebrew/bin/katana). NOTE: single-dash `-version`.
+- notes: Use when crawling an in-scope web app to map endpoints/attack surface.
+
+#### naabu
+- url: https://github.com/projectdiscovery/naabu
+- access: Public
+- specialists: scout
+- verified: yes
+- last_checked: 2026-07-12
+- test_reference: `naabu -version` → `Current Version: 2.5.0` (/opt/homebrew/bin/naabu). NOTE: single-dash `-version`.
+- notes: Use when port-scanning an in-scope host (respect program scope/rate rules).
+
+#### dnsx
+- url: https://github.com/projectdiscovery/dnsx
+- access: Public
+- specialists: scout
+- verified: yes
+- last_checked: 2026-07-12
+- test_reference: `dnsx -version` → `Current Version: 1.2.3` (/opt/homebrew/bin/dnsx). NOTE: single-dash `-version`.
+- notes: Use when resolving/validating enumerated subdomains and pulling DNS records at scale.
+
+#### amass
+- url: https://github.com/owasp-amass/amass
+- access: Public
+- specialists: scout
+- verified: yes
+- last_checked: 2026-07-12
+- test_reference: `amass --version` → `v5.1.1` (/opt/homebrew/bin/amass)
+- notes: Use for deeper OSINT-driven attack-surface mapping (complements subfinder).
+
+#### gau
+- url: https://github.com/lc/gau
+- access: Public
+- specialists: scout
+- verified: yes
+- last_checked: 2026-07-12
+- test_reference: `gau --version` → `gau version: 2.2.4` (/opt/homebrew/bin/gau)
+- notes: Use when pulling historical/known URLs for an in-scope host from OTX/Wayback/etc. during recon.
+
+#### ffuf
+- url: https://github.com/ffuf/ffuf
+- access: Public
+- specialists: scout, exploit-developer
+- verified: yes
+- last_checked: 2026-07-12
+- test_reference: `ffuf --version` → `v2.1.0-dev` (/opt/homebrew/bin/ffuf). NOTE: this is a dev build, not a tagged release.
+- notes: Use for content/parameter fuzzing on an in-scope web app. (Specialist mapping is my judgment — packet didn't assign ffuf/gau explicitly.)
+
+#### waybackurls
+- url: https://github.com/tomnomnom/waybackurls
+- access: Public
+- specialists: scout
+- verified: yes
+- last_checked: 2026-07-12
+- test_reference: installed via `go install …/waybackurls@latest`; binary at `/Users/user/go/bin/waybackurls` (8.5MB, 2026-07-12). `waybackurls -h` prints usage. NOTE: no `--version` flag exists; verification is presence + runnable `-h`.
+- notes: Use when fetching a host's Wayback-known URLs during recon. NOT on default PATH (`~/go/bin`).
+
+#### interactsh-client
+- url: https://github.com/projectdiscovery/interactsh
+- access: Public
+- specialists: scout, exploit-developer
+- verified: yes
+- last_checked: 2026-07-12
+- test_reference: `~/go/bin/interactsh-client -version` → `Current Version: 1.3.1` (installed via `go install` 2026-07-12)
+- notes: Use for OOB interaction detection (blind SSRF/RCE callbacks) — an *impact-demonstrating* tool, directly relevant to the retro's "prove impact, not reachability" lesson. NOT on default PATH (`~/go/bin`).
+
+### SAST / secrets / SCA → `security-analyst`
+
+#### semgrep
+- url: https://semgrep.dev
+- access: Public
+- specialists: security-analyst
+- verified: yes
+- last_checked: 2026-07-12
+- test_reference: `semgrep --version` → `1.157.0` (/opt/homebrew/bin/semgrep)
+- notes: Use for pattern-based SAST over target source. Kept CLI-only (see §12 footnote on the disabled `semgrep` plugin MCP).
+
+#### osv-scanner
+- url: https://github.com/google/osv-scanner
+- access: Public
+- specialists: security-analyst
+- verified: yes
+- last_checked: 2026-07-12
+- test_reference: `osv-scanner --version` → `osv-scanner version: 2.3.5` (/opt/homebrew/bin/osv-scanner)
+- notes: Use for dependency/SCA vulnerability scanning against OSV.dev.
+
+#### gitleaks
+- url: https://github.com/gitleaks/gitleaks
+- access: Public
+- specialists: security-analyst
+- verified: yes
+- last_checked: 2026-07-12
+- test_reference: `gitleaks version` → `gitleaks version 8.30.1` (/opt/homebrew/bin/gitleaks)
+- notes: Use for secret-scanning a repo/history before or during an audit.
+
+#### trufflehog
+- url: https://github.com/trufflesecurity/trufflehog
+- access: Public
+- specialists: security-analyst
+- verified: yes
+- last_checked: 2026-07-12
+- test_reference: `trufflehog --version` → `trufflehog 3.95.1` (/opt/homebrew/bin/trufflehog)
+- notes: Use for verified-secret detection (complements gitleaks; can validate live credentials — respect scope).
+
+#### trivy
+- url: https://github.com/aquasecurity/trivy
+- access: Public
+- specialists: security-analyst
+- verified: yes
+- last_checked: 2026-07-12
+- test_reference: `trivy --version` → `Version: 0.72.0` (/opt/homebrew/bin/trivy; installed via `brew install trivy` 2026-07-12)
+- notes: Use for container/filesystem/IaC vulnerability + misconfig scanning.
+
+### Not installed — flagged, not forced (per packet "STOP and flag if risky")
+
+#### nikto
+- url: https://github.com/sullo/nikto
+- access: Public
+- specialists: scout, security-analyst
+- verified: yes
+- last_checked: 2026-07-12
+- test_reference: `nikto -Version` → Nikto 2.6.0 (LW 2.5); installed 2026-07-12 via brew
+- notes: Aggressive active web scanner. Brew formula exists but it is noisy/intrusive; not in the packet's safe-install set. Install deferred to operator decision.
+
+#### sqlmap
+- url: https://github.com/sqlmapproject/sqlmap
+- access: Public
+- specialists: exploit-developer, security-analyst
+- verified: yes
+- last_checked: 2026-07-12
+- test_reference: `sqlmap --version` → 1.10.7#stable; installed 2026-07-12 via brew
+- notes: Active SQLi exploitation tool — high blast-radius against live targets. Not in the safe-install set; install deferred to operator decision.
+
+#### manticore
+- url: https://github.com/trailofbits/manticore
+- access: Public
+- specialists: smart-contract-engineer, exploit-developer
+- verified: no
+- last_checked: 2026-07-12
+- test_reference: `uv tool install manticore` → FAILED (pysha3 native build error on py3.13/ARM 2026-07-12). Superseded by halmos/mythril/echidna (all verified:yes); not pursued.
+- notes: Symbolic-execution engine (EVM + native). Heavy/brittle native deps; pip-only, historically fragile install. Deferred — flag before forcing.
+
+**Footnote — semgrep MCP (packet P3):** `~/.claude/settings.json` does NOT contain an active `semgrep` MCP server; it carries `"semgrep@claude-plugins-official": false` in `enabledPlugins` (i.e. the plugin is *disabled*). Since the semgrep **CLI** is verified above and available to `security-analyst` via Bash, the recommendation is to keep semgrep **CLI-only** and NOT replicate a disabled plugin MCP across lanes. No lane MCP configs were changed for semgrep.
+
+---
+
 ## Local skill catalog summary
 
 477 unique SKILL.md files across 40+ plugins (verified by `find ~/.claude/plugins/cache -path "*/skills/*" -name "SKILL.md" | wc -l` per Capability Inventory).

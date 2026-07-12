@@ -174,7 +174,7 @@ for ns in coding security content sysmgmt research; do
 done
 
 # Ensure ~/.local/bin is on PATH inside every tmux pane (claude + kimi live there)
-PATH_PREFIX='export PATH="$HOME/.local/bin:$PATH"'
+PATH_PREFIX='export PATH="$HOME/.local/bin:$HOME/go/bin:$PATH"'
 
 # Drop API-key env vars so each CLI falls back to its OAuth/subscription auth
 # (Max plan, ChatGPT login, Gemini personal OAuth, Kimi login). Without this,
