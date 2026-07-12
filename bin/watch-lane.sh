@@ -32,6 +32,17 @@ pane_cols() {
     tput cols 2>/dev/null || echo 70
 }
 
+pane_rows() {
+    local rows
+    if [[ -n "${TMUX_PANE:-}" ]] && command -v tmux >/dev/null 2>&1; then
+        rows="$(tmux display-message -p -t "${TMUX_PANE}" '#{pane_height}' 2>/dev/null || true)"
+        [[ "$rows" =~ ^[0-9]+$ ]] && { echo "$rows"; return; }
+    fi
+    rows="${LINES:-}"
+    [[ "$rows" =~ ^[0-9]+$ ]] && { echo "$rows"; return; }
+    tput lines 2>/dev/null || echo 40
+}
+
 repeat_char() {
     local ch="$1" n="$2" out=""
     while [[ ${#out} -lt $n ]]; do out="${out}${ch}"; done
@@ -137,7 +148,7 @@ blocked_count() {
 }
 
 draw_card() {
-    local lane="$1" width="$2"
+    local lane="$1" width="$2" height="${3:-0}"
     local accent term_accent short tagline inbox active outbox blocked specialist last state state_color inner title pad
     accent="$(runtime_accent_color "$lane")"
     term_accent="$(runtime_terminal_color "$lane")"
@@ -184,6 +195,20 @@ draw_card() {
     printf '│ '
     color "38;5;250" "last "
     printf ' %s │\n' "$(fit "${last:-none}" "$((inner - 6))")"
+
+    # Fill to target height: the card body above is 5 lines (top border + 4
+    # info rows); with the bottom border it is 6. Pad the interior with blank
+    # bordered lines so four cards spread down the sidebar instead of clustering
+    # at the top. Accent-tinted side rails keep the taller box reading as one panel.
+    if [[ "$height" -gt 6 ]]; then
+        local i
+        for ((i = 0; i < height - 6; i++)); do
+            c256 "$accent" "│"
+            printf '%*s' "$((width - 2))" ""
+            c256 "$accent" "│"
+            printf '\n'
+        done
+    fi
 
     c256 "$accent" "╰$(repeat_char '─' "$((width - 2))")╯"
     printf '\n'
@@ -235,13 +260,14 @@ printf '\033[2J'
 
 while true; do
     cols=$(pane_cols)
+    rows=$(pane_rows)
     width=$((cols - 1))
     [[ "$width" -lt 34 ]] && width=34
     [[ "$width" -gt 78 ]] && width=78
 
     home
     compact=false
-    [[ "$SQUAD_WATCH_COMPACT" == "1" || "$cols" -lt 70 ]] && compact=true
+    [[ "$SQUAD_WATCH_COMPACT" == "1" || "$cols" -lt 60 ]] && compact=true
 
     if [[ "$LANE" == "all" ]]; then
         printf '\033[48;5;236;38;5;45;1m MODEL LANES \033[0m'
@@ -252,11 +278,16 @@ while true; do
             color "38;5;245" "scroll: mouse / copy: drag or copy-mode"
         fi
         printf '\n\n'
+        # Give each of the 4 lanes an equal slice of the remaining height so the
+        # cards fill the sidebar instead of hugging the top. Header above uses 2
+        # rows; leave a 1-row gap between cards.
+        card_h=$(( (rows - 2) / 4 - 1 ))
+        [[ "$card_h" -lt 6 ]] && card_h=6
         for lane in "${MODEL_LANES[@]}"; do
             if [[ "$compact" == "true" ]]; then
                 draw_compact_card "$lane" "$width"
             else
-                draw_card "$lane" "$width"
+                draw_card "$lane" "$width" "$card_h"
                 printf '\n'
             fi
         done
