@@ -14,10 +14,7 @@ systems-engineer	gpt-codex	claude	coding	chrono-vault	medium	chrono-research-ars
 test-engineer	gpt-codex	claude	coding	chrono-vault	medium	chrono-research-arsenal	Test design, fixtures, regression coverage.
 ui-engineer	gpt-codex	gemini	coding	chrono-vault,chrome-devtools	medium	chrono-content-engineer	Component implementation; Gemini handles visual/design review.
 brand-voice	gemini	claude	content	chrono-vault,chrono-content-engineer	low	chrono-research-arsenal	Voice consistency and audience fit.
-content-creator	gemini	kimi	content	chrono-vault,chrono-content-engineer	medium	chrono-research-arsenal	Copy, campaigns, scripts, content drafts; Kimi supports research-heavy claims.
-designer	gemini	gpt-codex	content	chrono-vault,chrono-content-engineer	medium	chrono-research-arsenal	Visual/product design; Codex implements UI when code changes are needed.
 editor	claude	gemini	content	chrono-vault	low	chrono-content-engineer	Clarity, length, voice, final content pass.
-media-producer	gemini	claude	content	chrono-content-engineer	high	chrono-vault	Images, audio, video, ElevenLabs/Higgsfield/provider media; auth-pending providers must be reported as blocked.
 social-strategist	gemini	kimi	content	chrono-vault,chrono-content-engineer	medium	chrono-research-arsenal	Social/content strategy with research support.
 technical-writer	claude	gpt-codex	content	chrono-vault,chrono-kg	medium	chrono-content-engineer	Docs, changelogs, ADRs, handoffs; Codex reviews code-derived docs.
 data-extraction-engineer	kimi	gpt-codex	research	chrono-research-arsenal,chrono-vault	medium	chrono-content-engineer	PDF/table/dataset extraction; Codex helps with parser code.

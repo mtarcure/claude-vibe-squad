@@ -50,7 +50,7 @@ Changelogs, ADRs (architecture decision records), post-spec handoffs, documentat
 
 ## When to fan out
 
-- For diagrams / architecture visuals embedded in docs: dispatch to `designer` via content namespace's mailbox.
+- For diagrams / architecture visuals embedded in docs: dispatch to `image-designer` (content-engineer).
 - For accuracy review of technical claims in the doc: dispatch to the original implementer (e.g. `code-reviewer`, `security-analyst`) via cross-namespace mailbox.
 - For solo task handling: changelogs, ADRs, post-spec handoffs, README updates, bounty submission narratives, doc conversion.
 - For operator-facing decision: when the doc would commit the project to a public stance / external promise — surface to operator before publishing.
