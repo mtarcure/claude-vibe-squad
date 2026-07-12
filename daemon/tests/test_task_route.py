@@ -1,8 +1,7 @@
 from fastapi.testclient import TestClient
+from daemon.tests.conftest import AUTH_HEADERS  # noqa: F401 sets env
+
 from daemon.main import app
-from pathlib import Path
-import tempfile
-import os
 
 def test_post_task_writes_to_inbox(tmp_path, monkeypatch):
     monkeypatch.setenv("VIBESQUAD_STATE_DIR", str(tmp_path))
@@ -15,7 +14,7 @@ def test_post_task_writes_to_inbox(tmp_path, monkeypatch):
         "model_key": "default",
         "prompt": "Research topic X",
     }
-    response = client.post("/task", json=packet)
+    response = client.post("/task", json=packet, headers=AUTH_HEADERS)
     assert response.status_code == 200
     body = response.json()
     assert "task_id" in body

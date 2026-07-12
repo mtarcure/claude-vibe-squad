@@ -8,9 +8,7 @@
     <string>/Users/user/Obsidian-Claude-Vibe-Squad</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/user/Obsidian-Claude-Vibe-Squad/.venv/bin/python</string>
-        <string>-m</string>
-        <string>daemon.main</string>
+        <string>/Users/user/Obsidian-Claude-Vibe-Squad/bin/daemon-launcher.sh</string>
     </array>
     <key>KeepAlive</key>
     <true/>

@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from daemon.routes import health, task, mcp, events
 from daemon.watcher import WATCHER
+from daemon.auth import BearerTokenAuth
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -17,6 +18,7 @@ async def lifespan(_app: FastAPI):
             pass
 
 app = FastAPI(title="vibe-squad daemon", version="0.1.0", lifespan=lifespan)
+app.add_middleware(BearerTokenAuth)
 app.include_router(health.router)
 app.include_router(task.router)
 app.include_router(mcp.router)
