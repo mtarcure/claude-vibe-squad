@@ -79,6 +79,18 @@ fi
 # after `kill-server`), leaving status bar + mouse mode at tmux defaults.
 tmux start-server
 
+# start-server can return before the server is ready to accept commands. On a
+# cold start (no server already running) the immediately-following `set-option
+# -g` calls then fail with "no server running" and the ENTIRE status/palette
+# config is silently lost — the session comes up with default green tmux chrome.
+# Block until the server actually accepts a global option before continuing.
+_vs_i=0
+until tmux set-option -g @vs_ready 1 2>/dev/null; do
+    _vs_i=$((_vs_i + 1))
+    [ "$_vs_i" -ge 100 ] && break   # ~5s cap; proceed rather than hang forever
+    sleep 0.05
+done
+
 # --- Live status poller ----------------------------------------------------
 # Background job: polls the daemon once/sec and writes /tmp/vs-*.status files
 # that the tmux status bar + pane borders read (see vs-lane-status.sh). Started
