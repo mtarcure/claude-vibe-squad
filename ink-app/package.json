@@ -6,7 +6,8 @@
   "scripts": {
     "start": "tsx src/index.tsx",
     "dev": "tsx watch src/index.tsx",
-    "build": "tsc"
+    "build": "tsc",
+    "postinstall": "cd node_modules/node-pty && node-gyp rebuild"
   },
   "keywords": [],
   "author": "",
