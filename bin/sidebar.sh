@@ -50,6 +50,12 @@ tmux set-window-option -t "${SESSION}:chrono" pane-active-border-style 'fg=colou
 tmux set-window-option -t "${SESSION}:chrono" window-style 'fg=colour250,bg=colour235' >/dev/null
 tmux set-window-option -t "${SESSION}:chrono" window-active-style 'fg=colour255,bg=colour233' >/dev/null
 
+# Keep the sidebar from collapsing on window resize. tmux's layout pins the main
+# (chrono) pane and squeezes the sidebar when a smaller client attaches or the
+# terminal shrinks — we've seen it drop to ~10 cols. This hook re-asserts the
+# sidebar width (~42%) on every window resize.
+tmux set-hook -t "${SESSION}" window-resized "run-shell 'bash ${VAULT_ROOT}/bin/sidebar-resize.sh'" 2>/dev/null || true
+
 # Focus stays on chrono main pane
 tmux select-pane -t "${SESSION}:chrono.0"
 
