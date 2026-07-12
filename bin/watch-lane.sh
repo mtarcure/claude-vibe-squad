@@ -6,6 +6,7 @@ set -uo pipefail
 
 LANE="${1:-all}"
 VAULT_ROOT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
+SESSION="${SQUAD_SESSION:-squad}"
 SQUAD_WATCH_COMPACT="${SQUAD_WATCH_COMPACT:-0}"
 source "${VAULT_ROOT}/shared/lead-windows.sh"
 
@@ -50,13 +51,18 @@ repeat_char() {
 }
 
 fit() {
+    # Fit text to a fixed DISPLAY width. Pad by character count (not bytes): in a
+    # UTF-8 locale ${#text} and string slicing count characters, but printf's
+    # '%-*s' pads by bytes — so multibyte glyphs (· ▸ — …, all single-column)
+    # would under-pad and drift the right border. Pad with explicit ASCII spaces.
     local text="$1" max="$2"
-    if [[ ${#text} -le $max ]]; then
-        printf '%-*s' "$max" "$text"
-    elif [[ $max -le 3 ]]; then
-        printf '%s' "${text:0:$max}"
+    local len=${#text}
+    if (( len <= max )); then
+        printf '%s%*s' "$text" "$((max - len))" ""
+    elif (( max <= 3 )); then
+        printf '%s' "${text:0:max}"
     else
-        printf '%s%-*s' "${text:0:$((max - 3))}..." 0 ""
+        printf '%s...' "${text:0:max - 3}"
     fi
 }
 
@@ -108,24 +114,6 @@ latest_result() {
     echo "$best"
 }
 
-active_specialist() {
-    local lane="$1" f to_model specialist best="" best_ts=0 ts
-    for ns in "${SOURCE_NAMESPACES[@]}"; do
-        for f in "${VAULT_ROOT}/departments/${ns}/active"/TASK-*.md; do
-            [[ -f "$f" ]] || continue
-            to_model="$(frontmatter_field "$f" to_model)"
-            [[ "$to_model" != "$lane" ]] && continue
-            ts=$(stat -f '%m' "$f" 2>/dev/null || echo 0)
-            if [[ "$ts" -gt "$best_ts" ]]; then
-                best_ts="$ts"
-                specialist="$(frontmatter_field "$f" specialist)"
-                best="${specialist:-unknown}"
-            fi
-        done
-    done
-    echo "$best"
-}
-
 blocked_count() {
     local lane="$1" count=0 f task_id task_file to_model status ns d
     for ns in "${SOURCE_NAMESPACES[@]}"; do
@@ -147,6 +135,86 @@ blocked_count() {
     echo "$count"
 }
 
+# Tools a specialist is configured to use, from specialist-runtime-map.tsv
+# (col 5 required_tools_mcp_api + col 7 preferred_tools), joined with ' · '.
+# Empty when the specialist is unmapped or "none".
+tools_for_specialist() {
+    local spec="$1" row req pref out
+    [[ -z "$spec" || "$spec" == "none" ]] && return 0
+    row=$(awk -F'\t' -v s="$spec" '$1==s{print; exit}' "${VAULT_ROOT}/shared/specialist-runtime-map.tsv" 2>/dev/null)
+    [[ -z "$row" ]] && return 0
+    req=$(printf '%s' "$row" | cut -f5)
+    pref=$(printf '%s' "$row" | cut -f7)
+    out="$req"
+    [[ -n "$pref" && "$pref" != "none" ]] && out="${out:+${out},}${pref}"
+    printf '%s' "${out//,/ · }"
+}
+
+# Path of the newest task packet routed to this lane, searching the given dirs
+# in order (active/ first, then inbox/ — so a queued PENDING task still resolves).
+_newest_lane_task() {  # _newest_lane_task LANE DIR...
+    local lane="$1"; shift
+    local dir ns f to_model ts best="" best_ts=0
+    for dir in "$@"; do
+        for ns in "${SOURCE_NAMESPACES[@]}"; do
+            for f in "${VAULT_ROOT}/departments/${ns}/${dir}"/TASK-*.md; do
+                [[ -f "$f" ]] || continue
+                to_model="$(frontmatter_field "$f" to_model)"
+                [[ "$to_model" != "$lane" ]] && continue
+                ts=$(stat -f '%m' "$f" 2>/dev/null || echo 0)
+                if [[ "$ts" -gt "$best_ts" ]]; then best_ts="$ts"; best="$f"; fi
+            done
+        done
+    done
+    printf '%s' "$best"
+}
+
+# Specialist assigned to the lane's current (active, else queued) task.
+lane_specialist() {
+    local f; f="$(_newest_lane_task "$1" active inbox)"
+    [[ -z "$f" ]] && return 0
+    frontmatter_field "$f" specialist
+}
+
+# H1 title of the lane's current (active, else queued) task — a short
+# natural-language "what is this lane working on". Empty if none.
+active_task_objective() {
+    local f; f="$(_newest_lane_task "$1" active inbox)"
+    [[ -z "$f" ]] && return 0
+    awk '/^---$/{c++; next} c>=2 && /^# /{sub(/^# */,""); print; exit}' "$f"
+}
+
+# Best-effort "what is the lane doing right now": scrape the pane, find the most
+# recent activity marker (Claude ✻ / ⏺, Codex "Working/Worked for"), clean the
+# line and return it. Empty when no marker is visible — we never guess, so the
+# caller simply omits the line. Deliberately CLI-agnostic (approach A).
+live_now_line() {
+    local lane="$1" raw line
+    command -v tmux >/dev/null 2>&1 || return 0
+    raw=$(tmux capture-pane -t "${SESSION}:${lane}" -p 2>/dev/null) || return 0
+    line=$(printf '%s\n' "$raw" | grep -nE '✻|⏺|─ Work(ing|ed) for' | tail -1 | cut -d: -f2-)
+    [[ -z "$line" ]] && return 0
+    # Strip ANSI, box-drawing chars, and leading spinner/prompt glyphs; collapse.
+    line=$(printf '%s' "$line" \
+        | sed -E $'s/\033\\[[0-9;]*m//g' \
+        | tr -d '─│╭╮╰╯▄▀' \
+        | sed -E 's/^[[:space:]✻⏺❯›▸*•]+//; s/[[:space:]]+/ /g; s/^ //; s/ $//')
+    printf '%s' "$line"
+}
+
+# One labeled interior line, echoed (not printed) so the caller can collect rows
+# into an array and count them for height-fill. Value is fit/truncated to width.
+fmt_row() {  # fmt_row INNER LABEL VALUE
+    local inner="$1" label="$2" value="$3"
+    printf '│ \033[38;5;250m%-5s\033[0m %s │' "$label" "$(fit "$value" "$((inner - 6))")"
+}
+
+# Full-width state-colored line (used for the idle tagline row).
+fmt_tagline() {  # fmt_tagline INNER STATE_COLOR TEXT
+    local inner="$1" sc="$2" text="$3"
+    printf '│ \033[%sm%s\033[0m │' "$sc" "$(fit "$text" "$inner")"
+}
+
 draw_card() {
     local lane="$1" width="$2" height="${3:-0}"
     local accent term_accent short tagline inbox active outbox blocked specialist last state state_color inner title pad
@@ -158,7 +226,7 @@ draw_card() {
     active=$(count_lane_tasks "$lane" active)
     outbox=$(count_lane_tasks "$lane" outbox)
     blocked=$(blocked_count "$lane")
-    specialist="$(active_specialist "$lane")"
+    specialist="$(lane_specialist "$lane")"
     last="$(latest_result "$lane")"
 
     if [[ "$active" -gt 0 ]]; then
@@ -177,32 +245,44 @@ draw_card() {
     pad=$((inner - ${#title}))
     [[ "$pad" -lt 1 ]] && pad=1
 
+    # Collect interior rows into an array so we can count them for height-fill.
+    # Active lanes (WORKING/PENDING) get the rich spec/task/tools/now view;
+    # idle/blocked lanes keep the quiet tagline + queue + last view. Any row
+    # whose value is empty is simply omitted.
+    local -a body=()
+    if [[ "$state" == "WORKING" || "$state" == "PENDING" ]]; then
+        local objective tools_line now_line
+        objective="$(active_task_objective "$lane")"
+        tools_line="$(tools_for_specialist "$specialist")"
+        now_line="$(live_now_line "$lane")"
+        body+=("$(fmt_row "$inner" spec "${specialist:-none}")")
+        [[ -n "$objective" ]]  && body+=("$(fmt_row "$inner" task "$objective")")
+        [[ -n "$tools_line" ]] && body+=("$(fmt_row "$inner" tools "$tools_line")")
+        [[ -n "$now_line" ]]   && body+=("$(fmt_row "$inner" now "▸ $now_line")")
+        body+=("$(fmt_row "$inner" queue "in ${inbox} · active ${active} · out ${outbox}")")
+    else
+        # Idle/blocked: quiet view. No `now` line — a finished lane's pane still
+        # shows its last-turn marker, which would read as misleadingly "live".
+        body+=("$(fmt_tagline "$inner" "$state_color" "$tagline")")
+        body+=("$(fmt_row "$inner" queue "in ${inbox} · active ${active} · out ${outbox} · blk ${blocked}")")
+        body+=("$(fmt_row "$inner" last "${last:-none}")")
+    fi
+
+    # Top border.
     c256 "$accent" "╭─ "
     printf '\033[1;38;5;%sm%s\033[0m' "$accent" "$title"
     c256 "$accent" " $(repeat_char '─' "$pad")╮"
     printf '\n'
 
-    printf '│ '
-    color "${state_color}" "$(fit "$tagline" "$inner")"
-    printf ' │\n'
+    # Body rows.
+    printf '%s\n' "${body[@]}"
 
-    printf '│ '
-    color "38;5;250" "work "
-    printf ' %s │\n' "$(fit "${specialist:-none}" "$((inner - 6))")"
-    printf '│ '
-    color "38;5;250" "queue"
-    printf ' %s │\n' "$(fit "in ${inbox}  active ${active}  out ${outbox}  blocked ${blocked}" "$((inner - 6))")"
-    printf '│ '
-    color "38;5;250" "last "
-    printf ' %s │\n' "$(fit "${last:-none}" "$((inner - 6))")"
-
-    # Fill to target height: the card body above is 5 lines (top border + 4
-    # info rows); with the bottom border it is 6. Pad the interior with blank
-    # bordered lines so four cards spread down the sidebar instead of clustering
-    # at the top. Accent-tinted side rails keep the taller box reading as one panel.
-    if [[ "$height" -gt 6 ]]; then
+    # Fill to target height: box = 1 (top) + #body + 1 (bottom). Pad the interior
+    # with accent-tinted blank rails so cards keep an equal slice of the sidebar.
+    local total=$(( ${#body[@]} + 2 ))
+    if [[ "$height" -gt "$total" ]]; then
         local i
-        for ((i = 0; i < height - 6; i++)); do
+        for ((i = 0; i < height - total; i++)); do
             c256 "$accent" "│"
             printf '%*s' "$((width - 2))" ""
             c256 "$accent" "│"
@@ -210,6 +290,7 @@ draw_card() {
         done
     fi
 
+    # Bottom border.
     c256 "$accent" "╰$(repeat_char '─' "$((width - 2))")╯"
     printf '\n'
 }
@@ -223,7 +304,7 @@ draw_compact_card() {
     active=$(count_lane_tasks "$lane" active)
     outbox=$(count_lane_tasks "$lane" outbox)
     blocked=$(blocked_count "$lane")
-    specialist="$(active_specialist "$lane")"
+    specialist="$(lane_specialist "$lane")"
     last="$(latest_result "$lane")"
 
     if [[ "$active" -gt 0 ]]; then
