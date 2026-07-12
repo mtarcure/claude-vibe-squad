@@ -114,6 +114,28 @@ latest_result() {
     echo "$best"
 }
 
+# Specialist of the lane's most recently completed task — gives idle lanes some
+# specialist context ("who ran last") instead of going blank.
+last_specialist() {
+    local lane="$1" best_file="" best_ts=0 f ts ns to_model task_id task_file d
+    for ns in "${SOURCE_NAMESPACES[@]}"; do
+        for f in "${VAULT_ROOT}/departments/${ns}/outbox"/TASK-*-response.md; do
+            [[ -f "$f" ]] || continue
+            task_id="$(basename "$f" | sed 's/-response.md$//')"
+            task_file=""
+            for d in inbox active archive; do
+                [[ -f "${VAULT_ROOT}/departments/${ns}/${d}/${task_id}.md" ]] && task_file="${VAULT_ROOT}/departments/${ns}/${d}/${task_id}.md"
+            done
+            [[ -z "$task_file" ]] && continue
+            to_model="$(frontmatter_field "$task_file" to_model)"
+            [[ "$to_model" != "$lane" ]] && continue
+            ts=$(stat -f '%m' "$f" 2>/dev/null || echo 0)
+            if [[ "$ts" -gt "$best_ts" ]]; then best_ts="$ts"; best_file="$task_file"; fi
+        done
+    done
+    [[ -n "$best_file" ]] && frontmatter_field "$best_file" specialist
+}
+
 blocked_count() {
     local lane="$1" count=0 f task_id task_file to_model status ns d
     for ns in "${SOURCE_NAMESPACES[@]}"; do
@@ -261,11 +283,20 @@ draw_card() {
         [[ -n "$now_line" ]]   && body+=("$(fmt_row "$inner" now "▸ $now_line")")
         body+=("$(fmt_row "$inner" queue "in ${inbox} · active ${active} · out ${outbox}")")
     else
-        # Idle/blocked: quiet view. No `now` line — a finished lane's pane still
-        # shows its last-turn marker, which would read as misleadingly "live".
+        # Idle/blocked: quiet view, but still surface the LAST specialist + result
+        # so there's always specialist context at a glance. No `now` line — a
+        # finished lane's pane still shows its last-turn marker, which would read
+        # as misleadingly "live".
+        local last_spec last_line
+        last_spec="$(last_specialist "$lane")"
+        if [[ -n "$last_spec" && "$last_spec" != "none" && -n "$last" ]]; then
+            last_line="${last_spec} · ${last}"
+        else
+            last_line="${last:-none}"
+        fi
         body+=("$(fmt_tagline "$inner" "$state_color" "$tagline")")
         body+=("$(fmt_row "$inner" queue "in ${inbox} · active ${active} · out ${outbox} · blk ${blocked}")")
-        body+=("$(fmt_row "$inner" last "${last:-none}")")
+        body+=("$(fmt_row "$inner" last "$last_line")")
     fi
 
     # Top border.
