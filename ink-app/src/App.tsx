@@ -38,6 +38,22 @@ export const App: React.FC = () => {
       proc.onExit(code => {
         setLanes(prev => ({...prev, [name]: {status: 'error', detail: `exited (${code})`}}));
       });
+      proc.onCrash(({crashCount}) => {
+        if (crashCount === 1) {
+          // Crash recovery level 1: silent auto-restart + retry
+          proc.start().catch(err => {
+            console.error(`Failed to restart ${name}:`, err);
+          });
+          setLanes(prev => ({...prev, [name]: {status: 'starting', detail: 'restarting'}}));
+        } else if (crashCount === 2) {
+          // Crash recovery level 2: escalate to Chrono (pause + alert)
+          setLanes(prev => ({...prev, [name]: {status: 'error', detail: 'crashed twice — pausing'}}));
+          // TODO: send Chrono a narration event
+        } else if (crashCount >= 3) {
+          // Crash recovery level 3: circuit open at daemon level
+          setLanes(prev => ({...prev, [name]: {status: 'stuck', detail: 'circuit open'}}));
+        }
+      });
       processes[name] = proc;
     });
     return () => {

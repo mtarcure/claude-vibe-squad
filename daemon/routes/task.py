@@ -3,6 +3,7 @@ from pathlib import Path
 import os
 from daemon.protocol.packet import TaskPacket
 from daemon.protocol.writer import atomic_write_yaml
+from daemon.circuit_breaker import get_breaker, BreakerState
 
 router = APIRouter()
 
@@ -11,6 +12,9 @@ def _state_dir() -> Path:
 
 @router.post("/task")
 def create_task(packet: TaskPacket):
+    breaker = get_breaker(packet.lane)
+    if breaker.check() == BreakerState.OPEN:
+        raise HTTPException(status_code=503, detail=f"circuit open for lane {packet.lane}, refusing dispatch")
     inbox = _state_dir() / "inbox" / packet.lane
     target = inbox / f"{packet.task_id}.md"
     atomic_write_yaml(target, packet.model_dump(mode="json"))
