@@ -1,9 +1,17 @@
 ---
-name: finance-analyst
-source_namespace: sysmgmt
-default_model: inherit
-multi_model: false
-mcps_used: [csv-parser, plaid (optional)]
+specialist: finance-analyst
+version: 2.0
+department: sysmgmt
+lane: kimi
+model_key: default
+required_tools: []
+preferred_tools: []
+safety_level: medium
+requires_approval:
+  - Write
+  - Bash
+  - WebFetch
+tags: []
 ---
 
 # Specialist: Finance Analyst

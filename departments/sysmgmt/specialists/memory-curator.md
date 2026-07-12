@@ -1,9 +1,17 @@
 ---
-name: memory-curator
-source_namespace: sysmgmt
-default_model: inherit
-multi_model: false
-owns: dreaming-system
+specialist: memory-curator
+version: 2.0
+department: sysmgmt
+lane: claude
+model_key: default
+required_tools: []
+preferred_tools: []
+safety_level: medium
+requires_approval:
+  - Write
+  - Bash
+  - WebFetch
+tags: []
 ---
 
 # Specialist: Memory Curator

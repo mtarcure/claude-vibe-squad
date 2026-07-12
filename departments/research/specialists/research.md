@@ -1,9 +1,17 @@
 ---
-name: research
-source_namespace: research
-default_model: inherit
-multi_model: required
-multi_model_providers: [kimi, claude, gemini]
+specialist: research
+version: 2.0
+department: research
+lane: kimi
+model_key: default
+required_tools: []
+preferred_tools: []
+safety_level: medium
+requires_approval:
+  - Write
+  - Bash
+  - WebFetch
+tags: []
 ---
 
 # Specialist: Research

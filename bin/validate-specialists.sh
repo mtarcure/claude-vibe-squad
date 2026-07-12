@@ -70,7 +70,7 @@ else
         [[ -z "$notes" ]] && map_issues+=("malformed-runtime-map-row")
         case "$best_model" in gpt-codex|claude|gemini|kimi) ;; *) map_issues+=("invalid-best-model:${best_model}") ;; esac
         case "$review_model" in gpt-codex|claude|gemini|kimi|none) ;; *) map_issues+=("invalid-review-model:${review_model}") ;; esac
-        case "$source_namespace" in coding|security|content|sysmgmt|research|shared) ;; *) map_issues+=("invalid-source-namespace:${source_namespace}") ;; esac
+        case "$source_namespace" in coding|security|content|content-engineer|sysmgmt|research|shared) ;; *) map_issues+=("invalid-source-namespace:${source_namespace}") ;; esac
         case "$safety_level" in low|medium|high) ;; *) map_issues+=("invalid-safety-level:${safety_level}") ;; esac
         specialist_exists "$specialist" || map_issues+=("map-specialist-file-missing:${specialist}")
         if [[ "$safety_level" == "high" && "$review_model" == "none" ]]; then

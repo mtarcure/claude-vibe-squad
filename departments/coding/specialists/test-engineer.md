@@ -1,9 +1,17 @@
 ---
-name: test-engineer
-source_namespace: coding
-default_model: inherit
-multi_model: false
-bundled_skills: [unit, property, e2e, flake-triage]
+specialist: test-engineer
+version: 2.0
+department: coding
+lane: codex
+model_key: default
+required_tools: []
+preferred_tools: []
+safety_level: medium
+requires_approval:
+  - Write
+  - Bash
+  - WebFetch
+tags: []
 ---
 
 # Specialist: Test Engineer

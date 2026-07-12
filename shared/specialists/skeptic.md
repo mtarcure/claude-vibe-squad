@@ -1,10 +1,17 @@
 ---
-name: skeptic
-scope: cross-cutting
-default_model: claude-opus-4-7
-multi_model: required
-multi_model_providers: [claude, codex, gemini, kimi]
-multi_model_rule: writer_family_excluded
+specialist: skeptic
+version: 2.0
+department: shared
+lane: claude
+model_key: default
+required_tools: []
+preferred_tools: []
+safety_level: medium
+requires_approval:
+  - Write
+  - Bash
+  - WebFetch
+tags: []
 ---
 
 # Specialist: Skeptic (cross-cutting)

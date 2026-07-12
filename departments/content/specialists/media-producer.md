@@ -1,12 +1,17 @@
 ---
-name: media-producer
-source_namespace: content
-default_model: inherit
-best_model_lane: gemini
-secondary_runtimes: [codex, claude]
-domain_tags: [media, image, video, audio, assets]
-multi_model: false
-mcps_used: [chrono-content-engineer]
+specialist: media-producer
+version: 2.0
+department: content
+lane: gemini
+model_key: default
+required_tools: []
+preferred_tools: []
+safety_level: medium
+requires_approval:
+  - Write
+  - Bash
+  - WebFetch
+tags: []
 ---
 
 # Specialist: Media Producer

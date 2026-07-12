@@ -1,8 +1,17 @@
 ---
-name: social-strategist
-source_namespace: content
-default_model: inherit
-multi_model: false
+specialist: social-strategist
+version: 2.0
+department: content
+lane: gemini
+model_key: default
+required_tools: []
+preferred_tools: []
+safety_level: medium
+requires_approval:
+  - Write
+  - Bash
+  - WebFetch
+tags: []
 ---
 
 # Specialist: Social Strategist

@@ -1,8 +1,17 @@
 ---
-name: scout
-source_namespace: security
-default_model: inherit
-multi_model: optional
+specialist: scout
+version: 2.0
+department: security
+lane: kimi
+model_key: default
+required_tools: []
+preferred_tools: []
+safety_level: medium
+requires_approval:
+  - Write
+  - Bash
+  - WebFetch
+tags: []
 ---
 
 # Specialist: Scout

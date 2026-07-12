@@ -1,8 +1,17 @@
 ---
-name: prompt-engineer
-scope: cross-cutting
-default_model: claude-opus-4-7
-multi_model: false
+specialist: prompt-engineer
+version: 2.0
+department: shared
+lane: codex
+model_key: default
+required_tools: []
+preferred_tools: []
+safety_level: medium
+requires_approval:
+  - Write
+  - Bash
+  - WebFetch
+tags: []
 ---
 
 # Specialist: Prompt Engineer (cross-cutting)

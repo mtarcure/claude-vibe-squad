@@ -1,8 +1,17 @@
 ---
-name: knowledge-librarian
-source_namespace: sysmgmt
-default_model: inherit
-multi_model: false
+specialist: knowledge-librarian
+version: 2.0
+department: sysmgmt
+lane: claude
+model_key: default
+required_tools: []
+preferred_tools: []
+safety_level: medium
+requires_approval:
+  - Write
+  - Bash
+  - WebFetch
+tags: []
 ---
 
 # Specialist: Knowledge Librarian

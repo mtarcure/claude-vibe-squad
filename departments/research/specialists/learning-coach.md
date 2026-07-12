@@ -1,8 +1,17 @@
 ---
-name: learning-coach
-source_namespace: research
-default_model: inherit
-multi_model: false
+specialist: learning-coach
+version: 2.0
+department: research
+lane: kimi
+model_key: default
+required_tools: []
+preferred_tools: []
+safety_level: medium
+requires_approval:
+  - Write
+  - Bash
+  - WebFetch
+tags: []
 ---
 
 # Specialist: Learning Coach

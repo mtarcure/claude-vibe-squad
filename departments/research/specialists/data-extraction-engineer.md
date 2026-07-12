@@ -1,8 +1,17 @@
 ---
-name: data-extraction-engineer
-source_namespace: research
-default_model: inherit
-multi_model: false
+specialist: data-extraction-engineer
+version: 2.0
+department: research
+lane: codex
+model_key: default
+required_tools: []
+preferred_tools: []
+safety_level: medium
+requires_approval:
+  - Write
+  - Bash
+  - WebFetch
+tags: []
 ---
 
 # Specialist: Data Extraction Engineer

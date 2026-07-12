@@ -1,9 +1,17 @@
 ---
-name: large-context-analyst
-source_namespace: research
-default_model: kimi-k2
-multi_model: false
-purpose: long-context-synthesis
+specialist: large-context-analyst
+version: 2.0
+department: research
+lane: kimi
+model_key: default
+required_tools: []
+preferred_tools: []
+safety_level: medium
+requires_approval:
+  - Write
+  - Bash
+  - WebFetch
+tags: []
 ---
 
 # Specialist: Large Context Analyst

@@ -1,8 +1,17 @@
 ---
-name: loop-operator
-source_namespace: sysmgmt
-default_model: inherit
-multi_model: false
+specialist: loop-operator
+version: 2.0
+department: sysmgmt
+lane: claude
+model_key: default
+required_tools: []
+preferred_tools: []
+safety_level: medium
+requires_approval:
+  - Write
+  - Bash
+  - WebFetch
+tags: []
 ---
 
 # Specialist: Loop Operator

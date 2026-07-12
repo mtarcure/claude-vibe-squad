@@ -1,9 +1,17 @@
 ---
-name: vibecoding-check
-scope: cross-cutting
-default_model: codex-gpt-5.5  # opposite-family from Claude controller for tier-3 judgment
-multi_model: false  # mechanical verification, not semantic
-implementation: hook + skill + specialist (3 layers)
+specialist: vibecoding-check
+version: 2.0
+department: shared
+lane: claude
+model_key: default
+required_tools: []
+preferred_tools: []
+safety_level: medium
+requires_approval:
+  - Write
+  - Bash
+  - WebFetch
+tags: []
 ---
 
 # Specialist: Vibecoding Check (cross-cutting)

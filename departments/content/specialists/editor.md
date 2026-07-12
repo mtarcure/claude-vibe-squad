@@ -1,8 +1,17 @@
 ---
-name: editor
-source_namespace: content
-default_model: inherit
-multi_model: optional
+specialist: editor
+version: 2.0
+department: content
+lane: gemini
+model_key: default
+required_tools: []
+preferred_tools: []
+safety_level: medium
+requires_approval:
+  - Write
+  - Bash
+  - WebFetch
+tags: []
 ---
 
 # Specialist: Editor

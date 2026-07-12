@@ -1,9 +1,17 @@
 ---
-name: smart-contract-engineer
-source_namespace: coding
-default_model: inherit
-multi_model: optional  # multi-stance audit fanout when invoked
-status: on-demand  # active in bounty-smart-contract / web3 profiles
+specialist: smart-contract-engineer
+version: 2.0
+department: coding
+lane: codex
+model_key: default
+required_tools: []
+preferred_tools: []
+safety_level: medium
+requires_approval:
+  - Write
+  - Bash
+  - WebFetch
+tags: []
 ---
 
 # Specialist: Smart Contract Engineer

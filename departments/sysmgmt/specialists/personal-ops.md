@@ -1,9 +1,17 @@
 ---
-name: personal-ops
-source_namespace: sysmgmt
-default_model: inherit
-multi_model: false
-mcps_used: [calendar, gmail, todo]
+specialist: personal-ops
+version: 2.0
+department: sysmgmt
+lane: claude
+model_key: default
+required_tools: []
+preferred_tools: []
+safety_level: medium
+requires_approval:
+  - Write
+  - Bash
+  - WebFetch
+tags: []
 ---
 
 # Specialist: Personal Ops

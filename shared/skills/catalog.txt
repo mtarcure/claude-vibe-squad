@@ -2,7 +2,11 @@
 # Markdown files in this directory are repo-owned skill writeups. Names below
 # also include external/plugin skills that specialist prompts may reference.
 a11y-audit
+accessibility-wcag
 agent-architecture-pattern
+agent-prompt-engineering
+audio-layering-techniques
+audio-production-basics
 agentic-safety-audit
 api-surface-mapper
 ast-rewrite-loop
@@ -13,6 +17,11 @@ binary-re-pipeline
 bot-evasion-loop
 boundary-design
 brain-trio-amendment-authoring
+color-grading-basics
+color-theory
+composition-rules
+conversation-design
+copy-refinement
 browser-scrape-pipeline
 c4-model-authoring
 cc-hooks-ci-discipline
@@ -50,6 +59,8 @@ figma-code-connect
 figma-implement-design
 find-sources
 findings-filter
+game-design-fundamentals
+game-mechanics-balancing
 flaky-e2e-hunt
 flamegraph-triage-flow
 frontend-design
@@ -63,13 +74,16 @@ instinct-prune-loop
 interface-ambiguity-check
 k8s-deploy-loop
 kg-vault-health-check
+knowledge-base-integration
 layered-analysis-loop
 leverage-area-identification
 loop-checkpoint-protocol
 mcp-server-cdp-pattern
 mcp-tool-design
 multi-model-routing-discipline
+music-production-basics
 n8n-workflow-orchestration
+narrative-pacing
 nuclei-scan
 nvd-osv-calibration
 osint-platform-audit
@@ -77,6 +91,8 @@ playground
 playwright-page-object-model
 playwright-session-recorder
 playwright-stealth-config
+platform-compliance
+player-engagement-psychology
 pre-audit-threat-model
 preserve-outliers
 program-fit-check
@@ -87,7 +103,9 @@ rag-eval-loop
 react-performance-loop
 recon-chain-orchestrator
 research-integrity-gate
+responsive-design
 reversible-change-protocol
+seo-fundamentals
 review-severity-ladder
 safe-intervention
 scope-estimation
@@ -100,6 +118,8 @@ semgrep-rule-author
 simd-porting-layer
 skill-description-trigger-authoring
 solana-audit-flow
+sonic-branding
+sound-design-principles
 source-triangulation
 staged-integrity-gate
 stale-knowledge-purge
@@ -112,9 +132,15 @@ terraform-state-hygiene
 test-driven-development
 test-shrinkage-loop
 thread-sweet-spot-profiling
+video-post-production
+video-production-principles
+virality-analysis
+visual-design-principles
+voice-performance-direction
 variant-analysis
 verification-before-completion
 vulnhunter-solana
 webapp-testing-local
+web-performance-optimization
 writing-skills
 xbow-benchmark-runner

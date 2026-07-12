@@ -1,10 +1,17 @@
 ---
-name: summarizer
-scope: cross-cutting
-default_model: claude-haiku-4-5
-fallback_model: gemini-flash
-multi_model: false
-purpose: context-compression
+specialist: summarizer
+version: 2.0
+department: shared
+lane: claude
+model_key: default
+required_tools: []
+preferred_tools: []
+safety_level: medium
+requires_approval:
+  - Write
+  - Bash
+  - WebFetch
+tags: []
 ---
 
 # Specialist: Summarizer (cross-cutting)

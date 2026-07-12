@@ -1,9 +1,17 @@
 ---
-name: threat-modeler
-source_namespace: security
-default_model: inherit
-multi_model: required
-multi_model_providers: [claude, gemini]  # diverse threat scenarios
+specialist: threat-modeler
+version: 2.0
+department: security
+lane: claude
+model_key: default
+required_tools: []
+preferred_tools: []
+safety_level: medium
+requires_approval:
+  - Write
+  - Bash
+  - WebFetch
+tags: []
 ---
 
 # Specialist: Threat Modeler

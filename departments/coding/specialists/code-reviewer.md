@@ -1,10 +1,17 @@
 ---
-name: code-reviewer
-source_namespace: coding
-default_model: inherit
-multi_model: required
-multi_model_providers: [codex, claude, gemini]
-multi_model_rule: writer_family_excluded  # if Codex wrote the code, Claude+Gemini review (not Codex again)
+specialist: code-reviewer
+version: 2.0
+department: coding
+lane: claude
+model_key: default
+required_tools: []
+preferred_tools: []
+safety_level: medium
+requires_approval:
+  - Write
+  - Bash
+  - WebFetch
+tags: []
 ---
 
 # Specialist: Code Reviewer

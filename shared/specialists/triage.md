@@ -1,9 +1,17 @@
 ---
-name: triage
-scope: cross-cutting
-default_model: claude-opus-4-7
-multi_model: false  # speed matters; classification disagreement is rare
-purpose: classify-and-route
+specialist: triage
+version: 2.0
+department: shared
+lane: claude
+model_key: default
+required_tools: []
+preferred_tools: []
+safety_level: medium
+requires_approval:
+  - Write
+  - Bash
+  - WebFetch
+tags: []
 ---
 
 # Specialist: Triage (cross-cutting)

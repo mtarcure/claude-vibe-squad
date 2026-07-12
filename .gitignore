@@ -66,3 +66,4 @@ __pycache__/
 .obsidian/workspace*
 .obsidian/cache
 .obsidian/plugins/*/data.json
+.superpowers/

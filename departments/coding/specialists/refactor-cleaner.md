@@ -1,9 +1,17 @@
 ---
-name: refactor-cleaner
-source_namespace: coding
-default_model: inherit
-multi_model: false
-bundled_skills: [ast-rewrites, dead-code, import-reorg, comby-patches]
+specialist: refactor-cleaner
+version: 2.0
+department: coding
+lane: claude
+model_key: default
+required_tools: []
+preferred_tools: []
+safety_level: medium
+requires_approval:
+  - Write
+  - Bash
+  - WebFetch
+tags: []
 ---
 
 # Specialist: Refactor Cleaner
