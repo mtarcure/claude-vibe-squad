@@ -942,13 +942,13 @@ Per-pane verification matrix for each chrono-* family MCP. Claude pane verificat
 - purpose: Current live research wrapper exposing `arxiv_search`, `xai_search`, and `perplexity_search_web` (the last as a sibling MCP under the same plugin namespace via `uvx perplexity-mcp`). Brave, Apify, and Serper remain planned/unverified.
 - specialists: research, scout, large-context-analyst, fact-checker
 - verified per pane:
-  - chrono pane (claude): partial — wrapper registered; verified live: `arxiv_search`, `perplexity_search_web` (Perplexity smoke test 2026-05-05, 2 results w/ citations). **`xai_search` returns HTTP 404 (re-tested 2026-07-12 from chrono pane) — broken tool-wide, do not rely on it until the endpoint is fixed.**
+  - chrono pane (claude): yes — wrapper registered; verified live: `arxiv_search`, `perplexity_search_web` (Perplexity smoke test 2026-07-12 returned cited results), and `xai_search` (fixed 2026-07-12 to use xAI Responses API `POST https://api.x.ai/v1/responses` with `web_search` / `x_search` tools; smoke test returned `ok:true` with real URLs).
   - security pane (claude): yes — same
   - sysmgmt pane (claude): yes — same
   - coding pane (codex): yes — registered; task packets must still verify `tools/list` before naming provider-specific tools
   - content pane (gemini): no — **INTENTIONALLY SKIPPED in Hybrid Path A.** Google Search grounding (built into `gemini-3.1-pro-preview`) is the substitute. Gemini pane research uses native grounding, not chrono-research-arsenal.
-  - research pane (kimi): partial — registered; `arxiv_search` + `perplexity_search_web` work; **`xai_search` returns HTTP 404 (broken 2026-07-12, tool-wide — not lane-specific)**
-- last_checked: 2026-05-05 perplexity/arxiv; `xai_search` re-tested 2026-07-12 → HTTP 404 (broken, endpoint fix needed)
+  - research pane (kimi): registered; same wrapper; `xai_search` endpoint fixed tool-wide via the 2026-07-12 Responses API patch. Re-smoke in-lane before relying on Kimi-specific tool availability.
+- last_checked: 2026-07-12 for `xai_search` endpoint fix + arxiv/perplexity sibling smoke tests
 
 ### chrono-content-engineer MCP
 - purpose: Current live content/media wrapper exposing `generate_image`, `generate_video`, and `generate_audio`. Provider-specific child routes such as ElevenLabs and Higgsfield are separate surfaces unless the active lane schema exposes them.
