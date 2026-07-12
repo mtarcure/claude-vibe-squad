@@ -53,7 +53,7 @@ fi
 
 # Verify tmux is installed
 missing=()
-for dep in tmux fswatch jq claude codex gemini kimi; do
+for dep in tmux fswatch jq curl claude codex gemini kimi; do
     command -v "$dep" >/dev/null 2>&1 || missing+=("$dep")
 done
 if [[ "${#missing[@]}" -gt 0 ]]; then
@@ -79,8 +79,25 @@ fi
 # after `kill-server`), leaving status bar + mouse mode at tmux defaults.
 tmux start-server
 
+# --- Live status poller ----------------------------------------------------
+# Background job: polls the daemon once/sec and writes /tmp/vs-*.status files
+# that the tmux status bar + pane borders read (see vs-lane-status.sh). Started
+# here — before the has-session reattach guard — so a reattach also re-ensures
+# it's running. pgrep-guarded so we never spawn duplicate pollers.
+if ! pgrep -f 'vs-lane-status.sh' >/dev/null 2>&1; then
+    # Surgically extract ONLY the daemon token in a subshell. NEVER source the
+    # full secrets file into this launcher's env — every tmux pane inherits the
+    # launcher env, and API keys have leaked into terminal titles via exactly
+    # that path before. The inline command-prefix assignment scopes the token
+    # to the poller process alone; it never enters the launcher (or pane) env.
+    VIBESQUAD_DAEMON_TOKEN="$(zsh -c 'source "$HOME/.config/shell/secrets.zsh" 2>/dev/null; printf %s "${VIBESQUAD_DAEMON_TOKEN:-}"')" \
+        nohup bash "${VAULT_ROOT}/bin/vs-lane-status.sh" >/dev/null 2>&1 &
+    disown 2>/dev/null || true
+fi
+
 # Tmux server config — keep 50k scrollback (default 2k truncates active sessions),
-# enable mouse for trackpad scrolling, refresh status every 5s.
+# enable mouse for trackpad scrolling. (Status refresh cadence is set to 1s in
+# the status-bar block below, for smooth live spinners.)
 # Applied BEFORE the has-session early-return so reattaches re-assert these
 # globals — otherwise the server can drift back to defaults (mouse off,
 # history-limit 2000) after a kill-server / external session recreate, and
@@ -112,25 +129,42 @@ tmux bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cance
 tmux bind-key -T copy-mode Enter send-keys -X copy-pipe-and-cancel "pbcopy" 2>/dev/null || true
 tmux bind-key -T copy-mode-vi Enter send-keys -X copy-pipe-and-cancel "pbcopy" 2>/dev/null || true
 tmux bind-key -T copy-mode-vi y send-keys -X copy-pipe-and-cancel "pbcopy" 2>/dev/null || true
-tmux set-option -g status-interval 5
-tmux set-option -g status-left-length 40
-tmux set-option -g status-right-length 110
+# --- Claude-Code-grade status bar (locked palette, poller-fed) -------------
+# All live data comes from /tmp/vs-*.status, written once per second by the
+# vs-lane-status.sh poller spawned above — so tmux does ZERO network work per
+# render even at status-interval 1. Palette: colour74 cyan accent, colour252
+# near-white, colour240 dim, colour214 amber, colour234/233 backgrounds.
+tmux set-option -g status on
+tmux set-option -g status-position bottom
+tmux set-option -g status 2                       # two rows: live data + key hints
+tmux set-option -g status-interval 1
+tmux set-option -g status-style      'fg=colour252,bg=colour234'
+tmux set-option -g status-left-length 60
+tmux set-option -g status-right-length 120
 
-# Status bar shows squad state at a glance from any pane: doctor verdict +
-# inbox backlog + clock. Doctor verdict is read from today's summary JSON.
-tmux set-option -g status-left "#[fg=cyan,bold]squad #[fg=white]│ "
-tmux set-option -g status-right-length 140
-tmux set-option -g status-style 'bg=colour235,fg=colour252'
-tmux set-option -g window-status-current-style 'bg=colour39,fg=colour16,bold'
-tmux set-option -g window-status-style 'bg=colour235,fg=colour250'
-tmux set-option -g window-status-format ' #[fg=colour245]#I #[fg=colour250]#W '
-tmux set-option -g window-status-current-format ' #[fg=colour16,bold]#I #[fg=colour16,bold]#W '
-tmux set-option -g pane-border-style 'fg=colour238'
-tmux set-option -g pane-active-border-style 'fg=colour51,bold'
+# Row 0 left: brand + session name + daemon health dot (poller file).
+tmux set-option -g status-left "#[fg=colour74,bold] squad #[fg=colour240]· #[fg=colour252]#S #[fg=colour240]· #(cat /tmp/vs-daemon.status 2>/dev/null) "
+# Row 0 right: doctor verdict (local json) · clock. (Token counts intentionally
+# omitted — the model CLIs surface their own usage.)
+tmux set-option -g status-right "#[fg=colour214]#(cat ${VAULT_ROOT}/_state/doctor-logs/\$(date +%%Y-%%m-%%d)-summary.json 2>/dev/null | jq -r 'if .issue_count>0 then \"issues:\"+(.issue_count|tostring) elif .warning_count>0 then \"warn:\"+(.warning_count|tostring) else \"healthy\" end' 2>/dev/null || echo 'doctor:?') #[fg=colour240]· #[fg=colour252]%H:%M "
+# Row 1: persistent key hints, recessed so it reads as chrome not content.
+tmux set-option -g "status-format[1]" "#[bg=colour233,fg=colour240] Tab / C-b <n>: lanes · C-b 0: chrono · C-b z: zoom · C-b Space: reset · C-b [: scroll · C-b d: detach "
+
+# Window tabs — accent the current lane, dim the rest.
+tmux set-option -g window-status-style         'bg=colour234,fg=colour240'
+tmux set-option -g window-status-current-style 'bg=colour234,fg=colour252,bold'
+tmux set-option -g window-status-format         ' #[fg=colour240]#I #[fg=colour250]#W '
+tmux set-option -g window-status-current-format ' #[fg=colour74,bold]#I #W '
+
+# Pane borders — hairline accent on the active pane; the lane's live status
+# rides the border top. Lane windows are named gpt-codex/claude/gemini/kimi,
+# which match the poller's /tmp/vs-lane-<name>.status files exactly, so
+# #{window_name} keys them directly with no index mapping. (The chrono window
+# overrides this format at window scope inside sidebar.sh.)
+tmux set-option -g pane-border-style        'fg=colour238'
+tmux set-option -g pane-active-border-style 'fg=colour74'
 tmux set-option -g pane-border-status top
-tmux set-option -g pane-border-format '#[bg=colour51,fg=colour16,bold] #{pane_title} #[bg=default,fg=colour238]─'
-tmux set-option -g status-left "#[bg=colour39,fg=colour16,bold] squad #[bg=colour235,fg=colour250] "
-tmux set-option -g status-right "#[fg=colour214]#(cat ${VAULT_ROOT}/_state/doctor-logs/\$(date +%%Y-%%m-%%d)-summary.json 2>/dev/null | jq -r 'if .issue_count>0 then \"issues:\"+(.issue_count|tostring) elif .warning_count>0 then \"warn:\"+(.warning_count|tostring) else \"healthy\" end' 2>/dev/null || echo 'doctor:?') #[fg=colour245]| #[fg=colour45]#(bash ${VAULT_ROOT}/bin/squad-health.sh) #[fg=colour245]| #[fg=colour118]%H:%M"
+tmux set-option -g pane-border-format "#[fg=colour240] #{?pane_active,#[fg=colour74]▎,#[fg=colour238]│} #[fg=colour252,bold]#{window_name}#[fg=colour240] #(cat /tmp/vs-lane-#{window_name}.status 2>/dev/null) "
 
 # Per-pane log dir — pipe-pane writes pane stdout here for grep-able audit
 TMUX_LOG_DIR="${VAULT_ROOT}/_state/tmux-logs"
@@ -209,8 +243,9 @@ tmux new-session -d -s "${SESSION}" -n "chrono" -c "${VAULT_ROOT}/chrono"
 tmux pipe-pane -t "${SESSION}:chrono" -o "cat >> ${TMUX_LOG_DIR}/chrono.log"
 tmux send-keys -t "${SESSION}:chrono" "${PATH_PREFIX}" C-m
 tmux send-keys -t "${SESSION}:chrono" "${MEDIA_AUTH_PREFIX}" C-m
-tmux send-keys -t "${SESSION}:chrono" "clear; echo '=== CHRONO COORDINATOR (Claude Code) ==='" C-m
-tmux send-keys -t "${SESSION}:chrono" "claude --permission-mode acceptEdits --model opus --effort xhigh --add-dir ${VAULT_ROOT}" C-m
+# vs-welcome.sh clears, prints the coordinator greeting, then execs claude with
+# acceptEdits + opus + effort xhigh + --add-dir (keeps OPENAI_API_KEY for media).
+tmux send-keys -t "${SESSION}:chrono" "bash ${VAULT_ROOT}/bin/vs-welcome.sh" C-m
 
 # Optional local convenience: pre-trust chrono MCP servers in Codex config so
 # the coding pane does not prompt for MCP approval mid-task. This mutates
