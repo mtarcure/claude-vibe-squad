@@ -70,7 +70,7 @@ Project state decays fastest (days). Preference is durable until contradicted. F
 
 ### 6. Privacy / redaction baseline
 
-No raw secrets in memory. Reuse `scripts/python/dream_light.py` SECRET_PATTERNS list — emails, OpenAI/Anthropic/xAI/Perplexity/Google API keys, GitHub PATs (classic + fine-grained), AWS access keys, Slack tokens, JWTs, HuggingFace, Stripe, Apify, bearer-in-URL.
+No raw secrets in memory. Redact these classes when writing to any persistent surface: emails, OpenAI/Anthropic/xAI/Perplexity/Google API keys, GitHub PATs (classic + fine-grained), AWS access keys, Slack tokens, JWTs, HuggingFace, Stripe, Apify, bearer-in-URL.
 
 If a memory needs to reference a secret-bearing artifact (e.g., "the .env at path X has the deploy key"), reference the *location*, not the value.
 
