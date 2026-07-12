@@ -74,23 +74,6 @@ if [[ "${SQUAD_UNSAFE_AUTONOMY}" == "1" ]] && [[ -x "${VAULT_ROOT}/bin/doctor.sh
     fi
 fi
 
-# Ensure tmux server is up before any `set-option -g` calls. Without this,
-# global options silently fail when the server isn't yet running (e.g. just
-# after `kill-server`), leaving status bar + mouse mode at tmux defaults.
-tmux start-server
-
-# start-server can return before the server is ready to accept commands. On a
-# cold start (no server already running) the immediately-following `set-option
-# -g` calls then fail with "no server running" and the ENTIRE status/palette
-# config is silently lost — the session comes up with default green tmux chrome.
-# Block until the server actually accepts a global option before continuing.
-_vs_i=0
-until tmux set-option -g @vs_ready 1 2>/dev/null; do
-    _vs_i=$((_vs_i + 1))
-    [ "$_vs_i" -ge 100 ] && break   # ~5s cap; proceed rather than hang forever
-    sleep 0.05
-done
-
 # --- Live status poller ----------------------------------------------------
 # Background job: polls the daemon once/sec and writes /tmp/vs-*.status files
 # that the tmux status bar + pane borders read (see vs-lane-status.sh). Started
@@ -107,18 +90,66 @@ if ! pgrep -f 'vs-lane-status.sh' >/dev/null 2>&1; then
     disown 2>/dev/null || true
 fi
 
-# Tmux server config — keep 50k scrollback (default 2k truncates active sessions),
-# enable mouse for trackpad scrolling. (Status refresh cadence is set to 1s in
-# the status-bar block below, for smooth live spinners.)
-# Applied BEFORE the has-session early-return so reattaches re-assert these
-# globals — otherwise the server can drift back to defaults (mouse off,
-# history-limit 2000) after a kill-server / external session recreate, and
-# subsequent attaches via this script silently leave them at defaults.
-tmux set-option -g history-limit 50000
-tmux set-option -g mouse on
+# apply_squad_globals — all server-global tmux options + key bindings.
+#
+# ORDER MATTERS: global `set-option -g` requires a running server, and
+# `tmux start-server` does NOT create a queryable server on a cold start — the
+# server only comes into existence once the first session is created. So this
+# MUST run AFTER new-session (fresh launch) or when a session already exists
+# (reattach). Calling it before a session exists silently drops every option and
+# the session comes up with default green tmux chrome. It is idempotent, so
+# reattaches re-assert it (curing drift back to defaults after a kill-server /
+# external recreate).
+apply_squad_globals() {
+    # 50k scrollback (default 2k truncates active sessions) + mouse for trackpad.
+    tmux set-option -g history-limit 50000
+    tmux set-option -g mouse on
 
-# If session already exists, attach to it (after re-asserting globals above)
+    # One-key recovery: Ctrl-b SPACE refreshes the client display AND parks you
+    # back on the chrono coordinator pane. Cures any stale-frame visual issue.
+    tmux bind-key Space run-shell "tmux refresh-client \; tmux select-window -t ${SESSION}:chrono \; tmux select-pane -t ${SESSION}:chrono.0"
+    # Push tmux selections to the macOS clipboard automatically (⌘V elsewhere).
+    tmux set-option -g set-clipboard on
+    tmux bind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "pbcopy" 2>/dev/null || true
+    tmux bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "pbcopy" 2>/dev/null || true
+    tmux bind-key -T copy-mode Enter send-keys -X copy-pipe-and-cancel "pbcopy" 2>/dev/null || true
+    tmux bind-key -T copy-mode-vi Enter send-keys -X copy-pipe-and-cancel "pbcopy" 2>/dev/null || true
+    tmux bind-key -T copy-mode-vi y send-keys -X copy-pipe-and-cancel "pbcopy" 2>/dev/null || true
+
+    # --- Claude-Code-grade status bar (locked palette, poller-fed) ---------
+    # Live data comes from /tmp/vs-*.status (poller), so tmux does ZERO network
+    # work per render even at status-interval 1. Palette: colour74 cyan accent,
+    # colour252 near-white, colour240 dim, colour214 amber, colour234/233 bg.
+    tmux set-option -g status on
+    tmux set-option -g status-position bottom
+    tmux set-option -g status 2                       # two rows: live data + hints
+    tmux set-option -g status-interval 1
+    tmux set-option -g status-style      'fg=colour252,bg=colour234'
+    tmux set-option -g status-left-length 60
+    tmux set-option -g status-right-length 120
+    tmux set-option -g status-left "#[fg=colour74,bold] squad #[fg=colour240]· #[fg=colour252]#S #[fg=colour240]· #(cat /tmp/vs-daemon.status 2>/dev/null) "
+    tmux set-option -g status-right "#[fg=colour214]#(cat ${VAULT_ROOT}/_state/doctor-logs/\$(date +%%Y-%%m-%%d)-summary.json 2>/dev/null | jq -r 'if .issue_count>0 then \"issues:\"+(.issue_count|tostring) elif .warning_count>0 then \"warn:\"+(.warning_count|tostring) else \"healthy\" end' 2>/dev/null || echo 'doctor:?') #[fg=colour240]· #[fg=colour252]%H:%M "
+    tmux set-option -g "status-format[1]" "#[bg=colour233,fg=colour240] Tab / C-b <n>: lanes · C-b 0: chrono · C-b z: zoom · C-b Space: reset · C-b [: scroll · C-b d: detach "
+
+    # Window tabs — accent the current lane, dim the rest.
+    tmux set-option -g window-status-style         'bg=colour234,fg=colour240'
+    tmux set-option -g window-status-current-style 'bg=colour234,fg=colour252,bold'
+    tmux set-option -g window-status-format         ' #[fg=colour240]#I #[fg=colour250]#W '
+    tmux set-option -g window-status-current-format ' #[fg=colour74,bold]#I #W '
+
+    # Pane borders — hairline accent on the active pane; the lane's live status
+    # rides the border top. Lane windows are named gpt-codex/claude/gemini/kimi,
+    # matching the poller's /tmp/vs-lane-<name>.status files, so #{window_name}
+    # keys them directly. (The chrono window overrides this in sidebar.sh.)
+    tmux set-option -g pane-border-style        'fg=colour238'
+    tmux set-option -g pane-active-border-style 'fg=colour74'
+    tmux set-option -g pane-border-status top
+    tmux set-option -g pane-border-format "#[fg=colour240] #{?pane_active,#[fg=colour74]▎,#[fg=colour238]│} #[fg=colour252,bold]#{window_name}#[fg=colour240] #(cat /tmp/vs-lane-#{window_name}.status 2>/dev/null) "
+}
+
+# If the session already exists, re-assert globals (the server is up) and attach.
 if tmux has-session -t "${SESSION}" 2>/dev/null; then
+    apply_squad_globals
     echo "Session '${SESSION}' already exists. Attaching..."
     tmux attach -t "${SESSION}"
     exit 0
@@ -127,56 +158,10 @@ fi
 echo "Creating tmux session: ${SESSION}"
 echo ""
 
-# One-key recovery: Ctrl-b SPACE refreshes the client display AND parks you
-# back on the chrono coordinator pane. Cures any stale-frame visual issue and
-# restores focus to the place you actually want to type.
-tmux bind-key Space run-shell "tmux refresh-client \; tmux select-window -t ${SESSION}:chrono \; tmux select-pane -t ${SESSION}:chrono.0"
-# Push tmux selections to the macOS clipboard automatically so you can ⌘V into
-# Slack, Twitter, browser, etc. without bouncing through `tmux save-buffer`.
-tmux set-option -g set-clipboard on
-# When dragging to select: on release, copy to pbcopy and exit copy-mode.
-# Also: ⌥ Option-drag in iTerm/Terminal bypasses tmux entirely for native selection.
-tmux bind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "pbcopy" 2>/dev/null || true
-tmux bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "pbcopy" 2>/dev/null || true
-tmux bind-key -T copy-mode Enter send-keys -X copy-pipe-and-cancel "pbcopy" 2>/dev/null || true
-tmux bind-key -T copy-mode-vi Enter send-keys -X copy-pipe-and-cancel "pbcopy" 2>/dev/null || true
-tmux bind-key -T copy-mode-vi y send-keys -X copy-pipe-and-cancel "pbcopy" 2>/dev/null || true
-# --- Claude-Code-grade status bar (locked palette, poller-fed) -------------
-# All live data comes from /tmp/vs-*.status, written once per second by the
-# vs-lane-status.sh poller spawned above — so tmux does ZERO network work per
-# render even at status-interval 1. Palette: colour74 cyan accent, colour252
-# near-white, colour240 dim, colour214 amber, colour234/233 backgrounds.
-tmux set-option -g status on
-tmux set-option -g status-position bottom
-tmux set-option -g status 2                       # two rows: live data + key hints
-tmux set-option -g status-interval 1
-tmux set-option -g status-style      'fg=colour252,bg=colour234'
-tmux set-option -g status-left-length 60
-tmux set-option -g status-right-length 120
-
-# Row 0 left: brand + session name + daemon health dot (poller file).
-tmux set-option -g status-left "#[fg=colour74,bold] squad #[fg=colour240]· #[fg=colour252]#S #[fg=colour240]· #(cat /tmp/vs-daemon.status 2>/dev/null) "
-# Row 0 right: doctor verdict (local json) · clock. (Token counts intentionally
-# omitted — the model CLIs surface their own usage.)
-tmux set-option -g status-right "#[fg=colour214]#(cat ${VAULT_ROOT}/_state/doctor-logs/\$(date +%%Y-%%m-%%d)-summary.json 2>/dev/null | jq -r 'if .issue_count>0 then \"issues:\"+(.issue_count|tostring) elif .warning_count>0 then \"warn:\"+(.warning_count|tostring) else \"healthy\" end' 2>/dev/null || echo 'doctor:?') #[fg=colour240]· #[fg=colour252]%H:%M "
-# Row 1: persistent key hints, recessed so it reads as chrome not content.
-tmux set-option -g "status-format[1]" "#[bg=colour233,fg=colour240] Tab / C-b <n>: lanes · C-b 0: chrono · C-b z: zoom · C-b Space: reset · C-b [: scroll · C-b d: detach "
-
-# Window tabs — accent the current lane, dim the rest.
-tmux set-option -g window-status-style         'bg=colour234,fg=colour240'
-tmux set-option -g window-status-current-style 'bg=colour234,fg=colour252,bold'
-tmux set-option -g window-status-format         ' #[fg=colour240]#I #[fg=colour250]#W '
-tmux set-option -g window-status-current-format ' #[fg=colour74,bold]#I #W '
-
-# Pane borders — hairline accent on the active pane; the lane's live status
-# rides the border top. Lane windows are named gpt-codex/claude/gemini/kimi,
-# which match the poller's /tmp/vs-lane-<name>.status files exactly, so
-# #{window_name} keys them directly with no index mapping. (The chrono window
-# overrides this format at window scope inside sidebar.sh.)
-tmux set-option -g pane-border-style        'fg=colour238'
-tmux set-option -g pane-active-border-style 'fg=colour74'
-tmux set-option -g pane-border-status top
-tmux set-option -g pane-border-format "#[fg=colour240] #{?pane_active,#[fg=colour74]▎,#[fg=colour238]│} #[fg=colour252,bold]#{window_name}#[fg=colour240] #(cat /tmp/vs-lane-#{window_name}.status 2>/dev/null) "
+# Create the coordinator session FIRST so the tmux server exists, THEN style.
+# (The chrono pane is populated further below, once PATH/AUTH prefixes are set.)
+tmux new-session -d -s "${SESSION}" -n "chrono" -c "${VAULT_ROOT}/chrono"
+apply_squad_globals
 
 # Per-pane log dir — pipe-pane writes pane stdout here for grep-able audit
 TMUX_LOG_DIR="${VAULT_ROOT}/_state/tmux-logs"
@@ -250,8 +235,9 @@ else
     RESEARCH_CMD="kimi --thinking --agent-file ${VAULT_ROOT}/model-lanes/kimi/main.yaml --add-dir ${VAULT_ROOT}"
 fi
 
-# Window 0: chrono (Coordinator — Claude Code, auto-loads chrono/CLAUDE.md)
-tmux new-session -d -s "${SESSION}" -n "chrono" -c "${VAULT_ROOT}/chrono"
+# Window 0: chrono (Coordinator — Claude Code, auto-loads chrono/CLAUDE.md).
+# The session + chrono window were already created above (before styling); here
+# we just wire up logging and launch the coordinator.
 tmux pipe-pane -t "${SESSION}:chrono" -o "cat >> ${TMUX_LOG_DIR}/chrono.log"
 tmux send-keys -t "${SESSION}:chrono" "${PATH_PREFIX}" C-m
 tmux send-keys -t "${SESSION}:chrono" "${MEDIA_AUTH_PREFIX}" C-m
