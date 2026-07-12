@@ -237,6 +237,15 @@ fmt_tagline() {  # fmt_tagline INNER STATE_COLOR TEXT
     printf '│ \033[%sm%s\033[0m │' "$sc" "$(fit "$text" "$inner")"
 }
 
+# Emoji-labeled row: "│ <emoji> <value> │". Our label emojis are single-codepoint
+# but render TWO display columns, so we fit the value to width-7 (interior width-2
+# minus: leading space, emoji=2 cols, space, trailing space) to keep the right
+# rail aligned. Value must be single-width text (no emoji) — it's padded by chars.
+fmt_erow() {  # fmt_erow WIDTH EMOJI VALUE
+    local width="$1" emoji="$2" value="$3"
+    printf '│ %s %s │' "$emoji" "$(fit "$value" "$((width - 7))")"
+}
+
 draw_card() {
     local lane="$1" width="$2" height="${3:-0}"
     local accent term_accent short tagline inbox active outbox blocked specialist last state state_color inner title pad
@@ -263,25 +272,33 @@ draw_card() {
 
     inner=$((width - 4))
     [[ "$inner" -lt 24 ]] && inner=24
-    title="[${short}] ${state}"
-    pad=$((inner - ${#title}))
-    [[ "$pad" -lt 1 ]] && pad=1
+
+    # State → emoji (single-codepoint, 2-column wide glyphs) + lowercase labels.
+    local state_emoji name_lc state_lc
+    case "$state" in
+        WORKING) state_emoji='🟢' ;;
+        PENDING) state_emoji='🟡' ;;
+        BLOCKED) state_emoji='🔴' ;;
+        *)       state_emoji='⚪' ;;
+    esac
+    name_lc=$(printf '%s' "$short" | tr '[:upper:]' '[:lower:]')
+    state_lc=$(printf '%s' "$state" | tr '[:upper:]' '[:lower:]')
 
     # Collect interior rows into an array so we can count them for height-fill.
-    # Active lanes (WORKING/PENDING) get the rich spec/task/tools/now view;
-    # idle/blocked lanes keep the quiet tagline + queue + last view. Any row
-    # whose value is empty is simply omitted.
+    # Active lanes (WORKING/PENDING) get spec/task/tools/now; idle/blocked keep
+    # tagline + queue + last (prefixed with the last specialist for context).
+    # Emoji labels; empty rows omitted.
     local -a body=()
     if [[ "$state" == "WORKING" || "$state" == "PENDING" ]]; then
         local objective tools_line now_line
         objective="$(active_task_objective "$lane")"
         tools_line="$(tools_for_specialist "$specialist")"
         now_line="$(live_now_line "$lane")"
-        body+=("$(fmt_row "$inner" spec "${specialist:-none}")")
-        [[ -n "$objective" ]]  && body+=("$(fmt_row "$inner" task "$objective")")
-        [[ -n "$tools_line" ]] && body+=("$(fmt_row "$inner" tools "$tools_line")")
-        [[ -n "$now_line" ]]   && body+=("$(fmt_row "$inner" now "▸ $now_line")")
-        body+=("$(fmt_row "$inner" queue "in ${inbox} · active ${active} · out ${outbox}")")
+        body+=("$(fmt_erow "$width" 🧑 "${specialist:-none}")")
+        [[ -n "$objective" ]]  && body+=("$(fmt_erow "$width" 📋 "$objective")")
+        [[ -n "$tools_line" ]] && body+=("$(fmt_erow "$width" 🔧 "$tools_line")")
+        [[ -n "$now_line" ]]   && body+=("$(fmt_erow "$width" ⚡ "$now_line")")
+        body+=("$(fmt_erow "$width" 📥 "${inbox} queued · ${active} active · ${outbox} done")")
     else
         # Idle/blocked: quiet view, but still surface the LAST specialist + result
         # so there's always specialist context at a glance. No `now` line — a
@@ -294,15 +311,19 @@ draw_card() {
         else
             last_line="${last:-none}"
         fi
-        body+=("$(fmt_tagline "$inner" "$state_color" "$tagline")")
-        body+=("$(fmt_row "$inner" queue "in ${inbox} · active ${active} · out ${outbox} · blk ${blocked}")")
-        body+=("$(fmt_row "$inner" last "$last_line")")
+        body+=("$(fmt_tagline "$inner" "38;5;240" "$tagline")")
+        body+=("$(fmt_erow "$width" 📥 "${inbox} queued · ${active} active · ${outbox} done · ${blocked} blk")")
+        body+=("$(fmt_erow "$width" 🕐 "$last_line")")
     fi
 
-    # Top border.
-    c256 "$accent" "╭─ "
-    printf '\033[1;38;5;%sm%s\033[0m' "$accent" "$title"
-    c256 "$accent" " $(repeat_char '─' "$pad")╮"
+    # Top border: ╭ <state emoji> <lane name (accent)> · <state (dim)> <fill> ╮
+    local hpad=$(( width - 10 - ${#name_lc} - ${#state_lc} ))
+    [[ "$hpad" -lt 1 ]] && hpad=1
+    c256 "$accent" "╭ "
+    printf '%s ' "$state_emoji"
+    printf '\033[1;38;5;%sm%s\033[0m' "$accent" "$name_lc"
+    printf '\033[38;5;240m · %s \033[0m' "$state_lc"
+    c256 "$accent" "$(repeat_char '─' "$hpad")╮"
     printf '\n'
 
     # Body rows.
