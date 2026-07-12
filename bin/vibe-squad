@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Source secrets for VIBESQUAD_DAEMON_TOKEN
+source ~/.config/shell/secrets.zsh || true
+
+REPO="/Users/user/Obsidian-Claude-Vibe-Squad"
+
+# Ensure daemon is up
+if ! curl -sf http://127.0.0.1:9876/health >/dev/null 2>&1; then
+    echo "starting daemon..."
+    launchctl start com.vibesquad.daemon
+    for i in {1..10}; do
+        if curl -sf http://127.0.0.1:9876/health >/dev/null 2>&1; then break; fi
+        sleep 0.5
+    done
+    if ! curl -sf http://127.0.0.1:9876/health >/dev/null 2>&1; then
+        echo "error: daemon failed to start within 10s"
+        exit 1
+    fi
+fi
+
+# Ensure Chrome is up
+if ! curl -sf http://127.0.0.1:9222/json/version >/dev/null 2>&1; then
+    echo "starting Chrome..."
+    launchctl start com.vibesquad.chrome
+fi
+
+# Launch Ink app
+cd "$REPO/ink-app"
+exec npm run start
