@@ -8,6 +8,7 @@ export function subscribeEvents(onEvent: (event: DaemonEvent) => void): () => vo
   const headers: Record<string, string> = {};
   if (TOKEN) headers['Authorization'] = `Bearer ${TOKEN}`;
   const ws = new WebSocket(WS_URL, { headers });
+
   ws.on('message', (data) => {
     try {
       const event = JSON.parse(data.toString());
@@ -16,5 +17,18 @@ export function subscribeEvents(onEvent: (event: DaemonEvent) => void): () => vo
       console.error('failed to parse WS event', e);
     }
   });
-  return () => ws.close();
+
+  ws.on('error', (err) => {
+    // Silently ignore errors (daemon may not be running)
+  });
+
+  ws.on('close', () => {
+    // Connection closed, cleanup happens in unsubscribe
+  });
+
+  return () => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.close();
+    }
+  };
 }
