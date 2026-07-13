@@ -20,13 +20,19 @@
 
 set -uo pipefail
 
-NAMESPACE="${1:-}"
+PUBLISH_ONCE_PATH=""
+if [[ "${1:-}" == "--publish-once" ]]; then
+    NAMESPACE="coding"
+    PUBLISH_ONCE_PATH="${2:-}"
+else
+    NAMESPACE="${1:-}"
+fi
 if [[ -z "${NAMESPACE}" ]]; then
     echo "usage: $0 <coding|security|content|sysmgmt|research>"
     exit 1
 fi
 
-if ! command -v fswatch >/dev/null 2>&1; then
+if [[ -z "$PUBLISH_ONCE_PATH" ]] && ! command -v fswatch >/dev/null 2>&1; then
     echo "fswatch not installed — install with: brew install fswatch"
     exit 1
 fi
@@ -37,6 +43,52 @@ OUTBOX="${VAULT_ROOT}/departments/${NAMESPACE}/outbox"
 STATE_DIR="${VAULT_ROOT}/_state"
 FAILOVER_STAGING="${STATE_DIR}/failover/staging"
 FAILOVER_CONTROL="${VAULT_ROOT}/bin/failover-control.py"
+DAEMON_REQUIREMENTS="${VAULT_ROOT}/daemon/requirements.txt"
+
+publish_runtime_alert() {
+    local message="$1"
+    echo "[$(date '+%H:%M:%S')] CRITICAL FAILOVER PUBLISH RUNTIME: ${message}" >&2
+    if command -v tmux >/dev/null 2>&1 \
+        && tmux has-session -t "$SESSION" 2>/dev/null \
+        && tmux list-windows -t "$SESSION" -F '#{window_name}' 2>/dev/null | grep -qx "chrono"; then
+        tmux send-keys -l -t "${SESSION}:chrono" "🚨 FAILOVER PUBLISH RUNTIME ERROR: ${message}"
+        tmux send-keys -t "${SESSION}:chrono" Enter
+    fi
+}
+
+publish_staging_artifact() {
+    local artifact="$1" output rc
+    if ! command -v uv >/dev/null 2>&1; then
+        publish_runtime_alert "uv is unavailable; cannot publish $(basename "$artifact")"
+        return 70
+    fi
+    output="$(uv run --with-requirements "$DAEMON_REQUIREMENTS" \
+        python "$FAILOVER_CONTROL" publish --artifact "$artifact" 2>&1)"
+    rc=$?
+    if [[ "$rc" -eq 0 ]]; then
+        return 0
+    fi
+    if [[ "$rc" -eq 2 && "$output" == *'"status": "rejected"'* ]]; then
+        echo "[$(date '+%H:%M:%S')] staging artifact rejected by controller: ${artifact}: ${output}" >&2
+        return 2
+    fi
+    publish_runtime_alert "interpreter/dependency failure for ${artifact} (exit ${rc}): ${output}"
+    return 70
+}
+
+if [[ -n "$PUBLISH_ONCE_PATH" ]]; then
+    [[ -f "$PUBLISH_ONCE_PATH" ]] || {
+        echo "publish artifact not found: ${PUBLISH_ONCE_PATH}" >&2
+        exit 64
+    }
+    if publish_staging_artifact "$PUBLISH_ONCE_PATH"; then
+        echo "fenced staging artifact published: $(basename "$PUBLISH_ONCE_PATH")"
+        exit 0
+    else
+        rc=$?
+        exit "$rc"
+    fi
+fi
 
 mkdir -p "${OUTBOX}" "${FAILOVER_STAGING}"
 WATCH_PATHS=("${OUTBOX}")
@@ -251,10 +303,8 @@ handle_response_path() {
                 esac
                 return
             fi
-            if python3 "$FAILOVER_CONTROL" publish --artifact "$path"; then
+            if publish_staging_artifact "$path"; then
                 echo "[$(date '+%H:%M:%S')] fenced staging artifact published: $(basename "$path")"
-            else
-                echo "[$(date '+%H:%M:%S')] staging artifact rejected or not ready: ${path}" >&2
             fi
             return
             ;;
