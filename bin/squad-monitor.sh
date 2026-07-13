@@ -2,7 +2,12 @@
 # bin/squad-monitor.sh — Squad pathology detector.
 #
 # Three detectors (run every 2 min via launchd/cron):
-#   1. Stuck pane    — pane output hash unchanged >5m with unread inbox
+#   1. Stuck task    — a pending task's to_model executing-lane pane is idle >5m
+#                      with no response yet. Task-aware: binds to the packet's
+#                      `to_model` (not the namespace default lead), reports age
+#                      from the registry `dispatched_at`, keys dedup by task+lane.
+#                      ALERT-first; optional idle-confirmed re-nudge only when
+#                      SQUAD_WATCHDOG_AUTONUDGE=1 (off by default).
 #   2. Stale active  — namespace active task has no response in >30m
 #   3. Loop/thrash   — same namespace received duplicate task bodies in 30m
 #
@@ -30,6 +35,15 @@ STALE_THRESHOLD=1800   # 30 min in seconds
 THRASH_WINDOW=1800     # 30 min in seconds
 THRASH_COUNT=2         # >N dispatches to same lead in window = thrash
 
+# Task-aware stall watchdog (Fix 1 + Fix 2). detect_stuck binds to the packet's
+# to_model executing lane, not the namespace default lead.
+REGISTRY="${VAULT_ROOT}/_state/active-tasks.json"
+MODEL_LANES_LIST=(gpt-codex claude gemini kimi)
+STALL_DIAG_LOG="${STATE_DIR}/stall-diagnostics.log"   # Fix 3: on-stall stop_reason capture
+# Auto-re-nudge is OPT-IN and OFF by default. When 0 (default) the watchdog is
+# ALERT-ONLY. It only ever re-nudges a pane that is POSITIVELY classified idle.
+WATCHDOG_AUTONUDGE="${SQUAD_WATCHDOG_AUTONUDGE:-0}"
+
 TEST_MODE=false
 [[ "${1:-}" == "--test" ]] && TEST_MODE=true
 
@@ -47,6 +61,104 @@ send_alert() {
     tmux send-keys    -t "${CHRONO_PANE}" "" Enter           2>/dev/null
     echo "[$(date -u +%H:%M:%SZ)] ALERT: ${msg}"
     alerts=$((alerts + 1))
+}
+
+# ── watchdog helpers (Fix 1 / Fix 2 / Fix 3) ─────────────────────────────────
+
+# Read a packet's to_model frontmatter (same awk as bin/inbox-watcher.sh:41).
+packet_to_model() {
+    awk '/^---$/{p=!p; next} p && /^to_model:/ {sub(/^to_model:[[:space:]]*/, ""); print; exit}' "$1" 2>/dev/null
+}
+
+# Robust ISO-8601 → epoch (handles fractional seconds + +00:00 / Z offsets).
+iso_to_epoch() {
+    python3 -c 'import sys,datetime as dt
+s=sys.argv[1].strip().replace("Z","+00:00")
+try:
+    print(int(dt.datetime.fromisoformat(s).timestamp()))
+except Exception:
+    sys.exit(1)' "$1" 2>/dev/null
+}
+
+# Task age source of truth: registry dispatched_at, else packet created.
+task_dispatched_epoch() {
+    [[ -f "$REGISTRY" ]] || return
+    local iso
+    iso=$(jq -r --arg t "$1" '.[$t].dispatched_at // empty' "$REGISTRY" 2>/dev/null)
+    [[ -n "$iso" ]] && iso_to_epoch "$iso"
+}
+packet_created_epoch() {
+    local iso
+    iso=$(awk '/^---$/{p=!p; next} p && /^created:/ {sub(/^created:[[:space:]]*/, ""); print; exit}' "$1" 2>/dev/null)
+    [[ -n "$iso" && "$iso" != "none" ]] && iso_to_epoch "$iso"
+}
+
+# Idle seconds for a lane's pane, keyed by canonical window name. Empty = untracked.
+lane_idle_secs() {
+    local key ts_file ts
+    key=$(runtime_window_name "$1")
+    ts_file="${STATE_DIR}/lane-${key}-pane.ts"
+    [[ -f "$ts_file" ]] || { echo ""; return; }
+    ts=$(cat "$ts_file" 2>/dev/null)
+    [[ -z "$ts" ]] && { echo ""; return; }
+    echo $(( now - ts ))
+}
+
+# Hash all 4 model-lane panes once per run; reset the idle timestamp on change.
+# Keyed by lane (not namespace) so a to_model override is tracked on the real
+# executing pane, not the namespace default lead.
+update_lane_hashes() {
+    local lane key pane current_hash hash_file ts_file stored_hash
+    for lane in "${MODEL_LANES_LIST[@]}"; do
+        key=$(runtime_window_name "$lane")
+        pane="${SESSION}:${key}"
+        if $TEST_MODE && [[ "$key" == "claude" ]]; then
+            current_hash="deadbeef00000000deadbeef00000000deadbeef00000000deadbeef00000000  -"
+        else
+            current_hash=$(tmux capture-pane -t "${pane}" -p 2>/dev/null | tail -50 | shasum -a 256 || echo "")
+        fi
+        [[ -z "$current_hash" ]] && continue   # pane not running
+        hash_file="${STATE_DIR}/lane-${key}-pane.hash"
+        ts_file="${STATE_DIR}/lane-${key}-pane.ts"
+        stored_hash=""
+        [[ -f "$hash_file" ]] && stored_hash=$(cat "$hash_file")
+        if [[ "$current_hash" != "$stored_hash" ]]; then
+            echo "$current_hash" > "$hash_file"
+            echo "$now"          > "$ts_file"
+        fi
+    done
+}
+
+# POSITIVE idle classifier for the gated auto-nudge only: true ONLY when the pane
+# shows a bare idle prompt AND no active-work indicator. Conservative by design —
+# a nudge into an actively-thinking lane is the primary risk both debug models flagged.
+lane_pane_positively_idle() {
+    local snap
+    snap=$(tmux capture-pane -t "$1" -p 2>/dev/null | tail -8)
+    [[ -z "$snap" ]] && return 1
+    echo "$snap" | grep -qE 'esc to interrupt|✻ (Working|Brewed|Baked|Manifesting|Crunched|Musing|Churned|Cooking) for|local agent.*running|[0-9]+(\.[0-9]+)?k? tokens|Rewriting|Editing|Running' && return 1
+    echo "$snap" | grep -qE '^[[:space:]]*[❯▶$%>][[:space:]]*$' && return 0
+    return 1
+}
+
+# Fix 3: on a claude-lane stall, record the last turn's stop_reason from the lane's
+# Claude Code session jsonl so a genuine mid-task turn-end is diagnosable. Read-only.
+capture_stop_reason() {
+    local to_model="$1" task_id="$2" stamp
+    stamp="[$(date -u +%FT%TZ)]"
+    if [[ "$(runtime_window_name "$to_model")" != "claude" ]]; then
+        echo "${stamp} ${task_id} lane=${to_model}: stop_reason capture only wired for the claude lane" >> "$STALL_DIAG_LOG"
+        return
+    fi
+    local proj jsonl sr
+    proj="${HOME}/.claude/projects/$(printf '%s' "${VAULT_ROOT}/model-lanes/claude" | sed 's#/#-#g')"
+    jsonl=$(ls -t "${proj}"/*.jsonl 2>/dev/null | head -1)
+    if [[ -z "$jsonl" ]]; then
+        echo "${stamp} ${task_id}: no session jsonl under ${proj}" >> "$STALL_DIAG_LOG"
+        return
+    fi
+    sr=$(tail -80 "$jsonl" | jq -rs 'map(select(.type=="assistant")) | (last // {}) | "stop_reason=\(.message.stop_reason // "null") at=\(.timestamp // "null")"' 2>/dev/null)
+    echo "${stamp} STALL ${task_id} lane=${to_model} session=$(basename "$jsonl") ${sr}" >> "$STALL_DIAG_LOG"
 }
 
 # ── PRE-CLEAN: archive completed inbox packets ────────────────────────────────
@@ -72,6 +184,7 @@ archive_completed_inbox() {
         mv "$task_file" "${archive_dir}/${task_name}"
         echo "[$(date -u +%H:%M:%SZ)] AUTO-ARCHIVED: ${namespace}/inbox/${task_name} (response exists)"
         rm -f "${STATE_DIR}/${namespace}-stuck-alerted"
+        rm -f "${STATE_DIR}/stuck-task-${task_id}-alerted" "${STATE_DIR}/stuck-task-${task_id}-nudged"
     done < <(find "${inbox_dir}" -maxdepth 1 -name 'TASK-*.md' 2>/dev/null)
 }
 
@@ -80,70 +193,76 @@ archive_completed_inbox() {
 # check AND its source namespace has unread inbox tasks, alert once per stuck episode.
 
 detect_stuck() {
+    # Task-aware stall detector. For each pending inbox packet in this namespace,
+    # bind to the packet's to_model executing lane (NOT the namespace default lead)
+    # and alert when that lane's pane has been idle >= STUCK_THRESHOLD with the task
+    # still un-responded. Age is reported from the registry dispatched_at.
     local namespace="$1"
-    local pane="${SESSION}:$(lead_window_name "${namespace}")"
-    local hash_file="${STATE_DIR}/${namespace}-pane.hash"
-    local ts_file="${STATE_DIR}/${namespace}-pane.ts"
-    local alerted_file="${STATE_DIR}/${namespace}-stuck-alerted"
+    local inbox_dir="${VAULT_ROOT}/departments/${namespace}/inbox"
+    local outbox_dir="${VAULT_ROOT}/departments/${namespace}/outbox"
 
-    # Capture pane (last 50 lines), compute hash
-    local current_hash
-    if $TEST_MODE && [[ "$namespace" == "coding" ]]; then
-        current_hash="deadbeef00000000deadbeef00000000deadbeef00000000deadbeef00000000  -"
-    else
-        current_hash=$(tmux capture-pane -t "${pane}" -p 2>/dev/null | tail -50 | shasum -a 256 || echo "")
-    fi
+    while IFS= read -r task_file; do
+        [[ -z "$task_file" ]] && continue
+        local task_name task_id response
+        task_name=$(basename "$task_file")
+        task_id="${task_name%.md}"
+        response="${outbox_dir}/${task_id}-response.md"
+        [[ -f "$response" ]] && continue          # already complete — not stuck
 
-    [[ -z "$current_hash" ]] && return  # pane not running
+        # Fix 1: executing lane comes from the packet, not the namespace default.
+        local to_model lane pane
+        to_model=$(packet_to_model "$task_file")
+        [[ -z "$to_model" ]] && to_model=$(namespace_default_model "$namespace")  # legacy fallback
+        lane=$(runtime_window_name "$to_model")
+        pane="${SESSION}:${lane}"
 
-    local stored_hash=""
-    [[ -f "$hash_file" ]] && stored_hash=$(cat "$hash_file")
+        # Is that lane's pane idle long enough? (idle time is tracked per lane.)
+        local idle_secs
+        idle_secs=$(lane_idle_secs "$to_model")
+        [[ -z "$idle_secs" ]] && continue                 # lane pane not running/tracked
+        [[ $idle_secs -lt $STUCK_THRESHOLD ]] && continue # lane still actively moving
 
-    if [[ "$current_hash" != "$stored_hash" ]]; then
-        # Pane output changed — reset
-        echo "$current_hash" > "${hash_file}"
-        echo "$now"          > "${ts_file}"
-        rm -f "${alerted_file}"
-        return
-    fi
+        # Dedup: at most one alert per task episode (cleared on completion).
+        local alerted_file="${STATE_DIR}/stuck-task-${task_id}-alerted"
+        [[ -f "$alerted_file" ]] && continue
 
-    # Hash unchanged — check how long
-    local last_moved
-    last_moved=$(cat "${ts_file}" 2>/dev/null || echo "$now")
-    local stale_secs=$(( now - last_moved ))
+        # Liveness guard 1: a subagent is writing artifacts to /tmp/cdp_dumps (<90s ago).
+        if find /tmp/cdp_dumps -mindepth 2 -maxdepth 4 -type f -newermt '90 seconds ago' 2>/dev/null \
+            | head -1 | grep -q .; then
+            continue
+        fi
+        # Liveness guard 2: the executing pane shows an active-subagent indicator.
+        if tmux capture-pane -t "${pane}" -p 2>/dev/null | tail -10 \
+            | grep -qE 'local agent.*running|✻ (Working|Brewed|Baked|Manifesting|Crunched|Musing|Churned|Cooking) for|⏵⏵.*esc to interrupt'; then
+            continue
+        fi
 
-    [[ $stale_secs -lt $STUCK_THRESHOLD ]] && return
+        # Age from the registry dispatched_at (fallback: packet created), NOT a pane ts.
+        local disp_epoch age_min="?"
+        disp_epoch=$(task_dispatched_epoch "$task_id")
+        [[ -z "$disp_epoch" ]] && disp_epoch=$(packet_created_epoch "$task_file")
+        [[ -n "$disp_epoch" ]] && age_min=$(( ( now - disp_epoch ) / 60 ))
+        local idle_min=$(( idle_secs / 60 ))
 
-    # Check inbox for unread tasks
-    local inbox_tasks
-    inbox_tasks=$(find "${VAULT_ROOT}/departments/${namespace}/inbox" \
-        -maxdepth 1 -name 'TASK-*.md' 2>/dev/null | head -1)
+        # ALERT-FIRST (always): correct lane + correct age, keyed by task id + lane.
+        send_alert "task ${task_id} → ${to_model} lane ($(runtime_display_name "$to_model")) idle ${idle_min}m, no response yet (dispatched ${age_min}m ago); pending in ${namespace}/inbox"
+        touch "${alerted_file}"
 
-    [[ -z "$inbox_tasks" ]] && return  # pane idle — no work pending, not a problem
+        # Fix 3: capture the lane's last-turn stop_reason for post-hoc diagnosis.
+        capture_stop_reason "$to_model" "$task_id"
 
-    # Already alerted this episode?
-    [[ -f "$alerted_file" ]] && return
-
-    # Liveness check 1: subagent actively writing to a /tmp/cdp_dumps subdir in the last 90s
-    # (long static-analysis tasks legitimately produce no pane output for minutes while
-    # writing intermediate artifacts to disk — these should NOT trip the stuck alarm).
-    if find /tmp/cdp_dumps -mindepth 2 -maxdepth 4 -type f -newermt '90 seconds ago' 2>/dev/null \
-        | head -1 | grep -q .; then
-        return
-    fi
-
-    # Liveness check 2: pane shows an active-subagent indicator. Each runtime CLI emits
-    # a distinctive status line while a Task / Agent subagent is in flight.
-    if tmux capture-pane -t "${pane}" -p 2>/dev/null | tail -10 \
-        | grep -qE 'local agent.*running|✻ (Working|Brewed|Baked|Manifesting|Crunched|Musing|Churned|Cooking) for|⏵⏵.*esc to interrupt'; then
-        return
-    fi
-
-    local task_name
-    task_name=$(basename "$inbox_tasks")
-    local stale_min=$(( stale_secs / 60 ))
-    send_alert "${namespace} namespace routed to $(lead_display_name "${namespace}") is stuck >${stale_min}m with unread inbox (${task_name})"
-    touch "${alerted_file}"
+        # Fix 2 (OPTIONAL, gated): auto-re-nudge ONLY when the pane is positively idle
+        # AND SQUAD_WATCHDOG_AUTONUDGE=1. Off by default → alert-only. Once per episode.
+        if [[ "$WATCHDOG_AUTONUDGE" == "1" ]] && lane_pane_positively_idle "$pane"; then
+            local nudged_file="${STATE_DIR}/stuck-task-${task_id}-nudged"
+            if [[ ! -f "$nudged_file" ]]; then
+                env VAULT_ROOT="$VAULT_ROOT" SQUAD_SESSION="$SESSION" \
+                    bash "${VAULT_ROOT}/bin/nudge-task.sh" "$task_file" >/dev/null 2>&1 || true
+                touch "$nudged_file"
+                echo "[$(date -u +%H:%M:%SZ)] AUTO-NUDGE (positive-idle confirmed): re-nudged ${to_model} for ${task_id}"
+            fi
+        fi
+    done < <(find "${inbox_dir}" -maxdepth 1 -name 'TASK-*.md' 2>/dev/null | sort)
 }
 
 # ── DETECTOR 2: stale active ─────────────────────────────────────────────────
@@ -265,6 +384,10 @@ auto_archive_completed() {
 }
 
 # ── run all detectors ─────────────────────────────────────────────────────────
+
+# Track per-lane pane idle time once up front, so detect_stuck can bind each
+# pending task to its real to_model executing pane (not the namespace default).
+update_lane_hashes
 
 for namespace in "${NAMESPACES[@]}"; do
     archive_completed_inbox "$namespace"
