@@ -20,6 +20,7 @@ if str(REPO) not in sys.path:
 from daemon.control_plane import (  # noqa: E402
     ControlPlaneError,
     DispatchControlPlane,
+    PublicationRejected,
     atomic_write_bytes,
     validate_publication_gate,
 )
@@ -357,9 +358,12 @@ def main() -> int:
     args = build_parser().parse_args()
     try:
         result = args.handler(args, DispatchControlPlane(args.state_root))
-    except (ControlPlaneError, OSError, ValueError, json.JSONDecodeError) as exc:
+    except PublicationRejected as exc:
         print(json.dumps({"status": "rejected", "error": str(exc)}), file=sys.stderr)
         return 2
+    except (ControlPlaneError, OSError, ValueError, json.JSONDecodeError) as exc:
+        print(json.dumps({"status": "error", "error": str(exc)}), file=sys.stderr)
+        return 70
     print(json.dumps(result, sort_keys=True))
     return 0
 
