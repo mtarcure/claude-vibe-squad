@@ -4,6 +4,8 @@ updated: 2026-05-04
 
 # Squad Roadmap
 
+> **⚠️ SUPERSEDED — historical (dated 2026-05-04).** This roadmap describes obsolete plans; notably the "Per-namespace SSE chrono MCPs" item below reflects an SSE-endpoint design the squad no longer uses — MCPs are registered directly per-CLI, not via SSE. Kept for history only; do **not** treat it as the current plan. Live state lives in `_state/active-tasks.json`, `chrono/current.md`, and `departments/*/current.md`.
+
 Planning queue for current and next work. Runtime truth lives in `_state/active-tasks.json`, `chrono/current.md`, and `departments/*/current.md`. Completed specs, handoffs, and draft plans are not kept here after their decisions are folded into canonical docs.
 
 ## Active

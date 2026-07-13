@@ -15,7 +15,6 @@ preferred_tools:
 safety_level: medium
 requires_approval:
   - Write
-review_by: media-producer
 tags:
   - video
   - direction

@@ -12,7 +12,6 @@ preferred_tools:
 safety_level: low
 requires_approval:
   - Write
-review_by: media-producer
 tags:
   - audio
   - sfx

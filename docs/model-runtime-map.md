@@ -15,20 +15,23 @@ Chrono is the only controller. GPT/Codex, Claude, Gemini, and Kimi are execution
 
 The source of truth is `shared/specialist-runtime-map.tsv`.
 
-Columns:
+Columns (exactly **8**, tab-separated, in this order):
 
-- `specialist`
-- `best_model_lane`
-- `review_model`
-- `source_namespace`
-- `required_tools_mcp_api` — planning intent only. It says what the specialist
-  should normally need; it does not prove the live lane currently exposes that
-  tool. Live proof comes from `bin/mcp-audit.sh`, lane smoke tests, and the
-  task response's `capability_gap`/fallback reporting.
-- `safety_level`
-- `notes`
+1. `specialist`
+2. `best_model_lane` — one of `gpt-codex | claude | gemini | kimi`
+3. `review_model` — one of `gpt-codex | claude | gemini | kimi | none`
+4. `source_namespace` — one of `coding | security | content | content-engineer | sysmgmt | research | shared`
+5. `required_tools_mcp_api` — planning intent only. It says what the specialist
+   should normally need; it does not prove the live lane currently exposes that
+   tool. Live proof comes from `bin/mcp-audit.sh`, lane smoke tests, and the
+   task response's `capability_gap`/fallback reporting.
+6. `safety_level` — one of `low | medium | high` (`high` requires a non-`none` `review_model`)
+7. `preferred_tools` — optional nice-to-have tools (comma-separated); may be empty
+8. `notes` — one-line description; must be non-empty
 
-Folder location must not be used to infer model choice.
+`bin/validate-specialists.sh` rejects any row that does not have exactly 8 tab-separated
+fields, and flags rows where `review_model == best_model_lane` (same-family review is not a
+cross-family check). Folder location must not be used to infer model choice.
 
 ## Model Lanes
 

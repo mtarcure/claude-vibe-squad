@@ -14,7 +14,6 @@ preferred_tools:
 safety_level: low
 requires_approval:
   - Write
-review_by: designer
 tags:
   - image
   - visual-design

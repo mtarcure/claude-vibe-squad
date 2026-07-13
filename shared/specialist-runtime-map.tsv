@@ -22,11 +22,11 @@ large-context-analyst	kimi	claude	research	chrono-research-arsenal,chrono-vault	
 learning-coach	claude	kimi	research	chrono-vault	low	chrono-research-arsenal,chrono-content-engineer	Study plans, drills, learning paths.
 research	kimi	claude	research	chrono-research-arsenal,chrono-vault	medium	chrono-content-engineer	Web/source-heavy research and claim validation.
 synthesizer	kimi	claude	research	chrono-vault,chrono-kg	medium	chrono-research-arsenal,chrono-content-engineer	Aggregate findings, preserve outliers, produce concise synthesis.
-exploit-developer	gpt-codex	claude	security	chrono-vault,chrono-kg,playwright	high	chrono-research-arsenal	PoC construction and repro harnesses; Claude mandatory safety/impact review.
+exploit-developer	gpt-codex	claude	security	chrono-vault,chrono-kg,playwright	high	chrono-research-arsenal,chrono-recon	PoC construction and repro harnesses; Claude mandatory safety/impact review.
 impact-validator	claude	gpt-codex	security	chrono-vault,chrono-kg	high	chrono-research-arsenal	Severity, CVSS, dedupe, bounty impact judgment.
 privacy-steward	claude	gpt-codex	security	chrono-vault,chrono-kg	high	chrono-research-arsenal	Privacy, PII/data-flow, regulatory risk.
-scout	kimi	claude	security	chrono-research-arsenal,playwright,chrome-devtools	high	chrono-vault	Bounty target selection support, platform intel, OSINT-heavy reconnaissance.
-security-analyst	claude	gpt-codex	security	chrono-vault,chrono-kg	high	chrono-research-arsenal	SAST, supply-chain, vulnerability reasoning; Codex assists code tracing.
+scout	kimi	claude	security	chrono-research-arsenal,playwright,chrome-devtools	high	chrono-vault,chrono-recon	Bounty target selection support, platform intel, OSINT-heavy reconnaissance.
+security-analyst	claude	gpt-codex	security	chrono-vault,chrono-kg	high	chrono-research-arsenal,chrono-recon	SAST, supply-chain, vulnerability reasoning; Codex assists code tracing.
 threat-modeler	claude	gemini	security	chrono-vault,chrono-kg	high	chrono-research-arsenal	Attack trees, STRIDE, abuse cases, risk ranking.
 agentops	claude	gpt-codex	sysmgmt	chrono-vault,chrono-catalog	high	chrono-research-arsenal	Runtime/doctor/status drift and agent operations.
 finance-analyst	kimi	claude	sysmgmt	chrono-vault,chrono-research-arsenal	medium	chrono-content-engineer	Subscription/cost tracking and finance research summaries.

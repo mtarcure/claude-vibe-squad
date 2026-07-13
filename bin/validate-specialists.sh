@@ -42,7 +42,7 @@ LOCAL_SKILLS=$(
 
 # Validate each specialist
 EXIT_CODE=0
-TOTAL=0; PASSED=0; FAILED=0
+TOTAL=0; PASSED=0; FAILED=0; warnings=0
 
 specialist_exists() {
     local name="$1"
@@ -64,9 +64,14 @@ if [[ ! -f "$RUNTIME_MAP" ]]; then
     FAILED=$((FAILED + 1))
     EXIT_CODE=1
 else
-    while IFS=$'\t' read -r specialist best_model review_model source_namespace required_tools safety_level notes; do
+    while IFS= read -r line; do
+        [[ "$line" == \#* || -z "$line" ]] && continue
+        # Schema is exactly 8 tab-separated columns (see docs/model-runtime-map.md).
+        nfields=$(awk -F'\t' '{print NF}' <<<"$line")
+        IFS=$'\t' read -r specialist best_model review_model source_namespace required_tools safety_level preferred_tools notes <<<"$line"
         [[ "$specialist" == \#* || -z "$specialist" ]] && continue
         map_issues=()
+        [[ "$nfields" -ne 8 ]] && map_issues+=("wrong-column-count:${nfields}-expected-8")
         [[ -z "$notes" ]] && map_issues+=("malformed-runtime-map-row")
         case "$best_model" in gpt-codex|claude|gemini|kimi) ;; *) map_issues+=("invalid-best-model:${best_model}") ;; esac
         case "$review_model" in gpt-codex|claude|gemini|kimi|none) ;; *) map_issues+=("invalid-review-model:${review_model}") ;; esac
@@ -75,6 +80,11 @@ else
         specialist_exists "$specialist" || map_issues+=("map-specialist-file-missing:${specialist}")
         if [[ "$safety_level" == "high" && "$review_model" == "none" ]]; then
             map_issues+=("high-safety-missing-review-model:${specialist}")
+        fi
+        # Non-fatal flag: reviewer lane == best lane means the review is NOT cross-family.
+        if [[ -n "$review_model" && "$review_model" != "none" && "$review_model" == "$best_model" ]]; then
+            printf '{"file":"%s","status":"warn","issues":["same-family-review:%s(%s-reviews-%s)"]}\n' "$RUNTIME_MAP:$specialist" "$specialist" "$review_model" "$best_model"
+            warnings=$((warnings + 1))
         fi
         if [ ${#map_issues[@]} -gt 0 ]; then
             issues_json=$(printf '"%s",' "${map_issues[@]}" | sed 's/,$//')
@@ -85,7 +95,8 @@ else
     done < "$RUNTIME_MAP"
 fi
 
-for spec_file in "$VAULT"/departments/*/specialists/*.md; do
+for spec_file in "$VAULT"/departments/*/specialists/*.md "$VAULT"/shared/specialists/*.md; do
+    [[ -f "$spec_file" ]] || continue
     TOTAL=$((TOTAL + 1))
     issues=()
 
@@ -147,15 +158,9 @@ for spec_file in "$VAULT"/departments/*/specialists/*.md; do
     fi
 done
 
-for spec_file in "$VAULT"/shared/specialists/*.md; do
-    [[ -f "$spec_file" ]] || continue
-    spec_name="$(basename "$spec_file" .md)"
-    if ! map_has_specialist "$spec_name"; then
-        printf '{"file":"%s","status":"fail","issues":["missing-runtime-map-entry:%s"]}\n' "$spec_file" "$spec_name"
-        FAILED=$((FAILED + 1))
-        EXIT_CODE=1
-    fi
-done
+# shared/specialists/*.md are validated in the main loop above (which now includes
+# them and runs the full section/MCP/skill/peer + runtime-map-entry checks), so no
+# separate shared-only pass is needed.
 
 # Validate model-lane native adapter registration. These adapters are thin
 # wrappers around canonical markdown; they make native subagent dispatch honest
@@ -276,6 +281,6 @@ done
 
 # Summary to stderr
 echo "" >&2
-echo "Total: $TOTAL  Passed: $PASSED  Failed: $FAILED" >&2
+echo "Total: $TOTAL  Passed: $PASSED  Failed: $FAILED  Warnings(non-fatal): $warnings" >&2
 
 exit $EXIT_CODE

@@ -67,3 +67,11 @@ __pycache__/
 .obsidian/cache
 .obsidian/plugins/*/data.json
 .superpowers/
+
+# Specialist/config backups (created by harness edits) — never commit
+*.bak.*
+
+# Raw model-run transcripts (large; deliverables are the .md files)
+_state/audit-*/sol-*.txt
+_state/audit-*/gemini-*.txt
+_state/debug-*/sol-*.txt

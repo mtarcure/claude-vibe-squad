@@ -28,6 +28,7 @@ MCPS=(
     "chrono-catalog|required|${CHRONO_PLUGINS}/chrono-vault/mcp_server.py --namespace catalog|"
     "chrono-research-arsenal|optional|${CHRONO_PLUGINS}/chrono-research-arsenal/mcp_server.py|APIFY_TOKEN BRAVE_API_KEY PERPLEXITY_API_KEY SERPER_API_KEY XAI_API_KEY"
     "chrono-content-engineer|optional|${CHRONO_PLUGINS}/chrono-content-engineer/mcp_server.py|GEMINI_API_KEY OPENAI_API_KEY XAI_API_KEY"
+    "chrono-recon|optional|${CHRONO_PLUGINS}/chrono-recon/mcp_server.py|GH_TOKEN"
 )
 
 command_list() {
@@ -49,6 +50,12 @@ command_list() {
                     grep -Eo '"chrono-[^"]+"' "$file" | tr -d '"' || true
                 fi
             done
+            # chrono-recon (and other chrono-* servers) load via enabledPlugins on the
+            # claude lane, not the mcpServers block — surface plugin base names too so
+            # plugin-registered MCPs are detected as registered.
+            if command -v jq >/dev/null 2>&1; then
+                jq -r '.enabledPlugins // {} | to_entries[] | select(.value==true) | .key | sub("@.*";"")' "${HOME}/.claude/settings.json" 2>/dev/null || true
+            fi
             ;;
     esac
 }

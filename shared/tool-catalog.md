@@ -2,6 +2,8 @@
 
 Reference for specialist `required_tools` / `preferred_tools`. Organized by capability.
 
+> **Quick-reference index only.** The authoritative, citation-gating catalog is [`shared/api-catalog.md`](./api-catalog.md) — `bin/validate-specialists.sh` validates `required_tools` / `preferred_tools` against its `verified: yes` entries. This file groups the same tools by capability for quick lookup; **if the two disagree, `api-catalog.md` wins** and this index must be corrected to match. (github MCP and context7 are `verified: yes` in api-catalog as of 2026-07-12.)
+
 ## Web search & research
 
 - `chrono-research-arsenal:arxiv_search` — academic papers and preprints
@@ -11,6 +13,11 @@ Reference for specialist `required_tools` / `preferred_tools`. Organized by capa
 - `firecrawl:crawl` — web crawl with link following
 - `firecrawl:parse` — document parsing (PDF, HTML, etc.)
 - `firecrawl:map` — site map discovery
+
+## Documentation & library reference
+
+- `context7:resolve-library-id` — resolve a library name to its context7 ID
+- `context7:query-docs` — fetch current, version-specific library/framework docs (claude lane; `plugin:context7:context7`)
 
 ## Browser automation (shared Chrome state)
 
@@ -32,11 +39,11 @@ Reference for specialist `required_tools` / `preferred_tools`. Organized by capa
 
 ## OSINT: infrastructure recon
 
-- `chrono-recon:dns_enumerate` — DNS zone records
-- `chrono-recon:whois_lookup` — domain/ASN WHOIS
-- `chrono-recon:crt_sh_certificates` — SSL certificate enumeration
-- `chrono-recon:wayback_snapshots` — historical web snapshots
-- `chrono-recon:github_leaked_secrets` — public GitHub leak search
+- `chrono-recon:dns_enumerate_tool` — DNS zone records
+- `chrono-recon:whois_lookup_tool` — domain/ASN WHOIS
+- `chrono-recon:crt_sh_certificates_tool` — SSL certificate enumeration
+- `chrono-recon:wayback_snapshots_tool` — historical web snapshots
+- `chrono-recon:github_leaked_secrets_tool` — public GitHub leak search (needs `GH_TOKEN`)
 
 ## Cross-model reasoning (as tools)
 

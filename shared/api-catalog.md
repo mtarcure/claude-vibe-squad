@@ -2,6 +2,8 @@
 
 Verified-from-Capability-Inventory list of every API, native CLI feature, and MCP available to the squad. Specialist files (`departments/*/specialists/*.md`) may only cite entries marked `verified: yes` here. Entries marked `needs-research` are current research backlog tasks for harness-optimizer and do not block specialist authoring.
 
+> **Authoritative catalog.** This file (`shared/api-catalog.md`) is the **single source of truth** for tool/MCP/API citations — `bin/validate-specialists.sh` gates specialist `required_tools` / `preferred_tools` against the `verified: yes` entries here. `shared/tool-catalog.md` is a convenience quick-reference index only; **if the two disagree, this file wins** and the index must be corrected to match.
+
 Last full inventory: 2026-05-02 (`_state/capability-inventory-2026-05-02.md`)
 Tilde-path fix applied to claude chrono-* MCPs: 2026-05-03 (`_state/incident-2026-05-03-claude-mcp-tilde.md`)
 
@@ -194,7 +196,7 @@ Claude Code CLI flags — verified live via `claude --help` capture and targeted
 ### Claude Design (claude.ai/design)
 - url: https://claude.ai/design
 - access: Max
-- specialists: designer (Content), ui-engineer (Coding)
+- specialists: image-designer (Content-Engineer), ui-engineer (Coding)
 - verified: yes
 - last_checked: 2026-05-02
 - test_reference: claude.ai/design web access via Max plan
@@ -203,7 +205,7 @@ Claude Code CLI flags — verified live via `claude --help` capture and targeted
 ### Claude Computer Use API
 - url: https://docs.anthropic.com/en/docs/build-with-claude/computer-use
 - access: API tier (uncertain via CLI)
-- specialists: e2e-runner, scraping-engineer (potentially)
+- specialists: scraping-engineer (potentially)
 - verified: needs-research
 - last_checked: 2026-05-02
 - research_task: verify access path from claude CLI vs API-only — does `claude` CLI expose computer use, or is it Claude API SDK only?
@@ -372,7 +374,7 @@ Codex CLI flags — verified live via `codex --help` capture and targeted live-f
 ### Codex native macOS computer use
 - url: https://platform.openai.com/docs/guides/computer-use
 - access: API/Plus tier (uncertain)
-- specialists: e2e-runner (potential)
+- specialists: test-engineer (potential)
 - verified: needs-research
 - last_checked: 2026-05-02
 - research_task: verify access path from codex CLI; is computer use a CLI surface or API-only?
@@ -550,7 +552,7 @@ Gemini CLI flags — verified live via `gemini --help` capture on 2026-05-02. Su
 ### Nano Banana Pro / Nano Banana 2
 - url: https://aistudio.google.com (likely)
 - access: Subscription (uncertain)
-- specialists: designer, media-producer (potential)
+- specialists: image-designer (potential)
 - verified: needs-research
 - last_checked: 2026-05-02
 - research_task: identify whether accessed via `gemini` CLI subcommand, via Google AI Studio web only, or via API
@@ -559,7 +561,7 @@ Gemini CLI flags — verified live via `gemini --help` capture on 2026-05-02. Su
 ### Veo 3
 - url: https://veo.google
 - access: Subscription (uncertain)
-- specialists: media-producer (video)
+- specialists: video-director (video)
 - verified: needs-research
 - last_checked: 2026-05-02
 - research_task: identify access path — gemini CLI vs API vs web only
@@ -568,7 +570,7 @@ Gemini CLI flags — verified live via `gemini --help` capture on 2026-05-02. Su
 ### Imagen
 - url: https://imagen.research.google
 - access: Subscription (uncertain)
-- specialists: designer, media-producer
+- specialists: image-designer
 - verified: needs-research
 - last_checked: 2026-05-02
 - research_task: identify access path
@@ -577,7 +579,7 @@ Gemini CLI flags — verified live via `gemini --help` capture on 2026-05-02. Su
 ### Google Search grounding
 - url: N/A (model-side)
 - access: Subscription (likely implicit per model)
-- specialists: research, media-producer, fact-checking specialists
+- specialists: research
 - verified: needs-research
 - last_checked: 2026-05-02
 - research_task: confirm built into `gemini-3.1-pro-preview` by default; verify with sample grounded query
@@ -595,7 +597,7 @@ Gemini CLI flags — verified live via `gemini --help` capture on 2026-05-02. Su
 ### Flow (Google video tool)
 - url: https://flow.google
 - access: Subscription (uncertain)
-- specialists: media-producer (video)
+- specialists: video-director (video)
 - verified: needs-research
 - last_checked: 2026-05-02
 - research_task: investigate scope and integration paths
@@ -839,7 +841,7 @@ Kimi CLI flags — verified live via `kimi --help` capture on 2026-05-02. Subscr
 ### Grok-X integration
 - url: https://x.ai
 - access: API
-- specialists: research, media-producer (potential)
+- specialists: research (potential)
 - verified: needs-research
 - last_checked: 2026-05-02
 - research_task: investigate full integration surface
@@ -865,7 +867,7 @@ Kimi CLI flags — verified live via `kimi --help` capture on 2026-05-02. Subscr
 ### ElevenLabs MCP — Scribe transcription, TTS, sound effects, music composition, voice cloning
 - url: https://elevenlabs.io
 - access: API (ELEVENLABS_API_KEY)
-- specialists: media-producer
+- specialists: voice-narrator, music-composer, sound-designer
 - verified: yes for Claude child MCP; not exposed through the current Gemini `chrono-content-engineer` wrapper
 - last_checked: 2026-05-02
 - test_reference: `claude mcp list` shows `plugin:chrono-content-engineer:elevenlabs` ✓ Connected via `uvx elevenlabs-mcp` (Capability Inventory)
@@ -878,7 +880,7 @@ Kimi CLI flags — verified live via `kimi --help` capture on 2026-05-02. Subscr
 ### Higgsfield MCP — image/video generation
 - url: https://higgsfield.ai
 - access: HTTP MCP (auth required)
-- specialists: media-producer, designer (image/video)
+- specialists: image-designer, video-director (image/video)
 - verified: no
 - last_checked: 2026-05-02
 - test_reference: `claude mcp list` shows `plugin:chrono-content-engineer:higgsfield` ⚠ Needs authentication
@@ -916,7 +918,7 @@ Per-pane verification matrix for each chrono-* family MCP. Claude pane verificat
 
 ### chrono-obsidian MCP
 - purpose: Obsidian REST-API bridge for vault read/write
-- specialists: technical-writer, designer, brand-voice, any specialist publishing markdown to operator's vault
+- specialists: technical-writer, brand-voice, any specialist publishing markdown to operator's vault
 - verified per pane:
   - chrono pane (claude): yes — test_reference: `claude mcp list` post-2026-05-03 tilde-fix shows ✓ Connected
   - security pane (claude): yes — same
@@ -940,7 +942,7 @@ Per-pane verification matrix for each chrono-* family MCP. Claude pane verificat
 
 ### chrono-research-arsenal MCP
 - purpose: Current live research wrapper exposing `arxiv_search`, `xai_search`, and `perplexity_search_web` (the last as a sibling MCP under the same plugin namespace via `uvx perplexity-mcp`). Brave, Apify, and Serper remain planned/unverified.
-- specialists: research, scout, large-context-analyst, fact-checker
+- specialists: research, scout, large-context-analyst
 - verified per pane:
   - chrono pane (claude): yes — wrapper registered; verified live: `arxiv_search`, `perplexity_search_web` (Perplexity smoke test 2026-07-12 returned cited results), and `xai_search` (fixed 2026-07-12 to use xAI Responses API `POST https://api.x.ai/v1/responses` with `web_search` / `x_search` tools; smoke test returned `ok:true` with real URLs).
   - security pane (claude): yes — same
@@ -952,7 +954,7 @@ Per-pane verification matrix for each chrono-* family MCP. Claude pane verificat
 
 ### chrono-content-engineer MCP
 - purpose: Current live content/media wrapper exposing `generate_image`, `generate_video`, and `generate_audio`. Provider-specific child routes such as ElevenLabs and Higgsfield are separate surfaces unless the active lane schema exposes them.
-- specialists: media-producer, designer, content-creator only for non-media content support
+- specialists: image-designer, video-director, video-editor, music-composer, sound-designer, voice-narrator
 - verified per pane:
   - chrono pane (claude): yes — wrapper registered; Claude also has the separate ElevenLabs child MCP
   - security pane (claude): yes — same
@@ -961,6 +963,19 @@ Per-pane verification matrix for each chrono-* family MCP. Claude pane verificat
   - content pane (gemini): yes — wrapper registered; current wrapper tools are `generate_image`, `generate_video`, `generate_audio`; do not request ElevenLabs child tools from Gemini unless the lane schema exposes them
   - research pane (kimi): yes — registered; wrapper tools must be verified with `tools/list`
 - last_checked: 2026-05-05 for current wrapper tool names
+
+### chrono-recon MCP
+- purpose: OSINT recon — DNS, WHOIS, crt.sh certificate enumeration, Wayback snapshots, GitHub leaked-secrets search. Tools: `dns_enumerate_tool`, `whois_lookup_tool`, `crt_sh_certificates_tool`, `wayback_snapshots_tool`, `github_leaked_secrets_tool`.
+- specialists: scout, security-analyst, exploit-developer
+- verified per pane:
+  - chrono pane (claude): yes — `claude mcp list` shows `plugin:chrono-recon:chrono-recon` ✓ Connected (loaded via the `chrono` plugin marketplace, not the `settings.json` `mcpServers` block)
+  - security pane (claude): yes — same (claude global config)
+  - sysmgmt pane (claude): yes — same
+  - coding pane (codex): yes — `codex mcp list` shows `chrono-recon` enabled (ENV: GH_TOKEN)
+  - content pane (gemini): yes — `~/.gemini/settings.json` `mcpServers` includes `chrono-recon`
+  - research pane (kimi): yes — `kimi mcp list` shows `chrono-recon` (stdio)
+- last_checked: 2026-07-12 — live re-verified on all 4 model CLIs; 5 tools returned by a `tools/list` handshake
+- notes: Recon-only (no active scanning). `github_leaked_secrets_tool` requires a valid `GH_TOKEN` in the lane env (the Gemini pane currently stores it literally — tracked separately). Cited in `scout` / `security-analyst` / `exploit-developer` `preferred_tools`.
 
 ### sequential-thinking MCP
 - purpose: Multi-step structured reasoning tool (`sequentialthinking`)
@@ -973,6 +988,30 @@ Per-pane verification matrix for each chrono-* family MCP. Claude pane verificat
   - content pane (gemini): yes — verified post-Task 6
   - research pane (kimi): yes — `kimi mcp list` shows configured (stdio, npx)
 - last_checked: 2026-05-02 (claude/codex/kimi); 2026-05-02 (gemini absent)
+
+---
+
+## 9.5 Non-chrono plugin MCPs & capabilities (Claude lane)
+
+Claude Code plugins available on the `claude` / `chrono` panes. Not part of the chrono-* family; registered via `enabledPlugins`, not the chrono marketplace.
+
+### context7 MCP
+- url: https://github.com/upstash/context7
+- access: Public (Claude Code plugin `context7@claude-plugins-official`)
+- specialists: any specialist needing current library/framework docs (e.g. ai-engineer, backend-engineer, frontend-engineer)
+- verified: yes
+- last_checked: 2026-07-12
+- test_reference: `claude mcp list` shows `plugin:context7:context7` ✓ Connected (`npx -y @upstash/context7-mcp`)
+- notes: Live docs fetch (`resolve-library-id`, `query-docs`). Claude/chrono panes only; not registered on codex/gemini/kimi.
+
+### firecrawl (plugin skills — NOT an MCP server)
+- url: https://www.firecrawl.dev
+- access: Public (Claude Code plugin `firecrawl@claude-plugins-official`; live calls need a Firecrawl API key)
+- specialists: copywriter (carries `firecrawl:scrape` in `required_tools`), any specialist doing web scrape/crawl
+- verified: yes (plugin enabled) — NOTE: firecrawl is a **skills** plugin, not an MCP server; it does **not** appear in `claude mcp list`.
+- last_checked: 2026-07-12
+- test_reference: `jq '.enabledPlugins["firecrawl@claude-plugins-official"]' ~/.claude/settings.json` → `true`; skills `firecrawl-scrape` / `firecrawl-crawl` / `firecrawl-map` / `firecrawl-parse` present in the plugin catalog.
+- notes: The `firecrawl:scrape` token used in `required_tools` / `tool-catalog.md` refers to this plugin's scrape capability, not an MCP `server:tool`. Claude-lane only — a specialist routed to a non-claude lane must treat firecrawl as unavailable and report `capability_gap`.
 
 ---
 
@@ -994,7 +1033,7 @@ Per-pane verification matrix for each chrono-* family MCP. Claude pane verificat
 
 ### Outreach pipeline bridge
 - access: private/local `<private-outreach-repo>`
-- specialists: research, data-extraction-engineer, privacy-steward, content-creator, brand-voice, editor, personal-ops
+- specialists: research, data-extraction-engineer, privacy-steward, brand-voice, editor, personal-ops
 - verified: dry-run bridge only
 - last_checked: 2026-05-04 local inspection
 - test_reference: `bin/outreach-dry-run.sh` runs `python -m outreach.runner --dry-run` in the private package when present
@@ -1011,7 +1050,7 @@ Per-pane verification matrix for each chrono-* family MCP. Claude pane verificat
 
 ## 11. Out-of-scope failed MCPs (separate plugin issues)
 
-These show `Failed to connect` in `claude mcp list` post-2026-05-03 tilde fix and are NOT chrono-* family. Specialists must NOT cite them.
+These showed `Failed to connect` in `claude mcp list` post-2026-05-03 tilde fix and are NOT chrono-* family. Specialists must NOT cite `verified: no` entries here. **Exception (audit A6, re-verified 2026-07-12): `plugin:github:github` now connects — it is `verified: yes` below and is citable on the claude lane. This resolves the `tool-catalog.md`-vs-`api-catalog.md` github contradiction.**
 
 ### plugin:goodmem:goodmem
 - verified: no
@@ -1019,9 +1058,10 @@ These show `Failed to connect` in `claude mcp list` post-2026-05-03 tilde fix an
 - notes: separate plugin issue. Likely missing dep or upstream package issue. Worth investigating in the next compatibility pass.
 
 ### plugin:github:github (HTTP)
-- verified: no
-- last_checked: 2026-05-03
-- notes: separate plugin issue. HTTP MCP — possibly auth or endpoint change. Worth investigating in the next compatibility pass.
+- verified: yes (re-verified 2026-07-12; the 2026-05-03 "Failed to connect" no longer reproduces)
+- last_checked: 2026-07-12
+- test_reference: `claude mcp list` shows `plugin:github:github: https://api.githubcopilot.com/mcp/ (HTTP) - ✔ Connected`
+- notes: Now connects on the claude lane — the earlier failure is resolved (github graduated out of the failed set; kept here with a resolved marker rather than moved). Availability on codex/gemini/kimi is per-lane; verify before citing off-claude.
 
 ### plugin:greptile:greptile (HTTP)
 - verified: no
