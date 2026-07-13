@@ -231,7 +231,7 @@ def generate_audio(
             with httpx.Client(timeout=120.0) as client:
                 r = client.post(
                     "https://generativelanguage.googleapis.com/v1beta/models/lyria-3:generateMusic",
-                    params={"key": api_key},
+                    headers={"x-goog-api-key": api_key},
                     json={
                         "prompt": prompt,
                         "duration_seconds": duration_seconds,
