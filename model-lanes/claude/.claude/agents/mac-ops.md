@@ -1,6 +1,6 @@
 ---
 name: mac-ops
-description: "Local Mac/process hygiene, launchd, tmux, shell environment."
+description: "Local Mac and process hygiene, launchd, tmux, and shell environment."
 model: inherit
 ---
 

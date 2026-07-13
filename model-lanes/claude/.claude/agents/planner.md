@@ -1,6 +1,6 @@
 ---
 name: planner
-description: "Plans dispatch shape, write ownership, parallel safety."
+description: "Plans dispatch shape, write ownership, and parallel safety."
 model: inherit
 ---
 

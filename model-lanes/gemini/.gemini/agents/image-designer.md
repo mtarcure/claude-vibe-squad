@@ -1,6 +1,6 @@
 ---
 name: image-designer
-description: "Image generation and design (image model)."
+description: "Tool-gated image generation; Claude backup produces a TBASF blueprint when tools are unavailable."
 kind: local
 tools: ["read_file", "replace", "write_file", "run_shell_command", "glob", "grep_search"]
 model: inherit

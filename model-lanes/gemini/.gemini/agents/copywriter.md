@@ -1,6 +1,6 @@
 ---
 name: copywriter
-description: "Text content for marketing, copy, blogs, product descriptions."
+description: "Text content for marketing, blogs, and product descriptions."
 kind: local
 tools: ["read_file", "replace", "write_file", "run_shell_command", "glob", "grep_search"]
 model: inherit

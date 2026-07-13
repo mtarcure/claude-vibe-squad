@@ -1,6 +1,6 @@
 ---
 name: video-editor
-description: "Post-production, reframing, and upscaling."
+description: "Tool-gated post-production; Claude backup produces a TBASF edit-decision blueprint when tools are unavailable."
 kind: local
 tools: ["read_file", "replace", "write_file", "run_shell_command", "glob", "grep_search"]
 model: inherit

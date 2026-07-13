@@ -1,5 +1,0 @@
-version: 1
-agent:
-  name: large-context-analyst
-  extend: default
-  system_prompt_path: ../prompts/large-context-analyst.md

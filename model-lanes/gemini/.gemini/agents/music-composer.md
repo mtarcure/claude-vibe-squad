@@ -1,6 +1,6 @@
 ---
 name: music-composer
-description: "Original music composition and transformation."
+description: "Tool-gated original music composition; Claude backup produces a TBASF blueprint when tools are unavailable."
 kind: local
 tools: ["read_file", "replace", "write_file", "run_shell_command", "glob", "grep_search"]
 model: inherit

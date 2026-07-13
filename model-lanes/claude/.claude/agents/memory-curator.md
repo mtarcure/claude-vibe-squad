@@ -1,6 +1,6 @@
 ---
 name: memory-curator
-description: "Memory/vault/brain-map hygiene and public-private boundary checks."
+description: "Memory, vault, brain-map hygiene, and public-private boundary checks."
 model: inherit
 ---
 

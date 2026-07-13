@@ -11,6 +11,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import tempfile
 import time
 import uuid
@@ -97,6 +98,46 @@ def atomic_write_json(path: Path, data: dict[str, Any]) -> None:
     atomic_write_bytes(path, (json.dumps(data, indent=2, sort_keys=True) + "\n").encode())
 
 
+def build_failover_packet(
+    template: bytes, *, lane: str, artifact_path: str, generation: int, attempt_id: str
+) -> bytes:
+    """Change routing frontmatter while preserving the immutable task body byte-for-byte."""
+    try:
+        text = template.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ControlPlaneError("packet template is not UTF-8") from exc
+    lines = text.splitlines(keepends=True)
+    if not lines or lines[0].rstrip("\r\n") != "---":
+        raise ControlPlaneError("packet template is missing YAML frontmatter")
+    closing = next((index for index, line in enumerate(lines[1:], 1) if line.rstrip("\r\n") == "---"), None)
+    if closing is None:
+        raise ControlPlaneError("packet template frontmatter is not closed")
+    newline = "\r\n" if lines[0].endswith("\r\n") else "\n"
+    replacements = {
+        "to_model": lane,
+        "return_artifact": artifact_path,
+        "model_override_reason": f"conservative hard-signal failover generation {generation}",
+        "failover_generation": str(generation),
+        "failover_attempt_id": attempt_id,
+    }
+    rewritten: list[str] = []
+    seen: set[str] = set()
+    for line in lines[1:closing]:
+        match = re.match(r"^([A-Za-z0-9_-]+):", line)
+        key = match.group(1) if match else None
+        if key in {"failover_generation", "failover_attempt_id"}:
+            continue
+        if key in replacements:
+            rewritten.append(f"{key}: {replacements[key]}{newline}")
+            seen.add(key)
+        else:
+            rewritten.append(line)
+    for key, value in replacements.items():
+        if key not in seen:
+            rewritten.append(f"{key}: {value}{newline}")
+    return (lines[0] + "".join(rewritten) + lines[closing] + "".join(lines[closing + 1 :])).encode()
+
+
 def parse_markdown_frontmatter(data: bytes) -> dict[str, Any]:
     try:
         text = data.decode("utf-8")
@@ -145,7 +186,8 @@ class DispatchControlPlane:
         self.ledgers = self.root / "ledgers"
         self.locks = self.root / "locks"
         self.staging = self.root / "staging"
-        for directory in (self.ledgers, self.locks, self.staging):
+        self.packets = self.root / "packets"
+        for directory in (self.ledgers, self.locks, self.staging, self.packets):
             directory.mkdir(parents=True, exist_ok=True)
 
     def ledger_path(self, task_id: str) -> Path:
@@ -184,6 +226,18 @@ class DispatchControlPlane:
         with self._locked(task_id):
             return self._load(task_id)
 
+    def list_task_ids(self) -> list[str]:
+        """Return only ledgers whose filenames are valid task identifiers."""
+        task_ids: list[str] = []
+        for path in self.ledgers.glob("*.json"):
+            task_id = path.stem
+            try:
+                self._validate_key(task_id)
+            except ControlPlaneError:
+                continue
+            task_ids.append(task_id)
+        return sorted(task_ids)
+
     def _save(self, task_id: str, ledger: dict[str, Any]) -> None:
         ledger["updated_at"] = _iso(_utcnow())
         atomic_write_json(self.ledger_path(task_id), ledger)
@@ -212,6 +266,11 @@ class DispatchControlPlane:
             "effective_model_history": [effective_model] if effective_model else [],
             "artifact_path": str(artifact_path),
             "artifact_hash": None,
+            "dispatched_at": _iso(_utcnow()),
+            "accepted_at": None,
+            "last_heartbeat_at": None,
+            "process_pid": None,
+            "runtime_events": [],
         }
 
     def initialize_task(
@@ -228,6 +287,12 @@ class DispatchControlPlane:
         gate_record_path: Path | str | None = None,
         gate_subject_path: Path | str | None = None,
         quiescence_seconds: float = 5.0,
+        packet_template: bytes | None = None,
+        redispatch_path: Path | str | None = None,
+        dispatch_ack_seconds: int = 45,
+        heartbeat_timeout_seconds: int = 30,
+        soft_deadline_seconds: int = 1200,
+        hard_deadline_seconds: int = 2400,
     ) -> dict[str, Any]:
         if primary_lane not in VALID_LANES:
             raise ControlPlaneError(f"invalid primary lane: {primary_lane}")
@@ -235,13 +300,24 @@ class DispatchControlPlane:
             raise ControlPlaneError(f"invalid backup lane: {backup_lane}")
         if primary_lane == backup_lane:
             backup_lane = "none"
-        if not lease_owner or lease_seconds <= 0 or quiescence_seconds < 0:
+        if (
+            not lease_owner
+            or lease_seconds <= 0
+            or quiescence_seconds < 0
+            or dispatch_ack_seconds <= 0
+            or heartbeat_timeout_seconds <= 0
+            or soft_deadline_seconds <= 0
+            or hard_deadline_seconds < soft_deadline_seconds
+        ):
             raise ControlPlaneError("lease owner must be non-empty and lease duration positive")
         with self._locked(task_id):
             path = self.ledger_path(task_id)
             if path.exists():
                 ledger = self._load(task_id)
                 requested_canonical = str(Path(canonical_artifact_path).expanduser().resolve())
+                requested_redispatch = (
+                    str(Path(redispatch_path).expanduser().resolve()) if redispatch_path else None
+                )
                 requested_gate_record = (
                     str(Path(gate_record_path).expanduser().resolve()) if gate_record_path else None
                 )
@@ -256,10 +332,23 @@ class DispatchControlPlane:
                     or ledger.get("gate_record_path") != requested_gate_record
                     or ledger.get("gate_subject_path") != requested_gate_subject
                     or float(ledger.get("quiescence_seconds", 5.0)) != float(quiescence_seconds)
+                    or ledger.get("packet_template_hash")
+                    != (_sha256(packet_template) if packet_template is not None else None)
+                    or ledger.get("redispatch_path") != requested_redispatch
+                    or int(ledger.get("dispatch_ack_seconds", 45)) != dispatch_ack_seconds
+                    or int(ledger.get("heartbeat_timeout_seconds", 30)) != heartbeat_timeout_seconds
+                    or int(ledger.get("soft_deadline_seconds", 1200)) != soft_deadline_seconds
+                    or int(ledger.get("hard_deadline_seconds", 2400)) != hard_deadline_seconds
                 ):
                     raise LeaseConflict("task was already initialized with different routing")
                 return self._current_attempt(ledger)
             attempt = self._new_attempt(task_id, 1, primary_lane, lease_owner, lease_seconds, effective_model)
+            packet_template_path = None
+            packet_template_hash = None
+            if packet_template is not None:
+                packet_template_path = self.packets / f"{task_id}.md"
+                atomic_write_bytes(packet_template_path, packet_template)
+                packet_template_hash = _sha256(packet_template)
             ledger = {
                 "task_id": task_id,
                 "generation": 1,
@@ -270,6 +359,13 @@ class DispatchControlPlane:
                 "gate_record_path": str(Path(gate_record_path).expanduser().resolve()) if gate_record_path else None,
                 "gate_subject_path": str(Path(gate_subject_path).expanduser().resolve()) if gate_subject_path else None,
                 "quiescence_seconds": float(quiescence_seconds),
+                "packet_template_path": str(packet_template_path) if packet_template_path else None,
+                "packet_template_hash": packet_template_hash,
+                "redispatch_path": str(Path(redispatch_path).expanduser().resolve()) if redispatch_path else None,
+                "dispatch_ack_seconds": int(dispatch_ack_seconds),
+                "heartbeat_timeout_seconds": int(heartbeat_timeout_seconds),
+                "soft_deadline_seconds": int(soft_deadline_seconds),
+                "hard_deadline_seconds": int(hard_deadline_seconds),
                 "current_attempt_id": attempt["attempt_id"],
                 "winner_attempt_id": None,
                 "failover_count": 0,
@@ -281,6 +377,98 @@ class DispatchControlPlane:
             }
             self._save(task_id, ledger)
             return attempt
+
+    def record_runtime_event(
+        self,
+        *,
+        task_id: str,
+        attempt_id: str,
+        event: str,
+        typed_error: bool = False,
+        process_confirmed: bool = False,
+        valid_artifact: bool = False,
+        process_pid: int | None = None,
+        occurred_at: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Persist a sensor observation for conservative watchdog processing."""
+        if process_pid is not None and process_pid <= 0:
+            raise ControlPlaneError("process PID must be positive")
+        observed_at = occurred_at or _utcnow()
+        with self._locked(task_id):
+            ledger = self._load(task_id)
+            attempt = self._attempt(ledger, attempt_id)
+            record = {
+                "event_id": f"e-{uuid.uuid4().hex}",
+                "event": event,
+                "occurred_at": _iso(observed_at),
+                "typed_error": bool(typed_error),
+                "process_confirmed": bool(process_confirmed),
+                "valid_artifact": bool(valid_artifact),
+                "processed_at": None,
+            }
+            if process_pid is not None:
+                attempt["process_pid"] = process_pid
+            if event == "accepted":
+                attempt["accepted_at"] = attempt.get("accepted_at") or _iso(observed_at)
+                attempt["last_heartbeat_at"] = _iso(observed_at)
+                record["processed_at"] = _iso(observed_at)
+            elif event == "heartbeat":
+                attempt["last_heartbeat_at"] = _iso(observed_at)
+                record["processed_at"] = _iso(observed_at)
+            attempt.setdefault("runtime_events", []).append(record)
+            self._save(task_id, ledger)
+            return record
+
+    def pending_runtime_events(self, task_id: str, attempt_id: str) -> list[dict[str, Any]]:
+        with self._locked(task_id):
+            ledger = self._load(task_id)
+            attempt = self._attempt(ledger, attempt_id)
+            return [dict(event) for event in attempt.get("runtime_events", []) if not event.get("processed_at")]
+
+    def mark_runtime_event_processed(self, task_id: str, attempt_id: str, event_id: str) -> None:
+        with self._locked(task_id):
+            ledger = self._load(task_id)
+            attempt = self._attempt(ledger, attempt_id)
+            for event in attempt.get("runtime_events", []):
+                if event.get("event_id") == event_id:
+                    event["processed_at"] = event.get("processed_at") or _iso(_utcnow())
+                    self._save(task_id, ledger)
+                    return
+            raise ControlPlaneError(f"unknown runtime event: {event_id}")
+
+    def prepare_backup_redispatch(self, *, task_id: str, attempt_id: str) -> Path:
+        """Atomically materialize the fenced generation-2 packet in its mailbox."""
+        with self._locked(task_id):
+            ledger = self._load(task_id)
+            attempt = self._attempt(ledger, attempt_id)
+            if attempt_id != ledger.get("current_attempt_id") or attempt.get("generation") != ledger.get("generation"):
+                raise FailoverRejected("only the current generation may be redispatched")
+            if attempt.get("generation") != 2 or ledger.get("failover_count") != 1:
+                raise FailoverRejected("backup redispatch requires the sole generation-2 hop")
+            template_path = ledger.get("packet_template_path")
+            redispatch_path = ledger.get("redispatch_path")
+            if not template_path or not redispatch_path:
+                raise FailoverRejected("task has no immutable packet template or redispatch path")
+            try:
+                template = Path(template_path).read_bytes()
+            except OSError as exc:
+                raise FailoverRejected("immutable packet template is unreadable") from exc
+            if _sha256(template) != ledger.get("packet_template_hash"):
+                raise FailoverRejected("immutable packet template hash mismatch")
+            packet = build_failover_packet(
+                template,
+                lane=attempt["lane"],
+                artifact_path=attempt["artifact_path"],
+                generation=attempt["generation"],
+                attempt_id=attempt_id,
+            )
+            destination = Path(redispatch_path)
+            atomic_write_bytes(destination, packet)
+            attempt["redispatch_path"] = str(destination)
+            attempt["redispatch_hash"] = _sha256(packet)
+            attempt["redispatched_at"] = _iso(_utcnow())
+            self._save(task_id, ledger)
+            return destination
 
     @staticmethod
     def _current_attempt(ledger: dict[str, Any]) -> dict[str, Any]:
@@ -327,7 +515,7 @@ class DispatchControlPlane:
                     current["lease_expiry"] = _iso(_utcnow())
                 self._save(task_id, ledger)
                 return status
-            if attempt["terminal_status"] in TERMINAL_STATUSES:
+            if attempt["terminal_status"] in TERMINAL_STATUSES - {"NEEDS_HUMAN"}:
                 return attempt["terminal_status"]
             if signal == "dispatch_ack_failure":
                 status = "HARD_FAILED"

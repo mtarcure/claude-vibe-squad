@@ -35,6 +35,7 @@ ACTIVE_REGISTRY="${VAULT_ROOT}/_state/active-tasks.json"
 TOOLKIT="${VAULT_ROOT}/shared/dispatch-toolkit.sh"
 RUNTIME_MAP="${VAULT_ROOT}/shared/specialist-runtime-map.tsv"
 FAILOVER_CONTROL="${VAULT_ROOT}/bin/failover-control.py"
+DAEMON_REQUIREMENTS="${VAULT_ROOT}/daemon/requirements.txt"
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -471,8 +472,12 @@ fi
 # (watcher restart + canary). Flag OFF = legacy behavior: canonical
 # return_artifact, no ledger, direct outbox — the proven rail. Enable with
 # FAILOVER_CONTROL_ENABLED=1 or by creating _state/failover/ENABLED.
+CONTROL_ACTIVE=0
+CONTROL_ATTEMPT_ID=""
 if [[ "${FAILOVER_CONTROL_ENABLED:-0}" == "1" || -f "${VAULT_ROOT}/_state/failover/ENABLED" ]]; then
     [[ -f "$FAILOVER_CONTROL" ]] || die "missing conservative failover controller: ${FAILOVER_CONTROL}"
+    command -v uv >/dev/null 2>&1 || die "uv is required by the conservative failover controller"
+    CONTROL_RUN=(uv run --with-requirements "$DAEMON_REQUIREMENTS" python "$FAILOVER_CONTROL")
     CONTROL_ARGS=(
         init-dispatch
         --task-file "$ACTUAL_TASK_FILE"
@@ -480,6 +485,7 @@ if [[ "${FAILOVER_CONTROL_ENABLED:-0}" == "1" || -f "${VAULT_ROOT}/_state/failov
         --backup-lane "$MAP_BACKUP"
         --lease-owner "dispatch:${TO_MODEL}:$$"
         --effective-model "$TO_MODEL"
+        --redispatch-path "${INBOX}/${TASK_ID}.md"
     )
     # Gate authority is durable ledger state, never a publish-call choice.
     # Explicit packet frontmatter is also consumed by failover-control.py.
@@ -488,8 +494,10 @@ if [[ "${FAILOVER_CONTROL_ENABLED:-0}" == "1" || -f "${VAULT_ROOT}/_state/failov
         || ( "$MAP_SAFETY" == "high" && "$MAP_OPERATOR_GATE" =~ (public_release|paid_media) ) ]]; then
         CONTROL_ARGS+=(--gate-required)
     fi
-    CONTROL_RESULT="$(python3 "$FAILOVER_CONTROL" "${CONTROL_ARGS[@]}")" \
+    CONTROL_RESULT="$("${CONTROL_RUN[@]}" "${CONTROL_ARGS[@]}")" \
         || die "failed to initialize durable attempt ledger for ${TASK_ID}"
+    CONTROL_ATTEMPT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("attempt_id", ""))' <<<"$CONTROL_RESULT")"
+    [[ -n "$CONTROL_ATTEMPT_ID" ]] && CONTROL_ACTIVE=1
     info "Attempt ledger initialized: ${CONTROL_RESULT}"
 fi
 
@@ -556,9 +564,29 @@ info "Dispatch log updated"
 # ── nudge model lane pane ─────────────────────────────────────────────────────
 
 if [[ -n "$NUDGE_PANE" ]]; then
-    env VAULT_ROOT="$VAULT_ROOT" bash "${VAULT_ROOT}/bin/nudge-task.sh" "$DEST" \
-        && info "Nudged pane ${NUDGE_PANE}" \
-        || echo "WARNING: Failed to nudge pane ${NUDGE_PANE} (dispatch already recorded)" >&2
+    if env VAULT_ROOT="$VAULT_ROOT" bash "${VAULT_ROOT}/bin/nudge-task.sh" "$DEST"; then
+        info "Nudged pane ${NUDGE_PANE}"
+        if [[ "$CONTROL_ACTIVE" == "1" ]]; then
+            "${CONTROL_RUN[@]}" event \
+                --task-id "$TASK_ID" \
+                --attempt-id "$CONTROL_ATTEMPT_ID" \
+                --event accepted >/dev/null \
+                || die "nudge succeeded but dispatch acceptance could not be recorded for ${TASK_ID}"
+        fi
+    else
+        if [[ "$CONTROL_ACTIVE" == "1" ]]; then
+            "${CONTROL_RUN[@]}" signal \
+                --task-id "$TASK_ID" \
+                --attempt-id "$CONTROL_ATTEMPT_ID" \
+                --signal dispatch_ack_failure \
+                --auto-failover \
+                --redispatch \
+                --nudge \
+                --lease-owner "dispatch-failover:${MAP_BACKUP}:$$" \
+                || die "dispatch_ack_failure was recorded but backup redispatch failed for ${TASK_ID}"
+        fi
+        echo "WARNING: Failed to nudge pane ${NUDGE_PANE} (dispatch_ack_failure reported)" >&2
+    fi
 fi
 
 echo "✓ Dispatched ${TASK_ID} → ${TO_MODEL}/${SPECIALIST} (${COMPAT_NAMESPACE} mailbox)"

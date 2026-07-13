@@ -1,6 +1,6 @@
 ---
 name: agentops
-description: "Runtime/doctor/status drift and agent operations."
+description: "Runtime, doctor, status drift, and agent operations."
 model: inherit
 ---
 

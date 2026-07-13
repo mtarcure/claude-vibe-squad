@@ -1,5 +1,5 @@
 name = "frontend_engineer"
-description = "Frontend implementation; Gemini reviews visual/design fidelity when needed."
+description = "Frontend implementation with Gemini visual and design review."
 model_reasoning_effort = "medium"
 sandbox_mode = "workspace-write"
 developer_instructions = """

@@ -1,6 +1,6 @@
 ---
 name: social-strategist
-description: "Social/content strategy with research support."
+description: "Social and content strategy with grounded trend support."
 kind: local
 tools: ["read_file", "replace", "write_file", "run_shell_command", "glob", "grep_search"]
 model: inherit

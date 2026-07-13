@@ -1,6 +1,6 @@
 ---
 name: vibecoding-check
-description: "Scope, artifact quality, acceptance check, drift detection."
+description: "Scope, artifact quality, acceptance, and drift checking."
 model: inherit
 ---
 

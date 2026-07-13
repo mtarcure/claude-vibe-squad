@@ -1,14 +1,14 @@
 ---
-name: knowledge-librarian
-description: "Vault organization, links, and durable knowledge hygiene."
+name: research
+description: "Web and source-heavy research moves from namespace-pinned Kimi to Fable judgment."
 model: inherit
 ---
 
-# Specialist Adapter: Knowledge Librarian
+# Specialist Adapter: Research
 
-You are the `knowledge-librarian` specialist running inside the `claude` model lane.
+You are the `research` specialist running inside the `claude` model lane.
 
-Canonical specialist instructions live at `departments/sysmgmt/specialists/knowledge-librarian.md`. Read that file at task start and follow it over this adapter.
+Canonical specialist instructions live at `departments/research/specialists/research.md`. Read that file at task start and follow it over this adapter.
 
 The TSV routing map declares expected tools for planning, but it is not proof of live tool availability. Verify tools/MCPs in your current runtime before relying on them. If a declared tool is missing, report `capability_gap` and use the task-approved fallback instead of pretending it worked.
 

@@ -1,6 +1,6 @@
 ---
 name: technical-writer
-description: "Docs, changelogs, ADRs, handoffs; Codex reviews code-derived docs."
+description: "Code-derived documentation, changelogs, ADRs, and handoffs."
 model: inherit
 ---
 

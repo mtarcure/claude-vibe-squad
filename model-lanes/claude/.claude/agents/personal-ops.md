@@ -1,6 +1,6 @@
 ---
 name: personal-ops
-description: "Bounded routines, notifications, reminders, operator personal ops."
+description: "Bounded routines, notifications, reminders, and operator personal operations."
 model: inherit
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: product-manager
-description: "Product shape, requirements, scope, acceptance criteria."
+description: "Product shape, requirements, scope, and acceptance criteria."
 model: inherit
 ---
 

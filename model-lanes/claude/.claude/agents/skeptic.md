@@ -1,6 +1,6 @@
 ---
 name: skeptic
-description: "Independent challenge/review; exclude writer family where possible."
+description: "Independent challenge and review; exclude the writer family where possible."
 model: inherit
 ---
 

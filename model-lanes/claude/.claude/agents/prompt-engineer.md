@@ -1,6 +1,6 @@
 ---
 name: prompt-engineer
-description: "Prompt quality, instruction adapters, model fit."
+description: "Prompt quality, instruction adapters, target-family evaluation, and model fit."
 model: inherit
 ---
 

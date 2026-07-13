@@ -1,6 +1,6 @@
 ---
 name: harness-optimizer
-description: "Prompt/tool/script drift and squad harness audits."
+description: "Audit-oriented prompt, tool, and script drift role; implementation charter remains a future split."
 model: inherit
 ---
 

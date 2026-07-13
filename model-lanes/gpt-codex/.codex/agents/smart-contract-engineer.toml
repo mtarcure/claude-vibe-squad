@@ -1,5 +1,5 @@
 name = "smart_contract_engineer"
-description = "Smart contract implementation/audit mechanics; Claude reviews risk and impact."
+description = "Smart-contract implementation and audit mechanics; Claude reviews risk and impact."
 model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"
 developer_instructions = """

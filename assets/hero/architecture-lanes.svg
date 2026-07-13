@@ -36,6 +36,6 @@
   </g>
   <line x1="1060" y1="372" x2="1060" y2="470" stroke="#64748b" stroke-width="4" marker-end="url(#arrow)"/>
   <rect x="810" y="492" width="500" height="116" rx="16" fill="#111827" stroke="#334155"/>
-  <text x="1060" y="540" text-anchor="middle" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="800">46 canonical specialists</text>
+  <text x="1060" y="540" text-anchor="middle" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="800">67 canonical specialists</text>
   <text x="1060" y="576" text-anchor="middle" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="20">specialist -> model lead -> optional review -> namespace storage</text>
 </svg>

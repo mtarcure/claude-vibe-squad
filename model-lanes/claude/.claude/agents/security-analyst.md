@@ -1,6 +1,6 @@
 ---
 name: security-analyst
-description: "SAST, supply-chain, vulnerability reasoning; Codex assists code tracing."
+description: "SAST, supply-chain, and vulnerability reasoning with Codex code-tracing support."
 model: inherit
 ---
 

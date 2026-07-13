@@ -1,6 +1,6 @@
 ---
 name: privacy-steward
-description: "Privacy, PII/data-flow, regulatory risk."
+description: "Privacy, PII and data-flow, consent, and regulatory risk."
 model: inherit
 ---
 

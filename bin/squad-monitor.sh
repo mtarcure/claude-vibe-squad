@@ -371,6 +371,19 @@ auto_archive_completed() {
 
 # ── run all detectors ─────────────────────────────────────────────────────────
 
+# The failover watchdog shares the controller's dormant-by-default gate. It
+# consumes only hard typed sensors automatically; the existing pane/staleness
+# detectors below remain alert-only for ambiguous liveness observations.
+if [[ "${FAILOVER_CONTROL_ENABLED:-0}" == "1" || -f "${VAULT_ROOT}/_state/failover/ENABLED" ]]; then
+    if command -v uv >/dev/null 2>&1; then
+        uv run --with-requirements "${VAULT_ROOT}/daemon/requirements.txt" \
+            python "${VAULT_ROOT}/daemon/failover_watchdog.py" --once \
+            || send_alert "conservative failover watchdog failed; operator inspection required"
+    else
+        send_alert "conservative failover watchdog requires uv; operator inspection required"
+    fi
+fi
+
 # Track per-lane pane idle time once up front, so detect_stuck can bind each
 # pending task to its real to_model executing pane (not the namespace default).
 update_lane_hashes

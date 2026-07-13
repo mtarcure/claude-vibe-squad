@@ -1,6 +1,6 @@
 ---
 name: voice-narrator
-description: "TTS narration and voice production."
+description: "Tool-gated narration and voice production; Claude backup produces SSML and pronunciation blueprints."
 kind: local
 tools: ["read_file", "replace", "write_file", "run_shell_command", "glob", "grep_search"]
 model: inherit

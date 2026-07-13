@@ -1,5 +1,5 @@
 name = "test_engineer"
-description = "Test design, fixtures, regression coverage."
+description = "Test design, fixtures, regression coverage, and game-pipeline acceptance."
 model_reasoning_effort = "medium"
 sandbox_mode = "workspace-write"
 developer_instructions = """

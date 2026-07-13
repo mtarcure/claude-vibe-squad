@@ -4,24 +4,3 @@ agent:
   extend: default
   system_prompt_path: ./KIMI.md
   subagents:
-    data-extraction-engineer:
-      path: ./subagents/data-extraction-engineer.yaml
-      description: "PDF/table/dataset extraction; Codex helps with parser code."
-    large-context-analyst:
-      path: ./subagents/large-context-analyst.yaml
-      description: "Long-context corpus/codebase reading and synthesis."
-    research:
-      path: ./subagents/research.yaml
-      description: "Web/source-heavy research and claim validation."
-    synthesizer:
-      path: ./subagents/synthesizer.yaml
-      description: "Aggregate findings, preserve outliers, produce concise synthesis."
-    scout:
-      path: ./subagents/scout.yaml
-      description: "Bounty target selection support, platform intel, OSINT-heavy reconnaissance."
-    finance-analyst:
-      path: ./subagents/finance-analyst.yaml
-      description: "Subscription/cost tracking and finance research summaries."
-    summarizer:
-      path: ./subagents/summarizer.yaml
-      description: "Condensed state summaries, long-thread compression."

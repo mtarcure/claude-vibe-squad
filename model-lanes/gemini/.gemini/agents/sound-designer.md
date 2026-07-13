@@ -1,6 +1,6 @@
 ---
 name: sound-designer
-description: "Sound effects and audio design."
+description: "Tool-gated sound-effect design; Claude backup produces a TBASF blueprint when tools are unavailable."
 kind: local
 tools: ["read_file", "replace", "write_file", "run_shell_command", "glob", "grep_search"]
 model: inherit

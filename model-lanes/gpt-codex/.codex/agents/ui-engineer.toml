@@ -1,5 +1,5 @@
 name = "ui_engineer"
-description = "Component implementation; Gemini handles visual/design review."
+description = "Component implementation with Gemini visual and design review."
 model_reasoning_effort = "medium"
 sandbox_mode = "workspace-write"
 developer_instructions = """

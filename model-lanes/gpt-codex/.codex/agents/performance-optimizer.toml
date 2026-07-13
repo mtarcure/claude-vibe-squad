@@ -1,5 +1,5 @@
 name = "performance_optimizer"
-description = "Profiling, benchmarking, hot path changes."
+description = "Code and algorithmic profiling, benchmarking, and hot-path changes."
 model_reasoning_effort = "medium"
 sandbox_mode = "workspace-write"
 developer_instructions = """

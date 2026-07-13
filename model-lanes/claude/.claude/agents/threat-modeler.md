@@ -1,6 +1,6 @@
 ---
 name: threat-modeler
-description: "Attack trees, STRIDE, abuse cases, risk ranking."
+description: "Attack trees, STRIDE, abuse cases, and risk ranking."
 model: inherit
 ---
 

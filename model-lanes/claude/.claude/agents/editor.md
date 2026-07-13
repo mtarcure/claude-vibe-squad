@@ -1,6 +1,6 @@
 ---
 name: editor
-description: "Clarity, length, voice, final content pass."
+description: "Developmental editing stays Fable-primary; Gemini is the copy-edit backup."
 model: inherit
 ---
 

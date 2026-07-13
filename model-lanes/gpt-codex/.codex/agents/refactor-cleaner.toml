@@ -1,5 +1,5 @@
 name = "refactor_cleaner"
-description = "Mechanical cleanup and behavior-preserving refactors; deletes require explicit operator approval."
+description = "Mechanical cleanup and behavior-preserving refactors; deletion remains operator-gated."
 model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"
 developer_instructions = """

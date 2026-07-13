@@ -1,6 +1,6 @@
 ---
 name: loop-operator
-description: "Bounded autonomous loops, checkpoints, stall detection."
+description: "Bounded autonomous loops, checkpoints, and stall detection."
 model: inherit
 ---
 

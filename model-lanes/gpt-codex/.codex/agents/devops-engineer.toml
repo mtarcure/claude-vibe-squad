@@ -1,5 +1,5 @@
 name = "devops_engineer"
-description = "CI, Docker, infra-as-code, release rails."
+description = "CI, Docker, infrastructure as code, and release rails."
 model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"
 developer_instructions = """

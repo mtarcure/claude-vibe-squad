@@ -1,6 +1,6 @@
 ---
 name: triage
-description: "Initial classification, mode suggestion, risk triage."
+description: "Initial classification, mode suggestion, and risk triage."
 model: inherit
 ---
 

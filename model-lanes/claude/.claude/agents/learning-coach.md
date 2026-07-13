@@ -1,6 +1,6 @@
 ---
 name: learning-coach
-description: "Study plans, drills, learning paths."
+description: "Study plans, drills, and learning paths."
 model: inherit
 ---
 

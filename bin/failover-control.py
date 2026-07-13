@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -58,6 +60,7 @@ def _json_file(path: str | None) -> dict | None:
 
 def command_init(args: argparse.Namespace, control: DispatchControlPlane) -> dict:
     task_file = Path(args.task_file).expanduser().resolve()
+    packet_template = task_file.read_bytes()
     metadata = _frontmatter(task_file)
     task_id = str(metadata.get("id") or "")
     canonical = str(metadata.get("return_artifact") or "")
@@ -70,6 +73,13 @@ def command_init(args: argparse.Namespace, control: DispatchControlPlane) -> dic
     packet_gate_required = metadata.get("publication_gate_required", metadata.get("gate_required", False))
     if not isinstance(packet_gate_required, bool):
         raise ControlPlaneError("publication_gate_required/gate_required must be a boolean")
+    namespace = str(metadata.get("compatibility_namespace") or metadata.get("source_namespace") or "")
+    if args.redispatch_path:
+        redispatch_path = Path(args.redispatch_path).expanduser().resolve()
+    elif namespace:
+        redispatch_path = REPO / "departments" / namespace / "inbox" / f"{task_id}.md"
+    else:
+        redispatch_path = task_file
     attempt = control.initialize_task(
         task_id=task_id,
         primary_lane=args.primary_lane,
@@ -82,6 +92,12 @@ def command_init(args: argparse.Namespace, control: DispatchControlPlane) -> dic
         gate_record_path=metadata.get("publication_gate_record"),
         gate_subject_path=metadata.get("publication_gate_subject"),
         quiescence_seconds=args.quiescence_seconds,
+        packet_template=packet_template,
+        redispatch_path=redispatch_path,
+        dispatch_ack_seconds=args.dispatch_ack_seconds,
+        heartbeat_timeout_seconds=args.heartbeat_timeout_seconds,
+        soft_deadline_seconds=args.soft_deadline_seconds,
+        hard_deadline_seconds=args.hard_deadline_seconds,
     )
     _rewrite_return_artifact(task_file, attempt["artifact_path"])
     return attempt
@@ -101,13 +117,51 @@ def command_signal(args: argparse.Namespace, control: DispatchControlPlane) -> d
         if status != "HARD_FAILED":
             result["failover"] = "not_allowed"
         else:
-            result["failover_attempt"] = control.begin_failover(
+            backup = control.begin_failover(
                 task_id=args.task_id,
                 lease_owner=args.lease_owner,
                 lease_seconds=args.lease_seconds,
                 effective_model=args.effective_model,
             )
+            result["failover_attempt"] = backup
+            if args.redispatch:
+                packet = control.prepare_backup_redispatch(
+                    task_id=args.task_id, attempt_id=backup["attempt_id"]
+                )
+                result["redispatch_path"] = str(packet)
+                if args.nudge:
+                    completed = subprocess.run(
+                        ["bash", str(REPO / "bin" / "nudge-task.sh"), str(packet)],
+                        cwd=REPO,
+                        env={**os.environ, "VAULT_ROOT": str(REPO)},
+                        check=False,
+                    )
+                    result["dispatch_accepted"] = completed.returncode == 0
+                    if completed.returncode == 0:
+                        control.record_runtime_event(
+                            task_id=args.task_id,
+                            attempt_id=backup["attempt_id"],
+                            event="accepted",
+                        )
+                    else:
+                        control.record_terminal_signal(
+                            task_id=args.task_id,
+                            attempt_id=backup["attempt_id"],
+                            signal="dispatch_ack_failure",
+                        )
     return result
+
+
+def command_event(args: argparse.Namespace, control: DispatchControlPlane) -> dict:
+    return control.record_runtime_event(
+        task_id=args.task_id,
+        attempt_id=args.attempt_id,
+        event=args.event,
+        typed_error=args.typed_error,
+        process_confirmed=args.process_confirmed,
+        valid_artifact=args.valid_artifact,
+        process_pid=args.process_pid,
+    )
 
 
 def command_failover(args: argparse.Namespace, control: DispatchControlPlane) -> dict:
@@ -178,6 +232,11 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--effective-model")
     init.add_argument("--gate-required", action="store_true")
     init.add_argument("--quiescence-seconds", type=float, default=5.0)
+    init.add_argument("--redispatch-path")
+    init.add_argument("--dispatch-ack-seconds", type=int, default=45)
+    init.add_argument("--heartbeat-timeout-seconds", type=int, default=30)
+    init.add_argument("--soft-deadline-seconds", type=int, default=1200)
+    init.add_argument("--hard-deadline-seconds", type=int, default=2400)
     init.set_defaults(handler=command_init)
 
     signal = sub.add_parser("signal", help="record a typed or ambiguous terminal observation")
@@ -188,10 +247,22 @@ def build_parser() -> argparse.ArgumentParser:
     signal.add_argument("--process-confirmed", action="store_true")
     signal.add_argument("--valid-artifact", action="store_true")
     signal.add_argument("--auto-failover", action="store_true")
+    signal.add_argument("--redispatch", action="store_true")
+    signal.add_argument("--nudge", action="store_true")
     signal.add_argument("--lease-owner", default="chrono-control-plane")
     signal.add_argument("--lease-seconds", type=int, default=1800)
     signal.add_argument("--effective-model")
     signal.set_defaults(handler=command_signal)
+
+    event = sub.add_parser("event", help="persist an accepted, heartbeat, or runtime sensor event")
+    event.add_argument("--task-id", required=True)
+    event.add_argument("--attempt-id", required=True)
+    event.add_argument("--event", required=True)
+    event.add_argument("--typed-error", action="store_true")
+    event.add_argument("--process-confirmed", action="store_true")
+    event.add_argument("--valid-artifact", action="store_true")
+    event.add_argument("--process-pid", type=int)
+    event.set_defaults(handler=command_event)
 
     failover = sub.add_parser("failover", help="CAS-advance to the backup after a hard terminal signal")
     failover.add_argument("--task-id", required=True)
