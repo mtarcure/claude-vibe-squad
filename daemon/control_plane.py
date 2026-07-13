@@ -26,6 +26,7 @@ import yaml
 HARD_SIGNALS = {"dispatch_ack_failure", "process_exit", "provider_error", "operational_error"}
 AMBIGUOUS_SIGNALS = {"slow", "silent", "missed_heartbeat", "soft_deadline", "hard_deadline", "unknown"}
 REFUSAL_SIGNALS = {"safety_refusal", "policy_refusal"}
+INFORMATIONAL_RUNTIME_EVENTS = {"inbox_delivered", "dispatch_nudge_failed", "dispatch_nudge_unavailable"}
 TERMINAL_STATUSES = {"HARD_FAILED", "REFUSED", "POSSIBLE_REFUSAL", "NEEDS_HUMAN", "SUCCEEDED", "ORPHANED"}
 GATE_FIELDS = {
     "gate_type",
@@ -388,6 +389,7 @@ class DispatchControlPlane:
         process_confirmed: bool = False,
         valid_artifact: bool = False,
         process_pid: int | None = None,
+        detail: str | None = None,
         occurred_at: datetime | None = None,
     ) -> dict[str, Any]:
         """Persist a sensor observation for conservative watchdog processing."""
@@ -404,6 +406,7 @@ class DispatchControlPlane:
                 "typed_error": bool(typed_error),
                 "process_confirmed": bool(process_confirmed),
                 "valid_artifact": bool(valid_artifact),
+                "detail": detail,
                 "processed_at": None,
             }
             if process_pid is not None:
@@ -414,6 +417,8 @@ class DispatchControlPlane:
                 record["processed_at"] = _iso(observed_at)
             elif event == "heartbeat":
                 attempt["last_heartbeat_at"] = _iso(observed_at)
+                record["processed_at"] = _iso(observed_at)
+            elif event in INFORMATIONAL_RUNTIME_EVENTS:
                 record["processed_at"] = _iso(observed_at)
             attempt.setdefault("runtime_events", []).append(record)
             self._save(task_id, ledger)
@@ -707,6 +712,25 @@ class DispatchControlPlane:
                 raise ControlPlaneError("only the current generation may be operator-unlocked")
             previous_status = attempt.get("terminal_status")
             previous_veto = bool(ledger.get("refusal_veto_seen"))
+            if clear_refusal_veto and (
+                ledger.get("safety_refusal_seen")
+                or previous_status == "REFUSED"
+                or attempt.get("terminal_signal") in REFUSAL_SIGNALS
+            ):
+                ledger["audit_events"].append(
+                    {
+                        "type": "operator_unlock_rejected",
+                        "attempt_id": attempt_id,
+                        "actor": actor.strip(),
+                        "reason": reason.strip(),
+                        "requested_clear_refusal_veto": True,
+                        "terminal_status": previous_status,
+                        "terminal_signal": attempt.get("terminal_signal"),
+                        "at": _iso(_utcnow()),
+                    }
+                )
+                self._save(task_id, ledger)
+                raise ControlPlaneError("a genuine safety or policy refusal veto cannot be cleared")
             if approve_publish:
                 if previous_status not in {"NEEDS_HUMAN", "REFUSED", "POSSIBLE_REFUSAL"}:
                     raise ControlPlaneError(f"attempt is not surfaced for human review: {previous_status}")

@@ -116,11 +116,23 @@ EOF
 sync "${TASK_FILE}" 2>/dev/null || true
 
 ARGS=("${TASK_FILE}")
-if [[ -z "${SKIP_NUDGE:-}" ]] && command -v tmux >/dev/null 2>&1 && tmux has-session -t squad 2>/dev/null; then
+NUDGE_UNAVAILABLE_REASON=""
+if [[ -n "${SKIP_NUDGE:-}" ]]; then
+    NUDGE_UNAVAILABLE_REASON="SKIP_NUDGE"
+elif ! command -v tmux >/dev/null 2>&1; then
+    NUDGE_UNAVAILABLE_REASON="tmux-unavailable"
+elif ! tmux has-session -t squad 2>/dev/null; then
+    NUDGE_UNAVAILABLE_REASON="tmux-session-missing"
+else
     TARGET_WIN="$(runtime_window_name "${TO_MODEL}")"
     if tmux list-windows -t squad -F '#{window_name}' 2>/dev/null | grep -qx "${TARGET_WIN}"; then
         ARGS+=("--nudge-pane" "squad:${TARGET_WIN}")
+    else
+        NUDGE_UNAVAILABLE_REASON="tmux-window-missing:${TARGET_WIN}"
     fi
+fi
+if [[ -n "$NUDGE_UNAVAILABLE_REASON" ]]; then
+    ARGS+=("--nudge-unavailable" "$NUDGE_UNAVAILABLE_REASON")
 fi
 
 VAULT_ROOT="${VAULT_ROOT}" "${HARDENED_DISPATCH}" "${ARGS[@]}"

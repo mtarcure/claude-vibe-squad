@@ -36,7 +36,7 @@ def _frontmatter(path: Path) -> dict:
     return data
 
 
-def _rewrite_return_artifact(path: Path, staging: str) -> None:
+def _rewrite_dispatch_attempt(path: Path, staging: str, generation: int, attempt_id: str) -> None:
     text = path.read_text()
     rewritten, count = re.subn(
         r"(?m)^return_artifact:[^\n]*$",
@@ -46,6 +46,18 @@ def _rewrite_return_artifact(path: Path, staging: str) -> None:
     )
     if count != 1:
         raise ControlPlaneError("task packet must contain exactly one return_artifact field")
+    match = re.match(r"\A---\n(.*?)\n---\n", rewritten, re.DOTALL)
+    if not match:
+        raise ControlPlaneError("task packet has no YAML frontmatter")
+    frontmatter = match.group(1)
+    for key, value in (("failover_generation", generation), ("failover_attempt_id", attempt_id)):
+        replacement = f"{key}: {value}"
+        frontmatter, existing = re.subn(
+            rf"(?m)^{re.escape(key)}:[^\n]*$", replacement, frontmatter, count=1
+        )
+        if existing == 0:
+            frontmatter = f"{frontmatter}\n{replacement}"
+    rewritten = f"---\n{frontmatter}\n---\n{rewritten[match.end():]}"
     atomic_write_bytes(path, rewritten.encode())
 
 
@@ -99,7 +111,12 @@ def command_init(args: argparse.Namespace, control: DispatchControlPlane) -> dic
         soft_deadline_seconds=args.soft_deadline_seconds,
         hard_deadline_seconds=args.hard_deadline_seconds,
     )
-    _rewrite_return_artifact(task_file, attempt["artifact_path"])
+    _rewrite_dispatch_attempt(
+        task_file,
+        attempt["artifact_path"],
+        attempt["generation"],
+        attempt["attempt_id"],
+    )
     return attempt
 
 
@@ -161,7 +178,37 @@ def command_event(args: argparse.Namespace, control: DispatchControlPlane) -> di
         process_confirmed=args.process_confirmed,
         valid_artifact=args.valid_artifact,
         process_pid=args.process_pid,
+        detail=args.detail,
     )
+
+
+def command_pickup(args: argparse.Namespace, control: DispatchControlPlane) -> dict:
+    task_file = Path(args.task_file).expanduser().resolve()
+    metadata = _frontmatter(task_file)
+    task_id = str(metadata.get("id") or "")
+    packet_attempt_id = str(metadata.get("failover_attempt_id") or "")
+    if not task_id or not packet_attempt_id:
+        raise ControlPlaneError("pickup packet requires id and failover_attempt_id")
+    ledger = control.read(task_id)
+    if packet_attempt_id != ledger.get("current_attempt_id"):
+        return {
+            "task_id": task_id,
+            "attempt_id": packet_attempt_id,
+            "status": "ignored",
+            "reason": "stale-generation-pickup",
+        }
+    attempt = next(
+        item for item in ledger["attempts"] if item["attempt_id"] == packet_attempt_id
+    )
+    if str(metadata.get("return_artifact") or "") != attempt["artifact_path"]:
+        raise ControlPlaneError("pickup packet artifact path does not match its attempt")
+    event = control.record_runtime_event(
+        task_id=task_id,
+        attempt_id=packet_attempt_id,
+        event="accepted",
+        detail="inbox-watcher-pickup",
+    )
+    return {"task_id": task_id, "attempt_id": packet_attempt_id, "status": "accepted", **event}
 
 
 def command_failover(args: argparse.Namespace, control: DispatchControlPlane) -> dict:
@@ -262,7 +309,12 @@ def build_parser() -> argparse.ArgumentParser:
     event.add_argument("--process-confirmed", action="store_true")
     event.add_argument("--valid-artifact", action="store_true")
     event.add_argument("--process-pid", type=int)
+    event.add_argument("--detail")
     event.set_defaults(handler=command_event)
+
+    pickup = sub.add_parser("accept-pickup", help="accept the attempt bound to a delivered inbox packet")
+    pickup.add_argument("--task-file", required=True)
+    pickup.set_defaults(handler=command_pickup)
 
     failover = sub.add_parser("failover", help="CAS-advance to the backup after a hard terminal signal")
     failover.add_argument("--task-id", required=True)

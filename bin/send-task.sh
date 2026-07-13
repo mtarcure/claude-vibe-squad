@@ -176,11 +176,13 @@ fi
 
 TASK_FILE=""
 NUDGE_PANE=""
+NUDGE_UNAVAILABLE_REASON=""
 DRY_RUN=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --nudge-pane) NUDGE_PANE="$2"; shift 2 ;;
+        --nudge-unavailable) NUDGE_UNAVAILABLE_REASON="$2"; shift 2 ;;
         --dry-run)    DRY_RUN=true; shift ;;
         *)            TASK_FILE="$1"; shift ;;
     esac
@@ -504,10 +506,36 @@ fi
 # ── copy to source namespace inbox ────────────────────────────────────────────
 
 DEST="${INBOX}/${TASK_ID}.md"
-cp "$ACTUAL_TASK_FILE" "$DEST"
+if ! cp "$ACTUAL_TASK_FILE" "$DEST"; then
+    if [[ "$CONTROL_ACTIVE" == "1" ]]; then
+        "${CONTROL_RUN[@]}" signal \
+            --task-id "$TASK_ID" \
+            --attempt-id "$CONTROL_ATTEMPT_ID" \
+            --signal dispatch_ack_failure >/dev/null \
+            || echo "WARNING: failed to record inbox delivery failure for ${TASK_ID}" >&2
+    fi
+    die "failed to deliver ${TASK_ID} to ${INBOX}"
+fi
 rm -f "$WORKING_COPY"
 [[ "$ACTUAL_TASK_FILE" != "$WORKING_COPY" ]] && rm -f "$ACTUAL_TASK_FILE"
 info "Copied to ${COMPAT_NAMESPACE}/inbox/${TASK_ID}.md"
+
+if [[ "$CONTROL_ACTIVE" == "1" ]]; then
+    "${CONTROL_RUN[@]}" event \
+        --task-id "$TASK_ID" \
+        --attempt-id "$CONTROL_ATTEMPT_ID" \
+        --event inbox_delivered \
+        --detail "$DEST" >/dev/null \
+        || die "inbox delivery succeeded but could not be recorded for ${TASK_ID}"
+    if [[ -z "$NUDGE_PANE" ]]; then
+        "${CONTROL_RUN[@]}" event \
+            --task-id "$TASK_ID" \
+            --attempt-id "$CONTROL_ATTEMPT_ID" \
+            --event dispatch_nudge_unavailable \
+            --detail "${NUDGE_UNAVAILABLE_REASON:-not-requested}" >/dev/null \
+            || die "failed to record deferred inbox pickup for ${TASK_ID}"
+    fi
+fi
 
 # ── ITEM 7: active-task registry ─────────────────────────────────────────────
 # Atomic write (temp+rename). Remove entry when this task's response lands —
@@ -566,26 +594,16 @@ info "Dispatch log updated"
 if [[ -n "$NUDGE_PANE" ]]; then
     if env VAULT_ROOT="$VAULT_ROOT" bash "${VAULT_ROOT}/bin/nudge-task.sh" "$DEST"; then
         info "Nudged pane ${NUDGE_PANE}"
+    else
         if [[ "$CONTROL_ACTIVE" == "1" ]]; then
             "${CONTROL_RUN[@]}" event \
                 --task-id "$TASK_ID" \
                 --attempt-id "$CONTROL_ATTEMPT_ID" \
-                --event accepted >/dev/null \
-                || die "nudge succeeded but dispatch acceptance could not be recorded for ${TASK_ID}"
+                --event dispatch_nudge_failed \
+                --detail "$NUDGE_PANE" >/dev/null \
+                || die "failed to record dispatch nudge failure for ${TASK_ID}"
         fi
-    else
-        if [[ "$CONTROL_ACTIVE" == "1" ]]; then
-            "${CONTROL_RUN[@]}" signal \
-                --task-id "$TASK_ID" \
-                --attempt-id "$CONTROL_ATTEMPT_ID" \
-                --signal dispatch_ack_failure \
-                --auto-failover \
-                --redispatch \
-                --nudge \
-                --lease-owner "dispatch-failover:${MAP_BACKUP}:$$" \
-                || die "dispatch_ack_failure was recorded but backup redispatch failed for ${TASK_ID}"
-        fi
-        echo "WARNING: Failed to nudge pane ${NUDGE_PANE} (dispatch_ack_failure reported)" >&2
+        echo "WARNING: Failed to nudge pane ${NUDGE_PANE}; inbox watcher pickup remains authoritative" >&2
     fi
 fi
 

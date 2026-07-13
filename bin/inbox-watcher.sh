@@ -26,6 +26,8 @@ VAULT_ROOT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
 SESSION="${SQUAD_SESSION:-squad}"
 source "${VAULT_ROOT}/shared/lead-windows.sh"
 INBOX="${VAULT_ROOT}/departments/${LEAD}/inbox"
+FAILOVER_CONTROL="${VAULT_ROOT}/bin/failover-control.py"
+DAEMON_REQUIREMENTS="${VAULT_ROOT}/daemon/requirements.txt"
 mkdir -p "${INBOX}"
 echo "Watching ${INBOX}/ for new tasks; will nudge the assigned model-lane pane on each."
 
@@ -44,5 +46,17 @@ fswatch -0 --event=Created --event=Renamed --event=MovedTo \
     if ! tmux has-session -t "$SESSION" 2>/dev/null; then continue; fi
     if ! tmux list-windows -t "$SESSION" -F '#{window_name}' 2>/dev/null | grep -qx "${TARGET_WIN}"; then continue; fi
     echo "[$(date '+%H:%M:%S')] new: $(basename "$path") → nudging ${SESSION}:${TARGET_WIN}"
-    env VAULT_ROOT="$VAULT_ROOT" SQUAD_SESSION="$SESSION" bash "${VAULT_ROOT}/bin/nudge-task.sh" "$path" || true
+    if env VAULT_ROOT="$VAULT_ROOT" SQUAD_SESSION="$SESSION" bash "${VAULT_ROOT}/bin/nudge-task.sh" "$path"; then
+        if [[ "${FAILOVER_CONTROL_ENABLED:-0}" == "1" || -f "${VAULT_ROOT}/_state/failover/ENABLED" ]]; then
+            if command -v uv >/dev/null 2>&1; then
+                uv run --with-requirements "$DAEMON_REQUIREMENTS" \
+                    python "$FAILOVER_CONTROL" accept-pickup --task-file "$path" \
+                    || echo "WARNING: failed to record real inbox pickup for $(basename "$path")" >&2
+            else
+                echo "WARNING: uv unavailable; cannot record inbox pickup for $(basename "$path")" >&2
+            fi
+        fi
+    else
+        echo "WARNING: inbox watcher could not nudge ${SESSION}:${TARGET_WIN} for $(basename "$path")" >&2
+    fi
 done

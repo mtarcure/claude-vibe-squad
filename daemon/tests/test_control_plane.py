@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from daemon.control_plane import (
+    ControlPlaneError,
     DispatchControlPlane,
     FailoverRejected,
     PublicationRejected,
@@ -344,6 +345,33 @@ def test_operator_can_audit_clear_refusal_veto_for_current_attempt(tmp_path):
     )
     assert result["refusal_veto_seen"] is False
     assert control.read("TASK-unlock-refusal")["audit_events"][-1]["clear_refusal_veto"] is True
+
+
+@pytest.mark.parametrize("signal", ["safety_refusal", "policy_refusal"])
+def test_operator_cannot_clear_genuine_refusal_veto(tmp_path, signal):
+    task_id = f"TASK-inviolable-{signal}"
+    control, _canonical, attempt = initialized(tmp_path, task_id)
+    control.record_terminal_signal(
+        task_id=task_id,
+        attempt_id=attempt["attempt_id"],
+        signal=signal,
+    )
+    with pytest.raises(ControlPlaneError, match="cannot be cleared"):
+        control.operator_unlock(
+            task_id=task_id,
+            attempt_id=attempt["attempt_id"],
+            actor="chrono-operator",
+            reason="attempted genuine-refusal override",
+            clear_refusal_veto=True,
+        )
+    ledger = control.read(task_id)
+    assert ledger["refusal_veto_seen"] is True
+    assert ledger["safety_refusal_seen"] is True
+    assert ledger["attempts"][0]["terminal_status"] == "REFUSED"
+    rejection = ledger["audit_events"][-1]
+    assert rejection["type"] == "operator_unlock_rejected"
+    assert rejection["actor"] == "chrono-operator"
+    assert rejection["reason"] == "attempted genuine-refusal override"
 
 
 def test_mailbox_cli_rewrites_to_staging_then_publishes(tmp_path):

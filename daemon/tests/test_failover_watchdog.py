@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+import json
 from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 
@@ -119,6 +122,11 @@ def test_ambiguous_timers_never_redispatch(tmp_path, timer, seconds, expected):
     assert actions[-1]["signal"] == expected
     assert actions[-1]["status"] == "NEEDS_HUMAN"
     assert len(control.read(task_id)["attempts"]) == 1
+    assert FailoverWatchdog(
+        control,
+        dispatcher=lambda *_: pytest.fail("terminal timer redispatched backup"),
+        now=lambda: observed,
+    ).evaluate_task(task_id) == []
 
 
 def test_typed_provider_error_redispatches_but_second_hop_is_forbidden(tmp_path):
@@ -220,3 +228,76 @@ def test_failed_backup_nudge_is_hard_failed_without_oscillation(tmp_path):
     assert ledger["attempts"][1]["terminal_status"] == "HARD_FAILED"
     watchdog.evaluate_task(task_id)
     assert len(control.read(task_id)["attempts"]) == 2
+
+
+def test_skipped_dispatch_nudge_is_accepted_by_real_inbox_pickup(tmp_path):
+    task_id = "TASK-inbox-pickup"
+    state_root = tmp_path / "state"
+    canonical = tmp_path / "outbox" / f"{task_id}-response.md"
+    task_file = tmp_path / "inbox" / f"{task_id}.md"
+    task_file.parent.mkdir()
+    task_file.write_bytes(packet(task_id, canonical))
+    cli = Path(__file__).resolve().parents[2] / "bin" / "failover-control.py"
+    base = [sys.executable, str(cli), "--state-root", str(state_root)]
+    initialized_result = subprocess.run(
+        base
+        + [
+            "init-dispatch",
+            "--task-file",
+            str(task_file),
+            "--primary-lane",
+            "claude",
+            "--backup-lane",
+            "gpt-codex",
+            "--lease-owner",
+            "skipped-nudge-dispatch",
+            "--redispatch-path",
+            str(task_file),
+            "--heartbeat-timeout-seconds",
+            "120",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    primary = json.loads(initialized_result.stdout)
+    for event, detail in (
+        ("inbox_delivered", str(task_file)),
+        ("dispatch_nudge_unavailable", "SKIP_NUDGE"),
+    ):
+        subprocess.run(
+            base
+            + [
+                "event",
+                "--task-id",
+                task_id,
+                "--attempt-id",
+                primary["attempt_id"],
+                "--event",
+                event,
+                "--detail",
+                detail,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    control = DispatchControlPlane(state_root)
+    assert control.read(task_id)["attempts"][0]["accepted_at"] is None
+
+    pickup = subprocess.run(
+        base + ["accept-pickup", "--task-file", str(task_file)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert json.loads(pickup.stdout)["status"] == "accepted"
+    assert control.read(task_id)["attempts"][0]["accepted_at"] is not None
+
+    actions = FailoverWatchdog(
+        control,
+        dispatcher=lambda *_: pytest.fail("healthy inbox pickup triggered failover"),
+        now=lambda: after(primary, 46),
+    ).evaluate_task(task_id)
+    assert actions == []
+    assert len(control.read(task_id)["attempts"]) == 1
