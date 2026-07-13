@@ -8,11 +8,11 @@ Vibe Squad is a **markdown-first, tmux-hosted** multi-model harness. A coordinat
 
 ```
 tmux session `squad`
-  ├─ window 0: chrono      — coordinator, Claude Code (`claude --model opus`)
-  ├─ window 1: gpt-codex   — model lane (`codex` CLI)
-  ├─ window 2: claude      — model lane (`claude` CLI)
-  ├─ window 3: gemini      — model lane (`gemini` CLI)
-  ├─ window 4: kimi        — model lane (`kimi` CLI)
+  ├─ window 0: chrono      — coordinator, Claude Code (`claude --model opus`) — stays on Opus
+  ├─ window 1: gpt-codex   — model lane (`codex` → `gpt-5.6-sol`)
+  ├─ window 2: claude      — model lane (`claude` → `claude-fable-5` + `--fallback-model opus,sonnet`)
+  ├─ window 3: gemini      — model lane (`gemini` → `gemini-3.5-flash`)
+  ├─ window 4: kimi        — model lane (`kimi` → `kimi-k2.7-code`)
   └─ window 5: watchers/status
         │
         │  dispatch = markdown packets on the filesystem
@@ -44,16 +44,16 @@ tmux session `squad`
 Window 0 runs Claude Code as `claude --permission-mode bypassPermissions --model opus --effort xhigh`, auto-loading `chrono/CLAUDE.md`. Chrono is the only controller and the only operator-facing voice: it chooses mode, specialist, write scope, model lane, and review gate, then dispatches packets. Model leads never talk to the operator directly.
 
 ### Model lanes
-Four long-lived CLI windows, one per provider, each started by `bin/launch-squad.sh` in its `model-lanes/<lane>/` working directory (loading that lane's instructions):
+Four long-lived CLI windows, one per provider, each started by `bin/launch-squad.sh` in its `model-lanes/<lane>/` working directory (loading that lane's instructions). The four **lead lanes** were bumped to frontier models in the roster/model redesign; the **coordinator (Chrono, window 0) deliberately stayed on `claude --model opus`** — only the four execution lanes changed:
 
-| Window | Lane | CLI |
-|---|---|---|
-| 1 | gpt-codex | `codex` |
-| 2 | claude | `claude` |
-| 3 | gemini | `gemini` (content lane, `gemini-3.1-pro-preview`) |
-| 4 | kimi | `kimi` |
+| Window | Lane | CLI | Model (pinned) |
+|---|---|---|---|
+| 1 | gpt-codex | `codex` | `gpt-5.6-sol` |
+| 2 | claude | `claude` | `claude-fable-5` (+ `--fallback-model opus,sonnet`) |
+| 3 | gemini | `gemini` | `gemini-3.5-flash` |
+| 4 | kimi | `kimi` | `kimi-k2.7-code` (throughput-only lane) |
 
-A lane reads a dispatched packet plus the named specialist markdown, executes, and writes its response to the outbox.
+A lane reads a dispatched packet plus the named specialist markdown, executes, and writes its response to the outbox. Exact per-specialist model + effort resolve from `shared/registries/profiles.tsv`; see `shared/routing.md` for the routing model.
 
 ### Markdown mailbox (dispatch board)
 The dispatch board is the filesystem, not a service:
@@ -99,12 +99,27 @@ Dispatch is asynchronous: senders do not block on lane-to-lane work (see `shared
 `mandatory_review: true` is a dispatch-time contract, not auto-firing automation (`shared/protocol.md` § Mandatory Review Behavior). High-safety specialists must carry a `review_model`; same-family reviews run in-lane before the lane declares done, and cross-family reviews are dispatched by Chrono after the response lands. Reviewers are read-only unless Chrono serializes a later write packet.
 
 ## Routing & namespaces
-Routing is `specialist → best_model_lane` via `shared/specialist-runtime-map.tsv`, **not** `source_namespace → lane`. The TSV is the canonical routing source of truth; `model-lanes/ROSTER.md` is a generated per-lane view.
+Routing is **quality-fit**: Chrono picks the model per specialist by capability, recorded explicitly in `shared/specialist-runtime-map.tsv`. **`source_namespace` is a mailbox/storage label only — it never chooses the model.** Two specialists in the same namespace can run on different lanes. The TSV is the canonical routing source of truth; `shared/routing.md` is the narrative source of truth; `model-lanes/ROSTER.md` is a generated per-lane view.
 
 - `source_namespace`: where the specialist markdown + local memory live (coding, content, content-engineer, research, security, sysmgmt, shared).
 - `compatibility_namespace`: which mailbox folder a packet lands in (chosen by Chrono for the active workflow).
 
-There are **53 specialists** across the seven source namespaces (coding 14, content-engineer 10, sysmgmt 8, security 6, shared 6, research 5, content 4).
+The map is a **28-column** schema (up from the earlier 8). Each specialist row carries a full routing chain — `primary_lane` + a **cross-family `backup_lane`** (a genuine second-best from a different model family) + an `escalate` profile + a separate `review_lane` — plus `capability_class`, `safety_level`, `tool_profile` (for tool-gated media roles), and `operator_gate`. Rather than duplicate raw model IDs, each routing slot references a **profile** that resolves in `shared/registries/profiles.tsv` to an exact model + effort + flags; failover/escalation/throughput behaviour are **versioned policy IDs** in `shared/registries/policies.tsv`. **Kimi is a throughput-only lane and holds zero primary roles** — used only for bulk/mechanical passes under a strict downshift gate. `bin/validate-specialists.sh` fail-closes on schema, foreign-key, and rule violations (current roster: 67/67).
+
+There are **67 specialists** across the seven source namespaces: **coding 19 · content 11 · content-engineer 10 · security 8 · sysmgmt 8 · shared 6 · research 5**.
+
+## Safety model
+Capability is separated from authorization.
+
+- **Global safety-refusal invariant.** A genuine safety refusal on *any* lane surfaces to the operator and is **never cross-family re-dispatched in either direction** — a refused request is never shopped to a more permissive model. Operational failures (overload, lane down, timeout) may fail over; safety refusals may not. Refusals are classified by structured provider/wrapper policy event first, then a typed terminal status, with a content heuristic used only to *downgrade* certainty and surface — never as a positive classifier. A schema-valid response is terminal; a short response is never treated as an operational failure.
+- **Operator gates (Hard Rule 6).** A closed enum of actions requires explicit operator approval before execution: `delete · cleanup · credential_change · public_release · paid_media · live_outreach · production_mutation` (`production_mutation` — mutating a live production system that is not itself a public release — was operator-ratified 2026-07-13). A brief's `requires_approval` field is limited to actual harness tool names, so domain approvals cannot hide there.
+- **Pre-publication gates.** Two specialists are machine-checkable gates before anything ships: `content-verifier` (fact/citation truth gate, Rule 8) and `asset-provenance-and-rights-auditor` (license/consent/rights gate, Rule 6). Each emits a hash-bound `PASS|HOLD|FAIL` gate record; a non-PASS result or a stale subject hash blocks publication.
+- **`safety_level` is a quality floor**, not a complexity detector: `high` (and `heightened_risk`) force the strongest profile, stricter review, and never a throughput downshift.
+
+## Failover control plane (built, reviewed — currently dormant)
+The redesign specifies a full resilience layer: per-specialist **cross-family backups**, Claude's native in-lane `--fallback-model` chain, a **conservative-first** auto-failover policy (act only on hard signals — dispatch-ack failure, confirmed process-exit, or a typed provider error — and otherwise surface, never guess), a minimal **attempt ledger** with generation fencing, and a **lease/lock** so the native and Chrono-coordinated paths cannot double-dispatch one packet.
+
+**Honest status (Rule 8):** this control plane is *built and cross-reviewed but currently gated OFF (dormant)*. Dispatch today is Chrono-coordinated and automatic failover is **not** live. It is documented here as an architecture the system is ready to enable, not a running feature. (Distinct from the never-built Ink-TUI/daemon redesign under "Planned (not built)" below.)
 
 ## Key files & references
 
@@ -113,7 +128,9 @@ There are **53 specialists** across the seven source namespaces (coding 14, cont
 | `bin/squad`, `bin/launch-squad.sh` | Lifecycle CLI + tmux launcher |
 | `scripts/send-task.sh`, `bin/send-task.sh` | Dispatch (frontmatter generation + hardened writer) |
 | `shared/protocol.md` | Task-packet frontmatter, lifecycle, review behavior |
-| `shared/specialist-runtime-map.tsv` | Canonical routing: specialist → lane, review model, namespace, tools |
+| `shared/specialist-runtime-map.tsv` | Canonical routing: 67 rows × 28 columns (primary/backup/escalate/review lanes + profiles, capability_class, safety, operator_gate) |
+| `shared/registries/profiles.tsv`, `shared/registries/policies.tsv` | Profile → (model + effort + flags); versioned failover/escalation/throughput policies |
+| `shared/routing.md` | Narrative routing source of truth (quality-fit model, safety model, failover) |
 | `model-lanes/ROSTER.md` | Generated per-lane roster view |
 | `shared/api-catalog.md` | Capability catalog specialists bind to (verified states) |
 | `shared/lifecycle.md`, `shared/memory-discipline.md` | Persistent panes, sessions, browser attach, memory hygiene |
