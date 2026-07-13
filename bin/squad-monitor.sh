@@ -6,8 +6,8 @@
 #                      with no response yet. Task-aware: binds to the packet's
 #                      `to_model` (not the namespace default lead), reports age
 #                      from the registry `dispatched_at`, keys dedup by task+lane.
-#                      ALERT-first; optional idle-confirmed re-nudge only when
-#                      SQUAD_WATCHDOG_AUTONUDGE=1 (off by default).
+#                      ALERT-ONLY by design — there is NO automated re-nudge;
+#                      recovery is Chrono-in-the-loop after it verifies pane activity.
 #   2. Stale active  — namespace active task has no response in >30m
 #   3. Loop/thrash   — same namespace received duplicate task bodies in 30m
 #
@@ -40,9 +40,10 @@ THRASH_COUNT=2         # >N dispatches to same lead in window = thrash
 REGISTRY="${VAULT_ROOT}/_state/active-tasks.json"
 MODEL_LANES_LIST=(gpt-codex claude gemini kimi)
 STALL_DIAG_LOG="${STATE_DIR}/stall-diagnostics.log"   # Fix 3: on-stall stop_reason capture
-# Auto-re-nudge is OPT-IN and OFF by default. When 0 (default) the watchdog is
-# ALERT-ONLY. It only ever re-nudges a pane that is POSITIVELY classified idle.
-WATCHDOG_AUTONUDGE="${SQUAD_WATCHDOG_AUTONUDGE:-0}"
+# The watchdog is ALERT-ONLY: there is no auto-nudge path and no env toggle. A
+# robust "pane is idle, safe to nudge" classifier proved unattainable (it can
+# misread active work as idle — gpt-codex review TASK-2026-07-12-1854-93b52a53),
+# so recovery is Chrono-in-the-loop: it verifies pane activity, then decides.
 
 TEST_MODE=false
 [[ "${1:-}" == "--test" ]] && TEST_MODE=true
@@ -129,17 +130,9 @@ update_lane_hashes() {
     done
 }
 
-# POSITIVE idle classifier for the gated auto-nudge only: true ONLY when the pane
-# shows a bare idle prompt AND no active-work indicator. Conservative by design —
-# a nudge into an actively-thinking lane is the primary risk both debug models flagged.
-lane_pane_positively_idle() {
-    local snap
-    snap=$(tmux capture-pane -t "$1" -p 2>/dev/null | tail -8)
-    [[ -z "$snap" ]] && return 1
-    echo "$snap" | grep -qE 'esc to interrupt|✻ (Working|Brewed|Baked|Manifesting|Crunched|Musing|Churned|Cooking) for|local agent.*running|[0-9]+(\.[0-9]+)?k? tokens|Rewriting|Editing|Running' && return 1
-    echo "$snap" | grep -qE '^[[:space:]]*[❯▶$%>][[:space:]]*$' && return 0
-    return 1
-}
+# (No positive-idle classifier: the auto-nudge path was removed. A finite negative
+# regex plus "any prompt-like line in a pane tail" cannot guarantee a pane is idle
+# rather than actively working, so the watchdog only ALERTS — see the top comment.)
 
 # Fix 3: on a claude-lane stall, record the last turn's stop_reason from the lane's
 # Claude Code session jsonl so a genuine mid-task turn-end is diagnosable. Read-only.
@@ -184,7 +177,7 @@ archive_completed_inbox() {
         mv "$task_file" "${archive_dir}/${task_name}"
         echo "[$(date -u +%H:%M:%SZ)] AUTO-ARCHIVED: ${namespace}/inbox/${task_name} (response exists)"
         rm -f "${STATE_DIR}/${namespace}-stuck-alerted"
-        rm -f "${STATE_DIR}/stuck-task-${task_id}-alerted" "${STATE_DIR}/stuck-task-${task_id}-nudged"
+        rm -f "${STATE_DIR}/stuck-task-${task_id}"-*-alerted   # clear the task+lane marker for any lane
     done < <(find "${inbox_dir}" -maxdepth 1 -name 'TASK-*.md' 2>/dev/null)
 }
 
@@ -222,8 +215,8 @@ detect_stuck() {
         [[ -z "$idle_secs" ]] && continue                 # lane pane not running/tracked
         [[ $idle_secs -lt $STUCK_THRESHOLD ]] && continue # lane still actively moving
 
-        # Dedup: at most one alert per task episode (cleared on completion).
-        local alerted_file="${STATE_DIR}/stuck-task-${task_id}-alerted"
+        # Dedup: at most one alert per task+lane episode (cleared on completion).
+        local alerted_file="${STATE_DIR}/stuck-task-${task_id}-${lane}-alerted"
         [[ -f "$alerted_file" ]] && continue
 
         # Liveness guard 1: a subagent is writing artifacts to /tmp/cdp_dumps (<90s ago).
@@ -251,17 +244,10 @@ detect_stuck() {
         # Fix 3: capture the lane's last-turn stop_reason for post-hoc diagnosis.
         capture_stop_reason "$to_model" "$task_id"
 
-        # Fix 2 (OPTIONAL, gated): auto-re-nudge ONLY when the pane is positively idle
-        # AND SQUAD_WATCHDOG_AUTONUDGE=1. Off by default → alert-only. Once per episode.
-        if [[ "$WATCHDOG_AUTONUDGE" == "1" ]] && lane_pane_positively_idle "$pane"; then
-            local nudged_file="${STATE_DIR}/stuck-task-${task_id}-nudged"
-            if [[ ! -f "$nudged_file" ]]; then
-                env VAULT_ROOT="$VAULT_ROOT" SQUAD_SESSION="$SESSION" \
-                    bash "${VAULT_ROOT}/bin/nudge-task.sh" "$task_file" >/dev/null 2>&1 || true
-                touch "$nudged_file"
-                echo "[$(date -u +%H:%M:%SZ)] AUTO-NUDGE (positive-idle confirmed): re-nudged ${to_model} for ${task_id}"
-            fi
-        fi
+        # Recovery is Chrono-in-the-loop by design: the watchdog does NOT re-nudge.
+        # An automated idle-classifier cannot guarantee it won't interrupt active
+        # work (gpt-codex review TASK-2026-07-12-1854-93b52a53), so we only ALERT —
+        # Chrono verifies the lane's real state and decides whether to re-nudge.
     done < <(find "${inbox_dir}" -maxdepth 1 -name 'TASK-*.md' 2>/dev/null | sort)
 }
 
