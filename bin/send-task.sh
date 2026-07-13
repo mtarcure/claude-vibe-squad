@@ -280,9 +280,11 @@ if [[ "$SPECIALIST" != "none" ]]; then
         die "unknown specialist '${SPECIALIST}'. Use chrono/SPECIALIST-INDEX.md and canonical markdown names."
     fi
 
-    MAP_MODEL="$(map_field "$SPECIALIST" 2 || true)"
-    MAP_NAMESPACE="$(map_field "$SPECIALIST" 4 || true)"
-    MAP_SAFETY="$(map_field "$SPECIALIST" 6 || true)"
+    # New 28-col schema (2026-07-13): source_namespace=2 safety_level=4 primary_lane=7
+    MAP_MODEL="$(map_field "$SPECIALIST" 7 || true)"
+    [[ "$MAP_MODEL" == "codex" ]] && MAP_MODEL="gpt-codex"
+    MAP_NAMESPACE="$(map_field "$SPECIALIST" 2 || true)"
+    MAP_SAFETY="$(map_field "$SPECIALIST" 4 || true)"
 
     [[ -z "$MAP_MODEL" ]] && die "specialist '${SPECIALIST}' is missing from shared/specialist-runtime-map.tsv"
 

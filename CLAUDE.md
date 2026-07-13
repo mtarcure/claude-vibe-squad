@@ -26,7 +26,7 @@ Generated adapters, stale handoffs, old specs, and runtime logs are not source o
 3. `source_namespace` chooses mailbox/specialist location; `to_model` chooses the runtime window.
 4. Model leads do not talk to the operator directly.
 5. Reviewers are read-only unless Chrono serializes a later write packet.
-6. Deletes, credential changes, public release changes, cleanup actions, live outreach/email sends, and paid media generation require explicit operator approval.
+6. Deletes, credential changes, public release changes, cleanup actions, live outreach/email sends, paid media generation, and production mutations (mutating a live production system that is not itself a public release; operator-ratified 2026-07-13) require explicit operator approval.
 7. Write shared state atomically with temp + fsync/sync + rename.
 8. Verify before claiming done. No fabricated citations or unverifiable provider claims. Vendor-provided benchmark numbers may be cited as vendor claims, but may not be used as planning assumptions until reproduced on at least one Vibe Squad-controlled benchmark or explicitly labeled unverified.
 

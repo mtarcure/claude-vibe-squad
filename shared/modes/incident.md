@@ -14,18 +14,19 @@ For urgent reactive triage when something is broken. Chrono keeps the work scope
 
 | Phase | Work | Likely specialists |
 |---|---|---|
-| 1 | Stabilize | `mac-ops`, `agentops`, affected-domain specialist |
-| 2 | Diagnose | `systems-engineer`, `backend-engineer`, `security-analyst`, `skeptic` as needed |
+| 1 | Stabilize | `mac-ops`, `agentops`, `site-reliability-engineer` (reliability) / `incident-responder` (suspected compromise) |
+| 2 | Diagnose | `systems-engineer`, `backend-engineer`, `security-analyst`, `incident-responder`, `skeptic` as needed |
 | 3 | Patch | implementation specialist plus read-only reviewer |
-| 4 | Postmortem | `technical-writer`, `memory-curator`, `vibecoding-check` |
+| 4 | Postmortem | `technical-writer`, `incident-responder` (post-incident + `detection-engineer` handoff), `memory-curator`, `vibecoding-check` |
 
 ## Dispatch Notes
 
-- Capture volatile evidence before changing state.
+- Capture volatile evidence before changing state; preserve chain of custody.
 - Use the smallest reversible fix first.
-- Security, auth, secrets, and network incidents require multi-model review.
+- Reliability-only incidents → `site-reliability-engineer` (codex/Sol, high-safety). Suspected compromise → `incident-responder` leads (claude/Fable, heightened-risk); it preserves evidence and hands observed TTPs to `detection-engineer`.
+- Security, auth, secrets, and network incidents require multi-model review. The GLOBAL safety-refusal invariant applies — a genuine refusal surfaces and is never cross-family re-dispatched.
 
 ## Gates
 
-- Operator approval before destructive actions, rollback, credential changes, public disclosure, or broad system cleanup.
+- Operator approval before destructive actions, rollback, credential changes, public disclosure, broad system cleanup, or live production mutation (`operator_gate`: `delete`/`cleanup`/`credential_change`/`public_release`/`production_mutation`).
 - Run `vibecoding-check` before closing the incident.

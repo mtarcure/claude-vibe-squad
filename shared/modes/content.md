@@ -25,13 +25,13 @@ For writing, editing, design, media, campaigns, and publishing packages.
 
 ## Dispatch Notes
 
-- `source_namespace: content` stores content specialists; model lead choice still comes from the specialist map.
-- Gemini is preferred for media and multimodal work when access is verified.
-- Technical docs can require code-derived review by GPT/Codex or Claude.
-- Publishing, posting, and live sends are approval-gated.
+- `source_namespace: content` only stores content specialists; the model lead comes from `shared/routing.md`, never the namespace.
+- **Media-production specialists are `tool_gated`**: they route to the lane hosting the content-engineer plugin (higgsfield/elevenlabs); the model is secondary. Text-content routes on capability — `copywriter`/`social-strategist`/copy-edit on gemini (`gemini-3.5-flash`); developmental `editor` and `brand-voice` governance on claude (`claude-fable-5`).
+- Technical docs (`technical-writer`) are claude-primary with codex review for code-derived accuracy.
+- Publishing, posting, paid media, and live sends are `operator_gate` (Hard Rule 6).
 
 ## Gates
 
 - Operator approval before publish, external send, public release language, paid media, or claims about private work.
-- Citation check for factual content.
+- Pre-publication gates: `content-verifier` (Rule 8 truth gate — facts/citations) and `asset-provenance-and-rights-auditor` (Rule 6 rights gate — generated/third-party media). Both emit a machine-readable gate record; a non-PASS or stale-hash gate blocks publish.
 - Run `vibecoding-check` before the final package.

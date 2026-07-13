@@ -22,8 +22,8 @@ For deep investigation, comparison, source gathering, and synthesis. Research mo
 
 ## Dispatch Notes
 
-- `source_namespace: research` stores research specialist work, but Kimi is not automatically the owner.
-- Chrono picks the model lead by specialist and source shape.
+- `source_namespace: research` only stores research specialist work; it never chooses the model. Per `shared/routing.md`, research/synthesis/long-context specialists (`research`, `synthesizer`, `large-context-analyst`) are claude-primary (`claude-fable-5`) with codex backup — **kimi is the throughput-only lane (0 primaries)**, used only for bulk/mechanical passes under the downshift gate (`summarizer`; `data-extraction-engineer` bulk backup).
+- Chrono picks the model lead by specialist capability and source shape, not by namespace.
 - Use primary sources where possible. Label weak sources and unresolved contradictions.
 - Citation-bearing output must include enough source metadata for Chrono to verify.
 

@@ -53,10 +53,13 @@ map_field() {
 REVIEW_MODEL="none"
 MANDATORY_REVIEW="false"
 if [[ "${SPECIALIST}" != "none" && -f "${RUNTIME_MAP}" ]]; then
-    mapped_model="$(map_field "${SPECIALIST}" 2)"
-    mapped_review="$(map_field "${SPECIALIST}" 3)"
-    mapped_namespace="$(map_field "${SPECIALIST}" 4)"
-    mapped_safety="$(map_field "${SPECIALIST}" 6)"
+    # New 28-col schema (2026-07-13): source_namespace=2 safety_level=4 primary_lane=7 review_lane=14
+    mapped_model="$(map_field "${SPECIALIST}" 7)"
+    mapped_review="$(map_field "${SPECIALIST}" 14)"
+    mapped_namespace="$(map_field "${SPECIALIST}" 2)"
+    mapped_safety="$(map_field "${SPECIALIST}" 4)"
+    [[ "${mapped_model}" == "codex" ]] && mapped_model="gpt-codex"
+    [[ "${mapped_review}" == "codex" ]] && mapped_review="gpt-codex"
     if [[ -n "${mapped_model}" ]]; then
         TO_MODEL="${mapped_model}"
         REVIEW_MODEL="${mapped_review:-none}"

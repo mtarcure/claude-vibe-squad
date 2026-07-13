@@ -28,10 +28,11 @@ For bug bounty and vulnerability research. Chrono owns target selection, safety 
 
 ## Dispatch Notes
 
-- Bounty work does not imply one model lead. Chrono dispatches each specialist through `shared/specialist-runtime-map.tsv`.
-- PoC code and harness mechanics usually route to GPT/Codex with Claude review.
-- Source-heavy target research may route to Kimi or Claude depending on specialist.
-- Report wording may route to Claude or Gemini depending on the assigned specialist.
+- Bounty work does not imply one model lead. Chrono dispatches each specialist per `shared/specialist-runtime-map.tsv` on capability; see `shared/routing.md` for the model.
+- PoC and harness mechanics route to codex (`gpt-5.6-sol`) with claude (`claude-fable-5`) review; judgment/security-reasoning (`security-analyst`, `threat-modeler`, `impact-validator`, `scout`) is claude-primary with codex backup.
+- Target research and synthesis route to claude or codex on capability — **not kimi** (kimi is the throughput-only lane, 0 primaries).
+- Report wording routes to the assigned writer's lane (`technical-writer` = claude/Fable).
+- **Safety-refusal invariant:** a genuine safety refusal on any lane surfaces to the operator and is NEVER cross-family re-dispatched in either direction. The offensive-security specialists here (`security-analyst`, `exploit-developer`, `scout`, `impact-validator`, `smart-contract-engineer`, `threat-modeler`) run under heightened-risk defaults — a refused request is never shopped to a more permissive lane.
 
 ## Gates
 

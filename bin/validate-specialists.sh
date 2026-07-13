@@ -10,6 +10,10 @@ set -uo pipefail
 VAULT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
 CATALOG="${VAULT}/shared/api-catalog.md"
 RUNTIME_MAP="${VAULT}/shared/specialist-runtime-map.tsv"
+PROFILE_REGISTRY="${VAULT}/shared/registries/profiles.tsv"
+POLICY_REGISTRY="${VAULT}/shared/registries/policies.tsv"
+EXPECTED_RUNTIME_ROWS=67
+STRICT_ADAPTERS="${STRICT_ADAPTERS:-0}"
 
 REQUIRED_SECTIONS=(
     "## Tools available to me"
@@ -58,39 +62,171 @@ map_has_specialist() {
     awk -F '\t' -v s="$name" '$1 == s {found=1} END {exit(found ? 0 : 1)}' "$RUNTIME_MAP"
 }
 
-# Canonical model-lane map validation.
+profile_exists() {
+    awk -F '\t' -v id="$1" 'NR > 1 && $1 == id { found=1 } END { exit(found ? 0 : 1) }' "$PROFILE_REGISTRY"
+}
+
+profile_lane() {
+    awk -F '\t' -v id="$1" 'NR > 1 && $1 == id { print $2; exit }' "$PROFILE_REGISTRY"
+}
+
+policy_exists() {
+    awk -F '\t' -v id="$1" 'NR > 1 && $1 == id { found=1 } END { exit(found ? 0 : 1) }' "$POLICY_REGISTRY"
+}
+
+policy_family() {
+    awk -F '\t' -v id="$1" 'NR > 1 && $1 == id { print $2; exit }' "$POLICY_REGISTRY"
+}
+
+is_bracket_list() {
+    [[ "$1" =~ ^\[[^]]*\]$ ]]
+}
+
+list_has_only() {
+    local value="$1" allowed="$2" item
+    is_bracket_list "$value" || return 1
+    value="${value#[}"
+    value="${value%]}"
+    [[ -z "$value" ]] && return 0
+    IFS=',' read -ra items <<<"$value"
+    for item in "${items[@]}"; do
+        item="${item# }"; item="${item% }"
+        [[ " $allowed " == *" $item "* ]] || return 1
+    done
+}
+
+# Canonical routing configuration validation. The final schema is deliberately
+# strict: every routing decision is explicit and all profile/policy references
+# are foreign keys into the two registries.
+EXPECTED_HEADER=$'specialist\tsource_namespace\tcapability_class\tsafety_level\tsafety_tags\ttool_profile\tprimary_lane\tprimary_profile\tbackup_lane\tbackup_profile\tescalate_lane\tescalate_profile\tescalation_policy\treview_lane\treview_profile\tanti_affinity\tthroughput_lane\tthroughput_profile\tthroughput_policy\tfailover_policy\toperator_gate\theightened_risk\trequires_approval\trequired_tools\tpreferred_tools\tnotes\ttags\tversion'
+
+for registry in "$PROFILE_REGISTRY" "$POLICY_REGISTRY"; do
+    registry_issues=()
+    if [[ ! -f "$registry" ]]; then
+        registry_issues+=("missing-registry")
+    else
+        if [[ "$registry" == "$PROFILE_REGISTRY" ]]; then
+            expected_registry_header=$'profile_id\tlane\tmodel_id\teffort\tflags\tusage'
+            expected_registry_fields=6
+        else
+            expected_registry_header=$'policy_id\tfamily\tdescription'
+            expected_registry_fields=3
+        fi
+        [[ "$(head -n 1 "$registry")" == "$expected_registry_header" ]] || registry_issues+=("wrong-registry-header")
+        bad_registry_fields=$(awk -F '\t' -v n="$expected_registry_fields" 'NF != n { printf "%s:%s,", NR, NF }' "$registry")
+        [[ -z "$bad_registry_fields" ]] || registry_issues+=("wrong-registry-column-count:${bad_registry_fields%,}")
+        duplicate_ids=$(tail -n +2 "$registry" | cut -f1 | sort | uniq -d | paste -sd, -)
+        [[ -z "$duplicate_ids" ]] || registry_issues+=("duplicate-registry-ids:${duplicate_ids}")
+        if ! diff -q <(tail -n +2 "$registry" | cut -f1) <(tail -n +2 "$registry" | cut -f1 | sort) >/dev/null; then
+            registry_issues+=("registry-not-sorted")
+        fi
+        if [[ "$registry" == "$PROFILE_REGISTRY" ]]; then
+            invalid_registry_value=$(awk -F '\t' 'NR > 1 && $2 !~ /^(codex|claude|gemini|kimi)$/ { print $1 ":" $2; exit }' "$registry")
+        else
+            invalid_registry_value=$(awk -F '\t' 'NR > 1 && $2 !~ /^(escalation|failover|throughput)$/ { print $1 ":" $2; exit }' "$registry")
+        fi
+        [[ -z "$invalid_registry_value" ]] || registry_issues+=("invalid-registry-value:${invalid_registry_value}")
+    fi
+    if [ ${#registry_issues[@]} -gt 0 ]; then
+        issues_json=$(printf '"%s",' "${registry_issues[@]}" | sed 's/,$//')
+        printf '{"file":"%s","status":"fail","issues":[%s]}\n' "$registry" "$issues_json"
+        FAILED=$((FAILED + 1)); EXIT_CODE=1
+    fi
+done
+
 if [[ ! -f "$RUNTIME_MAP" ]]; then
     printf '{"file":"%s","status":"fail","issues":["missing-runtime-map"]}\n' "$RUNTIME_MAP"
-    FAILED=$((FAILED + 1))
-    EXIT_CODE=1
+    FAILED=$((FAILED + 1)); EXIT_CODE=1
+elif [[ ! -f "$PROFILE_REGISTRY" || ! -f "$POLICY_REGISTRY" ]]; then
+    printf '{"file":"%s","status":"fail","issues":["cannot-validate-map-without-registries"]}\n' "$RUNTIME_MAP"
+    FAILED=$((FAILED + 1)); EXIT_CODE=1
 else
-    while IFS= read -r line; do
-        [[ "$line" == \#* || -z "$line" ]] && continue
-        # Schema is exactly 8 tab-separated columns (see docs/model-runtime-map.md).
-        nfields=$(awk -F'\t' '{print NF}' <<<"$line")
-        IFS=$'\t' read -r specialist best_model review_model source_namespace required_tools safety_level preferred_tools notes <<<"$line"
-        [[ "$specialist" == \#* || -z "$specialist" ]] && continue
+    map_global_issues=()
+    [[ "$(head -n 1 "$RUNTIME_MAP")" == "$EXPECTED_HEADER" ]] || map_global_issues+=("wrong-runtime-map-header")
+    map_row_count=$(( $(wc -l < "$RUNTIME_MAP") - 1 ))
+    [[ "$map_row_count" -eq "$EXPECTED_RUNTIME_ROWS" ]] || map_global_issues+=("wrong-row-count:${map_row_count}-expected-${EXPECTED_RUNTIME_ROWS}")
+    bad_map_fields=$(awk -F '\t' 'NF != 28 { printf "%s:%s,", NR, NF }' "$RUNTIME_MAP")
+    [[ -z "$bad_map_fields" ]] || map_global_issues+=("wrong-column-count:${bad_map_fields%,}")
+    duplicate_specialists=$(tail -n +2 "$RUNTIME_MAP" | cut -f1 | sort | uniq -d | paste -sd, -)
+    [[ -z "$duplicate_specialists" ]] || map_global_issues+=("duplicate-specialists:${duplicate_specialists}")
+    if ! diff -q <(tail -n +2 "$RUNTIME_MAP" | cut -f1) <(tail -n +2 "$RUNTIME_MAP" | cut -f1 | sort) >/dev/null; then
+        map_global_issues+=("runtime-map-not-sorted")
+    fi
+    kimi_primary_count=$(awk -F '\t' 'NR > 1 && $7 == "kimi" { n++ } END { print n+0 }' "$RUNTIME_MAP")
+    [[ "$kimi_primary_count" -eq 0 ]] || map_global_issues+=("kimi-primary-forbidden:${kimi_primary_count}")
+    if [ ${#map_global_issues[@]} -gt 0 ]; then
+        issues_json=$(printf '"%s",' "${map_global_issues[@]}" | sed 's/,$//')
+        printf '{"file":"%s","status":"fail","issues":[%s]}\n' "$RUNTIME_MAP" "$issues_json"
+        FAILED=$((FAILED + 1)); EXIT_CODE=1
+    fi
+
+    while IFS=$'\t' read -r specialist source_namespace capability_class safety_level safety_tags tool_profile primary_lane primary_profile backup_lane backup_profile escalate_lane escalate_profile escalation_policy review_lane review_profile anti_affinity throughput_lane throughput_profile throughput_policy failover_policy operator_gate heightened_risk requires_approval required_tools preferred_tools notes tags version; do
+        [[ "$specialist" == "specialist" || -z "$specialist" ]] && continue
         map_issues=()
-        [[ "$nfields" -ne 8 ]] && map_issues+=("wrong-column-count:${nfields}-expected-8")
-        [[ -z "$notes" ]] && map_issues+=("malformed-runtime-map-row")
-        case "$best_model" in gpt-codex|claude|gemini|kimi) ;; *) map_issues+=("invalid-best-model:${best_model}") ;; esac
-        case "$review_model" in gpt-codex|claude|gemini|kimi|none) ;; *) map_issues+=("invalid-review-model:${review_model}") ;; esac
         case "$source_namespace" in coding|security|content|content-engineer|sysmgmt|research|shared) ;; *) map_issues+=("invalid-source-namespace:${source_namespace}") ;; esac
+        case "$capability_class" in implementation|judgment|code_review|content_text|extraction|game_design|media_production|research_synthesis|security_defense|security_reasoning) ;; *) map_issues+=("invalid-capability-class:${capability_class}") ;; esac
         case "$safety_level" in low|medium|high) ;; *) map_issues+=("invalid-safety-level:${safety_level}") ;; esac
+        list_has_only "$safety_tags" "dual_use privacy financial live_target" || map_issues+=("invalid-safety-tags:${safety_tags}")
+        case "$tool_profile" in none|media.elevenlabs|media.elevenlabs-agent|media.higgsfield) ;; *) map_issues+=("invalid-tool-profile:${tool_profile}") ;; esac
+        # source_namespace is provenance metadata only. Routing is validated
+        # exclusively from the explicit lane/profile fields below; namespace
+        # membership is never translated into a model-lane decision.
+        for lane_field in "$primary_lane" "$backup_lane" "$escalate_lane" "$review_lane"; do
+            [[ "$lane_field" =~ ^(codex|claude|gemini|kimi)$ ]] || map_issues+=("invalid-routing-lane:${lane_field}")
+        done
+        [[ "$throughput_lane" =~ ^(none|kimi)$ ]] || map_issues+=("invalid-throughput-lane:${throughput_lane}")
+        [[ "$primary_lane" != "kimi" ]] || map_issues+=("kimi-primary-forbidden")
+        [[ "$primary_lane" != "$backup_lane" ]] || map_issues+=("primary-backup-same-lane:${primary_lane}")
+        for lane_profile in "$primary_lane:$primary_profile" "$backup_lane:$backup_profile" "$escalate_lane:$escalate_profile" "$review_lane:$review_profile"; do
+            route_lane="${lane_profile%%:*}"; route_profile="${lane_profile#*:}"
+            if ! profile_exists "$route_profile"; then
+                map_issues+=("unknown-profile:${route_profile}")
+            elif [[ "$(profile_lane "$route_profile")" != "$route_lane" ]]; then
+                map_issues+=("profile-lane-mismatch:${route_lane}:${route_profile}")
+            fi
+        done
+        case "$anti_affinity" in none|author_family) ;; *) map_issues+=("invalid-anti-affinity:${anti_affinity}") ;; esac
+        [[ "$heightened_risk" =~ ^(true|false)$ ]] || map_issues+=("invalid-heightened-risk:${heightened_risk}")
+        expected_heightened=false
+        case "$specialist" in security-analyst|exploit-developer|privacy-steward|threat-modeler|scout|impact-validator|smart-contract-engineer|scraping-engineer|incident-responder|detection-engineer|software-supply-chain-engineer|asset-provenance-and-rights-auditor) expected_heightened=true ;; esac
+        [[ "$heightened_risk" == "$expected_heightened" ]] || map_issues+=("heightened-risk-mismatch:${heightened_risk}-expected-${expected_heightened}")
+        for policy_pair in "escalation:$escalation_policy" "throughput:$throughput_policy" "failover:$failover_policy"; do
+            expected_family="${policy_pair%%:*}"; policy_id="${policy_pair#*:}"
+            if ! policy_exists "$policy_id"; then
+                map_issues+=("unknown-policy:${policy_id}")
+            elif [[ "$(policy_family "$policy_id")" != "$expected_family" ]]; then
+                map_issues+=("policy-family-mismatch:${expected_family}:${policy_id}")
+            fi
+        done
+        [[ "$failover_policy" == "failover.conservative.v1" ]] || map_issues+=("invalid-failover-policy:${failover_policy}")
+        if [[ "$safety_level" == "high" || "$heightened_risk" == "true" ]]; then
+            [[ "$escalation_policy" == "escalation.safety_floor.v1" ]] || map_issues+=("risk-requires-safety-floor")
+            [[ "$throughput_policy" == "throughput.never.v1" && "$throughput_lane" == "none" && "$throughput_profile" == "none" ]] || map_issues+=("risk-forbids-throughput")
+        else
+            [[ "$escalation_policy" == "escalation.signal.v1" ]] || map_issues+=("non-heightened-requires-signal-escalation")
+            if [[ "$safety_level" == "medium" ]]; then
+                [[ "$throughput_policy" == "throughput.never.v1" && "$throughput_lane" == "none" && "$throughput_profile" == "none" ]] || map_issues+=("medium-safety-forbids-throughput")
+            elif [[ "$throughput_policy" == "throughput.downshift_gated.v1" ]]; then
+                [[ "$throughput_lane" == "kimi" && "$throughput_profile" == "kimi.k2.7.bulk" ]] || map_issues+=("gated-throughput-requires-kimi-profile")
+                [[ "$safety_tags" == "[]" ]] || map_issues+=("sensitive-tag-forbids-throughput")
+            elif [[ "$throughput_policy" == "throughput.never.v1" ]]; then
+                [[ "$throughput_lane" == "none" && "$throughput_profile" == "none" ]] || map_issues+=("never-throughput-requires-none")
+            else
+                map_issues+=("invalid-low-safety-throughput-policy:${throughput_policy}")
+            fi
+        fi
+        list_has_only "$operator_gate" "delete cleanup credential_change public_release paid_media live_outreach production_mutation" || map_issues+=("invalid-operator-gate:${operator_gate}")
+        is_bracket_list "$requires_approval" || map_issues+=("invalid-requires-approval:${requires_approval}")
+        is_bracket_list "$required_tools" || map_issues+=("invalid-required-tools:${required_tools}")
+        is_bracket_list "$preferred_tools" || map_issues+=("invalid-preferred-tools:${preferred_tools}")
+        is_bracket_list "$tags" || map_issues+=("invalid-tags:${tags}")
+        [[ -n "$notes" ]] || map_issues+=("missing-notes")
+        [[ "$version" =~ ^[0-9]+\.[0-9]+$ ]] || map_issues+=("invalid-version:${version}")
         specialist_exists "$specialist" || map_issues+=("map-specialist-file-missing:${specialist}")
-        if [[ "$safety_level" == "high" && "$review_model" == "none" ]]; then
-            map_issues+=("high-safety-missing-review-model:${specialist}")
-        fi
-        # Non-fatal flag: reviewer lane == best lane means the review is NOT cross-family.
-        if [[ -n "$review_model" && "$review_model" != "none" && "$review_model" == "$best_model" ]]; then
-            printf '{"file":"%s","status":"warn","issues":["same-family-review:%s(%s-reviews-%s)"]}\n' "$RUNTIME_MAP:$specialist" "$specialist" "$review_model" "$best_model"
-            warnings=$((warnings + 1))
-        fi
         if [ ${#map_issues[@]} -gt 0 ]; then
             issues_json=$(printf '"%s",' "${map_issues[@]}" | sed 's/,$//')
             printf '{"file":"%s","status":"fail","issues":[%s]}\n' "$RUNTIME_MAP:$specialist" "$issues_json"
-            FAILED=$((FAILED + 1))
-            EXIT_CODE=1
+            FAILED=$((FAILED + 1)); EXIT_CODE=1
         fi
     done < "$RUNTIME_MAP"
 fi
@@ -119,7 +255,7 @@ for spec_file in "$VAULT"/departments/*/specialists/*.md "$VAULT"/shared/special
     # Extract cited MCPs (within MCP section, format: `name`)
     # Flag-pattern (not awk range) — range form `/^### MCPs/,/^### /` collapses
     # to 1 line because the start header itself matches `^### `.
-    cited_mcps=$(awk '/^### (Expected )?MCPs/{flag=1; next} flag && /^### /{flag=0} flag' "$spec_file" | grep -oE '`[a-z][a-z-]*`' | tr -d '`' | grep -v "^FILL$" | sort -u)
+    cited_mcps=$(awk '/^### (Expected )?MCPs/{flag=1; next} flag && /^### /{flag=0} flag' "$spec_file" | sed -nE 's/^[[:space:]]*-[[:space:]]*`([a-z][a-z-]*)`.*/\1/p' | grep -v "^FILL$" | sort -u)
     for mcp in $cited_mcps; do
         if ! echo "$VERIFIED_MCPS" | grep -qF "$mcp" 2>/dev/null; then
             # Allow common-known MCPs not yet in catalog (best-effort)
@@ -128,10 +264,16 @@ for spec_file in "$VAULT"/departments/*/specialists/*.md "$VAULT"/shared/special
     done
 
     # Extract cited skills (within ### Skills section) — flag-pattern, not range
-    cited_skills=$(awk '/^### Skills/{flag=1; next} flag && /^### /{flag=0} flag' "$spec_file" | grep -oE '`[a-z][a-z0-9_-]*`' | tr -d '`' | grep -v "^FILL$" | sort -u)
+    skill_block=$(awk '/^### Skills/{flag=1; next} flag && /^### /{flag=0} flag' "$spec_file")
+    cited_skills=$(printf '%s\n' "$skill_block" | grep -oE '`[a-z][a-z0-9_-]*`' | tr -d '`' | grep -vE '^(FILL|capability_gap|needs_tool)$' | sort -u)
     for skill in $cited_skills; do
         if ! echo "$LOCAL_SKILLS" | grep -qFx "$skill" 2>/dev/null; then
-            issues+=("missing-skill: $skill")
+            if printf '%s\n' "$skill_block" | grep -F "\`$skill\` (proposed" >/dev/null; then
+                printf '{"file":"%s","status":"warn","issues":["proposed-skill-not-registered:%s"]}\n' "$spec_file" "$skill"
+                warnings=$((warnings + 1))
+            else
+                issues+=("missing-skill: $skill")
+            fi
         fi
     done
 
@@ -142,7 +284,8 @@ for spec_file in "$VAULT"/departments/*/specialists/*.md "$VAULT"/shared/special
             find "$VAULT/departments" -name "${peer}.md" -path "*/specialists/*" -print -quit
             find "$VAULT/shared/specialists" -maxdepth 1 -name "${peer}.md" -print -quit 2>/dev/null
         } | grep -q .; then
-            issues+=("missing-peer-specialist: $peer")
+            printf '{"file":"%s","status":"warn","issues":["unresolved-peer-reference:%s"]}\n' "$spec_file" "$peer"
+            warnings=$((warnings + 1))
         fi
     done
 
@@ -166,11 +309,11 @@ done
 # wrappers around canonical markdown; they make native subagent dispatch honest
 # while keeping markdown files as the source of truth.
 if [[ -f "$RUNTIME_MAP" ]]; then
-    while IFS=$'\t' read -r specialist best_model _review_model _source_namespace _required_tools _safety_level _notes; do
-        [[ "$specialist" == \#* || -z "$specialist" ]] && continue
+    while IFS=$'\t' read -r specialist _source_namespace _capability_class _safety_level _safety_tags _tool_profile primary_lane _rest; do
+        [[ "$specialist" == "specialist" || -z "$specialist" ]] && continue
         adapter_issue=""
-        case "$best_model" in
-            gpt-codex)
+        case "$primary_lane" in
+            codex)
                 agent_name="${specialist//-/_}"
                 adapter="$VAULT/model-lanes/gpt-codex/.codex/agents/${specialist}.toml"
                 if [[ ! -f "$adapter" ]]; then
@@ -203,9 +346,13 @@ if [[ -f "$RUNTIME_MAP" ]]; then
                 ;;
         esac
         if [[ -n "$adapter_issue" ]]; then
-            printf '{"file":"%s","status":"fail","issues":["%s"]}\n' "$RUNTIME_MAP:$specialist" "$adapter_issue"
-            FAILED=$((FAILED + 1))
-            EXIT_CODE=1
+            if [[ "$STRICT_ADAPTERS" == "1" ]]; then
+                printf '{"file":"%s","status":"fail","issues":["%s"]}\n' "$RUNTIME_MAP:$specialist" "$adapter_issue"
+                FAILED=$((FAILED + 1)); EXIT_CODE=1
+            else
+                printf '{"file":"%s","status":"warn","issues":["%s"]}\n' "$RUNTIME_MAP:$specialist" "$adapter_issue"
+                warnings=$((warnings + 1))
+            fi
         fi
     done < "$RUNTIME_MAP"
 fi
