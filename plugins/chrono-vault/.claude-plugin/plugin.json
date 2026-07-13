@@ -5,8 +5,8 @@
   "license": "AGPL-3.0-or-later",
   "mcpServers": {
     "chrono-vault": {
-      "command": "./.venv/bin/python",
-      "args": ["./plugins/chrono-vault/mcp_server.py"],
+      "command": "${CLAUDE_PLUGIN_ROOT}/../../.venv/bin/python",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp_server.py"],
       "env": {
         "OBSIDIAN_REST_API_KEY": "${OBSIDIAN_REST_API_KEY}",
         "OBSIDIAN_VAULT_ROOT": "${OBSIDIAN_VAULT_ROOT}",
@@ -14,8 +14,8 @@
       }
     },
     "chrono-kg": {
-      "command": "./.venv/bin/python",
-      "args": ["./plugins/chrono-vault/mcp_server.py", "--namespace", "kg"],
+      "command": "${CLAUDE_PLUGIN_ROOT}/../../.venv/bin/python",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp_server.py", "--namespace", "kg"],
       "env": {
         "OBSIDIAN_REST_API_KEY": "${OBSIDIAN_REST_API_KEY}",
         "OBSIDIAN_VAULT_ROOT": "${OBSIDIAN_VAULT_ROOT}",
@@ -23,8 +23,8 @@
       }
     },
     "chrono-obsidian": {
-      "command": "./.venv/bin/python",
-      "args": ["./plugins/chrono-vault/mcp_server.py", "--namespace", "obsidian"],
+      "command": "${CLAUDE_PLUGIN_ROOT}/../../.venv/bin/python",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp_server.py", "--namespace", "obsidian"],
       "env": {
         "OBSIDIAN_REST_API_KEY": "${OBSIDIAN_REST_API_KEY}",
         "OBSIDIAN_VAULT_ROOT": "${OBSIDIAN_VAULT_ROOT}",
@@ -32,8 +32,8 @@
       }
     },
     "chrono-catalog": {
-      "command": "./.venv/bin/python",
-      "args": ["./plugins/chrono-vault/mcp_server.py", "--namespace", "catalog"],
+      "command": "${CLAUDE_PLUGIN_ROOT}/../../.venv/bin/python",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp_server.py", "--namespace", "catalog"],
       "env": {
         "OBSIDIAN_REST_API_KEY": "${OBSIDIAN_REST_API_KEY}",
         "OBSIDIAN_VAULT_ROOT": "${OBSIDIAN_VAULT_ROOT}",

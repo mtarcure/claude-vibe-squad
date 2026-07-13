@@ -5,8 +5,8 @@
   "license": "AGPL-3.0-or-later",
   "mcpServers": {
     "chrono-research-arsenal": {
-      "command": "./.venv/bin/python",
-      "args": ["./plugins/chrono-research-arsenal/mcp_server.py"],
+      "command": "${CLAUDE_PLUGIN_ROOT}/../../.venv/bin/python",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp_server.py"],
       "env": {
         "BRAVE_API_KEY": "${BRAVE_API_KEY}",
         "SERPER_API_KEY": "${SERPER_API_KEY}",

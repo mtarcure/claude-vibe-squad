@@ -5,8 +5,8 @@
   "license": "AGPL-3.0-or-later",
   "mcpServers": {
     "chrono-recon": {
-      "command": "./.venv/bin/python",
-      "args": ["./plugins/chrono-recon/mcp_server.py"],
+      "command": "${CLAUDE_PLUGIN_ROOT}/../../.venv/bin/python",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp_server.py"],
       "env": {
         "GH_TOKEN": "${GH_TOKEN}"
       }

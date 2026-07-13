@@ -5,8 +5,8 @@
   "license": "AGPL-3.0-or-later",
   "mcpServers": {
     "chrono-content-engineer": {
-      "command": "./.venv/bin/python",
-      "args": ["./plugins/chrono-content-engineer/mcp_server.py"],
+      "command": "${CLAUDE_PLUGIN_ROOT}/../../.venv/bin/python",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp_server.py"],
       "env": {
         "OPENAI_API_KEY": "${OPENAI_API_KEY}",
         "GEMINI_API_KEY": "${GEMINI_API_KEY}",
