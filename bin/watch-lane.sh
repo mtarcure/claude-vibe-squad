@@ -410,8 +410,11 @@ while true; do
     fi
 
     home
+    # Compact (single-line) cards are a last resort for genuinely tiny panes only.
+    # draw_card renders fine down to ~40 cols, so keep the emoji cards until then
+    # — a pane that lands a hair under 60 shouldn't drop to the bare format.
     compact=false
-    [[ "$SQUAD_WATCH_COMPACT" == "1" || "$cols" -lt 60 ]] && compact=true
+    [[ "$SQUAD_WATCH_COMPACT" == "1" || "$cols" -lt 40 ]] && compact=true
 
     if [[ "$LANE" == "all" ]]; then
         printf '\033[48;5;236;38;5;45;1m MODEL LANES \033[0m'
@@ -422,17 +425,22 @@ while true; do
             color "38;5;245" "scroll: mouse / copy: drag or copy-mode"
         fi
         printf '\n\n'
-        # Give each of the 4 lanes an equal slice of the remaining height so the
-        # cards fill the sidebar instead of hugging the top. Header above uses 2
-        # rows; leave a 1-row gap between cards.
-        card_h=$(( (rows - 2) / 4 - 1 ))
-        [[ "$card_h" -lt 6 ]] && card_h=6
+        # Each of the 4 lanes gets an equal slice of the remaining height. CRUCIAL:
+        # leave a bottom margin. If the cards fill the pane EXACTLY, the trailing
+        # newline after the last card scrolls the pane by one line, which offsets
+        # the next home()+repaint and doubles every card header. Reserve rows for
+        # the 2-row header, the 3 inter-card gaps, and a spare line — and print NO
+        # gap after the last card.
+        card_h=$(( (rows - 8) / 4 ))
+        [[ "$card_h" -lt 7 ]] && card_h=7
+        _n=${#MODEL_LANES[@]}; _i=0
         for lane in "${MODEL_LANES[@]}"; do
+            _i=$((_i + 1))
             if [[ "$compact" == "true" ]]; then
                 draw_compact_card "$lane" "$width"
             else
                 draw_card "$lane" "$width" "$card_h"
-                printf '\n'
+                [[ "$_i" -lt "$_n" ]] && printf '\n'
             fi
         done
     else
