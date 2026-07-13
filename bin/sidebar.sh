@@ -56,6 +56,21 @@ tmux set-window-option -t "${SESSION}:chrono" window-active-style 'fg=colour255,
 # sidebar width (~42%) on every window resize.
 tmux set-hook -t "${SESSION}" window-resized "run-shell 'bash ${VAULT_ROOT}/bin/sidebar-resize.sh'" 2>/dev/null || true
 
+# --- Clickable lane cards -------------------------------------------------------
+# Single-click a card  → toggle an in-place live preview of that lane.
+# Double-click a card  → jump to that lane's full window.
+# Guarded by pane id so ONLY the sidebar reacts; every other pane keeps tmux's
+# default mouse behavior. MouseUp1Pane has no tmux default (safe to bind, and it
+# fires on a plain click but not during a drag-select). See bin/vs-sidebar-click.sh.
+SIDEBAR_PANE="$(tmux display-message -p -t "${SESSION}:chrono.1" '#{pane_id}' 2>/dev/null)"
+if [[ -n "${SIDEBAR_PANE}" ]]; then
+    tmux bind-key -T root MouseUp1Pane if-shell -F "#{==:#{mouse_pane},${SIDEBAR_PANE}}" \
+        "run-shell \"bash ${VAULT_ROOT}/bin/vs-sidebar-click.sh single #{mouse_y} #{pane_height}\"" 2>/dev/null || true
+    tmux bind-key -T root DoubleClick1Pane if-shell -F "#{==:#{mouse_pane},${SIDEBAR_PANE}}" \
+        "run-shell \"bash ${VAULT_ROOT}/bin/vs-sidebar-click.sh double #{mouse_y} #{pane_height}\"" \
+        "select-pane -t = ; send-keys -M" 2>/dev/null || true
+fi
+
 # Focus stays on chrono main pane
 tmux select-pane -t "${SESSION}:chrono.0"
 

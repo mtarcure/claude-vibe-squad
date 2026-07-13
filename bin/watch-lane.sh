@@ -387,6 +387,25 @@ draw_compact_card() {
     printf '\n'
 }
 
+# In-place live preview of a lane's actual CLI output (read-only). Shown when a
+# card is single-clicked (focus file set). The header doubles as the "◀ back"
+# affordance — any single click while previewing returns to the cards.
+render_preview() {
+    local lane="$1" width="$2" rows="$3" accent line n
+    accent="$(runtime_accent_color "$lane")"
+    printf '\033[1;38;5;%sm ◀ back \033[0m' "$accent"
+    color "38;5;240" "· "
+    printf '\033[1;38;5;%sm%s\033[0m ' "$accent" "$lane"
+    color "38;5;240" "· live  (click to close · dbl-click to open)"
+    printf '\n'
+    c256 "$accent" "$(repeat_char '─' "$width")"
+    printf '\n'
+    n=$(( rows - 2 )); (( n < 1 )) && n=1
+    tmux capture-pane -t "${SESSION}:${lane}" -p 2>/dev/null | tail -n "$n" | while IFS= read -r line; do
+        printf '%s\n' "$(fit "$line" "$width")"
+    done
+}
+
 trap 'show_cursor; printf "\n"; exit 0' INT TERM EXIT
 hide_cursor
 printf '\033[2J'
@@ -400,13 +419,16 @@ while true; do
     [[ "$width" -gt 78 ]] && width=78
     [[ "$width" -lt 1 ]] && width=1
 
-    # Full-clear whenever the pane is resized. The per-frame redraw only does
-    # home + clear-to-end, which leaves stale reflowed lines behind when the
-    # pane width/height changes (client attach/detach, divider drag). Clearing
-    # on a size change wipes those artifacts without per-frame flicker.
-    if [[ "$cols" != "${_prev_cols:-}" || "$rows" != "${_prev_rows:-}" ]]; then
+    # A single click on a card writes a lane name here (double-click clears it and
+    # jumps to the window); when set, render an in-place live preview of that lane.
+    focus=""
+    [[ -f /tmp/vs-sidebar-focus ]] && focus="$(cat /tmp/vs-sidebar-focus 2>/dev/null || true)"
+
+    # Full-clear on any layout change — pane resize OR entering/leaving a preview
+    # (cards ↔ preview are very different layouts). Avoids stale reflowed lines.
+    if [[ "$cols" != "${_prev_cols:-}" || "$rows" != "${_prev_rows:-}" || "$focus" != "${_prev_focus:-}" ]]; then
         printf '\033[2J'
-        _prev_cols="$cols"; _prev_rows="$rows"
+        _prev_cols="$cols"; _prev_rows="$rows"; _prev_focus="$focus"
     fi
 
     home
@@ -416,7 +438,9 @@ while true; do
     compact=false
     [[ "$SQUAD_WATCH_COMPACT" == "1" || "$cols" -lt 40 ]] && compact=true
 
-    if [[ "$LANE" == "all" ]]; then
+    if [[ -n "$focus" && "$LANE" == "all" ]]; then
+        render_preview "$focus" "$width" "$rows"
+    elif [[ "$LANE" == "all" ]]; then
         printf '\033[48;5;236;38;5;45;1m MODEL LANES \033[0m'
         printf '  '
         if [[ "$compact" == "true" ]]; then
@@ -447,5 +471,13 @@ while true; do
         draw_card "$LANE" "$width"
     fi
     clear_to_end
-    sleep 2
+
+    # Stay responsive to clicks: poll the focus file every 0.25s and redraw early
+    # if it changed (so preview open/close feels instant), otherwise refresh on the
+    # usual ~2s cadence (which also keeps a live preview updating).
+    _fmt=$(stat -f '%m' /tmp/vs-sidebar-focus 2>/dev/null || echo 0)
+    for _ in 1 2 3 4 5 6 7 8; do
+        sleep 0.25
+        [[ "$(stat -f '%m' /tmp/vs-sidebar-focus 2>/dev/null || echo 0)" != "$_fmt" ]] && break
+    done
 done
