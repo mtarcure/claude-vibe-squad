@@ -1,0 +1,29 @@
+{
+  "name": "chrono-content-engineer",
+  "version": "0.1.0",
+  "description": "Chrono content generation: images (DALL-E, Imagen 4, Grok Imagine), videos (Sora 2, Veo 3), audio (ElevenLabs, Lyria 3). Owner role: content-creator.",
+  "license": "AGPL-3.0-or-later",
+  "mcpServers": {
+    "chrono-content-engineer": {
+      "command": "./.venv/bin/python",
+      "args": ["./plugins/chrono-content-engineer/mcp_server.py"],
+      "env": {
+        "OPENAI_API_KEY": "${OPENAI_API_KEY}",
+        "GEMINI_API_KEY": "${GEMINI_API_KEY}",
+        "XAI_API_KEY": "${XAI_API_KEY}"
+      }
+    },
+    "higgsfield": {
+      "type": "http",
+      "url": "https://mcp.higgsfield.ai/mcp",
+      "auth": "oauth"
+    },
+    "elevenlabs": {
+      "command": "uvx",
+      "args": ["elevenlabs-mcp"],
+      "env": {
+        "ELEVENLABS_API_KEY": "${ELEVENLABS_API_KEY}"
+      }
+    }
+  }
+}

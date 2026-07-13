@@ -1,0 +1,27 @@
+{
+  "name": "chrono-research-arsenal",
+  "version": "0.2.0",
+  "description": "External research arsenal: arxiv (Phase 2) + xai_search (Phase 2.6). External MCPs: perplexity (Sonar via official MCP). Phase 3 adds: brave, serper, hn, youtube, github, reddit, apify-twitter. Used by all chrono roles needing external data (research, scout, scraping, etc).",
+  "license": "AGPL-3.0-or-later",
+  "mcpServers": {
+    "chrono-research-arsenal": {
+      "command": "./.venv/bin/python",
+      "args": ["./plugins/chrono-research-arsenal/mcp_server.py"],
+      "env": {
+        "BRAVE_API_KEY": "${BRAVE_API_KEY}",
+        "SERPER_API_KEY": "${SERPER_API_KEY}",
+        "PERPLEXITY_API_KEY": "${PERPLEXITY_API_KEY}",
+        "XAI_API_KEY": "${XAI_API_KEY}",
+        "APIFY_TOKEN": "${APIFY_TOKEN}",
+        "GH_TOKEN": "${GH_TOKEN}"
+      }
+    },
+    "perplexity": {
+      "command": "uvx",
+      "args": ["perplexity-mcp"],
+      "env": {
+        "PERPLEXITY_API_KEY": "${PERPLEXITY_API_KEY}"
+      }
+    }
+  }
+}

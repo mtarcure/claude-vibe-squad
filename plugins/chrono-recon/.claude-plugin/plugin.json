@@ -1,0 +1,15 @@
+{
+  "name": "chrono-recon",
+  "version": "0.1.0",
+  "description": "OSINT recon tools for Vibe Squad specialists (dns, whois, crt.sh, wayback, github secrets)",
+  "license": "AGPL-3.0-or-later",
+  "mcpServers": {
+    "chrono-recon": {
+      "command": "./.venv/bin/python",
+      "args": ["./plugins/chrono-recon/mcp_server.py"],
+      "env": {
+        "GH_TOKEN": "${GH_TOKEN}"
+      }
+    }
+  }
+}

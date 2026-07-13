@@ -1,0 +1,38 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "claude-vibe-squad",
+  "description": "Vibe Squad multi-model agent harness with vendored runtime MCP plugins.",
+  "owner": {
+    "name": "mtarcure"
+  },
+  "plugins": [
+    {
+      "name": "chrono-vault",
+      "description": "KG state machine + Obsidian REST + auto-capture. Includes namespace aliases for chrono-kg / chrono-obsidian / chrono-catalog so legacy archive role plugins keep working.",
+      "category": "memory",
+      "source": "./plugins/chrono-vault",
+      "homepage": "https://github.com/mtarcure/claude-vibe-squad"
+    },
+    {
+      "name": "chrono-research-arsenal",
+      "description": "External research arsenal: arxiv_search + xai_search + Perplexity Sonar (via official MCP). Used by all chrono roles needing external data.",
+      "category": "research",
+      "source": "./plugins/chrono-research-arsenal",
+      "homepage": "https://github.com/mtarcure/claude-vibe-squad"
+    },
+    {
+      "name": "chrono-content-engineer",
+      "description": "Image/video/audio generation. Wired today: OpenAI image+video, Gemini audio. Sibling MCPs declared: Higgsfield (HTTP), ElevenLabs (uvx). Owner role: content-creator.",
+      "category": "content",
+      "source": "./plugins/chrono-content-engineer",
+      "homepage": "https://github.com/mtarcure/claude-vibe-squad"
+    },
+    {
+      "name": "chrono-recon",
+      "description": "OSINT recon tools for Vibe Squad specialists (dns, whois, crt.sh, wayback, github leaked-secrets). Owner roles: scout, security-analyst, exploit-developer.",
+      "category": "recon",
+      "source": "./plugins/chrono-recon",
+      "homepage": "https://github.com/mtarcure/claude-vibe-squad"
+    }
+  ]
+}

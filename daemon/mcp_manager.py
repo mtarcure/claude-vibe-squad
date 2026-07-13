@@ -1,13 +1,25 @@
 import asyncio
 import json
+import os
 import subprocess
 import sys
+from pathlib import Path
+
+
+REPO_ROOT = Path(os.environ.get("VIBE_SQUAD_ROOT", Path(__file__).resolve().parents[1])).expanduser().resolve()
+PLUGINS_ROOT = Path(os.environ.get("VIBE_PLUGINS", REPO_ROOT / "plugins")).expanduser().resolve()
+PYTHON = os.environ.get("VIBE_PYTHON", str(REPO_ROOT / ".venv" / "bin" / "python"))
+
+
+def plugin_command(plugin_name: str, *args: str) -> list[str]:
+    return [PYTHON, str(PLUGINS_ROOT / plugin_name / "mcp_server.py"), *args]
+
 
 MCP_REGISTRY = {
-    "chrono-vault": ["/Users/user/chrono/.venv/bin/python", "/Users/user/chrono/plugins/chrono-vault/mcp_server.py"],
-    "chrono-research-arsenal": ["/Users/user/chrono/.venv/bin/python", "/Users/user/chrono/plugins/chrono-research-arsenal/mcp_server.py"],
-    "chrono-content-engineer": ["/Users/user/chrono/.venv/bin/python", "/Users/user/chrono/plugins/chrono-content-engineer/mcp_server.py"],
-    "chrono-recon": ["/Users/user/chrono/.venv/bin/python", "/Users/user/chrono/plugins/chrono-recon/mcp_server.py"],
+    "chrono-vault": plugin_command("chrono-vault"),
+    "chrono-research-arsenal": plugin_command("chrono-research-arsenal"),
+    "chrono-content-engineer": plugin_command("chrono-content-engineer"),
+    "chrono-recon": plugin_command("chrono-recon"),
 }
 
 

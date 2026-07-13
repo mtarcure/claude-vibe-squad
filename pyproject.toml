@@ -1,0 +1,17 @@
+[project]
+name = "claude-vibe-squad-plugins"
+version = "0.1.0"
+description = "Vendored MCP runtime plugins for the Vibe Squad repository."
+requires-python = ">=3.13,<3.14"
+dependencies = [
+  "mcp>=1.27",
+  "httpx",
+  "arxiv",
+  "pyyaml",
+  "dnspython",
+  "python-whois",
+]
+
+[tool.uv]
+package = false
+

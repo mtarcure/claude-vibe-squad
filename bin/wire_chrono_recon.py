@@ -17,12 +17,15 @@ import datetime
 import difflib
 import json
 import os
+from pathlib import Path
 import shutil
 import sys
 import tempfile
 
-MARKETPLACE = "/Users/user/chrono/.claude-plugin/marketplace.json"
-SETTINGS = os.path.expanduser("~/.claude/settings.json")
+REPO_ROOT = Path(os.environ.get("VIBE_SQUAD_ROOT", Path(__file__).resolve().parents[1])).expanduser().resolve()
+PLUGINS_ROOT = Path(os.environ.get("VIBE_PLUGINS", REPO_ROOT / "plugins")).expanduser().resolve()
+MARKETPLACE = os.environ.get("VIBE_MARKETPLACE", str(REPO_ROOT / ".claude-plugin" / "marketplace.json"))
+SETTINGS = os.environ.get("CLAUDE_SETTINGS_PATH", os.path.expanduser("~/.claude/settings.json"))
 
 RECON_PLUGIN = {
     "name": "chrono-recon",
@@ -30,8 +33,8 @@ RECON_PLUGIN = {
                    "crt.sh, wayback, github leaked-secrets). Owner roles: scout, "
                    "security-analyst, exploit-developer.",
     "category": "recon",
-    "source": "./plugins/chrono-recon",
-    "homepage": "https://github.com/mtarcure/chrono",
+    "source": os.path.relpath(PLUGINS_ROOT / "chrono-recon", REPO_ROOT),
+    "homepage": "https://github.com/mtarcure/claude-vibe-squad",
 }
 
 
