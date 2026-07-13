@@ -61,8 +61,15 @@ def command_init(args: argparse.Namespace, control: DispatchControlPlane) -> dic
     metadata = _frontmatter(task_file)
     task_id = str(metadata.get("id") or "")
     canonical = str(metadata.get("return_artifact") or "")
-    if not task_id or not canonical:
-        raise ControlPlaneError("task packet requires id and return_artifact")
+    if not task_id:
+        raise ControlPlaneError("task packet requires id")
+    if args.primary_lane == "none":
+        return {"task_id": task_id, "status": "skipped", "reason": "to_model:none"}
+    if not canonical:
+        return {"task_id": task_id, "status": "skipped", "reason": "missing-return-artifact"}
+    packet_gate_required = metadata.get("publication_gate_required", metadata.get("gate_required", False))
+    if not isinstance(packet_gate_required, bool):
+        raise ControlPlaneError("publication_gate_required/gate_required must be a boolean")
     attempt = control.initialize_task(
         task_id=task_id,
         primary_lane=args.primary_lane,
@@ -71,6 +78,10 @@ def command_init(args: argparse.Namespace, control: DispatchControlPlane) -> dic
         canonical_artifact_path=canonical,
         lease_seconds=args.lease_seconds,
         effective_model=args.effective_model,
+        gate_required=bool(args.gate_required or packet_gate_required),
+        gate_record_path=metadata.get("publication_gate_record"),
+        gate_subject_path=metadata.get("publication_gate_subject"),
+        quiescence_seconds=args.quiescence_seconds,
     )
     _rewrite_return_artifact(task_file, attempt["artifact_path"])
     return attempt
@@ -142,6 +153,17 @@ def command_gate_check(args: argparse.Namespace, _control: DispatchControlPlane)
     return {"gate": "PASS", "subject": str(Path(args.subject).resolve())}
 
 
+def command_operator_unlock(args: argparse.Namespace, control: DispatchControlPlane) -> dict:
+    return control.operator_unlock(
+        task_id=args.task_id,
+        attempt_id=args.attempt_id,
+        actor=args.actor,
+        reason=args.reason,
+        approve_publish=args.approve_publish,
+        clear_refusal_veto=args.clear_refusal_veto,
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--state-root", help="override _state/failover root")
@@ -154,6 +176,8 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--lease-owner", required=True)
     init.add_argument("--lease-seconds", type=int, default=1800)
     init.add_argument("--effective-model")
+    init.add_argument("--gate-required", action="store_true")
+    init.add_argument("--quiescence-seconds", type=float, default=5.0)
     init.set_defaults(handler=command_init)
 
     signal = sub.add_parser("signal", help="record a typed or ambiguous terminal observation")
@@ -190,6 +214,15 @@ def build_parser() -> argparse.ArgumentParser:
     gate.add_argument("--subject", required=True)
     gate.add_argument("--gate-record", required=True)
     gate.set_defaults(handler=command_gate_check)
+
+    unlock = sub.add_parser("operator-unlock", help="audit a human decision to unlock a surfaced attempt")
+    unlock.add_argument("--task-id", required=True)
+    unlock.add_argument("--attempt-id", required=True)
+    unlock.add_argument("--actor", required=True)
+    unlock.add_argument("--reason", required=True)
+    unlock.add_argument("--approve-publish", action="store_true")
+    unlock.add_argument("--clear-refusal-veto", action="store_true")
+    unlock.set_defaults(handler=command_operator_unlock)
 
     inspect = sub.add_parser("inspect", help="read one durable ledger")
     inspect.add_argument("--task-id", required=True)

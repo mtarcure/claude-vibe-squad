@@ -28,9 +28,17 @@ def read_rows() -> list[dict[str, str]]:
         for raw in reader:
             if not raw or raw[0].startswith("#"):
                 continue
-            if len(raw) < 7:
+            if raw[0] == "specialist":
+                continue
+            if len(raw) < 28:
                 raise SystemExit(f"Malformed runtime-map row: {raw!r}")
-            specialist, model, review, namespace, tools, safety, notes = raw[:7]
+            specialist = raw[0]
+            namespace = raw[1]
+            safety = raw[3]
+            model = "gpt-codex" if raw[6] == "codex" else raw[6]
+            review = "gpt-codex" if raw[13] == "codex" else raw[13]
+            tools = raw[23]
+            notes = raw[25]
             rows.append(
                 {
                     "specialist": specialist,

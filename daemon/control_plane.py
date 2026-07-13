@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import tempfile
+import time
 import uuid
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
@@ -40,7 +41,7 @@ GATE_FIELDS = {
     "override_actor",
     "override_reason",
 }
-VALID_LANES = {"gpt-codex", "claude", "gemini", "kimi"}
+VALID_LANES = {"gpt-codex", "claude", "gemini", "kimi", "none"}
 
 
 class ControlPlaneError(RuntimeError):
@@ -223,24 +224,38 @@ class DispatchControlPlane:
         canonical_artifact_path: Path | str,
         lease_seconds: int = 1800,
         effective_model: str | None = None,
+        gate_required: bool = False,
+        gate_record_path: Path | str | None = None,
+        gate_subject_path: Path | str | None = None,
+        quiescence_seconds: float = 5.0,
     ) -> dict[str, Any]:
         if primary_lane not in VALID_LANES:
             raise ControlPlaneError(f"invalid primary lane: {primary_lane}")
-        if backup_lane not in VALID_LANES | {"none"}:
+        if backup_lane not in VALID_LANES:
             raise ControlPlaneError(f"invalid backup lane: {backup_lane}")
         if primary_lane == backup_lane:
-            raise ControlPlaneError("primary and backup lanes must differ")
-        if not lease_owner or lease_seconds <= 0:
+            backup_lane = "none"
+        if not lease_owner or lease_seconds <= 0 or quiescence_seconds < 0:
             raise ControlPlaneError("lease owner must be non-empty and lease duration positive")
         with self._locked(task_id):
             path = self.ledger_path(task_id)
             if path.exists():
                 ledger = self._load(task_id)
                 requested_canonical = str(Path(canonical_artifact_path).expanduser().resolve())
+                requested_gate_record = (
+                    str(Path(gate_record_path).expanduser().resolve()) if gate_record_path else None
+                )
+                requested_gate_subject = (
+                    str(Path(gate_subject_path).expanduser().resolve()) if gate_subject_path else None
+                )
                 if (
                     ledger["primary_lane"] != primary_lane
                     or ledger["backup_lane"] != backup_lane
                     or ledger["canonical_artifact_path"] != requested_canonical
+                    or bool(ledger.get("gate_required", False)) != bool(gate_required)
+                    or ledger.get("gate_record_path") != requested_gate_record
+                    or ledger.get("gate_subject_path") != requested_gate_subject
+                    or float(ledger.get("quiescence_seconds", 5.0)) != float(quiescence_seconds)
                 ):
                     raise LeaseConflict("task was already initialized with different routing")
                 return self._current_attempt(ledger)
@@ -251,6 +266,10 @@ class DispatchControlPlane:
                 "primary_lane": primary_lane,
                 "backup_lane": backup_lane,
                 "canonical_artifact_path": str(Path(canonical_artifact_path).expanduser().resolve()),
+                "gate_required": bool(gate_required),
+                "gate_record_path": str(Path(gate_record_path).expanduser().resolve()) if gate_record_path else None,
+                "gate_subject_path": str(Path(gate_subject_path).expanduser().resolve()) if gate_subject_path else None,
+                "quiescence_seconds": float(quiescence_seconds),
                 "current_attempt_id": attempt["attempt_id"],
                 "winner_attempt_id": None,
                 "failover_count": 0,
@@ -409,6 +428,13 @@ class DispatchControlPlane:
                 raise PublicationRejected("staging artifact is unreadable") from exc
             if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
                 raise PublicationRejected("staging artifact changed while hashing")
+            quiescence_seconds = float(ledger.get("quiescence_seconds", 5.0))
+            # Match the shell watcher's integer-second mtime rule exactly.
+            age_seconds = max(0.0, float(int(time.time()) - int(after.st_mtime)))
+            if age_seconds < quiescence_seconds:
+                raise PublicationRejected(
+                    f"staging artifact is not quiescent ({age_seconds:.3f}s < {quiescence_seconds:.3f}s)"
+                )
             metadata = parse_markdown_frontmatter(data)
             self._validate_artifact_identity(task_id, metadata)
             artifact_hash = _sha256(data)
@@ -425,9 +451,27 @@ class DispatchControlPlane:
                     raise PublicationRejected("published winner canonical artifact hash mismatch")
                 return canonical
 
-            if gate_required:
+            effective_gate_required = bool(ledger.get("gate_required", False) or gate_required)
+            if effective_gate_required:
+                effective_gate_record = gate_record
+                effective_subject = subject
+                if effective_gate_record is None and ledger.get("gate_record_path"):
+                    try:
+                        loaded_record = json.loads(Path(ledger["gate_record_path"]).read_text())
+                    except (OSError, json.JSONDecodeError) as exc:
+                        raise PublicationRejected("publication gate record is unreadable") from exc
+                    if not isinstance(loaded_record, dict):
+                        raise PublicationRejected("publication gate record must be an object")
+                    effective_gate_record = loaded_record
+                if effective_subject is None and ledger.get("gate_subject_path"):
+                    try:
+                        effective_subject = Path(ledger["gate_subject_path"]).read_bytes()
+                    except OSError as exc:
+                        raise PublicationRejected("publication gate subject is unreadable") from exc
+                if effective_subject is None:
+                    raise PublicationRejected("publication gate subject is required")
                 try:
-                    validate_publication_gate(subject if subject is not None else data, gate_record)
+                    validate_publication_gate(effective_subject, effective_gate_record)
                 except PublicationRejected as gate_error:
                     override = operator_override or {}
                     if not (override.get("authorized") is True and override.get("actor") and override.get("reason")):
@@ -452,3 +496,54 @@ class DispatchControlPlane:
             ledger["winner_attempt_id"] = attempt_id
             self._save(task_id, ledger)
             return canonical
+
+    def operator_unlock(
+        self,
+        *,
+        task_id: str,
+        attempt_id: str,
+        actor: str,
+        reason: str,
+        approve_publish: bool = False,
+        clear_refusal_veto: bool = False,
+    ) -> dict[str, Any]:
+        """Audit and apply an explicit human unlock; never invoked automatically."""
+        if not actor.strip() or not reason.strip():
+            raise ControlPlaneError("operator unlock requires actor and reason")
+        if not approve_publish and not clear_refusal_veto:
+            raise ControlPlaneError("operator unlock requires an explicit action")
+        with self._locked(task_id):
+            ledger = self._load(task_id)
+            attempt = self._attempt(ledger, attempt_id)
+            if attempt_id != ledger.get("current_attempt_id"):
+                raise ControlPlaneError("only the current generation may be operator-unlocked")
+            previous_status = attempt.get("terminal_status")
+            previous_veto = bool(ledger.get("refusal_veto_seen"))
+            if approve_publish:
+                if previous_status not in {"NEEDS_HUMAN", "REFUSED", "POSSIBLE_REFUSAL"}:
+                    raise ControlPlaneError(f"attempt is not surfaced for human review: {previous_status}")
+                attempt["terminal_status"] = None
+                attempt["terminal_signal"] = "operator_publish_approved"
+            if clear_refusal_veto:
+                ledger["refusal_veto_seen"] = False
+                ledger["safety_refusal_seen"] = False
+            ledger["audit_events"].append(
+                {
+                    "type": "operator_unlock",
+                    "attempt_id": attempt_id,
+                    "actor": actor.strip(),
+                    "reason": reason.strip(),
+                    "approve_publish": bool(approve_publish),
+                    "clear_refusal_veto": bool(clear_refusal_veto),
+                    "previous_terminal_status": previous_status,
+                    "previous_refusal_veto": previous_veto,
+                    "at": _iso(_utcnow()),
+                }
+            )
+            self._save(task_id, ledger)
+            return {
+                "task_id": task_id,
+                "attempt_id": attempt_id,
+                "terminal_status": attempt["terminal_status"],
+                "refusal_veto_seen": ledger["refusal_veto_seen"],
+            }

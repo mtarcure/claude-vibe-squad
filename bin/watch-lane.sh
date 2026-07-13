@@ -157,16 +157,16 @@ blocked_count() {
     echo "$count"
 }
 
-# Tools a specialist is configured to use, from specialist-runtime-map.tsv
-# (col 5 required_tools_mcp_api + col 7 preferred_tools), joined with ' · '.
+# Tools a specialist is configured to use, from the 28-column runtime map
+# (col 24 required_tools + col 25 preferred_tools), joined with ' · '.
 # Empty when the specialist is unmapped or "none".
 tools_for_specialist() {
     local spec="$1" row req pref out
     [[ -z "$spec" || "$spec" == "none" ]] && return 0
     row=$(awk -F'\t' -v s="$spec" '$1==s{print; exit}' "${VAULT_ROOT}/shared/specialist-runtime-map.tsv" 2>/dev/null)
     [[ -z "$row" ]] && return 0
-    req=$(printf '%s' "$row" | cut -f5)
-    pref=$(printf '%s' "$row" | cut -f7)
+    req=$(printf '%s' "$row" | cut -f24)
+    pref=$(printf '%s' "$row" | cut -f25)
     out="$req"
     [[ -n "$pref" && "$pref" != "none" ]] && out="${out:+${out},}${pref}"
     printf '%s' "${out//,/ · }"

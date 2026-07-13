@@ -39,6 +39,12 @@ FAILOVER_STAGING="${STATE_DIR}/failover/staging"
 FAILOVER_CONTROL="${VAULT_ROOT}/bin/failover-control.py"
 
 mkdir -p "${OUTBOX}" "${FAILOVER_STAGING}"
+WATCH_PATHS=("${OUTBOX}")
+STAGING_OWNER=0
+if [[ "$NAMESPACE" == "coding" && ( "${FAILOVER_CONTROL_ENABLED:-0}" == "1" || -f "${STATE_DIR}/failover/ENABLED" ) ]]; then
+    WATCH_PATHS+=("${FAILOVER_STAGING}")
+    STAGING_OWNER=1
+fi
 
 echo "Watching ${OUTBOX}/ for new responses; will nudge squad:chrono pane on each."
 
@@ -225,6 +231,26 @@ handle_response_path() {
     # outbox file. A rejected or partial staging write is never surfaced.
     case "$path" in
         "${FAILOVER_STAGING}"/*/*.md)
+            [[ "$STAGING_OWNER" == "1" ]] || return
+            if ! response_ready_for_status "$path"; then
+                echo "[$(date '+%H:%M:%S')] staging artifact not quiescent/status-ready: $(basename "$path"); scheduling delayed retry"
+                case "$PENDING_PATHS" in
+                    *"|$path|"*) ;;
+                    *)
+                        PENDING_PATHS="${PENDING_PATHS}${path}|"
+                        (
+                            while [[ -f "$path" ]]; do
+                                sleep 6
+                                if response_ready_for_status "$path"; then
+                                    handle_response_path "$path"
+                                    break
+                                fi
+                            done
+                        ) &
+                        ;;
+                esac
+                return
+            fi
             if python3 "$FAILOVER_CONTROL" publish --artifact "$path"; then
                 echo "[$(date '+%H:%M:%S')] fenced staging artifact published: $(basename "$path")"
             else
@@ -318,7 +344,7 @@ handle_response_path() {
 
 fswatch -0 --event=Created --event=Updated --event=Renamed --event=MovedTo \
         -e '\.tmp$' -e '\.swp$' -e '\.lock$' -e '\.gitkeep$' \
-        "${OUTBOX}" "${FAILOVER_STAGING}" \
+        "${WATCH_PATHS[@]}" \
 | while IFS= read -r -d '' path; do
     handle_response_path "$path"
 done

@@ -208,6 +208,8 @@ DIRECT_LANE_WORK_ALLOWED=$(frontmatter_field "$TASK_FILE" "direct_lane_work_allo
 LEGACY_LEAD_DIRECT_ALLOWED=$(frontmatter_field "$TASK_FILE" "lead_direct_allowed")
 PARALLEL_SAFE=$(frontmatter_field "$TASK_FILE" "parallel_safe")
 MAP_BACKUP="none"
+MAP_OPERATOR_GATE="[]"
+MAP_SAFETY=""
 
 [[ -z "$TASK_ID" ]]  && die "Task file missing 'id' frontmatter: $TASK_FILE"
 [[ -z "$SPECIALIST" ]] && die "Task file missing 'specialist' frontmatter: $TASK_FILE"
@@ -288,6 +290,8 @@ if [[ "$SPECIALIST" != "none" ]]; then
     MAP_BACKUP="$(map_field "$SPECIALIST" 9 || true)"
     [[ "$MAP_BACKUP" == "codex" ]] && MAP_BACKUP="gpt-codex"
     [[ -n "$MAP_BACKUP" ]] || MAP_BACKUP="none"
+    MAP_OPERATOR_GATE="$(map_field "$SPECIALIST" 21 || true)"
+    [[ -n "$MAP_OPERATOR_GATE" ]] || MAP_OPERATOR_GATE="[]"
     MAP_NAMESPACE="$(map_field "$SPECIALIST" 2 || true)"
     MAP_SAFETY="$(map_field "$SPECIALIST" 4 || true)"
 
@@ -298,6 +302,9 @@ if [[ "$SPECIALIST" != "none" ]]; then
             die "unsafe model override for '${SPECIALIST}': to_model=${TO_MODEL}, map=${MAP_MODEL}. Add model_override_reason."
         fi
     fi
+    # A sanctioned override may intentionally target the mapped backup. There
+    # is then no distinct cross-family hop left, so degrade to backup:none.
+    [[ "$TO_MODEL" == "$MAP_BACKUP" ]] && MAP_BACKUP="none"
     if [[ "$SOURCE_NAMESPACE" != "$MAP_NAMESPACE" && "$MAP_NAMESPACE" != "shared" ]]; then
         die "source_namespace '${SOURCE_NAMESPACE}' does not match model map (${MAP_NAMESPACE})"
     fi
@@ -460,19 +467,28 @@ fi
 # publish it.  This removes direct multi-lane writes to the shared outbox path.
 
 # GATED (F1, 2026-07-13 Fable review): the conservative failover control plane is
-# OPT-IN and defaults OFF until its reviewed defects (F2 staging-quiescence,
-# F4 gate-in-ledger, F5 dispatch edge cases) are fixed and a controlled activation
-# (watcher restart + canary) is run. Flag OFF = legacy behavior: canonical
+# OPT-IN and defaults OFF pending mandatory re-review and a controlled activation
+# (watcher restart + canary). Flag OFF = legacy behavior: canonical
 # return_artifact, no ledger, direct outbox — the proven rail. Enable with
 # FAILOVER_CONTROL_ENABLED=1 or by creating _state/failover/ENABLED.
 if [[ "${FAILOVER_CONTROL_ENABLED:-0}" == "1" || -f "${VAULT_ROOT}/_state/failover/ENABLED" ]]; then
     [[ -f "$FAILOVER_CONTROL" ]] || die "missing conservative failover controller: ${FAILOVER_CONTROL}"
-    CONTROL_RESULT="$(python3 "$FAILOVER_CONTROL" init-dispatch \
-        --task-file "$ACTUAL_TASK_FILE" \
-        --primary-lane "$TO_MODEL" \
-        --backup-lane "$MAP_BACKUP" \
-        --lease-owner "dispatch:${TO_MODEL}:$$" \
-        --effective-model "$TO_MODEL")" \
+    CONTROL_ARGS=(
+        init-dispatch
+        --task-file "$ACTUAL_TASK_FILE"
+        --primary-lane "$TO_MODEL"
+        --backup-lane "$MAP_BACKUP"
+        --lease-owner "dispatch:${TO_MODEL}:$$"
+        --effective-model "$TO_MODEL"
+    )
+    # Gate authority is durable ledger state, never a publish-call choice.
+    # Explicit packet frontmatter is also consumed by failover-control.py.
+    if [[ "$SPECIALIST" == "content-verifier" \
+        || "$SPECIALIST" == "asset-provenance-and-rights-auditor" \
+        || ( "$MAP_SAFETY" == "high" && "$MAP_OPERATOR_GATE" =~ (public_release|paid_media) ) ]]; then
+        CONTROL_ARGS+=(--gate-required)
+    fi
+    CONTROL_RESULT="$(python3 "$FAILOVER_CONTROL" "${CONTROL_ARGS[@]}")" \
         || die "failed to initialize durable attempt ledger for ${TASK_ID}"
     info "Attempt ledger initialized: ${CONTROL_RESULT}"
 fi
