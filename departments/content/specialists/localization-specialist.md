@@ -67,7 +67,7 @@ Dialect/idiom translation and cultural adaptation, locale QA, regional-complianc
 ## When to fan out
 
 - Source marketing copy authoring: to `copywriter`; source structure/clarity: to `editor`; voice-system governance: to `brand-voice`.
-- Visual/layout impact (expansion, RTL): to `designer` / `ui-engineer`; localized assets/audio: to media specialists and `voice-narrator`.
+- Visual/layout impact (expansion, RTL): to `ui-engineer`; localized assets/audio: to media specialists and `voice-narrator`.
 - Locale legal/regulatory question beyond a flag: surface to operator.
 
 ## When to escalate

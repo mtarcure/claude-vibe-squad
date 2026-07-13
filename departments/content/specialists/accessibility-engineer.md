@@ -66,8 +66,8 @@ WCAG/ARIA conformance, keyboard navigation, contrast, and accessible-media produ
 ## When to fan out
 
 - Code-level remediation (ARIA/focus/semantics): to `frontend-engineer` / `ui-engineer` with a specific fix list.
-- Design-token/contrast fixes: to `designer` (tokens) or `ui-engineer` (component-level), plus the relevant brand/design owner.
-- Regression execution: to `test-engineer` (owns regression suites; `qa-tester`/`e2e-runner` are not in the roster).
+- Design-token/contrast fixes: to `ui-engineer` (component + tokens), plus the relevant brand/design owner.
+- Regression execution: to `test-engineer` (owns regression suites; qa-tester/e2e-runner are not in the roster).
 - Transcription/caption of generated video/audio at volume: pairs with `video-editor` / media specialists.
 
 ## When to escalate
@@ -106,4 +106,4 @@ Criterion-anchored and specific. "Fails 1.4.3 Contrast (3.9:1 on button text, ne
 
 ## Cross-namespace
 
-Owns criteria, audit evidence, accessible-media artifacts, and PASS/HOLD; `ui-engineer`/`frontend-engineer` implement fixes; `test-engineer` runs regression; `designer` + brand owner resolve token/brand tradeoffs.
+Owns criteria, audit evidence, accessible-media artifacts, and PASS/HOLD; `ui-engineer`/`frontend-engineer` implement fixes; `test-engineer` runs regression; `ui-engineer` + brand owner resolve token/brand tradeoffs.

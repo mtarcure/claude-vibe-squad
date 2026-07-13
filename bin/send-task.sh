@@ -34,6 +34,7 @@ VAULT_ROOT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
 ACTIVE_REGISTRY="${VAULT_ROOT}/_state/active-tasks.json"
 TOOLKIT="${VAULT_ROOT}/shared/dispatch-toolkit.sh"
 RUNTIME_MAP="${VAULT_ROOT}/shared/specialist-runtime-map.tsv"
+FAILOVER_CONTROL="${VAULT_ROOT}/bin/failover-control.py"
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -206,6 +207,7 @@ MODEL_OVERRIDE_REASON=$(frontmatter_field "$TASK_FILE" "model_override_reason")
 DIRECT_LANE_WORK_ALLOWED=$(frontmatter_field "$TASK_FILE" "direct_lane_work_allowed")
 LEGACY_LEAD_DIRECT_ALLOWED=$(frontmatter_field "$TASK_FILE" "lead_direct_allowed")
 PARALLEL_SAFE=$(frontmatter_field "$TASK_FILE" "parallel_safe")
+MAP_BACKUP="none"
 
 [[ -z "$TASK_ID" ]]  && die "Task file missing 'id' frontmatter: $TASK_FILE"
 [[ -z "$SPECIALIST" ]] && die "Task file missing 'specialist' frontmatter: $TASK_FILE"
@@ -283,6 +285,9 @@ if [[ "$SPECIALIST" != "none" ]]; then
     # New 28-col schema (2026-07-13): source_namespace=2 safety_level=4 primary_lane=7
     MAP_MODEL="$(map_field "$SPECIALIST" 7 || true)"
     [[ "$MAP_MODEL" == "codex" ]] && MAP_MODEL="gpt-codex"
+    MAP_BACKUP="$(map_field "$SPECIALIST" 9 || true)"
+    [[ "$MAP_BACKUP" == "codex" ]] && MAP_BACKUP="gpt-codex"
+    [[ -n "$MAP_BACKUP" ]] || MAP_BACKUP="none"
     MAP_NAMESPACE="$(map_field "$SPECIALIST" 2 || true)"
     MAP_SAFETY="$(map_field "$SPECIALIST" 4 || true)"
 
@@ -447,6 +452,29 @@ if [[ "$PER_TASK_VERSIONING" == "true" ]]; then
         ACTUAL_TASK_FILE="$VERSIONED_COPY"
         info "Per-task versioning: return_artifact → ${NEW_ART}"
     fi
+fi
+
+# ── conservative failover control ────────────────────────────────────────────
+# The packet given to a lane names an attempt-specific staging artifact.  The
+# durable ledger retains the canonical path, and only failover-control may CAS
+# publish it.  This removes direct multi-lane writes to the shared outbox path.
+
+# GATED (F1, 2026-07-13 Fable review): the conservative failover control plane is
+# OPT-IN and defaults OFF until its reviewed defects (F2 staging-quiescence,
+# F4 gate-in-ledger, F5 dispatch edge cases) are fixed and a controlled activation
+# (watcher restart + canary) is run. Flag OFF = legacy behavior: canonical
+# return_artifact, no ledger, direct outbox — the proven rail. Enable with
+# FAILOVER_CONTROL_ENABLED=1 or by creating _state/failover/ENABLED.
+if [[ "${FAILOVER_CONTROL_ENABLED:-0}" == "1" || -f "${VAULT_ROOT}/_state/failover/ENABLED" ]]; then
+    [[ -f "$FAILOVER_CONTROL" ]] || die "missing conservative failover controller: ${FAILOVER_CONTROL}"
+    CONTROL_RESULT="$(python3 "$FAILOVER_CONTROL" init-dispatch \
+        --task-file "$ACTUAL_TASK_FILE" \
+        --primary-lane "$TO_MODEL" \
+        --backup-lane "$MAP_BACKUP" \
+        --lease-owner "dispatch:${TO_MODEL}:$$" \
+        --effective-model "$TO_MODEL")" \
+        || die "failed to initialize durable attempt ledger for ${TASK_ID}"
+    info "Attempt ledger initialized: ${CONTROL_RESULT}"
 fi
 
 # ── copy to source namespace inbox ────────────────────────────────────────────

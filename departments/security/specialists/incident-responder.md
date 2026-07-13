@@ -68,7 +68,7 @@ Defensive incident handling: detection triage, containment, forensics, eradicati
 ## When to fan out
 
 - Root-cause in code: to `security-analyst` (SAST) / `code-reviewer`.
-- Detection for the observed TTP: to `detection-engineer` (typed `handoff-to-detection`).
+- Detection for the observed TTP: to `detection-engineer` (typed handoff-to-detection artifact).
 - Pre-incident abuse/failure scenarios: to `threat-modeler`; authorized external recon: to `scout`.
 - Ordinary (non-compromise) reliability incidents are led by `site-reliability-engineer`; I lead once compromise is suspected, and we coordinate recovery without destroying evidence.
 

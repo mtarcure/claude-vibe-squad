@@ -35,8 +35,10 @@ VAULT_ROOT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
 SESSION="${SQUAD_SESSION:-squad}"
 OUTBOX="${VAULT_ROOT}/departments/${NAMESPACE}/outbox"
 STATE_DIR="${VAULT_ROOT}/_state"
+FAILOVER_STAGING="${STATE_DIR}/failover/staging"
+FAILOVER_CONTROL="${VAULT_ROOT}/bin/failover-control.py"
 
-mkdir -p "${OUTBOX}"
+mkdir -p "${OUTBOX}" "${FAILOVER_STAGING}"
 
 echo "Watching ${OUTBOX}/ for new responses; will nudge squad:chrono pane on each."
 
@@ -218,6 +220,19 @@ PENDING_PATHS="|"
 
 handle_response_path() {
     local path="$1" fname ctx status status_prefix task_id NUDGE_MSG state task_file can_nudge
+    # Lane-owned files land only in attempt staging. The controller validates
+    # schema/ID/hash and generation, then atomically publishes the canonical
+    # outbox file. A rejected or partial staging write is never surfaced.
+    case "$path" in
+        "${FAILOVER_STAGING}"/*/*.md)
+            if python3 "$FAILOVER_CONTROL" publish --artifact "$path"; then
+                echo "[$(date '+%H:%M:%S')] fenced staging artifact published: $(basename "$path")"
+            else
+                echo "[$(date '+%H:%M:%S')] staging artifact rejected or not ready: ${path}" >&2
+            fi
+            return
+            ;;
+    esac
     # Only react to actual response files — not partial writes or unrelated edits.
     case "$path" in
         */TASK-*-response.md|*/RESP-*.md) ;;
@@ -303,7 +318,7 @@ handle_response_path() {
 
 fswatch -0 --event=Created --event=Updated --event=Renamed --event=MovedTo \
         -e '\.tmp$' -e '\.swp$' -e '\.lock$' -e '\.gitkeep$' \
-        "${OUTBOX}" \
+        "${OUTBOX}" "${FAILOVER_STAGING}" \
 | while IFS= read -r -d '' path; do
     handle_response_path "$path"
 done
