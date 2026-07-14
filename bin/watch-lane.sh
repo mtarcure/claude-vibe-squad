@@ -53,14 +53,14 @@ repeat_char() {
 # Emoji we use are single CODEPOINTS but render TWO display columns; bash counts
 # them as one char. Everything else in the UI is single-width. Keep this list in
 # sync with any emoji used in labels/values so widths compute correctly.
-VS_WIDE='🟢🟡🔴⚪🟠🔵🟣🧑📋🔧⚡📥🕐👤📊🎯🛠🚦🧩🎬🖼🔊'
+VS_WIDE='🟢🟡🔴⚪🟠🔵🟣🧑📋🔧⚡📥🕐👤📊🎯🛠🚦🧩🎬🖼🔊🤖🧠💎🌙'
 
 # Display width of a string, counting each VS_WIDE glyph as 2 columns.
 dwidth() {
     local s="$1" g t
     local w=${#s}
     # Fast path: no wide glyph present → display width == char count.
-    for g in 🟢 🟡 🔴 ⚪ 🟠 🔵 🟣 🧑 📋 🔧 ⚡ 📥 🕐 👤 📊 🎯 🛠 🚦 🧩 🎬 🖼 🔊; do
+    for g in 🟢 🟡 🔴 ⚪ 🟠 🔵 🟣 🧑 📋 🔧 ⚡ 📥 🕐 👤 📊 🎯 🛠 🚦 🧩 🎬 🖼 🔊 🤖 🧠 💎 🌙; do
         [[ "$s" == *"$g"* ]] || continue
         t="${s//$g/}"
         w=$(( w + ${#s} - ${#t} ))   # each occurrence (1 char) adds 1 extra column
@@ -123,6 +123,36 @@ fmt_member() {  # fmt_member WIDTH GLYPH_COLOR GLYPH SPECIALIST MMSS
     local width="$1" gc="$2" g="$3" spec="$4" mmss="$5"
     local sw=$(( width - 12 )); (( sw < 4 )) && sw=4
     printf '│ \033[%sm%s\033[0m %s \033[38;5;240m%s\033[0m │' "$gc" "$g" "$(fit "$spec" "$sw")" "$mmss"
+}
+
+# Per-model logo (2-column emoji) for the idle state. Registered in VS_WIDE.
+runtime_logo() {
+    case "$1" in
+        gpt-codex) printf '🤖' ;;
+        claude)    printf '🧠' ;;
+        gemini)    printf '💎' ;;
+        kimi)      printf '🌙' ;;
+        *)         printf '●'  ;;
+    esac
+}
+
+# Idle "breathing" ramp — we animate COLOR only (same chars every frame), so it
+# glows without ever changing widths or triggering a redraw artifact.
+BREATHE=(236 237 238 239 240 241 242 241 240 239 238 237)
+
+# A blank interior rail line: │ <spaces> │ in the accent color.
+blank_row() {  # blank_row WIDTH ACCENT
+    c256 "$2" "│"; printf '%*s' "$(( $1 - 2 ))" ""; c256 "$2" "│"
+}
+
+# A horizontally-centered interior line. CONTENT_DW is the display width of the
+# content's visible glyphs (excluding ANSI), so centering stays exact.
+fmt_center() {  # fmt_center WIDTH CONTENT_ANSI CONTENT_DW
+    local width="$1" content="$2" cdw="$3"
+    local inner=$(( width - 2 )) lp rp
+    lp=$(( (inner - cdw) / 2 )); (( lp < 0 )) && lp=0
+    rp=$(( inner - cdw - lp )); (( rp < 0 )) && rp=0
+    printf '│%*s%s%*s│' "$lp" "" "$content" "$rp" ""
 }
 
 frontmatter_field() {
@@ -353,12 +383,25 @@ draw_card() {
         [[ -n "$task" ]] && body+=("$(fmt_erow "$width" 📋 "$task")")
         (( ${#body[@]} == 0 )) && body+=("$(fmt_erow "$width" ⚡ "working…")")
     else
+        # Idle: last work at top, then a per-model logo + a subtly breathing
+        # "ready" centered in the card, so idle lanes aren't a blank void.
         if [[ -n "${last//$'\t'/}" ]]; then
             local lspec ltitle
             IFS=$'\t' read -r lspec ltitle <<< "$last"
             body+=("$(fmt_erow "$width" 🕐 "${lspec}${ltitle:+ · $ltitle}")")
         else
             body+=("$(fmt_erow "$width" 🕐 "no recent work")")
+        fi
+        if (( height > 6 )); then
+            local rem=$(( height - 3 )) top bot k logo bc
+            logo="$(runtime_logo "$lane")"
+            bc="${BREATHE[$(( ${tick:-0} % ${#BREATHE[@]} ))]}"
+            top=$(( (rem - 2) / 2 )); (( top < 0 )) && top=0
+            bot=$(( rem - 2 - top )); (( bot < 0 )) && bot=0
+            for ((k = 0; k < top; k++)); do body+=("$(blank_row "$width" "$accent")"); done
+            body+=("$(fmt_center "$width" "$(printf '\033[1;38;5;%sm%s\033[0m' "$accent" "$logo")" 2)")
+            body+=("$(fmt_center "$width" "$(printf '\033[38;5;%sm%s\033[0m' "$bc" "ready")" 5)")
+            for ((k = 0; k < bot; k++)); do body+=("$(blank_row "$width" "$accent")"); done
         fi
     fi
 
@@ -456,7 +499,9 @@ trap 'show_cursor; printf "\n"; exit 0' INT TERM EXIT
 hide_cursor
 printf '\033[2J'
 
+tick=0
 while true; do
+    tick=$((tick + 1))
     cols=$(pane_cols)
     rows=$(pane_rows)
     # Never render wider than the pane, or lines wrap into a garbled mess. Only
@@ -511,11 +556,11 @@ while true; do
     done <<< "$frame"
     printf '\033[J'
 
-    # Stay responsive to clicks: poll the focus file every 0.25s and redraw early
-    # if it changed (so preview open/close feels instant), otherwise refresh on the
-    # usual ~2s cadence (which also keeps a live preview updating).
+    # ~0.5s cadence: fast enough for the idle "breathing" animation, and still
+    # snappy for clicks (we poll the focus file every 0.25s and redraw early if it
+    # changed). The snapshot's outbox scan is TTL-cached, so a 0.5s tick is cheap.
     _fmt=$(stat -f '%m' /tmp/vs-sidebar-focus 2>/dev/null || echo 0)
-    for _ in 1 2 3 4 5 6 7 8; do
+    for _ in 1 2; do
         sleep 0.25
         [[ "$(stat -f '%m' /tmp/vs-sidebar-focus 2>/dev/null || echo 0)" != "$_fmt" ]] && break
     done
