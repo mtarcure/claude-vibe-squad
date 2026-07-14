@@ -2,7 +2,6 @@
 # bin/send-task.sh — Dispatch a TASK file to a source namespace inbox.
 #
 # Spec 1.5 safety features baked in:
-#   Item 1: auto-git-snapshot before dispatch
 #   Item 3: per-task version dirs (opt-in via per_task_versioning: true)
 #   Item 4: no-delete rule injection (via shared/dispatch-toolkit.sh)
 #   Item 5: write_scope conflict detection against active-tasks.json
@@ -26,7 +25,7 @@
 #
 # Exit codes:
 #   0  — dispatched successfully
-#   1  — blocked (scope conflict, snapshot failure, missing fields)
+#   1  — blocked (scope conflict, missing fields)
 #   2  — dry-run mode (no writes; print what would happen)
 
 set -euo pipefail
@@ -411,7 +410,7 @@ echo "Dispatching ${TASK_ID} → ${TO_MODEL}/${SPECIALIST}"
 echo "  Model lane: ${TO_MODEL}  Specialist: ${SPECIALIST}  Source namespace: ${SOURCE_NAMESPACE}"
 
 if $DRY_RUN; then
-    echo "[DRY RUN] Would snapshot, inject toolkit, copy to inbox, update registry"
+    echo "[DRY RUN] Would validate, inject toolkit, copy to inbox, update registry"
     echo "[DRY RUN] per_task_versioning=${PER_TASK_VERSIONING:-false}"
     echo "[DRY RUN] write_scope=${WRITE_SCOPE_RAW:-[]}"
     if $PANEL_ENABLED; then
@@ -419,22 +418,6 @@ if $DRY_RUN; then
     fi
     exit 2
 fi
-
-# ── ITEM 1: auto-git-snapshot ─────────────────────────────────────────────────
-# Commit the current tree before any dispatch. --allow-empty fires even when
-# tree is clean (re-dispatch, already-staged changes). Failures abort dispatch
-# so an unrecoverable state is never dispatched.
-
-info "Auto-snapshot: before dispatch"
-(
-    cd "${VAULT_ROOT}"
-    git add -A
-    if [[ -n "${RUN_ID}" && "${RUN_ID}" != "none" ]]; then
-        git commit -m "auto-snapshot: before ${TASK_ID} dispatch for ${RUN_ID}" --allow-empty -q
-    else
-        git commit -m "auto-snapshot: before ${TASK_ID} dispatch" --allow-empty -q
-    fi
-) || die "Git snapshot failed. Check repo state (locked index? detached HEAD?) before dispatching."
 
 # ── ITEM 5: write_scope conflict detection ────────────────────────────────────
 # Parse write_scope (YAML inline list or empty). Scan active-tasks.json for
