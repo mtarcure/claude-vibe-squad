@@ -180,12 +180,13 @@ PATH_PREFIX='export PATH="$HOME/.local/bin:$HOME/go/bin:$PATH"'
 # (Max plan, ChatGPT login, Gemini personal OAuth, Kimi login). Without this,
 # headless calls bill against potentially-empty API keys instead of subscriptions.
 # Interactive launches typically prefer OAuth anyway, but this is belt-and-suspenders.
-AUTH_PREFIX='unset ANTHROPIC_API_KEY OPENAI_API_KEY GEMINI_API_KEY GOOGLE_API_KEY'
+# Private knowledge-vault root — chrono-vault MCP fail-closes without this (P0-8 fix).
+AUTH_PREFIX='export CHRONO_VAULT_ROOT="$HOME/Obsidian-Chrono"; unset ANTHROPIC_API_KEY OPENAI_API_KEY GEMINI_API_KEY GOOGLE_API_KEY'
 
 # Claude panes host Claude plugins, including chrono-content-engineer. Keep the
 # OpenAI key only there so Sora can authenticate without exposing media creds to
 # non-media model lanes.
-MEDIA_AUTH_PREFIX='unset ANTHROPIC_API_KEY GEMINI_API_KEY GOOGLE_API_KEY'
+MEDIA_AUTH_PREFIX='export CHRONO_VAULT_ROOT="$HOME/Obsidian-Chrono"; unset ANTHROPIC_API_KEY GEMINI_API_KEY GOOGLE_API_KEY'
 
 # Gemini lane is the exception: Google deprecated the individual Code Assist
 # OAuth client (2026-07), so the gemini CLI can no longer log in via
@@ -193,7 +194,7 @@ MEDIA_AUTH_PREFIX='unset ANTHROPIC_API_KEY GEMINI_API_KEY GOOGLE_API_KEY'
 # selectedType: gemini-api-key). Source secrets to guarantee the key is present,
 # but still unset GOOGLE_API_KEY — the secrets.zsh note warns gemini-cli grabbing
 # the GCP project key routes Gemini calls through the wrong project (403).
-GEMINI_AUTH_PREFIX='source ~/.config/shell/secrets.zsh 2>/dev/null; unset ANTHROPIC_API_KEY OPENAI_API_KEY GOOGLE_API_KEY'
+GEMINI_AUTH_PREFIX='source ~/.config/shell/secrets.zsh 2>/dev/null; export CHRONO_VAULT_ROOT="$HOME/Obsidian-Chrono"; unset ANTHROPIC_API_KEY OPENAI_API_KEY GOOGLE_API_KEY'
 
 acknowledge_gemini_agents() {
     python3 - "$VAULT_ROOT" <<'PY'
