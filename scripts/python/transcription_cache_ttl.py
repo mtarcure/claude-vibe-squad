@@ -3,7 +3,12 @@ import os
 import time
 from pathlib import Path
 
-CACHE_DIR = Path(os.environ.get("VIBESQUAD_ROOT", "/Users/user/Obsidian-Claude-Vibe-Squad")) / "_state" / "transcription-cache"
+REPO = Path(
+    os.environ.get("VAULT_ROOT")
+    or os.environ.get("VIBESQUAD_ROOT")
+    or Path.home() / "Obsidian-Claude-Vibe-Squad"
+)
+CACHE_DIR = REPO / "_state" / "transcription-cache"
 TTL_DAYS = int(os.environ.get("TTL_DAYS", "15"))
 
 def main() -> int:

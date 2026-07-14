@@ -459,7 +459,7 @@ Ink spawns each CLI with a generated mcp-config pointing to the same set.
 
 ### 6.3 New `chrono-recon` MCP (v1)
 
-Location: `/Users/user/chrono/plugins/chrono-recon/`
+Location: `~/chrono/plugins/chrono-recon/`
 Pattern: same as `chrono-research-arsenal` (Python + FastMCP)
 
 **v1 tools (keyless or existing keys only):**
@@ -790,7 +790,7 @@ If A.1 breaks something unforeseen: `git revert HEAD` restores scripts + phases;
 - Playwright CDP attach smoke test
 
 **B.5 — chrono-recon MCP (v1 keyless)**
-- Scaffold at `/Users/user/chrono/plugins/chrono-recon/`
+- Scaffold at `~/chrono/plugins/chrono-recon/`
 - 5 tools: dns_enumerate, whois_lookup, crt_sh_certificates, wayback_snapshots, github_leaked_secrets
 - FastMCP stdio protocol
 - Register in chrono-recon plugin.json

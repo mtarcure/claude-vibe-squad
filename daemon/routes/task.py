@@ -9,7 +9,8 @@ from daemon.circuit_breaker import get_breaker, BreakerState
 router = APIRouter()
 
 def _state_dir() -> Path:
-    return Path(os.environ.get("VIBESQUAD_STATE_DIR", "/Users/user/Obsidian-Claude-Vibe-Squad/daemon/state"))
+    vault_root = Path(os.environ.get("VAULT_ROOT", str(Path.home() / "Obsidian-Claude-Vibe-Squad")))
+    return Path(os.environ.get("VIBESQUAD_STATE_DIR", str(vault_root / "daemon" / "state")))
 
 def _read_task_meta(task_file: Path) -> dict:
     """Best-effort read of task packet or outbox manifest — returns fields UX needs."""

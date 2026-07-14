@@ -6,7 +6,7 @@ import os
 import httpx
 from pathlib import Path
 
-REPO = Path("/Users/user/Obsidian-Claude-Vibe-Squad")
+REPO = Path(os.environ.get("VAULT_ROOT", str(Path.home() / "Obsidian-Claude-Vibe-Squad")))
 
 
 async def collect_handoffs(week_start: datetime.date) -> str:

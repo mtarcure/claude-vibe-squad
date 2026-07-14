@@ -52,7 +52,7 @@ TRIAGE="${STATE_DIR}/content-triage-${DATE}.json"
 NEWSLETTER="${STATE_DIR}/newsletter-${DATE}.md"
 LOG="${STATE_DIR}/cleanup-logs/${DATE}-email-brief.md"
 MARKER="${STATE_DIR}/email-brief-${DATE}.delivered"
-RECIPIENT="redacted@example.com"
+RECIPIENT="${BRIEF_RECIPIENT:-}"
 SUBJECT="Vibe Squad morning brief — ${WEEKDAY} ${DATE}"
 MAX_BODY_CHARS=6000
 NEWSLETTER_BODY_CHARS=16000
@@ -97,6 +97,10 @@ Status: skipped — ${reason}
     echo "email-brief skipped — ${reason}"
     exit 0
 }
+
+if [[ -z "${RECIPIENT}" ]]; then
+    skip_with_log "BRIEF_RECIPIENT is not configured"
+fi
 
 if [[ -f "${MARKER}" ]]; then
     skip_with_log "already delivered"

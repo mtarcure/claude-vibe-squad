@@ -9,7 +9,8 @@ class OutboxWatcher:
         self.subscribers: list[asyncio.Queue] = []
 
     def _state_dir(self) -> Path:
-        return Path(os.environ.get("VIBESQUAD_STATE_DIR", "/Users/user/Obsidian-Claude-Vibe-Squad/daemon/state"))
+        vault_root = Path(os.environ.get("VAULT_ROOT", str(Path.home() / "Obsidian-Claude-Vibe-Squad")))
+        return Path(os.environ.get("VIBESQUAD_STATE_DIR", str(vault_root / "daemon" / "state")))
 
     async def subscribe(self) -> asyncio.Queue:
         q = asyncio.Queue()

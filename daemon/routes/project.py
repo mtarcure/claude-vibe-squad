@@ -1,12 +1,13 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from pathlib import Path
+import os
 import yaml
 from daemon.protocol.writer import atomic_write_yaml
 
 router = APIRouter()
 
-REPO = Path("/Users/user/Obsidian-Claude-Vibe-Squad")
+REPO = Path(os.environ.get("VAULT_ROOT", str(Path.home() / "Obsidian-Claude-Vibe-Squad")))
 PROJECTS = REPO / "projects"
 
 class CreateProjectRequest(BaseModel):

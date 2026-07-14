@@ -1076,7 +1076,7 @@ Local security/bounty CLIs installed on the operator's Mac, invoked via **Bash**
 
 All `--version` output below was reproduced live on 2026-07-12 (root CLAUDE.md rule 8). `access: Public` = locally installed binary, no subscription/API gate.
 
-**PATH caveat:** `waybackurls` and `interactsh-client` are installed under `~/go/bin` (`/Users/user/go/bin`), which is NOT on the default login PATH. Invoke them by absolute path, or add `~/go/bin` to PATH (operator action — not done by this task). All other tools are on PATH via `/opt/homebrew/bin` or `~/.local/bin`.
+**PATH caveat:** `waybackurls` and `interactsh-client` are installed under `~/go/bin`, which is NOT on the default login PATH. Invoke them by absolute path, or add `~/go/bin` to PATH (operator action — not done by this task). All other tools are on PATH via `/opt/homebrew/bin` or `~/.local/bin`.
 
 ### Smart-contract tooling → `smart-contract-engineer`, `exploit-developer`
 
@@ -1122,7 +1122,7 @@ All `--version` output below was reproduced live on 2026-07-12 (root CLAUDE.md r
 - specialists: smart-contract-engineer, exploit-developer
 - verified: yes
 - last_checked: 2026-07-12
-- test_reference: `slither --version` → `0.11.5` (/Users/user/.local/bin/slither)
+- test_reference: `slither --version` → `0.11.5` (`~/.local/bin/slither`)
 - notes: Use when static-analysing Solidity source for known vuln patterns before manual review.
 
 #### myth (Mythril)
@@ -1131,7 +1131,7 @@ All `--version` output below was reproduced live on 2026-07-12 (root CLAUDE.md r
 - specialists: smart-contract-engineer, exploit-developer
 - verified: yes
 - last_checked: 2026-07-12
-- test_reference: `myth version` → `Mythril version v0.24.8` (/Users/user/.local/bin/myth). NOTE: version flag is `myth version`, not `--version`.
+- test_reference: `myth version` → `Mythril version v0.24.8` (`~/.local/bin/myth`). NOTE: version flag is `myth version`, not `--version`.
 - notes: Use when symbolic-executing EVM bytecode to confirm reachability of a suspected bug.
 
 #### echidna
@@ -1158,7 +1158,7 @@ All `--version` output below was reproduced live on 2026-07-12 (root CLAUDE.md r
 - specialists: smart-contract-engineer, exploit-developer
 - verified: yes
 - last_checked: 2026-07-12
-- test_reference: `halmos --version` → `halmos 0.3.3` (/Users/user/.local/bin/halmos)
+- test_reference: `halmos --version` → `halmos 0.3.3` (`~/.local/bin/halmos`)
 - notes: Use when symbolic-testing Foundry test suites to prove/disprove invariants exhaustively.
 
 #### aderyn
@@ -1259,7 +1259,7 @@ All `--version` output below was reproduced live on 2026-07-12 (root CLAUDE.md r
 - specialists: scout
 - verified: yes
 - last_checked: 2026-07-12
-- test_reference: installed via `go install …/waybackurls@latest`; binary at `/Users/user/go/bin/waybackurls` (8.5MB, 2026-07-12). `waybackurls -h` prints usage. NOTE: no `--version` flag exists; verification is presence + runnable `-h`.
+- test_reference: installed via `go install …/waybackurls@latest`; binary at `~/go/bin/waybackurls` (8.5MB, 2026-07-12). `waybackurls -h` prints usage. NOTE: no `--version` flag exists; verification is presence + runnable `-h`.
 - notes: Use when fetching a host's Wayback-known URLs during recon. NOT on default PATH (`~/go/bin`).
 
 #### interactsh-client

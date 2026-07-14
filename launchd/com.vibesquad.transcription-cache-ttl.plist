@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Install template: replace __VAULT_ROOT__ (and __HOME__ if present) with absolute paths before launchctl load. -->
 <plist version="1.0">
 <dict>
     <key>Label</key>
     <string>com.vibesquad.transcription-cache-ttl</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/user/Obsidian-Claude-Vibe-Squad/bin/transcription-cache-ttl.sh</string>
+        <string>__VAULT_ROOT__/bin/transcription-cache-ttl.sh</string>
     </array>
     <key>StartCalendarInterval</key>
     <dict>

@@ -9,7 +9,7 @@ if [[ -f "$HOME/.config/shell/secrets.zsh" ]]; then
     source "$HOME/.config/shell/secrets.zsh"
 fi
 
-REPO="/Users/user/Obsidian-Claude-Vibe-Squad"
+REPO="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
 cd "$REPO"
 
 exec "$REPO/.venv/bin/python" -m daemon.main

@@ -7,7 +7,7 @@ Your current specialist roster is in `../ROSTER.md`.
 Task packets are not stored under this directory. They live under:
 
 ```text
-/Users/user/Obsidian-Claude-Vibe-Squad/departments/<compatibility_namespace>/inbox/TASK-*.md
+~/Obsidian-Claude-Vibe-Squad/departments/<compatibility_namespace>/inbox/TASK-*.md
 ```
 
 When nudged with an absolute task path, open that exact file. If no path is

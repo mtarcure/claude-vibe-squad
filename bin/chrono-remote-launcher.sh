@@ -4,7 +4,7 @@
 # Shares conversation state with Ink's batch-mode Chrono via -c and shared cwd.
 set -euo pipefail
 
-REPO="/Users/user/Obsidian-Claude-Vibe-Squad"
+REPO="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
 cd "$REPO"
 
 # Unset API-key env vars so claude uses OAuth/subscription auth (Max plan).
@@ -21,12 +21,12 @@ fi
 # --remote-control chrono: registers session for mobile Claude app attach
 # --append-system-prompt: adds Chrono's persona on top of default system prompt
 if [[ -n "$SYSTEM_PROMPT" ]]; then
-    exec /Users/user/.local/bin/claude \
+    exec "${HOME}/.local/bin/claude" \
         -c \
         --remote-control chrono \
         --append-system-prompt "$SYSTEM_PROMPT"
 else
-    exec /Users/user/.local/bin/claude \
+    exec "${HOME}/.local/bin/claude" \
         -c \
         --remote-control chrono
 fi

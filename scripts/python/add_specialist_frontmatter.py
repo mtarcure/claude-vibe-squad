@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Add/replace YAML frontmatter to specialist files with new v2.0 schema."""
 from pathlib import Path
+import os
 import sys
 
-REPO = Path("/Users/user/Obsidian-Claude-Vibe-Squad")
+REPO = Path(os.environ.get("VAULT_ROOT", str(Path.home() / "Obsidian-Claude-Vibe-Squad")))
 SPECIALIST_DIRS = [
     REPO / "departments",
     REPO / "shared" / "specialists",

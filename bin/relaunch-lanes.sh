@@ -18,7 +18,7 @@
 set -uo pipefail
 
 SESSION="squad"
-VR="/Users/user/Obsidian-Claude-Vibe-Squad"
+VR="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
 
 cmd_for() {
   case "$1" in
@@ -33,9 +33,10 @@ cmd_for() {
 if [ "$#" -gt 0 ]; then LANES="$*"; else LANES="gpt-codex claude gemini kimi"; fi
 
 at_shell() {
-  local last
+  local last short_hostname
   last="$(tmux capture-pane -p -t "${SESSION}:$1" 2>/dev/null | grep -v '^[[:space:]]*$' | tail -1)"
-  case "$last" in *localhost*%*) return 0 ;; *) return 1 ;; esac
+  short_hostname="$(hostname -s)"
+  case "$last" in *"${short_hostname}"*%*) return 0 ;; *) return 1 ;; esac
 }
 
 for lane in $LANES; do
