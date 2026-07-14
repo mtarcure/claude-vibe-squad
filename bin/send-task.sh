@@ -10,6 +10,8 @@
 #
 # Usage:
 #   bin/send-task.sh <task-file> [--nudge-pane <tmux-target>] [--dry-run]
+#       [--panel a,b,c] [--panel-policy evidence-synthesis]
+#       [--panel-quorum all|N] [--panel-timeout SECONDS]
 #   bin/send-task.sh --close-task <TASK-ID>
 #
 # Required frontmatter in task file:
@@ -179,18 +181,33 @@ TASK_FILE=""
 NUDGE_PANE=""
 NUDGE_UNAVAILABLE_REASON=""
 DRY_RUN=false
+PANEL_ENABLED=false
+PANEL_MEMBERS_RAW=""
+PANEL_POLICY="evidence-synthesis"
+PANEL_QUORUM="all"
+PANEL_TIMEOUT_SECONDS="900"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --nudge-pane) NUDGE_PANE="$2"; shift 2 ;;
         --nudge-unavailable) NUDGE_UNAVAILABLE_REASON="$2"; shift 2 ;;
+        --panel) PANEL_ENABLED=true; PANEL_MEMBERS_RAW="$2"; shift 2 ;;
+        --panel-policy) PANEL_POLICY="$2"; shift 2 ;;
+        --panel-quorum) PANEL_QUORUM="$2"; shift 2 ;;
+        --panel-timeout) PANEL_TIMEOUT_SECONDS="$2"; shift 2 ;;
         --dry-run)    DRY_RUN=true; shift ;;
         *)            TASK_FILE="$1"; shift ;;
     esac
 done
 
-[[ -z "$TASK_FILE" ]] && die "Usage: $0 <task-file> [--nudge-pane <target>] [--dry-run]"
+[[ -z "$TASK_FILE" ]] && die "Usage: $0 <task-file> [--nudge-pane <target>] [--dry-run] [--panel a,b,c] [--panel-policy evidence-synthesis] [--panel-quorum all|N] [--panel-timeout SECONDS]"
 [[ -f "$TASK_FILE" ]] || die "Task file not found: $TASK_FILE"
+
+if ! $PANEL_ENABLED; then
+    [[ "$PANEL_POLICY" == "evidence-synthesis" ]] || die "--panel-policy requires --panel"
+    [[ "$PANEL_QUORUM" == "all" ]] || die "--panel-quorum requires --panel"
+    [[ "$PANEL_TIMEOUT_SECONDS" == "900" ]] || die "--panel-timeout requires --panel"
+fi
 
 # ── read task metadata ────────────────────────────────────────────────────────
 
@@ -211,6 +228,7 @@ MODEL_OVERRIDE_REASON=$(frontmatter_field "$TASK_FILE" "model_override_reason")
 DIRECT_LANE_WORK_ALLOWED=$(frontmatter_field "$TASK_FILE" "direct_lane_work_allowed")
 LEGACY_LEAD_DIRECT_ALLOWED=$(frontmatter_field "$TASK_FILE" "lead_direct_allowed")
 PARALLEL_SAFE=$(frontmatter_field "$TASK_FILE" "parallel_safe")
+PANEL_MEMBER_WRITE_SCOPE=$(frontmatter_field "$TASK_FILE" "panel_member_write_scope")
 MAP_BACKUP="none"
 MAP_OPERATOR_GATE="[]"
 MAP_SAFETY=""
@@ -280,6 +298,68 @@ if [[ "$SPECIALIST" == "none" && "$DIRECT_LANE_WORK_ALLOWED" != "true" ]]; then
     die "specialist:none requires direct_lane_work_allowed:true with an explicit body rationale"
 fi
 
+PANEL_MEMBERS_CSV=""
+PANEL_MEMBERS_YAML="[]"
+PANEL_COUNT=0
+if $PANEL_ENABLED; then
+    [[ "$TO_MODEL" == "claude" || "$TO_MODEL" == "gpt-codex" ]] \
+        || die "panel-v1 supports only claude and gpt-codex lanes, got '${TO_MODEL}'"
+    [[ "$PANEL_POLICY" == "evidence-synthesis" ]] \
+        || die "panel-v1 policy must be evidence-synthesis, got '${PANEL_POLICY}'"
+    [[ "$PANEL_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] \
+        || die "panel timeout must be a positive integer, got '${PANEL_TIMEOUT_SECONDS}'"
+    (( PANEL_TIMEOUT_SECONDS <= 86400 )) \
+        || die "panel timeout exceeds 86400 seconds"
+
+    [[ -z "$(frontmatter_field "$TASK_FILE" "dispatch_kind")" ]] \
+        || die "task already contains dispatch_kind; do not combine a pre-panelized packet with --panel"
+    [[ -n "$PANEL_MEMBERS_RAW" ]] || die "--panel requires a comma-separated member list"
+
+    declare -a PANEL_MEMBERS=()
+    IFS=',' read -r -a PANEL_INPUT <<<"$PANEL_MEMBERS_RAW"
+    for raw_member in "${PANEL_INPUT[@]}"; do
+        member="${raw_member//[[:space:]]/}"
+        [[ "$member" =~ ^[a-z0-9][a-z0-9-]*$ ]] \
+            || die "invalid panel member '${raw_member}'"
+        if (( PANEL_COUNT > 0 )); then
+            for existing_member in "${PANEL_MEMBERS[@]}"; do
+                [[ "$existing_member" != "$member" ]] \
+                    || die "duplicate panel member '${member}'"
+            done
+        fi
+        PANEL_MEMBERS[$PANEL_COUNT]="$member"
+        PANEL_COUNT=$((PANEL_COUNT + 1))
+    done
+    (( PANEL_COUNT >= 2 && PANEL_COUNT <= 3 )) \
+        || die "panel-v1 requires 2-3 members (3 members + coordinator = 4-thread cap), got ${PANEL_COUNT}"
+
+    if [[ "$PANEL_QUORUM" != "all" ]]; then
+        [[ "$PANEL_QUORUM" =~ ^[1-9][0-9]*$ ]] \
+            || die "panel quorum must be 'all' or a positive integer"
+        (( PANEL_QUORUM <= PANEL_COUNT )) \
+            || die "panel quorum ${PANEL_QUORUM} exceeds member count ${PANEL_COUNT}"
+    fi
+
+    PANEL_MEMBER_WRITE_SCOPE="${PANEL_MEMBER_WRITE_SCOPE:-[]}"
+    if [[ "$PANEL_MEMBER_WRITE_SCOPE" =~ departments/.*/outbox \
+        || "$PANEL_MEMBER_WRITE_SCOPE" =~ _state/failover/staging ]]; then
+        die "panel member write scope may not include outbox or failover staging: ${PANEL_MEMBER_WRITE_SCOPE}"
+    fi
+
+    for member in "${PANEL_MEMBERS[@]}"; do
+        if ! {
+            find "$VAULT_ROOT/departments" -path "*/specialists/${member}.md" -type f -print -quit
+            find "$VAULT_ROOT/shared/specialists" -maxdepth 1 -name "${member}.md" -type f -print -quit 2>/dev/null
+        } | grep -q .; then
+            die "unknown panel member '${member}'"
+        fi
+        validate_native_adapter "$TO_MODEL" "$member"
+    done
+
+    PANEL_MEMBERS_CSV="$(IFS=,; echo "${PANEL_MEMBERS[*]}")"
+    PANEL_MEMBERS_YAML="[$(IFS=', '; echo "${PANEL_MEMBERS[*]}")]"
+fi
+
 if [[ "$SPECIALIST" != "none" ]]; then
     if ! {
         find "$VAULT_ROOT/departments" -path "*/specialists/${SPECIALIST}.md" -type f -print -quit
@@ -334,6 +414,9 @@ if $DRY_RUN; then
     echo "[DRY RUN] Would snapshot, inject toolkit, copy to inbox, update registry"
     echo "[DRY RUN] per_task_versioning=${PER_TASK_VERSIONING:-false}"
     echo "[DRY RUN] write_scope=${WRITE_SCOPE_RAW:-[]}"
+    if $PANEL_ENABLED; then
+        echo "[DRY RUN] dispatch_kind=panel members=${PANEL_MEMBERS_CSV} policy=${PANEL_POLICY} quorum=${PANEL_QUORUM} timeout=${PANEL_TIMEOUT_SECONDS}"
+    fi
     exit 2
 fi
 
@@ -440,7 +523,78 @@ fi
 # hard no-delete rule block. Append to a working copy of the task file.
 
 WORKING_COPY=$(mktemp "${TASK_FILE%.md}.XXXXXX.md")
-cp "$TASK_FILE" "$WORKING_COPY"
+if $PANEL_ENABLED; then
+    awk \
+        -v panel_id="PANEL-${TASK_ID#TASK-}" \
+        -v members="$PANEL_MEMBERS_YAML" \
+        -v policy="$PANEL_POLICY" \
+        -v quorum="$PANEL_QUORUM" \
+        -v timeout="$PANEL_TIMEOUT_SECONDS" \
+        -v member_scope="$PANEL_MEMBER_WRITE_SCOPE" '
+        NR == 1 && $0 == "---" { in_frontmatter=1; print; next }
+        in_frontmatter && /^panel_member_write_scope:/ { next }
+        in_frontmatter && $0 == "---" && !inserted {
+            print "dispatch_kind: panel"
+            print "panel_id: " panel_id
+            print "panel_members: " members
+            print "panel_policy: " policy
+            print "panel_quorum: " quorum
+            print "panel_timeout_seconds: " timeout
+            print "panel_max_parallel: 3"
+            print "panel_return_contract: lane-native-v1"
+            print "panel_member_write_scope: " member_scope
+            print
+            inserted=1
+            in_frontmatter=0
+            next
+        }
+        { print }
+        END { if (!inserted) exit 42 }
+    ' "$TASK_FILE" > "$WORKING_COPY" \
+        || die "failed to inject panel-v1 frontmatter"
+
+    {
+        cat <<'PANEL_EOF'
+
+## Panel-v1 coordinator instructions
+
+This is an opt-in panel dispatch governed by `shared/modes/panel.md`.
+
+1. Validate every named member and create `_state/runtime/lane-activity/<task-id>.json` with `bin/panel-activity.sh create` before spawning.
+2. Spawn all members in parallel, never serially. Reserve the coordinator as the fourth thread.
+3. Members may use only the packet's read/write scope and MUST NEVER write `departments/*/outbox/` or `_state/failover/staging/`.
+4. Claude requires coordinator-pull plus deterministic `_state/scratch/<task-id>/<member>.md` file return. Codex uses native parent-message return primarily; a scratch file is optional for oversized results.
+5. Normalize every member return to the panel-v1 member-result schema. Update activity state on spawn, return, failure, refusal, and timeout.
+6. Wait for quorum or timeout. A late, failed, refused, or timed-out member must be surfaced as a coverage gap and must not block an allowed quorum.
+7. Aggregate by deterministic collation followed by evidence synthesis. Preserve attribution, unique findings, contradictions, refusals, failures, and limitations. Never majority-vote or fake unanimity.
+8. The coordinator alone writes exactly one canonical outbox. Close/archive the activity record in a finally path. One parent task remains one failover attempt and one artifact.
+
+### Required member-result schema
+
+```yaml
+specialist: <canonical-name>
+status: completed # completed | failed | refused | timed_out
+summary: <bounded summary>
+claims:
+  - finding: <claim>
+    severity: <critical|high|medium|low|info|none>
+    evidence: [<source reference>]
+    confidence: <high|medium|low>
+disagreements: []
+tools_used: []
+artifacts: []
+limitations: []
+```
+
+### Panel assignments
+PANEL_EOF
+        for member in "${PANEL_MEMBERS[@]}"; do
+            printf '\n#### %s\n\nApply the canonical `%s` specialist brief to the parent objective. Return only the required member-result schema to the coordinator.\n' "$member" "$member"
+        done
+    } >> "$WORKING_COPY"
+else
+    cp "$TASK_FILE" "$WORKING_COPY"
+fi
 
 if [[ -x "$TOOLKIT" ]]; then
     bash "$TOOLKIT" "$COMPAT_NAMESPACE" "$TO_MODEL" >> "$WORKING_COPY"
@@ -570,6 +724,8 @@ registry["${TASK_ID}"] = {
     "dispatched_at": datetime.now(timezone.utc).isoformat(),
     "write_scope": scope,
     "status": "in-flight",
+    "dispatch_kind": "panel" if "${PANEL_ENABLED}" == "true" else "single",
+    "panel_members": [m for m in "${PANEL_MEMBERS_CSV}".split(",") if m],
 }
 
 tmp = str(registry_path) + ".tmp"
