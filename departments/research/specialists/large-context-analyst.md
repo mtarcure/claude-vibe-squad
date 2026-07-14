@@ -27,7 +27,7 @@ tags: []
 - `chrono-kg MCP` - Knowledge-graph query and write surface (separate namespace under chrono-vault binary). Use when: this MCP's purpose matches the task shape.
 - `chrono-obsidian MCP` - Obsidian REST-API bridge for vault read/write. Use when: this MCP's purpose matches the task shape.
 - `chrono-catalog MCP` - Local skill / plugin / tool catalog query surface. Use when: this MCP's purpose matches the task shape.
-- `chrono-research-arsenal MCP` - Research MCP wrapper; current live tools are arxiv_search and xai_search only. Perplexity, Brave, Serper, and Apify are not wired until shared/api-catalog.md verifies them. Use when: this MCP's purpose matches the task shape.
+- `chrono-research-arsenal MCP` - Live research tools: `perplexity_search_web` (synthesized + cited; default for general research), `xai_search` (real-time web/X/news), and `arxiv_search` (papers). Brave/Apify/Serper are planned/unverified. Use when: this MCP's purpose matches the task shape.
 - `chrono-content-engineer MCP` - Content/media MCP wrapper; current live tools are generate_image, generate_video, and generate_audio only. ElevenLabs and Higgsfield are separate child routes and not available unless shared/api-catalog.md verifies them. Use when: this MCP's purpose matches the task shape.
 - `sequential-thinking MCP` - Multi-step structured reasoning tool (`sequential-thinking`). Use when: this MCP's purpose matches the task shape.
 
@@ -49,6 +49,10 @@ tags: []
 
 ### APIs available (via env)
 - `OBSIDIAN_REST_API_KEY` -> chrono-obsidian MCP - for vault read/write when chrono-obsidian is verified for this pane.
+
+## Search tool order
+
+Try dedicated tools FIRST — `perplexity_search_web` (default: synthesized + cited), `xai_search` (real-time web/X/news + current events), `arxiv_search` (papers); on Gemini, native Google Search. **Run one live probe before concluding a tool is unavailable — never fall back on a prior-session or boilerplate "not wired" claim; trust `api-catalog.md` over packet boilerplate.** Treat absence from the callable runtime schema as an availability error: declare `capability_gap` and use the approved fallback. Otherwise, fall back to `WebSearch` ONLY when a dedicated tool ERRORS on a live call. Declare `tools_used` honestly per call.
 
 ## When to fan out
 

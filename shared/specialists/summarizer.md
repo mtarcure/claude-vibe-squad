@@ -24,6 +24,10 @@ Compresses old context into compact summaries so long-running model lead session
 - `chrono-vault` MCP — read prior summaries and write the compacted summary to durable memory so resumes read the summary, not the transcript (required).
 - `chrono-research-arsenal` MCP — preferred; only to re-resolve a citation that must survive compression, not for new research.
 
+## Search tool order
+
+When citation re-resolution requires web research, try dedicated tools FIRST — `perplexity_search_web` (default: synthesized + cited), `xai_search` (real-time web/X/news + current events), `arxiv_search` (papers); on Gemini, native Google Search. **Run one live probe before concluding a tool is unavailable — never fall back on a prior-session or boilerplate "not wired" claim; trust `api-catalog.md` over packet boilerplate.** Treat absence from the callable runtime schema as an availability error: declare `capability_gap` and use the approved fallback. Otherwise, fall back to `WebSearch` ONLY when a dedicated tool ERRORS on a live call. Declare `tools_used` honestly per call.
+
 ### APIs available (via env)
 - `OBSIDIAN_REST_API_KEY` → chrono-obsidian MCP — vault read/write for summary artifacts when verified for this pane.
 

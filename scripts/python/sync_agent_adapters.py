@@ -84,7 +84,7 @@ def common_instructions(row: dict[str, str], canonical: Path) -> str:
     name = row["specialist"]
     kimi_mcp_note = ""
     if row["model"] == "kimi":
-        kimi_mcp_note = "\n\nKimi MCP note: current Kimi CLI behavior exposes MCP tools to the main Kimi lane, not inside `Agent(...)` subagents. If the task requires an MCP call such as `arxiv_search`, `xai_search`, vault tools, content tools, or sequential thinking, perform that MCP call in the main Kimi lane and report `subagent_mcp_gap` instead of retrying the subagent path."
+        kimi_mcp_note = "\n\nKimi MCP note: current Kimi CLI behavior exposes MCP tools to the main Kimi lane, not inside `Agent(...)` subagents. If the task requires an MCP call such as `perplexity_search_web`, `xai_search`, `arxiv_search`, vault tools, content tools, or sequential thinking, perform that MCP call in the main Kimi lane and report `subagent_mcp_gap` instead of retrying the subagent path."
     return f"""You are the `{name}` specialist running inside the `{row['model']}` model lane.
 
 Canonical specialist instructions live at `{rel(canonical)}`. Read that file at task start and follow it over this adapter.

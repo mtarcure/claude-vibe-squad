@@ -16,10 +16,11 @@
 #   _state/incident-2026-05-03-claude-mcp-tilde.md (post-fix Claude MCP set)
 #   gemini mcp list -d (post-Hybrid-Path-A install on 2026-05-03)
 #
-# `chrono-research-arsenal` is a research-lane wrapper. Current live tools are
-# `arxiv_search` and `xai_search`; Perplexity/Brave/Serper/Apify are future
-# routes until the catalog verifies them. Other namespaces route external
-# research through the research namespace instead of inventing tool names.
+# Live research MCP tools (claude/codex/kimi/gemini panes):
+# `perplexity_search_web` (synthesized + cited — default for general research),
+# `xai_search` (real-time web/X/news), and `arxiv_search` (papers) — all verified
+# live. Brave/Apify/Serper are planned/unverified. Other namespaces route
+# external research through the research namespace instead of inventing tools.
 #
 # Usage:  bash shared/dispatch-toolkit.sh <compatibility-namespace> <to-model>
 
@@ -59,7 +60,7 @@ case "${NAMESPACE}" in
 - `systems-engineer` · cross-arch builds, NUMA/SIMD
 - `e2e-runner` · Playwright suites, visual diffs, flaky-test hunting
 
-**Routing reminder:** for OSINT / vendor research / library exploration, ask Chrono for a research-namespace dispatch. The live `chrono-research-arsenal` wrapper currently exposes `arxiv_search` and `xai_search`; do not ask for Perplexity/Brave/Serper/Apify tool names until `shared/api-catalog.md` verifies them.
+**Routing reminder:** for OSINT / vendor research / library exploration, ask Chrono for a research-namespace dispatch. Live research MCP tools (claude/codex/kimi/gemini panes): `perplexity_search_web` (synthesized + cited — default for general research), `xai_search` (real-time web/X/news), `arxiv_search` (papers) — all verified live. Brave/Apify/Serper: planned/unverified.
 
 **Required:** Execute the `specialist:` named in the task packet in this model lane. Native specialist/subagent adapters are allowed when registered; creating a new Chrono/mailbox task is not allowed unless the packet explicitly asks for cross-lane review or parallel work.
 EOF
@@ -82,7 +83,7 @@ EOF
 - 4 other platforms (Bugcrowd, Intigriti, HackenProof, Code4rena) are browser-only; use Playwright CDP attach
 - Operator's allowed platforms ONLY: HackerOne, Bugcrowd, Intigriti, HackenProof, Code4rena. Do NOT suggest Cantina, Immunefi, Sherlock, YesWeHack.
 
-**Routing reminder:** for OSINT / vendor research that doesn't fit `scout`'s platform-intel scope, ask Chrono for a research-namespace dispatch. The live research wrapper currently exposes `arxiv_search` and `xai_search`; do not ask for unverified Perplexity/Brave/Serper/Apify tool names.
+**Routing reminder:** for OSINT / vendor research that doesn't fit `scout`'s platform-intel scope, ask Chrono for a research-namespace dispatch. Live research MCP tools (claude/codex/kimi/gemini panes): `perplexity_search_web` (synthesized + cited — default for general research), `xai_search` (real-time web/X/news), `arxiv_search` (papers) — all verified live. Brave/Apify/Serper: planned/unverified.
 
 **Required:** Execute the `specialist:` named in the task packet in this model lane. Native specialist/subagent adapters are allowed when registered; creating a new Chrono/mailbox task is not allowed unless Chrono explicitly assigns a review or parallel pass.
 EOF
@@ -100,7 +101,7 @@ EOF
 - `brand-voice` · operator voice consistency check
 - `video-editor` · video trim/edit/captions
 
-**Native Gemini grounding:** `gemini-3.1-pro-preview` carries Google Search grounding implicitly — use it for fact-finding / citation hunting in-session. (No `chrono-research-arsenal` on the gemini pane by design — Hybrid Path A relies on native grounding for content-pane research.)
+**Research tools:** `gemini-3.1-pro-preview` carries native Google Search grounding. The Gemini pane also has the live research MCP tools: `perplexity_search_web` (synthesized + cited — default for general research), `xai_search` (real-time web/X/news), and `arxiv_search` (papers). Brave/Apify/Serper are planned/unverified.
 
 **Routing reminder:** for deeper multi-source synthesis beyond a quick grounded check, hand off to research namespace.
 
@@ -143,7 +144,7 @@ EOF
 
 **This namespace is the squad's web-research home.** Other namespaces route research tasks here; you own the live `chrono-research-arsenal` wrapper.
 
-**Live research MCP tools:** `arxiv_search` and `xai_search`. Perplexity, Brave, Serper, and Apify are not wired in the current wrapper. If a task asks for an unlisted tool, report `capability_gap` and use the task-approved fallback or model-native search.
+**Live research MCP tools (claude/codex/kimi/gemini panes):** `perplexity_search_web` (synthesized + cited — default for general research), `xai_search` (real-time web/X/news), `arxiv_search` (papers) — all verified live. Brave/Apify/Serper: planned/unverified. Verify the current runtime with a live probe; treat absence from the callable runtime schema as an availability error, declare `capability_gap`, and use the approved fallback. Otherwise use WebSearch only after the dedicated tool errors on that call.
 
 **NOT YOUR DOMAIN:** Bounty target selection (that's security namespace `scout`). Vulnerability discovery (that's security namespace `security-analyst`). Implementation work (that's coding namespace specialists).
 
@@ -161,7 +162,7 @@ case "${TO_MODEL}" in
 
 ## Expected Model Lane Tool Surface
 
-GPT/Codex lane is expected to have repo shell commands, file edits, tests, `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `chrono-catalog`, `chrono-content-engineer` when relevant, and `sequential-thinking`.
+GPT/Codex lane is expected to have repo shell commands, file edits, tests, `chrono-research-arsenal`, `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `chrono-catalog`, `chrono-content-engineer` when relevant, and `sequential-thinking`.
 
 This is an expected surface, not proof of live availability. Verify the tool exists in your current runtime before using it. If missing, report `capability_gap` and use the task-approved fallback.
 EOF
@@ -171,7 +172,7 @@ EOF
 
 ## Expected Model Lane Tool Surface
 
-Claude lane is expected to have `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `chrono-catalog`, and local shell where allowed by the task. Context7 and sequential thinking are optional conveniences only when the live Claude runtime exposes them. Use Playwright/CDP only when the packet explicitly allows browser work.
+Claude lane is expected to have `chrono-research-arsenal`, `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `chrono-catalog`, and local shell where allowed by the task. Context7 and sequential thinking are optional conveniences only when the live Claude runtime exposes them. Use Playwright/CDP only when the packet explicitly allows browser work.
 
 This is an expected surface, not proof of live availability. Verify the tool exists in your current runtime before using it. If missing, report `capability_gap` and use the task-approved fallback.
 EOF
@@ -181,7 +182,7 @@ EOF
 
 ## Expected Model Lane Tool Surface
 
-Gemini lane is expected to have native Gemini grounding, `chrono-content-engineer`, `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `chrono-catalog`, `sequential-thinking`, and media/design tools when the packet allows them. `chrono-content-engineer` currently exposes wrapper tools such as `generate_image`, `generate_video`, and `generate_audio`; ElevenLabs/Higgsfield child tool names are not available in this lane unless the live schema exposes them.
+Gemini lane is expected to have native Gemini grounding, `chrono-research-arsenal`, `chrono-content-engineer`, `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `chrono-catalog`, `sequential-thinking`, and media/design tools when the packet allows them. `chrono-content-engineer` currently exposes wrapper tools such as `generate_image`, `generate_video`, and `generate_audio`; ElevenLabs/Higgsfield child tool names are not available in this lane unless the live schema exposes them.
 
 This is an expected surface, not proof of live availability. Verify the tool exists in your current runtime before using it. If missing, report `capability_gap` and use the task-approved fallback.
 EOF
@@ -191,7 +192,7 @@ EOF
 
 ## Expected Model Lane Tool Surface
 
-Kimi lane is expected to have `chrono-research-arsenal`, `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `chrono-catalog`, `chrono-content-engineer` when relevant, and `sequential-thinking`. The current research wrapper exposes `arxiv_search` and `xai_search`; Perplexity/Brave/Serper/Apify tool names are not wired until verified in the catalog.
+Kimi lane is expected to have `chrono-research-arsenal`, `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `chrono-catalog`, `chrono-content-engineer` when relevant, and `sequential-thinking`. Live research MCP tools are `perplexity_search_web` (synthesized + cited — default for general research), `xai_search` (real-time web/X/news), and `arxiv_search` (papers). Brave/Apify/Serper are planned/unverified.
 
 This is an expected surface, not proof of live availability. Verify the tool exists in your current runtime before using it. If missing, report `capability_gap` and use the task-approved fallback.
 EOF
