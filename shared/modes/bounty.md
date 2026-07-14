@@ -36,7 +36,8 @@ For bug bounty and vulnerability research. Chrono owns target selection, safety 
 
 ## Gates
 
-- Operator approval before engaging a target, touching authenticated scope, submitting a report, contacting a program, or writing private bounty details to durable public-facing files.
+- Operator approval before engaging a target, touching authenticated scope, contacting a program, or writing private bounty details to durable public-facing files.
+- **Submission gate (operator-ratified 2026-07-14):** Chrono/specialists MAY drive the full submission workflow — navigate the authed platform session, fill the report form, attach the PoC, stage everything — up to but NOT including the final Submit click. The **final Submit click is a hard per-report gate requiring explicit operator "go"** (it is irreversible and costs a submission fee + reputation). Never click Submit without that per-report approval; staging the form without submitting needs no separate approval.
 - **Pre-submit G1–G4 gate (`impact-validator` owns it):** no finding is submitted unless it clears G1 impact-realized · G2 third-party-reproduced · G3 dedup'd · G4 in-scope defended-boundary, plus its per-class add-on — any FAIL is no-submit. Full gate: `departments/security/specialists/impact-validator.md` → "Pre-Submit Gate (G1–G4)".
 - Mandatory multi-model review for exploitability, impact, privacy, auth, and final report claims.
 - No destructive testing, rate-limit abuse, persistence, credential use, or out-of-scope probing.
