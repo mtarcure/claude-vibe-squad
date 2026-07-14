@@ -93,6 +93,44 @@ fit() {
     printf '%s…%*s' "$out" "$((max - acc - 1))" ""
 }
 
+# --- Fast per-lane data (from bin/vs-lane-snapshot.py) -----------------------
+# The snapshot is gathered ONCE per frame in the loop and parsed into these
+# arrays; draw_card reads them (no per-card file scanning). Command-substitution
+# subshells (the frame builder) inherit these globals, so draw_card sees them.
+declare -A LANE_STATE LANE_STARTED LANE_WORK LANE_TASK LANE_LAST
+
+parse_snapshot() {  # parse_snapshot "<snapshot text>"
+    local snap="$1" cur="" t a b c
+    LANE_STATE=(); LANE_STARTED=(); LANE_WORK=(); LANE_TASK=(); LANE_LAST=()
+    while IFS=$'\t' read -r t a b c; do
+        case "$t" in
+            @LANE) cur="$a"
+                   LANE_STATE[$cur]="$b"; LANE_STARTED[$cur]="$c"
+                   LANE_WORK[$cur]=""; LANE_TASK[$cur]=""; LANE_LAST[$cur]="" ;;
+            @WORK) [[ -n "$cur" ]] && LANE_WORK[$cur]+="${a}"$'\t'"${b}"$'\t'"${c}"$'\n' ;;
+            @TASK) [[ -n "$cur" ]] && LANE_TASK[$cur]="$a" ;;
+            @LAST) [[ -n "$cur" ]] && LANE_LAST[$cur]="${a}"$'\t'"${b}" ;;
+        esac
+    done <<< "$snap"
+}
+
+# Elapsed mm:ss from a start epoch (0 → --:--; caps mm at 99).
+elapsed_mmss() {
+    local start="$1"
+    [[ "$start" =~ ^[0-9]+$ ]] && (( start > 0 )) || { printf '%s' '--:--'; return; }
+    local e=$(( $(date +%s) - start )); (( e < 0 )) && e=0
+    local m=$(( e / 60 )); (( m > 99 )) && m=99
+    printf '%02d:%02d' "$m" "$(( e % 60 ))"
+}
+
+# A specialist row inside a card: "│ <glyph> <specialist> <mm:ss> │" with the
+# time right-aligned. Glyph is single-width (● ◐ ○), so no width surprises.
+fmt_member() {  # fmt_member WIDTH GLYPH_COLOR GLYPH SPECIALIST MMSS
+    local width="$1" gc="$2" g="$3" spec="$4" mmss="$5"
+    local sw=$(( width - 12 )); (( sw < 4 )) && sw=4
+    printf '│ \033[%sm%s\033[0m %s \033[38;5;240m%s\033[0m │' "$gc" "$g" "$(fit "$spec" "$sw")" "$mmss"
+}
+
 frontmatter_field() {
     local file="$1" field="$2"
     awk -v key="$field" '/^---$/{p=!p; next} p && index($0, key ":") == 1 {sub("^[^:]+:[[:space:]]*", ""); print; exit}' "$file"
@@ -275,79 +313,53 @@ fmt_erow() {  # fmt_erow WIDTH EMOJI VALUE
 
 draw_card() {
     local lane="$1" width="$2" height="${3:-0}"
-    local accent term_accent short tagline inbox active outbox blocked specialist last state state_color inner title pad
+    local accent short state started
     accent="$(runtime_accent_color "$lane")"
-    term_accent="$(runtime_terminal_color "$lane")"
     short="$(runtime_short_name "$lane")"
-    tagline="$(runtime_tagline "$lane")"
-    inbox=$(count_lane_tasks "$lane" inbox)
-    active=$(count_lane_tasks "$lane" active)
-    outbox=$(count_lane_tasks "$lane" outbox)
-    blocked=$(blocked_count "$lane")
-    specialist="$(lane_specialist "$lane")"
-    last="$(latest_result "$lane")"
+    state="${LANE_STATE[$lane]:-idle}"
+    started="${LANE_STARTED[$lane]:-0}"
 
-    if [[ "$active" -gt 0 ]]; then
-        state="WORKING"; state_color="38;5;118"
-    elif [[ "$inbox" -gt 0 ]]; then
-        state="PENDING"; state_color="38;5;214"
-    elif [[ "$blocked" -gt 0 ]]; then
-        state="BLOCKED"; state_color="38;5;203"
-    else
-        state="IDLE"; state_color="38;5;245"
-    fi
-
-    inner=$((width - 4))
-    [[ "$inner" -lt 24 ]] && inner=24
-
-    # State → emoji (single-codepoint, 2-column wide glyphs) + lowercase labels.
-    local state_emoji name_lc state_lc
+    # State → header dot color + lowercase labels. The dot is a single-width ●.
+    local dot_color state_lc name_lc
     case "$state" in
-        WORKING) state_emoji='🟢' ;;
-        PENDING) state_emoji='🟡' ;;
-        BLOCKED) state_emoji='🔴' ;;
-        *)       state_emoji='⚪' ;;
+        running) dot_color='38;5;118'; state_lc='running' ;;
+        queued)  dot_color='38;5;214'; state_lc='queued' ;;
+        blocked) dot_color='38;5;167'; state_lc='blocked' ;;
+        *)       dot_color='38;5;240'; state_lc='idle' ;;
     esac
     name_lc=$(printf '%s' "$short" | tr '[:upper:]' '[:lower:]')
-    state_lc=$(printf '%s' "$state" | tr '[:upper:]' '[:lower:]')
 
-    # Collect interior rows into an array so we can count them for height-fill.
-    # Active lanes (WORKING/PENDING) get spec/task/tools/now; idle/blocked keep
-    # tagline + queue + last (prefixed with the last specialist for context).
-    # Emoji labels; empty rows omitted.
+    # Body from the snapshot: working lanes list their specialist(s) + task; idle
+    # lanes show what ran last. No static tagline — the card shows real work.
     local -a body=()
-    if [[ "$state" == "WORKING" || "$state" == "PENDING" ]]; then
-        local objective tools_line now_line
-        objective="$(active_task_objective "$lane")"
-        tools_line="$(tools_for_specialist "$specialist")"
-        now_line="$(live_now_line "$lane")"
-        body+=("$(fmt_erow "$width" 🧑 "${specialist:-none}")")
-        [[ -n "$objective" ]]  && body+=("$(fmt_erow "$width" 📋 "$objective")")
-        [[ -n "$tools_line" ]] && body+=("$(fmt_erow "$width" 🔧 "$tools_line")")
-        [[ -n "$now_line" ]]   && body+=("$(fmt_erow "$width" ⚡ "$now_line")")
-        body+=("$(fmt_erow "$width" 📥 "${inbox} queued · ${active} active · ${outbox} done")")
+    if [[ "$state" == "running" || "$state" == "queued" ]]; then
+        local spec st s_ep mg mgc
+        while IFS=$'\t' read -r spec st s_ep; do
+            [[ -z "$spec" ]] && continue
+            case "$st" in
+                running) mg='●'; mgc='38;5;118' ;;
+                queued)  mg='◐'; mgc='38;5;214' ;;
+                *)       mg='○'; mgc='38;5;240' ;;
+            esac
+            body+=("$(fmt_member "$width" "$mgc" "$mg" "$spec" "$(elapsed_mmss "$s_ep")")")
+        done <<< "${LANE_WORK[$lane]}"
+        [[ -n "${LANE_TASK[$lane]:-}" ]] && body+=("$(fmt_erow "$width" 📋 "${LANE_TASK[$lane]}")")
     else
-        # Idle/blocked: quiet view, but still surface the LAST specialist + result
-        # so there's always specialist context at a glance. No `now` line — a
-        # finished lane's pane still shows its last-turn marker, which would read
-        # as misleadingly "live".
-        local last_spec last_line
-        last_spec="$(last_specialist "$lane")"
-        if [[ -n "$last_spec" && "$last_spec" != "none" && -n "$last" ]]; then
-            last_line="${last_spec} · ${last}"
+        local ls lspec ltitle
+        ls="${LANE_LAST[$lane]:-}"
+        if [[ -n "$ls" ]]; then
+            IFS=$'\t' read -r lspec ltitle <<< "$ls"
+            body+=("$(fmt_erow "$width" 🕐 "${lspec}${ltitle:+ · $ltitle}")")
         else
-            last_line="${last:-none}"
+            body+=("$(fmt_erow "$width" 🕐 "no recent work")")
         fi
-        body+=("$(fmt_tagline "$inner" "38;5;240" "$tagline")")
-        body+=("$(fmt_erow "$width" 📥 "${inbox} queued · ${active} active · ${outbox} done · ${blocked} blk")")
-        body+=("$(fmt_erow "$width" 🕐 "$last_line")")
     fi
 
-    # Top border: ╭ <state emoji> <lane name (accent)> · <state (dim)> <fill> ╮
-    local hpad=$(( width - 10 - ${#name_lc} - ${#state_lc} ))
+    # Top border: ╭ ● <lane name (accent)> · <state (dim)> <fill> ╮  (● = state color)
+    local hpad=$(( width - 9 - ${#name_lc} - ${#state_lc} ))
     [[ "$hpad" -lt 1 ]] && hpad=1
     c256 "$accent" "╭ "
-    printf '%s ' "$state_emoji"
+    printf '\033[%sm●\033[0m ' "$dot_color"
     printf '\033[1;38;5;%sm%s\033[0m' "$accent" "$name_lc"
     printf '\033[38;5;240m · %s \033[0m' "$state_lc"
     c256 "$accent" "$(repeat_char '─' "$hpad")╮"
