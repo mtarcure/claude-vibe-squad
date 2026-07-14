@@ -98,9 +98,10 @@ for tid, t in (at.items() if isinstance(at, dict) else []):
     lane = t.get("to_model")
     if lane not in LANES:
         continue
-    st = str(t.get("status", ""))
+    # Normalize status (values vary: "in-flight", "In_Flight", "active", …).
+    st = str(t.get("status", "")).strip().lower().replace("_", "-")
     spec = clean(t.get("specialist"))
-    if st in ("active", "running", "dispatched"):
+    if st in ("active", "running", "dispatched", "in-flight", "inflight"):
         started = 0
         try:
             from datetime import datetime
@@ -111,10 +112,13 @@ for tid, t in (at.items() if isinstance(at, dict) else []):
             started = 0
         if spec and not any(w[0] == spec for w in work[lane]):
             work[lane].append((spec, "running", started))
-    elif st in ("queued", "new"):
+        if not task_title[lane]:
+            task_title[lane] = panel_task_title(tid)
+    elif st in ("queued", "new", "pending"):
         has_queued[lane] = True
-    elif st in ("blocked", "failed", "error", "needs_human"):
+    elif st in ("blocked", "failed", "error", "needs-human"):
         has_blocked[lane] = True
+    # complete / cancelled / done → not active, skipped
 
 # ---- last result per lane: expensive outbox scan, cached with a TTL ----
 cache = load_json(LAST_CACHE, {})
