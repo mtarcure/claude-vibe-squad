@@ -75,3 +75,10 @@ __pycache__/
 _state/audit-*/sol-*.txt
 _state/audit-*/gemini-*.txt
 _state/debug-*/sol-*.txt
+
+# Operator-local runtime working-state — NOT portfolio content (mirrors mailbox/_state handling).
+# Carries live session state, bounty-op intel, and personal notes; must never publish.
+departments/*/current.md
+departments/*/memory.md
+chrono/current.md
+chrono/memory.md
