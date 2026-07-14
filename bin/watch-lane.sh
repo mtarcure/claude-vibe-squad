@@ -50,20 +50,47 @@ repeat_char() {
     printf '%s' "${out:0:$n}"
 }
 
+# Emoji we use are single CODEPOINTS but render TWO display columns; bash counts
+# them as one char. Everything else in the UI is single-width. Keep this list in
+# sync with any emoji used in labels/values so widths compute correctly.
+VS_WIDE='🟢🟡🔴⚪🟠🔵🟣🧑📋🔧⚡📥🕐👤📊🎯🛠🚦🧩🎬🖼🔊'
+
+# Display width of a string, counting each VS_WIDE glyph as 2 columns.
+dwidth() {
+    local s="$1" g t
+    local w=${#s}
+    # Fast path: no wide glyph present → display width == char count.
+    for g in 🟢 🟡 🔴 ⚪ 🟠 🔵 🟣 🧑 📋 🔧 ⚡ 📥 🕐 👤 📊 🎯 🛠 🚦 🧩 🎬 🖼 🔊; do
+        [[ "$s" == *"$g"* ]] || continue
+        t="${s//$g/}"
+        w=$(( w + ${#s} - ${#t} ))   # each occurrence (1 char) adds 1 extra column
+    done
+    printf '%s' "$w"
+}
+
+# Fit text to a fixed DISPLAY width: pad with ASCII spaces when short, truncate
+# with a single-width … when long. Width is measured with dwidth() so emoji and
+# other multibyte glyphs never drift the right border or overflow (which wraps).
 fit() {
-    # Fit text to a fixed DISPLAY width. Pad by character count (not bytes): in a
-    # UTF-8 locale ${#text} and string slicing count characters, but printf's
-    # '%-*s' pads by bytes — so multibyte glyphs (· ▸ — …, all single-column)
-    # would under-pad and drift the right border. Pad with explicit ASCII spaces.
-    local text="$1" max="$2"
-    local len=${#text}
-    if (( len <= max )); then
-        printf '%s%*s' "$text" "$((max - len))" ""
-    elif (( max <= 3 )); then
-        printf '%s' "${text:0:max}"
-    else
-        printf '%s...' "${text:0:max - 3}"
+    local text="$1" max="$2" dw
+    dw=$(dwidth "$text")
+    if (( dw <= max )); then
+        printf '%s%*s' "$text" "$((max - dw))" ""
+        return
     fi
+    if (( max <= 1 )); then
+        printf '%.*s' "$max" "$text"
+        return
+    fi
+    # Walk chars, accumulating display width, stop leaving room for the … (1 col).
+    local out="" i n=${#text} c cw acc=0 lim=$((max - 1))
+    for ((i = 0; i < n; i++)); do
+        c="${text:i:1}"
+        cw=1; [[ "$VS_WIDE" == *"$c"* ]] && cw=2
+        (( acc + cw > lim )) && break
+        out="$out$c"; acc=$((acc + cw))
+    done
+    printf '%s…%*s' "$out" "$((max - acc - 1))" ""
 }
 
 frontmatter_field() {
@@ -424,17 +451,13 @@ while true; do
     focus=""
     [[ -f /tmp/vs-sidebar-focus ]] && focus="$(cat /tmp/vs-sidebar-focus 2>/dev/null || true)"
 
-    # Full-clear on any layout change — pane resize OR entering/leaving a preview
-    # (cards ↔ preview are very different layouts). Avoids stale reflowed lines.
+    # Full-clear on any layout change — pane resize OR entering/leaving a preview.
     if [[ "$cols" != "${_prev_cols:-}" || "$rows" != "${_prev_rows:-}" || "$focus" != "${_prev_focus:-}" ]]; then
         printf '\033[2J'
         _prev_cols="$cols"; _prev_rows="$rows"; _prev_focus="$focus"
     fi
 
     home
-    # Compact (single-line) cards are a last resort for genuinely tiny panes only.
-    # draw_card renders fine down to ~40 cols, so keep the emoji cards until then
-    # — a pane that lands a hair under 60 shouldn't drop to the bare format.
     compact=false
     [[ "$SQUAD_WATCH_COMPACT" == "1" || "$cols" -lt 40 ]] && compact=true
 
@@ -449,12 +472,6 @@ while true; do
             color "38;5;245" "scroll: mouse / copy: drag or copy-mode"
         fi
         printf '\n\n'
-        # Each of the 4 lanes gets an equal slice of the remaining height. CRUCIAL:
-        # leave a bottom margin. If the cards fill the pane EXACTLY, the trailing
-        # newline after the last card scrolls the pane by one line, which offsets
-        # the next home()+repaint and doubles every card header. Reserve rows for
-        # the 2-row header, the 3 inter-card gaps, and a spare line — and print NO
-        # gap after the last card.
         card_h=$(( (rows - 8) / 4 ))
         [[ "$card_h" -lt 7 ]] && card_h=7
         _n=${#MODEL_LANES[@]}; _i=0
