@@ -126,9 +126,9 @@ apply_squad_globals() {
     tmux set-option -g status-interval 1
     tmux set-option -g status-style      'fg=colour252,bg=colour234'
     tmux set-option -g status-left-length 60
-    tmux set-option -g status-right-length 120
+    tmux set-option -g status-right-length 180
     tmux set-option -g status-left "#[fg=colour74,bold] squad #[fg=colour240]· #[fg=colour252]#S #[fg=colour240]· #(cat /tmp/vs-daemon.status 2>/dev/null) "
-    tmux set-option -g status-right "#[fg=colour214]#(cat ${VAULT_ROOT}/_state/doctor-logs/\$(date +%%Y-%%m-%%d)-summary.json 2>/dev/null | jq -r 'if .issue_count>0 then \"issues:\"+(.issue_count|tostring) elif .warning_count>0 then \"warn:\"+(.warning_count|tostring) else \"healthy\" end' 2>/dev/null || echo 'doctor:?') #[fg=colour240]· #[fg=colour252]%H:%M "
+    tmux set-option -g status-right "#(cat /tmp/vs-swarm.status 2>/dev/null) #[fg=colour240]· #[fg=colour214]#(cat ${VAULT_ROOT}/_state/doctor-logs/\$(date +%%Y-%%m-%%d)-summary.json 2>/dev/null | jq -r 'if .issue_count>0 then \"issues:\"+(.issue_count|tostring) elif .warning_count>0 then \"warn:\"+(.warning_count|tostring) else \"healthy\" end' 2>/dev/null || echo 'doctor:?') #[fg=colour240]· #[fg=colour252]%H:%M "
     tmux set-option -g "status-format[1]" "#[bg=colour233,fg=colour240] Tab / C-b <n>: lanes · C-b 0: chrono · C-b z: zoom · C-b Space: reset · C-b [: scroll · C-b d: detach "
 
     # Window tabs — accent the current lane, dim the rest.
