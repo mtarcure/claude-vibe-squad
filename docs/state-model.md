@@ -1,6 +1,6 @@
 # State Model
 
-Vibe Squad has one runtime truth model. Historical handoffs and roadmap files are context, not live state.
+Vibe Squad has one runtime truth model. Historical planning artifacts are context, not live state.
 
 ## Live Truth Order
 
@@ -34,4 +34,4 @@ Public repos should not track mailbox contents. The launcher recreates missing m
 
 ## Historical Context
 
-`docs/roadmap.md` is a planning queue. Completed handoffs, specs, and plans are cleanup debt once durable decisions have been folded into canonical docs.
+Completed handoffs, specs, and plans are cleanup debt once durable decisions have been folded into canonical docs.

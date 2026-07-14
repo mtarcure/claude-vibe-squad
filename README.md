@@ -1,17 +1,17 @@
 <p align="center">
-  <img src="assets/hero/vibe-squad-hero.svg" alt="Vibe Squad — one coordinator (Chrono) routes work across 4 frontier model lanes and 67 role-based specialists" width="900">
+  <img src="assets/hero/vibe-squad-hero.svg" alt="Vibe Squad — one coordinator (Chrono) routes work across 4 frontier model lanes and 69 role-based specialists" width="900">
 </p>
 
 # Vibe Squad
 
 **One request in. The right model, specialist, and review path out.**
 
-Vibe Squad is a markdown-first orchestration system that runs four frontier AI models — **GPT‑5.6 Sol**, **Claude Fable‑5**, **Gemini 3.5**, and **Kimi K2.7** — as live "model lanes" in a single tmux session. You talk to one coordinator, **Chrono**; it turns your request into a scoped, inspectable task packet, routes it to whichever of **67 role‑based specialists** fits best, and sends the risky work to a *different* model family for review before you ever see the result. No servers, no dashboards — the entire dispatch board is plain markdown files on disk.
+Vibe Squad is a markdown-first orchestration system that runs four frontier AI models — **GPT‑5.6 Sol**, **Claude Fable‑5**, **Gemini 3.5**, and **Kimi K2.7** — as live "model lanes" in a single tmux session. You talk to one coordinator, **Chrono**; it turns your request into a scoped, inspectable task packet, routes it to whichever of **69 role‑based specialists** fits best, and sends the risky work to a *different* model family for review before you ever see the result. No servers, no dashboards — the entire dispatch board is plain markdown files on disk.
 
 > **In plain English:** it makes four different AIs behave like one coordinated team, with a built‑in second opinion on anything that matters.
-> **Under the hood:** capability‑fit routing over a canonical 67‑row map, typed markdown task packets, bounded write scopes, cross‑family review gates, and a git checkpoint before every dispatch.
+> **Under the hood:** capability‑fit routing over a canonical 69‑row map, typed markdown task packets, bounded write scopes, cross‑family review gates, and a git checkpoint before every dispatch.
 
-It was built *through itself*: the squad's own refactors — including the 67‑specialist redesign described below — were drafted and cross‑reviewed by these model lanes. The `auto-snapshot` commits in this repo's history are the system checkpointing its own work.
+It was built *through itself*: the squad's own refactors — including the 69‑specialist redesign described below — were drafted and cross‑reviewed by these model lanes. The `auto-snapshot` commits in this repo's history are the system checkpointing its own work.
 
 ---
 
@@ -21,7 +21,7 @@ It was built *through itself*: the squad's own refactors — including the 67‑
 
 An LLM is the worst judge of its own output — same‑model self‑review reproduces the same blind spots. So every high‑stakes specialist carries a `review_model` from a **different** model family, and the dispatcher refuses to send a `safety_level: high` job without one. Independent models are structurally pitted against each other's work.
 
-**The redesign *is* the proof.** The current roster/model overhaul was executed *by the squad*: frontier model leads drafted **67 specialist definitions** (Fable authored the judgment/security/content set, Sol the engineering/systems set) and then **cross‑reviewed each other in two rounds**. The reviews caught concrete, non‑obvious defects, for example:
+**The redesign *is* the proof.** The current roster/model overhaul was executed *by the squad*: frontier model leads drafted **69 specialist definitions** (Fable authored the judgment/security/content set, Sol the engineering/systems set) and then **cross‑reviewed each other in two rounds**. The reviews caught concrete, non‑obvious defects, for example:
 
 - a reviewer lane accidentally set to the **same family as the author** (broke review independence) — flagged and repointed;
 - three high‑safety roles missing their mandatory **escalation floor** — flagged and corrected;
@@ -47,7 +47,7 @@ Operator ──one voice──▶  Chrono (coordinator)
                               │  chooses mode · specialist · model lane · write scope · reviewer
                               ▼
                    typed markdown task packet   ──inbox/TASK-*.md
-                              │  capability-fit routing (the 67-row map)
+                              │  capability-fit routing (the 69-row map)
         ┌─────────────────────┼─────────────────────┬─────────────────────┐
         ▼                     ▼                     ▼                     ▼
    gpt-codex               claude                gemini                 kimi
@@ -99,11 +99,11 @@ Chrono is the only operator‑facing voice; the four lanes are interchangeable *
 <details>
 <summary><b>Routing &amp; the specialist map</b> — the 28‑column source of truth, profiles, and policies</summary>
 
-`shared/specialist-runtime-map.tsv` is the canonical routing table: **67 rows, 28 columns**, one row per specialist. Rather than duplicating raw model IDs across every row, each routing slot references a **profile** (`codex.sol.high`, `claude.fable.xhigh`, `gemini.flash.default`, `kimi.k2.7.bulk`, …) that resolves — in `shared/registries/profiles.tsv` — to an exact model + effort + flags. Failover, escalation, and throughput behaviour are likewise **versioned policy IDs** (`shared/registries/policies.tsv`), not per‑row prose.
+`shared/specialist-runtime-map.tsv` is the canonical routing table: **69 rows, 28 columns**, one row per specialist. Rather than duplicating raw model IDs across every row, each routing slot references a **profile** (`codex.sol.high`, `claude.fable.xhigh`, `gemini.flash.default`, `kimi.k2.7.bulk`, …) that resolves — in `shared/registries/profiles.tsv` — to an exact model + effort + flags. Failover, escalation, and throughput behaviour are likewise **versioned policy IDs** (`shared/registries/policies.tsv`), not per‑row prose.
 
 Each specialist declares a single `capability_class` (implementation · judgment · code_review · security_reasoning · security_defense · content_text · media_production · research_synthesis · extraction · game_design), a `safety_level`, and — for media roles — a `tool_profile` that pins the lane to whichever pane hosts the required generation tools (model choice is secondary there).
 
-- `bin/validate-specialists.sh` fail‑closes on schema, foreign‑key, sort, and rule violations — it enforces, among others, "kimi holds no primary roles," "high/heightened‑risk roles get the safety‑floor escalation policy and never a throughput downshift," and "code review runs cross‑family" (`anti_affinity: author_family`). The current roster passes **67/67**.
+- `bin/validate-specialists.sh` fail‑closes on schema, foreign‑key, sort, and rule violations — it enforces, among others, "kimi holds no primary roles," "high/heightened‑risk roles get the safety‑floor escalation policy and never a throughput downshift," and "code review runs cross‑family" (`anti_affinity: author_family`). The current roster passes **69/69**.
 - Adding a specialist = one TSV row + a markdown brief under `departments/<namespace>/specialists/`, then `bin/validate-specialists.sh`. `model-lanes/ROSTER.md` is a generated per‑lane view.
 
 Full details: `shared/routing.md` (narrative source of truth) and `docs/architecture.md`.
@@ -121,11 +121,11 @@ Capability is separated from authorization — "can do" is not "may do."
 </details>
 
 <details>
-<summary><b>The failover control plane</b> — designed, reviewed, and currently <i>dormant</i></summary>
+<summary><b>The failover control plane</b> — cross-family reviewed, opt-in, and currently <i>dormant</i></summary>
 
 The redesign specifies a full resilience layer: a per‑specialist **cross‑family backup** chain, Claude's native in‑lane fallback (`--fallback-model`), a **conservative‑first** auto‑failover policy (act only on hard signals — dispatch‑ack failure, confirmed process‑exit, typed provider error — and otherwise surface, never guess), a minimal **attempt ledger** with generation fencing, and a **lease/lock** so the native and Chrono‑coordinated paths can't double‑dispatch the same packet.
 
-**Honest status:** this control plane is *built and cross‑reviewed but currently gated off (dormant).* Dispatch today is Chrono‑coordinated; automatic failover is **not** live. It is described here as an architecture the system is ready to turn on, not a feature that is running.
+**Honest status:** this control plane is *built and cross-family reviewed but opt-in and currently gated off (dormant).* It ships inert because `_state/**` is ignored and no enable sentinel is present in a public checkout. Dispatch today is Chrono‑coordinated; automatic failover is **not** live. It is described here as an architecture the operator can explicitly enable, not a feature that runs by default.
 </details>
 
 <details>
@@ -137,7 +137,7 @@ Every dispatch is a markdown file with the frontmatter schema in `shared/protoco
 |------|---------|
 | `bin/squad`, `bin/launch-squad.sh` | Lifecycle CLI + tmux launcher (six windows) |
 | `scripts/send-task.sh`, `bin/send-task.sh` | Dispatch: frontmatter generation + hardened writer (snapshot, write‑scope check, nudge) |
-| `shared/specialist-runtime-map.tsv` | Canonical routing (67 rows) + `shared/registries/*.tsv` (profiles, policies) |
+| `shared/specialist-runtime-map.tsv` | Canonical routing (69 rows) + `shared/registries/*.tsv` (profiles, policies) |
 | `shared/routing.md`, `shared/protocol.md` | Routing model + packet schema/lifecycle/review behaviour |
 | `shared/modes/*.md` | Operator‑approved workflows (project, bounty, incident, content, research, …) |
 | `departments/*/specialists/`, `shared/specialists/` | Specialist markdown briefs |
@@ -150,9 +150,9 @@ MCP tools (knowledge graph/vault, research, content generation, recon) are regis
 
 ## What's shipped vs. what isn't
 
-- **Shipped:** the tmux + markdown‑mailbox runtime; the 67‑specialist canonical map with profile/policy registries and a fail‑closed validator (67/67); per‑CLI MCP tooling; auto‑snapshot + write‑scope dispatch rails; the safety/approval model.
+- **Shipped:** the tmux + markdown‑mailbox runtime; the 69‑specialist canonical map with profile/policy registries and a fail‑closed validator (69/69); per‑CLI MCP tooling; auto‑snapshot + write‑scope dispatch rails; the safety/approval model.
 - **Dormant (built, reviewed, gated off):** the automatic failover control plane described above.
-- **Not built:** an earlier proposed Ink‑TUI + FastAPI‑daemon dispatch spine — explicitly *not* implemented and retained only as design history (`docs/architecture.md` → "Planned (not built)"). The shipped spine is the markdown mailbox.
+- **Historical design:** an earlier Ink‑TUI + FastAPI‑daemon dispatch-spine proposal was not implemented and is retained only as a curated narrative under `docs/design/`. The shipped spine is the markdown mailbox.
 
 ## License
 

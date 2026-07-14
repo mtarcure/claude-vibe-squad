@@ -11,6 +11,8 @@ tags: [architecture, multi-agent, tui, orchestration, redesign]
 
 # Vibe Squad Redesign — Design Specification
 
+> **Historical design record, not runtime truth.** This proposal is retained as a portfolio narrative. The shipped system remains tmux + markdown mailboxes with a 69-specialist, 28-column routing map; use `docs/architecture.md`, `docs/model-runtime-map.md`, and `shared/routing.md` for current behavior.
+
 ## 1. Executive summary
 
 Vibe Squad is being redesigned as a **multi-model relay TUI** with true real-time collaboration across four subscription CLIs (Claude, Codex, Gemini, Kimi), coordinated by Chrono. The redesign eliminates the dead content pipeline (newsletter/podcast/morning-brief), replaces the ad-hoc Python task-board with a FastAPI daemon, wraps everything in an Ink-based TUI, and codifies specialist routing through structured frontmatter contracts.
@@ -228,7 +230,7 @@ prompt: |
   Review PR #47 in {repo} for auth vulnerabilities...
 context:
   project_brief: projects/bounties/immunefi-defi-xyz-2026-07-08/brief.md
-  related_handoffs: [docs/handoffs/2026-07-10.md]
+  related_handoffs: []
 ```
 
 ### 4.3 Outbox manifest schema
@@ -390,7 +392,7 @@ Every completed task's outbox includes `tools_used`. Chrono validates:
 
 **Process:**
 1. Flash summarizer reads week's:
-   - Handoffs from `docs/handoffs/`
+   - Temporary implementation handoffs
    - Tool-use manifests from `outbox/*/`
    - Chrono's reactive patch log
 2. Emits `docs/reviews/weekly/YYYY-WW.md` with sections:
@@ -849,16 +851,16 @@ If A.1 breaks something unforeseen: `git revert HEAD` restores scripts + phases;
 
 **C.1 — Bin swap**
 - Replace `bin/vibe-squad` shell wrapper with Ink app launcher
-- Old wrapper archived to `_archive/pre-redesign-bin/`
+- Remove the superseded wrapper from the public tree
 
 **C.2 — Docs rewrite**
 - New `README.md` describing redesigned architecture
 - New `docs/architecture.md` with runtime diagram
 - New `docs/adding-a-specialist.md` guide
-- Old docs archived to `_archive/pre-redesign-docs/`
+- Remove superseded docs from the public tree
 
-**C.3 — Old task-board archive**
-- `_state/inbox/` and `_state/outbox/` archived to `_archive/task-board-2026-05.tar.gz`
+**C.3 — Old task-board cleanup**
+- Remove the old task-board snapshot from the public tree
 - New `daemon/state/` becomes the working task-board location
 
 **C.4 — Git cleanup**

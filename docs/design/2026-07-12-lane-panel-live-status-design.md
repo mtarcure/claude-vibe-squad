@@ -7,6 +7,8 @@ scope: single-file enhancement to bin/watch-lane.sh
 
 # Lane panel live status — design
 
+> **Curated design record.** Field positions below have been refreshed to the current 28-column routing schema; `docs/architecture.md` and `shared/routing.md` remain runtime truth.
+
 ## Goal
 
 Make each model-lane card in the Chrono sidebar answer, at a glance: **which
@@ -40,7 +42,7 @@ So idle lanes stay quiet; the new lines appear only when there is real work.
 |---------|--------|
 | `spec`  | `departments/*/active/TASK-*.md` frontmatter `specialist:` (already read by `active_specialist`) |
 | `task`  | body `# <H1>` of that same active packet (same parse `latest_result` already does on responses) |
-| `tools` | `shared/specialist-runtime-map.tsv` row for the specialist → col 5 `required_tools_mcp_api` + col 7 `preferred_tools`, joined with `·` |
+| `tools` | `shared/specialist-runtime-map.tsv` row for the specialist → `required_tools` (column 24) + `preferred_tools` (column 25), joined with `·` |
 | `now`   | `tmux capture-pane -t squad:<lane> -p`, parsed (see below) |
 
 ## The `now` line — approach A (generic + graceful)

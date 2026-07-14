@@ -1,4 +1,4 @@
-<title>Vibe Squad Routing Map — 67 Specialists</title>
+<title>Vibe Squad Routing Map — 69 Specialists</title>
 <style>
   :root {
     color-scheme: light;
@@ -474,9 +474,9 @@
   <header>
     <p class="eyebrow">Vibe Squad · Control-plane reference</p>
     <h1 id="routing-title">Specialist routing map</h1>
-    <p class="subtitle">A scan-first reference for 67 role-based specialists: primary execution lane, live cross-family failover target, and independent review lane.</p>
+    <p class="subtitle">A scan-first reference for 69 role-based specialists: primary execution lane, opt-in cross-family backup, and independent review lane.</p>
     <div class="header-meta" aria-label="Map summary">
-      <span class="meta-pill">67 specialists</span>
+      <span class="meta-pill">69 specialists</span>
       <span class="meta-pill">7 namespaces</span>
       <span class="meta-pill">4 model lanes</span>
       <span class="meta-pill">Generated 2026-07-13</span>
@@ -488,12 +488,12 @@
       <p class="panel-label">Execution lanes</p>
       <div class="lane-grid">
         <article class="lane-card sol" tabindex="0">
-          <div class="lane-top"><span class="lane-name">Sol</span><span class="lane-count">19 primary</span></div>
+          <div class="lane-top"><span class="lane-name">Sol</span><span class="lane-count">20 primary</span></div>
           <code class="model-id">gpt-5.6-sol</code>
           <div class="lane-note">codex · high reasoning</div>
         </article>
         <article class="lane-card fable" tabindex="0">
-          <div class="lane-top"><span class="lane-name">Fable</span><span class="lane-count">37 primary</span></div>
+          <div class="lane-top"><span class="lane-name">Fable</span><span class="lane-count">38 primary</span></div>
           <code class="model-id">claude-fable-5</code>
           <div class="lane-note">native fallback → claude-opus-4-8, claude-sonnet-5</div>
         </article>
@@ -522,16 +522,16 @@
   <section class="panel distribution" aria-labelledby="distribution-title">
     <div class="distribution-head">
       <strong id="distribution-title">Primary-lane distribution</strong>
-      <span>67 total assignments</span>
+      <span>69 total assignments</span>
     </div>
-    <div class="bar" role="img" aria-label="Fable 37, Sol 19, Gemini 11, Kimi 0 primary specialists">
-      <span class="bar-segment fable" style="width:55.2239%"></span>
-      <span class="bar-segment sol" style="width:28.3582%"></span>
-      <span class="bar-segment gemini" style="width:16.4179%"></span>
+    <div class="bar" role="img" aria-label="Fable 38, Sol 20, Gemini 11, Kimi 0 primary specialists">
+      <span class="bar-segment fable" style="width:55.0725%"></span>
+      <span class="bar-segment sol" style="width:28.9855%"></span>
+      <span class="bar-segment gemini" style="width:15.9420%"></span>
     </div>
     <div class="distribution-key" aria-hidden="true">
-      <span class="key-item fable"><i class="key-dot"></i>Fable <strong>37</strong></span>
-      <span class="key-item sol"><i class="key-dot"></i>Sol <strong>19</strong></span>
+      <span class="key-item fable"><i class="key-dot"></i>Fable <strong>38</strong></span>
+      <span class="key-item sol"><i class="key-dot"></i>Sol <strong>20</strong></span>
       <span class="key-item gemini"><i class="key-dot"></i>Gemini <strong>11</strong></span>
       <span class="key-item kimi"><i class="key-dot"></i>Kimi <strong>0</strong></span>
     </div>
@@ -544,7 +544,7 @@
     <div class="footer-notes">
       <article class="note"><strong>Escalation stays in-family</strong><p>Escalation means the best variant within the primary lane, so it is intentionally omitted as a separate column.</p></article>
       <article class="note"><strong>Kimi is throughput-only</strong><p>It has zero primaries and is used for stakes-tiered downshift plus research backup capacity.</p></article>
-      <article class="note"><strong>Backup is live failover</strong><p>The Backup column is the cross-family target used by the conservative failover control plane, activated 2026-07-13.</p></article>
+      <article class="note"><strong>Backup is opt-in failover</strong><p>The Backup column is the cross-family target for the reviewed conservative control plane. The implementation ships inert and remains dormant until explicitly enabled.</p></article>
       <article class="note"><strong>High safety means mandatory review</strong><p>Subtle HIGH markers identify rows whose safety level carries a mandatory independent review requirement.</p></article>
     </div>
     <p class="source-line">Source: <code>shared/specialist-runtime-map.tsv</code> · generated 2026-07-13</p>
@@ -599,6 +599,8 @@ SECURITY|exploit-developer|implementation|high|Sol|Fable|Fable
 SECURITY|impact-validator|security_reasoning|high|Fable|Sol|Sol
 SECURITY|incident-responder|security_defense|high|Fable|Sol|Sol
 SECURITY|privacy-steward|security_reasoning|high|Fable|Sol|Sol
+SECURITY|red-team-operator|implementation|high|Sol|Fable|Fable
+SECURITY|reverse-engineer|security_reasoning|high|Fable|Sol|Sol
 SECURITY|scout|security_reasoning|high|Fable|Sol|Sol
 SECURITY|security-analyst|security_reasoning|high|Fable|Sol|Sol
 SECURITY|threat-modeler|security_reasoning|high|Fable|Sol|Sol

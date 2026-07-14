@@ -65,11 +65,11 @@ else (low):                                escalation.signal.v1        ; through
 failover_policy = failover.conservative.v1   (all rows)
 ```
 
-## 6. Failover — conservative-first
+## 6. Failover — dormant, opt-in, conservative-first
 
-`failover.conservative.v1` is the only live failover policy.
+`failover.conservative.v1` is the canonical policy for the built, cross-family-reviewed control plane. The implementation ships inert and remains dormant unless the operator explicitly opts in; `_state/**` and its enable sentinel are not part of a public checkout.
 
-- Auto-failover fires **only on HARD signals**: `dispatch_ack` failure, confirmed process-exit, or a typed provider error. Ambiguous / slow / silent / missed-heartbeat / soft-or-hard-deadline → **cancel + surface, never auto-redispatch**.
+- When explicitly enabled, auto-failover fires **only on HARD signals**: `dispatch_ack` failure, confirmed process-exit, or a typed provider error. Ambiguous / slow / silent / missed-heartbeat / soft-or-hard-deadline → **cancel + surface, never auto-redispatch**.
 - **Minimal attempt ledger** (correctness, not deferrable): `task_id, attempt_id, generation, lane, lease_owner, lease_expiry, terminal_status, effective_model_history, artifact_path, artifact_hash`. Chrono is the sole canonical outbox publisher — attempt-specific staging → content-addressed winner → atomic temp+fsync+rename, with generation fencing so a late primary cannot overwrite a backup.
 - **Lease/lock** coordinates Claude's native `--fallback-model` (Fable → Opus, in-lane) with Chrono cross-family re-dispatch: cross-family only after the native chain is observed terminal; hysteresis/cooldown prevents oscillation.
 - **Opus** is Claude's native fallback only (overload / in-family safety fallback), never a standing lane. Carve-out/heightened work exhausted on the in-family chain **surfaces** rather than laundering cross-family.

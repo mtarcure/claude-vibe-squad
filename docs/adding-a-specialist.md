@@ -4,27 +4,29 @@ A specialist is two things: a **routing row** in `shared/specialist-runtime-map.
 
 ## 1. Routing row (source of truth)
 
-`shared/specialist-runtime-map.tsv` is tab-separated with **8 columns**:
+`shared/specialist-runtime-map.tsv` is tab-separated with **28 columns**:
 
 ```
-# specialist	best_model_lane	review_model	source_namespace	required_tools_mcp_api	safety_level	preferred_tools	notes
+# specialist	source_namespace	capability_class	safety_level	safety_tags	tool_profile	primary_lane	primary_profile	backup_lane	backup_profile	escalate_lane	escalate_profile	escalation_policy	review_lane	review_profile	anti_affinity	throughput_lane	throughput_profile	throughput_policy	failover_policy	operator_gate	heightened_risk	requires_approval	required_tools	preferred_tools	notes	tags	version
 ```
 
 Add one row (real tabs, not spaces):
 
 ```
-my-specialist	claude	gpt-codex	security	chrono-vault,context7:query-docs	high	chrono-research-arsenal	One-line description of the role.
+my-specialist	security	security_reasoning	high	[privacy]	none	claude	claude.fable.xhigh	codex	codex.sol.high	claude	claude.fable.max	escalation.safety_floor.v1	codex	codex.sol.high	none	none	none	throughput.never.v1	failover.conservative.v1	[public_release]	true	[Write, Bash, WebFetch]	[]	[]	One-line description of the role.	[]	1.0
 ```
 
 Column rules (enforced by `bin/validate-specialists.sh`):
-- `best_model_lane` ∈ `gpt-codex | claude | gemini | kimi`
-- `review_model` ∈ `gpt-codex | claude | gemini | kimi | none`
 - `source_namespace` ∈ `coding | security | content | content-engineer | sysmgmt | research | shared`
+- routing lanes use `codex | claude | gemini | kimi`; `primary_lane` may not be `kimi`
+- `primary_lane` and `backup_lane` must differ, and every lane/profile pair must resolve through `shared/registries/profiles.tsv`
 - `safety_level` ∈ `low | medium | high`
-- a `high`-safety row must have a non-`none` `review_model`
-- `notes` (last column) must be non-empty
+- `high`/`heightened_risk` rows require an independent review, `escalation.safety_floor.v1`, and `throughput.never.v1`
+- policy fields must resolve through `shared/registries/policies.tsv`; tool profiles must resolve through `shared/registries/tool-profiles.tsv`
+- `operator_gate`, `requires_approval`, tools, tags, and safety tags use bracketed list syntax (`[]` when empty)
+- `notes` must be non-empty and `version` must be present
 
-Routing is `specialist → best_model_lane`, not `source_namespace → lane`. `model-lanes/ROSTER.md` is a generated per-lane view of this map — regenerate it from the TSV, don't hand-edit.
+Routing is `specialist → primary_lane`, not `source_namespace → lane`. `model-lanes/ROSTER.md` is a generated per-lane view of this map — regenerate it from the TSV, don't hand-edit.
 
 ## 2. Specialist brief
 
@@ -58,7 +60,7 @@ tags: []
 ---
 ```
 
-- `department` must equal the row's `source_namespace`; `lane` must equal `best_model_lane`.
+- `department` must equal the row's `source_namespace`. Runtime assignment comes from `primary_lane`; do not infer it from the brief's folder.
 - `model_key` is a nominal label — the effective model is fixed by the lane's launch command in `bin/launch-squad.sh` (e.g. the claude lane runs `claude --model opus`). There is no `config/models.yaml` to resolve it against.
 - `required_tools` / `preferred_tools` are commonly left `[]`. Actual tool availability is declared in the brief body (below) and validated against `shared/api-catalog.md`; it is not enforced by a pre-flight.
 
@@ -100,11 +102,11 @@ Send a real packet through the shipped dispatch path (no daemon, no `curl`):
 scripts/send-task.sh <source-namespace> <body-file> my-specialist
 ```
 
-`scripts/send-task.sh` reads your row from the TSV, generates task frontmatter (review model, `safety_level: high` → `mandatory_review: true`, namespace), and hands off to `bin/send-task.sh`, which writes the packet to `departments/<namespace>/inbox/TASK-*.md` and nudges the lane's tmux window. The lane's response lands at `departments/<namespace>/outbox/TASK-*-response.md`.
+`scripts/send-task.sh` reads your row from the TSV, maps `primary_lane`/`review_lane` to task-packet model names, generates task frontmatter (`safety_level: high` → `mandatory_review: true`, namespace), and hands off to `bin/send-task.sh`, which writes the packet to `departments/<namespace>/inbox/TASK-*.md` and nudges the lane's tmux window. The lane's response lands at `departments/<namespace>/outbox/TASK-*-response.md`.
 
 ## Safety & review
 
-- `safety_level: high` rows must carry a `review_model`; `bin/send-task.sh` enforces the `mandatory_review` contract at dispatch (see `shared/protocol.md` § Mandatory Review Behavior).
+- `safety_level: high` rows must carry an independent `review_lane`; `bin/send-task.sh` enforces the `mandatory_review` contract at dispatch (see `shared/protocol.md` § Mandatory Review Behavior).
 - Review is a contract, not automation: same-family reviews run in-lane before the lane declares done; cross-family reviews are dispatched by Chrono after the response lands. Reviewers are read-only unless Chrono serializes a later write packet.
 
 ## See also

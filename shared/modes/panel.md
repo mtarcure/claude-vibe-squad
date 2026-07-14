@@ -80,6 +80,10 @@ The coordinator must implement this lifecycle in a finally-safe control flow:
 9. **Write exactly one canonical response** as the coordinator.
 10. **Close activity in a finally path** using `bin/panel-activity.sh close`. If the coordinator crashes, `sweep-stale` marks its active record stale after the configured TTL.
 
+## Review convention
+
+For any panel whose deliverable is code, include `vibecoding-check` among the members (or run it on the aggregated result before step 9) — the same final-review gate every other mode applies. High-safety panel members still surface a genuine refusal as the outcome; a refusal is never routed cross-family for a different decision.
+
 ## Member result schema
 
 Every lane adapter normalizes to this object:

@@ -104,9 +104,9 @@ Routing is **quality-fit**: Chrono picks the model per specialist by capability,
 - `source_namespace`: where the specialist markdown + local memory live (coding, content, content-engineer, research, security, sysmgmt, shared).
 - `compatibility_namespace`: which mailbox folder a packet lands in (chosen by Chrono for the active workflow).
 
-The map is a **28-column** schema (up from the earlier 8). Each specialist row carries a full routing chain — `primary_lane` + a **cross-family `backup_lane`** (a genuine second-best from a different model family) + an `escalate` profile + a separate `review_lane` — plus `capability_class`, `safety_level`, `tool_profile` (for tool-gated media roles), and `operator_gate`. Rather than duplicate raw model IDs, each routing slot references a **profile** that resolves in `shared/registries/profiles.tsv` to an exact model + effort + flags; failover/escalation/throughput behaviour are **versioned policy IDs** in `shared/registries/policies.tsv`. **Kimi is a throughput-only lane and holds zero primary roles** — used only for bulk/mechanical passes under a strict downshift gate. `bin/validate-specialists.sh` fail-closes on schema, foreign-key, and rule violations (current roster: 67/67).
+The map is a **28-column** schema (up from the earlier 8). Each specialist row carries a full routing chain — `primary_lane` + a **cross-family `backup_lane`** (a genuine second-best from a different model family) + an `escalate` profile + a separate `review_lane` — plus `capability_class`, `safety_level`, `tool_profile` (for tool-gated media roles), and `operator_gate`. Rather than duplicate raw model IDs, each routing slot references a **profile** that resolves in `shared/registries/profiles.tsv` to an exact model + effort + flags; failover/escalation/throughput behaviour are **versioned policy IDs** in `shared/registries/policies.tsv`. **Kimi is a throughput-only lane and holds zero primary roles** — used only for bulk/mechanical passes under a strict downshift gate. `bin/validate-specialists.sh` fail-closes on schema, foreign-key, and rule violations (current roster: 69/69).
 
-There are **67 specialists** across the seven source namespaces: **coding 19 · content 11 · content-engineer 10 · security 8 · sysmgmt 8 · shared 6 · research 5**.
+There are **69 specialists** across the seven source namespaces: **coding 19 · content 11 · content-engineer 10 · security 10 · sysmgmt 8 · shared 6 · research 5**.
 
 ## Safety model
 Capability is separated from authorization.
@@ -116,10 +116,10 @@ Capability is separated from authorization.
 - **Pre-publication gates.** Two specialists are machine-checkable gates before anything ships: `content-verifier` (fact/citation truth gate, Rule 8) and `asset-provenance-and-rights-auditor` (license/consent/rights gate, Rule 6). Each emits a hash-bound `PASS|HOLD|FAIL` gate record; a non-PASS result or a stale subject hash blocks publication.
 - **`safety_level` is a quality floor**, not a complexity detector: `high` (and `heightened_risk`) force the strongest profile, stricter review, and never a throughput downshift.
 
-## Failover control plane (built, reviewed — currently dormant)
+## Failover control plane (built, cross-family reviewed — opt-in and currently dormant)
 The redesign specifies a full resilience layer: per-specialist **cross-family backups**, Claude's native in-lane `--fallback-model` chain, a **conservative-first** auto-failover policy (act only on hard signals — dispatch-ack failure, confirmed process-exit, or a typed provider error — and otherwise surface, never guess), a minimal **attempt ledger** with generation fencing, and a **lease/lock** so the native and Chrono-coordinated paths cannot double-dispatch one packet.
 
-**Honest status (Rule 8):** this control plane is *built and cross-reviewed but currently gated OFF (dormant)*. Dispatch today is Chrono-coordinated and automatic failover is **not** live. It is documented here as an architecture the system is ready to enable, not a running feature. (Distinct from the never-built Ink-TUI/daemon redesign under "Planned (not built)" below.)
+**Honest status (Rule 8):** this control plane is *built and cross-family reviewed but opt-in and currently gated OFF (dormant)*. It ships inert because `_state/**` is ignored and a public checkout has no enable sentinel. Dispatch today is Chrono-coordinated and automatic failover is **not** live. It is documented here as an architecture the operator can explicitly enable, not a feature that runs by default.
 
 ## Key files & references
 
@@ -128,7 +128,7 @@ The redesign specifies a full resilience layer: per-specialist **cross-family ba
 | `bin/squad`, `bin/launch-squad.sh` | Lifecycle CLI + tmux launcher |
 | `scripts/send-task.sh`, `bin/send-task.sh` | Dispatch (frontmatter generation + hardened writer) |
 | `shared/protocol.md` | Task-packet frontmatter, lifecycle, review behavior |
-| `shared/specialist-runtime-map.tsv` | Canonical routing: 67 rows × 28 columns (primary/backup/escalate/review lanes + profiles, capability_class, safety, operator_gate) |
+| `shared/specialist-runtime-map.tsv` | Canonical routing: 69 rows × 28 columns (primary/backup/escalate/review lanes + profiles, capability_class, safety, operator_gate) |
 | `shared/registries/profiles.tsv`, `shared/registries/policies.tsv` | Profile → (model + effort + flags); versioned failover/escalation/throughput policies |
 | `shared/routing.md` | Narrative routing source of truth (quality-fit model, safety model, failover) |
 | `model-lanes/ROSTER.md` | Generated per-lane roster view |
@@ -138,13 +138,9 @@ The redesign specifies a full resilience layer: per-specialist **cross-family ba
 | `departments/*/inbox/`, `departments/*/outbox/` | Dispatch board (packets + responses) |
 | `daemon/` | Optional FastAPI service (status, summarize, triggers) — not on the dispatch path |
 
-## Planned (not built)
+## Curated design history
 
-`docs/superpowers/specs/2026-07-11-vibe-squad-redesign-design.md` proposed a redesign that was **not** implemented. None of the following ships today; they are recorded here only so older references resolve:
-
-- **Ink TUI** (`ink-app/`, Node.js + React + Yoga) hosting Chrono as an `@anthropic-ai/claude-agent-sdk` client and spawning lanes as `node-pty` subprocesses, streaming output into panes. *Not built* — the runtime is tmux windows running each CLI directly; `ink-app/` does not exist.
-- **FastAPI daemon as the dispatch spine** — `POST /task` dispatch, `daemon/state/inbox|outbox/` as the task board, `WS /events`, an **MCP proxy** at `/mcp/tool`, and a circuit breaker. *Not built as the spine* — dispatch is the markdown mailbox under `departments/*/`; the daemon that exists (`daemon/`) is optional/secondary, and MCPs are registered per-CLI, not proxied.
-- **`config/models.yaml`** — a model roster keyed by `model_key`. *Does not exist* — model selection is the `best_model_lane` column in the TSV plus each lane's launch command in `bin/launch-squad.sh`.
+Two portfolio design narratives are retained under `docs/design/`: the [2026-07-11 redesign proposal](design/2026-07-11-vibe-squad-redesign-design.md) and the [2026-07-12 lane-panel status design](design/2026-07-12-lane-panel-live-status-design.md). They preserve the decision process and are explicitly historical; this architecture document and the canonical routing/runtime files above describe what ships.
 
 ## See also
 - Protocol: `shared/protocol.md` (packet schema, lifecycle, review behavior)

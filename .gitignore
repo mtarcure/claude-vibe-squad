@@ -82,3 +82,8 @@ departments/*/current.md
 departments/*/memory.md
 chrono/current.md
 chrono/memory.md
+
+# Operator-local process exhaust — retained locally, excluded from public exports.
+/_archive/
+/projects/
+/docs/handoffs/
