@@ -98,20 +98,31 @@ for tid, t in (at.items() if isinstance(at, dict) else []):
     lane = t.get("to_model")
     if lane not in LANES:
         continue
+    # Dispatched epoch (also the running timer's start).
+    de = 0
+    try:
+        from datetime import datetime
+        da = t.get("dispatched_at")
+        if da:
+            de = int(datetime.fromisoformat(da.replace("Z", "+00:00")).timestamp())
+    except Exception:
+        de = 0
+    # Skip stale registry cruft: the registry never expires entries, so a task
+    # dispatched long ago (a day-old "blocked"/"in-flight") is NOT the lane's
+    # current state. 4h is well beyond any real task.
+    if de and NOW - de > 4 * 3600:
+        continue
     # Normalize status (values vary: "in-flight", "In_Flight", "active", …).
     st = str(t.get("status", "")).strip().lower().replace("_", "-")
     spec = clean(t.get("specialist"))
     if st in ("active", "running", "dispatched", "in-flight", "inflight"):
-        started = 0
-        try:
-            from datetime import datetime
-            da = t.get("dispatched_at")
-            if da:
-                started = int(datetime.fromisoformat(da.replace("Z", "+00:00")).timestamp())
-        except Exception:
-            started = 0
+        # The registry lags: it only reconciles on the NEXT dispatch, so a task
+        # that just finished still reads "in-flight". If its response already
+        # landed in outbox, the task is actually DONE — don't show it as running.
+        if glob.glob(str(DEPTS / f"*/outbox/{tid}-response.md")):
+            continue
         if spec and not any(w[0] == spec for w in work[lane]):
-            work[lane].append((spec, "running", started))
+            work[lane].append((spec, "running", de))
         if not task_title[lane]:
             task_title[lane] = panel_task_title(tid)
     elif st in ("queued", "new", "pending"):
