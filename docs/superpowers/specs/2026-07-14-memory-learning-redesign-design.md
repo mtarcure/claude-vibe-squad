@@ -19,9 +19,11 @@ The write→recall→apply loop is broken and unsafe: `recall` is a `LIKE` stub;
 - **Storage:** an external **local directory** with a fail-closed absolute root + an independently-configured **encrypted backup**. A private git repo is *optional history*, never the trust boundary or the backup.
 
 ## 4. Note schema (merged Fable + Sol)
+A note = YAML frontmatter (metadata below) **+ a markdown body** (the actual finding/learning text). `title` (frontmatter) and `body` (the markdown content after the frontmatter) are the primary indexed content.
 ```yaml
 schema_version: 1
 id: mem-<server-generated>          # immutable, in frontmatter (not filename)
+title: <one-line summary>           # indexed, high weight
 type: attempt | finding | learning
 status: candidate | verified | superseded | invalidated | archived
 target: <canonical target>
