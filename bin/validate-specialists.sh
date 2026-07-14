@@ -12,7 +12,7 @@ CATALOG="${VAULT}/shared/api-catalog.md"
 RUNTIME_MAP="${VAULT}/shared/specialist-runtime-map.tsv"
 PROFILE_REGISTRY="${VAULT}/shared/registries/profiles.tsv"
 POLICY_REGISTRY="${VAULT}/shared/registries/policies.tsv"
-EXPECTED_RUNTIME_ROWS=67
+EXPECTED_RUNTIME_ROWS=69
 STRICT_ADAPTERS="${STRICT_ADAPTERS:-0}"
 
 REQUIRED_SECTIONS=(
@@ -188,7 +188,7 @@ else
         case "$anti_affinity" in none|author_family) ;; *) map_issues+=("invalid-anti-affinity:${anti_affinity}") ;; esac
         [[ "$heightened_risk" =~ ^(true|false)$ ]] || map_issues+=("invalid-heightened-risk:${heightened_risk}")
         expected_heightened=false
-        case "$specialist" in security-analyst|exploit-developer|privacy-steward|threat-modeler|scout|impact-validator|smart-contract-engineer|scraping-engineer|incident-responder|detection-engineer|software-supply-chain-engineer|asset-provenance-and-rights-auditor) expected_heightened=true ;; esac
+        case "$specialist" in security-analyst|exploit-developer|privacy-steward|threat-modeler|scout|impact-validator|smart-contract-engineer|scraping-engineer|incident-responder|detection-engineer|software-supply-chain-engineer|asset-provenance-and-rights-auditor|red-team-operator|reverse-engineer) expected_heightened=true ;; esac
         [[ "$heightened_risk" == "$expected_heightened" ]] || map_issues+=("heightened-risk-mismatch:${heightened_risk}-expected-${expected_heightened}")
         for policy_pair in "escalation:$escalation_policy" "throughput:$throughput_policy" "failover:$failover_policy"; do
             expected_family="${policy_pair%%:*}"; policy_id="${policy_pair#*:}"
@@ -215,7 +215,7 @@ else
                 map_issues+=("invalid-low-safety-throughput-policy:${throughput_policy}")
             fi
         fi
-        list_has_only "$operator_gate" "delete cleanup credential_change public_release paid_media live_outreach production_mutation" || map_issues+=("invalid-operator-gate:${operator_gate}")
+        list_has_only "$operator_gate" "delete cleanup credential_change public_release paid_media live_outreach production_mutation offensive_execution malware_detonation" || map_issues+=("invalid-operator-gate:${operator_gate}")
         is_bracket_list "$requires_approval" || map_issues+=("invalid-requires-approval:${requires_approval}")
         is_bracket_list "$required_tools" || map_issues+=("invalid-required-tools:${required_tools}")
         is_bracket_list "$preferred_tools" || map_issues+=("invalid-preferred-tools:${preferred_tools}")
