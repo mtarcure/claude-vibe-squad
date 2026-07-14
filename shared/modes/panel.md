@@ -50,6 +50,7 @@ Per-member assignments are appended to the body. The original task file is not r
 5. A genuine safety refusal surfaces as a result and is never retried cross-family to obtain a different safety decision.
 6. Failover observes only the parent task. Children do not create attempts or publish artifacts.
 7. Activity state has one writer: the coordinator.
+8. Member collection is a bounded poll loop. No lane-native receive, shell command, sleep, or helper call may wait without an explicit timeout shorter than the remaining panel deadline.
 
 ## Coordinator lifecycle
 
@@ -62,7 +63,18 @@ The coordinator must implement this lifecycle in a finally-safe control flow:
    - Claude: coordinator-pull plus deterministic `_state/scratch/<task-id>/<member>.md` file return is required. Claude auto-return is not assumed.
    - Codex: native parent-message return is primary. A scratch file is optional for oversized results when the packet grants that scope.
 5. **Update activity** for `done`, `failed`, `refused`, or `timed_out` members.
-6. **Wait for quorum or timeout.** `all` requires every member to reach a terminal state. Numeric quorum permits aggregation after that many usable `completed` results; remaining late members become explicit coverage gaps at the deadline and never block the outbox indefinitely.
+6. **Run the mechanical bounded collection loop.** The coordinator must not perform a blocking receive. On every iteration it drains only lane-native returns that are already available, normalizes them, updates activity, and then invokes exactly one non-blocking check:
+
+   ```bash
+   timeout 5 bin/panel-activity.sh poll \
+     --task-id "$task_id" \
+     --quorum "$panel_quorum" \
+     --timeout "$panel_timeout_seconds"
+   ```
+
+   The first `poll` persists a monotonic collection start and hard deadline in the activity record; later calls reuse that deadline and cannot extend it. The command emits one JSON result with `outcome: waiting|quorum_met|timed_out` and returns immediately. For `waiting`, the coordinator performs only a bounded short sleep such as `timeout 2 sleep 1`, then repeats return-drain → activity-update → `poll`. It exits collection immediately on `quorum_met` or `timed_out`. The shell-side collection invocation and every potentially blocking return operation must also be protected with `timeout`, using at most `panel_timeout_seconds + 15` seconds for the complete collection phase and at most two minutes for any individual step. `all` requires every member to reach a terminal state. Numeric quorum permits aggregation after that many usable `done` results.
+
+   At the monotonic deadline, `poll` atomically transitions every remaining `queued` or `running` member to `timed_out` before returning `outcome: timed_out`. If numeric usable quorum is reached first, the same command closes collection and atomically marks the remaining queued/running members `timed_out` with a quorum-closure detail before returning `outcome: quorum_met`; they remain explicit coverage gaps rather than live children. A late return cannot change the terminal activity record or the already-published parent response.
 7. **Collate deterministically** by validating schemas, retaining attribution, grouping claims by subject/evidence, and identifying agreement and contradiction.
 8. **Synthesize with evidence** into consensus, unique findings, unresolved conflicts, coverage gaps, refusals/failures, tools used, and limitations. Evidence strength may resolve a conflict; majority count may not.
 9. **Write exactly one canonical response** as the coordinator.
@@ -116,7 +128,7 @@ Active records live at:
 _state/runtime/lane-activity/<task-id>.json
 ```
 
-`bin/panel-activity.sh` performs atomic same-directory temporary-write plus rename updates. Records contain the parent task/lane/coordinator state, timestamps, TTL, and member transitions. `close` moves a terminal record into the `archive/` child directory. `sweep-stale` marks abandoned running records `stale` and running/queued members `timed_out`.
+`bin/panel-activity.sh` performs atomic same-directory temporary-write plus rename updates. Records contain the parent task/lane/coordinator state, timestamps, TTL, member transitions, and (after the first `poll`) the monotonic collection start/deadline. `poll` is a single non-blocking quorum/deadline check; it never sleeps or collects lane-native returns. `close` moves a terminal record into the `archive/` child directory. `sweep-stale` marks abandoned running records `stale` and running/queued members `timed_out`.
 
 The future status UI is a read-only projection of these records; it must never become the activity source of truth.
 
@@ -129,4 +141,3 @@ The future status UI is a read-only projection of these records; it must never b
 - Quorum impossible: write an honest `failed` or `needs_human` parent response, then archive activity.
 - Coordinator crash: leave the active file; a later `sweep-stale` makes the failure visible.
 - Outbox write failure: keep/mark activity failed or stale; never let a member publish in the coordinator's place.
-

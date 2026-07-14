@@ -10,6 +10,7 @@ usage() {
 Usage:
   panel-activity.sh create --task-id ID --lane claude|gpt-codex --coordinator NAME --members a,b [--ttl SECONDS]
   panel-activity.sh update --task-id ID --member NAME --state running|done|failed|refused|timed_out [--detail TEXT]
+  panel-activity.sh poll --task-id ID --quorum all|N --timeout SECONDS
   panel-activity.sh close --task-id ID --state done|failed|timed_out [--detail TEXT]
   panel-activity.sh sweep-stale [--ttl SECONDS]
   panel-activity.sh show --task-id ID
@@ -66,6 +67,11 @@ update.add_argument("--task-id", required=True)
 update.add_argument("--member", required=True)
 update.add_argument("--state", required=True, choices=("running", "done", "failed", "refused", "timed_out"))
 update.add_argument("--detail", default="")
+
+poll = sub.add_parser("poll")
+poll.add_argument("--task-id", required=True)
+poll.add_argument("--quorum", required=True)
+poll.add_argument("--timeout", type=positive_int, required=True)
 
 close = sub.add_parser("close")
 close.add_argument("--task-id", required=True)
@@ -178,6 +184,115 @@ elif args.command == "update":
     data["updated_at_epoch"] = now
     atomic_write(path, data)
     print(json.dumps(data, sort_keys=True))
+
+elif args.command == "poll":
+    path = active_path(args.task_id)
+    data = load(path)
+    if data.get("state") != "running":
+        raise SystemExit(f"cannot poll non-running activity: {data.get('state')}")
+
+    members = data.get("members", [])
+    member_count = len(members)
+    if args.quorum == "all":
+        required_count = member_count
+        quorum_kind = "all"
+    else:
+        try:
+            required_count = positive_int(args.quorum)
+        except (ValueError, argparse.ArgumentTypeError):
+            raise SystemExit("quorum must be 'all' or a positive integer")
+        if required_count > member_count:
+            raise SystemExit(
+                f"quorum {required_count} exceeds member count {member_count}"
+            )
+        quorum_kind = "numeric"
+
+    monotonic_now = time.monotonic()
+    wall_now = time.time()
+    configured_timeout = data.get("panel_timeout_seconds")
+    if configured_timeout is None:
+        data["panel_timeout_seconds"] = args.timeout
+        data["collection_started_monotonic"] = monotonic_now
+        data["deadline_monotonic"] = monotonic_now + args.timeout
+        data["collection_started_at_epoch"] = wall_now
+        data["deadline_at_epoch"] = wall_now + args.timeout
+        deadline_initialized = True
+    else:
+        if int(configured_timeout) != args.timeout:
+            raise SystemExit(
+                "poll timeout cannot change after collection starts: "
+                f"expected {configured_timeout}, got {args.timeout}"
+            )
+        deadline_initialized = False
+
+    deadline_monotonic = float(data["deadline_monotonic"])
+    deadline_at_epoch = float(data.get("deadline_at_epoch", wall_now + args.timeout))
+    done_count = sum(member.get("state") == "done" for member in members)
+    terminal_count = sum(member.get("state") in member_terminal for member in members)
+    if quorum_kind == "all":
+        quorum_met = terminal_count >= required_count
+    else:
+        quorum_met = done_count >= required_count
+
+    deadline_reached = (
+        monotonic_now >= deadline_monotonic or wall_now >= deadline_at_epoch
+    )
+    timed_out = []
+    if quorum_met:
+        outcome = "quorum_met"
+        for member in members:
+            if member.get("state") in {"queued", "running"}:
+                member["state"] = "timed_out"
+                member["ended_at_epoch"] = now
+                member["detail"] = (
+                    "panel collection closed after usable quorum was met"
+                )
+                timed_out.append(member["specialist"])
+        if timed_out:
+            data["updated_at_epoch"] = now
+            data["collection_outcome"] = outcome
+            terminal_count = sum(
+                member.get("state") in member_terminal for member in members
+            )
+    elif deadline_reached:
+        outcome = "timed_out"
+        for member in members:
+            if member.get("state") in {"queued", "running"}:
+                member["state"] = "timed_out"
+                member["ended_at_epoch"] = now
+                member["detail"] = (
+                    f"panel collection deadline expired after {args.timeout} seconds"
+                )
+                timed_out.append(member["specialist"])
+        data["updated_at_epoch"] = now
+        data["collection_outcome"] = outcome
+        data["deadline_reached_at_epoch"] = wall_now
+        terminal_count = sum(
+            member.get("state") in member_terminal for member in members
+        )
+    else:
+        outcome = "waiting"
+
+    if deadline_initialized or timed_out:
+        atomic_write(path, data)
+
+    pending = [
+        member["specialist"]
+        for member in members
+        if member.get("state") in {"queued", "running"}
+    ]
+    result = {
+        "task_id": args.task_id,
+        "outcome": outcome,
+        "done_count": done_count,
+        "terminal_count": terminal_count,
+        "required_count": required_count,
+        "pending": pending,
+        "timed_out": timed_out,
+        "deadline_monotonic": deadline_monotonic,
+        "remaining_seconds": max(0.0, deadline_monotonic - monotonic_now),
+    }
+    print(json.dumps(result, sort_keys=True))
 
 elif args.command == "close":
     path = active_path(args.task_id)
