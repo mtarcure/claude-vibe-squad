@@ -22,12 +22,13 @@ from typing import Any
 
 import httpx
 from mcp.server.fastmcp import FastMCP
+from vaultroot import resolve_vault_root
 
 mcp = FastMCP("chrono-vault")
 
 
 def _vault_root() -> Path:
-    return Path(os.environ.get("CHRONO_VAULT_ROOT", os.path.expanduser("~/Obsidian-Chrono")))
+    return resolve_vault_root()
 
 
 def _state_dir() -> Path:
@@ -36,7 +37,6 @@ def _state_dir() -> Path:
 
 def _connect(db_name: str) -> sqlite3.Connection:
     """Open SQLite with WAL + busy timeout. Idempotent (safe on every call)."""
-    _state_dir().mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(_state_dir() / db_name, timeout=5.0)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=5000")
