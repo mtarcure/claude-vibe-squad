@@ -204,9 +204,13 @@ class FailoverWatchdog:
 
         # Model-lane specialists do not emit heartbeats. Acceptance proves
         # pickup; the 20/40-minute execution deadlines provide visibility.
-        if elapsed >= ledger["hard_deadline_seconds"] and "hard_deadline" not in surfaced_signals:
+        if elapsed >= ledger["hard_deadline_seconds"]:
+            if "hard_deadline" in surfaced_signals:
+                return actions
             signal = "hard_deadline"
-        elif elapsed >= ledger["soft_deadline_seconds"] and "soft_deadline" not in surfaced_signals:
+        elif elapsed >= ledger["soft_deadline_seconds"]:
+            if "soft_deadline" in surfaced_signals:
+                return actions
             signal = "soft_deadline"
         else:
             return actions

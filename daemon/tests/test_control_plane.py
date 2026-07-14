@@ -337,6 +337,23 @@ def test_soft_surface_valid_completion_supersedes_without_operator_unlock(tmp_pa
     assert b"finished normally" in canonical.read_bytes()
 
 
+def test_legacy_terminal_soft_surface_is_migrated_and_publishable(tmp_path):
+    task_id = "TASK-legacy-soft-terminal"
+    control, canonical, attempt = initialized(tmp_path, task_id)
+    ledger_path = control.ledger_path(task_id)
+    ledger = json.loads(ledger_path.read_text())
+    ledger["attempts"][0]["terminal_status"] = "NEEDS_HUMAN"
+    ledger["attempts"][0]["terminal_signal"] = "missed_heartbeat"
+    ledger_path.write_text(json.dumps(ledger))
+
+    stage(Path(attempt["artifact_path"]), response(task_id, "recovered stranded completion"))
+    control.publish_attempt(task_id=task_id, attempt_id=attempt["attempt_id"])
+    recovered = control.read(task_id)["attempts"][0]
+    assert recovered["terminal_status"] == "SUCCEEDED"
+    assert recovered["surface_history"][-1]["migrated_from_terminal"] is True
+    assert b"recovered stranded completion" in canonical.read_bytes()
+
+
 def test_operator_can_audit_clear_refusal_veto_for_current_attempt(tmp_path):
     control, _canonical, attempt = initialized(tmp_path, "TASK-unlock-refusal")
     control.record_terminal_signal(
