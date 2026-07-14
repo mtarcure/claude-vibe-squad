@@ -1,0 +1,35 @@
+{
+  "collection_started_at_epoch": 1784027351.010296,
+  "collection_started_monotonic": 249193.534544458,
+  "coordinator": "synthesizer",
+  "deadline_at_epoch": 1784028251.010296,
+  "deadline_monotonic": 250093.534544458,
+  "detail": "panel synthesis complete; one canonical artifact",
+  "dispatch_kind": "panel",
+  "ended_at_epoch": 1784027351,
+  "lane": "claude",
+  "members": [
+    {
+      "ended_at_epoch": 1784027350,
+      "queued_at_epoch": 1784027216,
+      "specialist": "code-reviewer",
+      "started_at_epoch": 1784027216,
+      "state": "done"
+    },
+    {
+      "ended_at_epoch": 1784027350,
+      "queued_at_epoch": 1784027216,
+      "specialist": "security-analyst",
+      "started_at_epoch": 1784027216,
+      "state": "done"
+    }
+  ],
+  "panel_id": "PANEL-2026-07-14-0404-558ae3fc",
+  "panel_timeout_seconds": 900,
+  "schema_version": 1,
+  "stale_ttl_seconds": 900,
+  "started_at_epoch": 1784027216,
+  "state": "done",
+  "task_id": "TASK-2026-07-14-0404-558ae3fc",
+  "updated_at_epoch": 1784027351
+}

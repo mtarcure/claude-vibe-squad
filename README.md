@@ -22,8 +22,7 @@ You talk to **one coordinator, Chrono**, in plain language. It turns your reques
 > *A "panel" runs inside one lane's model family — Claude **or** Codex. The multi-model story is cross-lane coordination plus a **different-family reviewer**, not four families debating in one panel.*
 
 <p align="center">
-  <!-- PLACEHOLDER: Chrono records the real swarm run and drops the GIF here -->
-  <img src="assets/media/swarm-demo.gif" alt="A task dispatched to a specialist panel: two specialists run in parallel (SWARM x2), a different model family reviews the risky part, and the coordinator returns one synthesized answer" width="900">
+  <img src="assets/media/swarm-demo.gif" alt="A code change dispatched to a specialist panel: code-reviewer and security-analyst run in parallel as SWARM x2, each surfaces a distinct issue, and the coordinator synthesizes one evidence-weighted review" width="820">
 </p>
 
 ---
@@ -37,7 +36,7 @@ One request becomes one audited answer, in four beats:
 3. **A *different* model family reviews the risky part.** High-stakes work carries a cross-family reviewer; the dispatcher refuses to send a `safety_level: high` job without one.
 4. **You get one synthesized result** — evidence-weighted, with dissent and coverage gaps preserved, written to a single `outbox/` artifact.
 
-> ▶ **The demo above is a recorded run of the real system — landing before release.** A sanitized, reproducible end-to-end trace (parent task, member returns, panel activity state, the cross-family review, the one synthesized answer, and the commit it checkpointed to) will ship alongside it in `examples/demo-run/`.
+> ▶ **The demo above is a real, unedited panel run:** two specialists (code-reviewer + security-analyst) review a change in parallel, then the coordinator synthesizes one evidence-weighted result. Its full reproducible trace — the change under review, both raw specialist returns, the panel-activity ledger, and the synthesis — is in [`examples/demo-run/`](examples/demo-run/). *(Beat 3's cross-family review is a separate hop, shown in the safety-model diagram below.)*
 
 ---
 
