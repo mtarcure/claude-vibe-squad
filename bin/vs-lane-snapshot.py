@@ -52,6 +52,20 @@ task_title = {l: "" for l in LANES}
 has_queued = {l: False for l in LANES}
 has_blocked = {l: False for l in LANES}
 
+def panel_task_title(task_id):
+    if not task_id:
+        return ""
+    for tf in glob.glob(str(DEPTS / f"*/*/{task_id}.md")):
+        try:
+            body = Path(tf).read_text(errors="replace")
+        except OSError:
+            continue
+        m = re.search(r"^#\s+(.+)$", body.split("\n---", 2)[-1], re.M)
+        if m:
+            return clean(m.group(1))
+    return ""
+
+
 for p in glob.glob(str(LANE_ACT / "*.json")):
     r = load_json(p, {})
     if r.get("dispatch_kind") != "panel" or r.get("state") != "running":
@@ -59,12 +73,23 @@ for p in glob.glob(str(LANE_ACT / "*.json")):
     lane = r.get("lane")
     if lane not in LANES:
         continue
+    # Skip orphaned/stale panels — a running record that stopped being updated
+    # (crashed lane, killed session) past its ttl + grace. Mirrors the poller.
+    updated = r.get("updated_at_epoch") or r.get("started_at_epoch") or 0
+    ttl = r.get("stale_ttl_seconds", 60)
+    try:
+        if updated and NOW - int(updated) > int(ttl) + 30:
+            continue
+    except (TypeError, ValueError):
+        pass
     for m in r.get("members", []):
         if isinstance(m, dict) and m.get("specialist"):
             st = m.get("state", "running")
             work[lane].append((clean(m["specialist"]), st, int(m.get("started_at_epoch") or 0)))
             if st == "queued":
                 has_queued[lane] = True
+    if not task_title[lane]:
+        task_title[lane] = panel_task_title(r.get("task_id"))
 
 at = load_json(ACTIVE_TASKS, {})
 for tid, t in (at.items() if isinstance(at, dict) else []):

@@ -94,24 +94,18 @@ fit() {
 }
 
 # --- Fast per-lane data (from bin/vs-lane-snapshot.py) -----------------------
-# The snapshot is gathered ONCE per frame in the loop and parsed into these
-# arrays; draw_card reads them (no per-card file scanning). Command-substitution
-# subshells (the frame builder) inherit these globals, so draw_card sees them.
-declare -A LANE_STATE LANE_STARTED LANE_WORK LANE_TASK LANE_LAST
+# The snapshot is gathered ONCE per frame into the global `snap` var (the frame
+# builder is a $() subshell, which inherits it). Each card extracts its own block
+# with awk — no bash-4 associative arrays, since macOS ships bash 3.2.
+snap=""
 
-parse_snapshot() {  # parse_snapshot "<snapshot text>"
-    local snap="$1" cur="" t a b c
-    LANE_STATE=(); LANE_STARTED=(); LANE_WORK=(); LANE_TASK=(); LANE_LAST=()
-    while IFS=$'\t' read -r t a b c; do
-        case "$t" in
-            @LANE) cur="$a"
-                   LANE_STATE[$cur]="$b"; LANE_STARTED[$cur]="$c"
-                   LANE_WORK[$cur]=""; LANE_TASK[$cur]=""; LANE_LAST[$cur]="" ;;
-            @WORK) [[ -n "$cur" ]] && LANE_WORK[$cur]+="${a}"$'\t'"${b}"$'\t'"${c}"$'\n' ;;
-            @TASK) [[ -n "$cur" ]] && LANE_TASK[$cur]="$a" ;;
-            @LAST) [[ -n "$cur" ]] && LANE_LAST[$cur]="${a}"$'\t'"${b}" ;;
-        esac
-    done <<< "$snap"
+# Echo one lane's snapshot block: its @LANE line plus its @WORK/@TASK/@LAST lines.
+_lane_block() {  # _lane_block LANE
+    printf '%s\n' "$snap" | awk -F'\t' -v L="$1" '
+        $1=="@LANE" && $2==L {inb=1; print; next}
+        $1=="@LANE" && inb {exit}
+        inb {print}
+    '
 }
 
 # Elapsed mm:ss from a start epoch (0 → --:--; caps mm at 99).
@@ -313,11 +307,21 @@ fmt_erow() {  # fmt_erow WIDTH EMOJI VALUE
 
 draw_card() {
     local lane="$1" width="$2" height="${3:-0}"
-    local accent short state started
+    local accent short state='idle' started='0' task='' last=''
+    local -a members=()
     accent="$(runtime_accent_color "$lane")"
     short="$(runtime_short_name "$lane")"
-    state="${LANE_STATE[$lane]:-idle}"
-    started="${LANE_STARTED[$lane]:-0}"
+
+    # Parse this lane's snapshot block in one pass (no assoc arrays — bash 3.2).
+    local t a b c
+    while IFS=$'\t' read -r t a b c; do
+        case "$t" in
+            @LANE) [[ -n "$b" ]] && state="$b"; started="$c" ;;
+            @WORK) members+=("${a}"$'\t'"${b}"$'\t'"${c}") ;;
+            @TASK) task="$a" ;;
+            @LAST) last="${a}"$'\t'"${b}" ;;
+        esac
+    done < <(_lane_block "$lane")
 
     # State → header dot color + lowercase labels. The dot is a single-width ●.
     local dot_color state_lc name_lc
@@ -329,26 +333,29 @@ draw_card() {
     esac
     name_lc=$(printf '%s' "$short" | tr '[:upper:]' '[:lower:]')
 
-    # Body from the snapshot: working lanes list their specialist(s) + task; idle
-    # lanes show what ran last. No static tagline — the card shows real work.
+    # Body: working lanes list their specialist SUBAGENTS + task; idle lanes show
+    # what ran last. No static tagline — the card shows real work.
     local -a body=()
     if [[ "$state" == "running" || "$state" == "queued" ]]; then
-        local spec st s_ep mg mgc
-        while IFS=$'\t' read -r spec st s_ep; do
-            [[ -z "$spec" ]] && continue
-            case "$st" in
-                running) mg='●'; mgc='38;5;118' ;;
-                queued)  mg='◐'; mgc='38;5;214' ;;
-                *)       mg='○'; mgc='38;5;240' ;;
-            esac
-            body+=("$(fmt_member "$width" "$mgc" "$mg" "$spec" "$(elapsed_mmss "$s_ep")")")
-        done <<< "${LANE_WORK[$lane]}"
-        [[ -n "${LANE_TASK[$lane]:-}" ]] && body+=("$(fmt_erow "$width" 📋 "${LANE_TASK[$lane]}")")
+        local m spec st s_ep mg mgc
+        if (( ${#members[@]} > 0 )); then
+            for m in "${members[@]}"; do
+                IFS=$'\t' read -r spec st s_ep <<< "$m"
+                [[ -z "$spec" ]] && continue
+                case "$st" in
+                    running) mg='●'; mgc='38;5;118' ;;
+                    queued)  mg='◐'; mgc='38;5;214' ;;
+                    *)       mg='○'; mgc='38;5;240' ;;
+                esac
+                body+=("$(fmt_member "$width" "$mgc" "$mg" "$spec" "$(elapsed_mmss "$s_ep")")")
+            done
+        fi
+        [[ -n "$task" ]] && body+=("$(fmt_erow "$width" 📋 "$task")")
+        (( ${#body[@]} == 0 )) && body+=("$(fmt_erow "$width" ⚡ "working…")")
     else
-        local ls lspec ltitle
-        ls="${LANE_LAST[$lane]:-}"
-        if [[ -n "$ls" ]]; then
-            IFS=$'\t' read -r lspec ltitle <<< "$ls"
+        if [[ -n "${last//$'\t'/}" ]]; then
+            local lspec ltitle
+            IFS=$'\t' read -r lspec ltitle <<< "$last"
             body+=("$(fmt_erow "$width" 🕐 "${lspec}${ltitle:+ · $ltitle}")")
         else
             body+=("$(fmt_erow "$width" 🕐 "no recent work")")
@@ -463,43 +470,46 @@ while true; do
     focus=""
     [[ -f /tmp/vs-sidebar-focus ]] && focus="$(cat /tmp/vs-sidebar-focus 2>/dev/null || true)"
 
-    # Full-clear on any layout change — pane resize OR entering/leaving a preview.
-    if [[ "$cols" != "${_prev_cols:-}" || "$rows" != "${_prev_rows:-}" || "$focus" != "${_prev_focus:-}" ]]; then
-        printf '\033[2J'
-        _prev_cols="$cols"; _prev_rows="$rows"; _prev_focus="$focus"
+    # Fast per-lane data snapshot (~0.02–0.04s), parsed into the LANE_* arrays that
+    # draw_card reads. Replaces the old ~11s/frame per-card file scanning. Run in
+    # the parent so the frame subshell below inherits the arrays.
+    if [[ -z "$focus" ]]; then
+        snap="$(VAULT_ROOT="$VAULT_ROOT" /usr/bin/python3 "${VAULT_ROOT}/bin/vs-lane-snapshot.py" 2>/dev/null)"
     fi
 
-    home
-    compact=false
-    [[ "$SQUAD_WATCH_COMPACT" == "1" || "$cols" -lt 40 ]] && compact=true
-
-    if [[ -n "$focus" && "$LANE" == "all" ]]; then
-        render_preview "$focus" "$width" "$rows"
-    elif [[ "$LANE" == "all" ]]; then
-        printf '\033[48;5;236;38;5;45;1m MODEL LANES \033[0m'
-        printf '  '
-        if [[ "$compact" == "true" ]]; then
-            color "38;5;245" "mouse scroll / copy-mode"
-        else
-            color "38;5;245" "scroll: mouse / copy: drag or copy-mode"
-        fi
-        printf '\n\n'
-        card_h=$(( (rows - 8) / 4 ))
-        [[ "$card_h" -lt 7 ]] && card_h=7
-        _n=${#MODEL_LANES[@]}; _i=0
-        for lane in "${MODEL_LANES[@]}"; do
-            _i=$((_i + 1))
-            if [[ "$compact" == "true" ]]; then
-                draw_compact_card "$lane" "$width"
-            else
+    # Build the ENTIRE frame in memory, then paint once: home, each line + \033[K
+    # (clear to EOL — no horizontal residue), newline BETWEEN lines only (no
+    # trailing newline → no scroll → no doubled headers), then \033[J (clear
+    # everything below). No per-frame full clear = no flicker; correct on resize.
+    frame="$(
+        if [[ -n "$focus" && "$LANE" == "all" ]]; then
+            render_preview "$focus" "$width" "$rows"
+        elif [[ "$LANE" == "all" ]]; then
+            printf '\033[48;5;236;38;5;45;1m MODEL LANES \033[0m  '
+            color "38;5;245" "scroll · click a lane · dbl-click opens it"
+            printf '\n\n'
+            card_h=$(( (rows - 8) / 4 ))
+            [[ "$card_h" -lt 7 ]] && card_h=7
+            _n=${#MODEL_LANES[@]}; _i=0
+            for lane in "${MODEL_LANES[@]}"; do
+                _i=$((_i + 1))
                 draw_card "$lane" "$width" "$card_h"
                 [[ "$_i" -lt "$_n" ]] && printf '\n'
-            fi
-        done
-    else
-        draw_card "$LANE" "$width"
-    fi
-    clear_to_end
+            done
+        else
+            draw_card "$LANE" "$width"
+        fi
+    )"
+
+    printf '\033[H'
+    _first=1; _li=0
+    while IFS= read -r _line; do
+        (( _li >= rows )) && break
+        (( _first )) || printf '\n'
+        printf '%s\033[K' "$_line"
+        _first=0; _li=$((_li + 1))
+    done <<< "$frame"
+    printf '\033[J'
 
     # Stay responsive to clicks: poll the focus file every 0.25s and redraw early
     # if it changed (so preview open/close feels instant), otherwise refresh on the
