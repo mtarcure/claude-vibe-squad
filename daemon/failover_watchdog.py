@@ -162,11 +162,14 @@ class FailoverWatchdog:
         if ledger.get("winner_attempt_id") or ledger.get("refusal_veto_seen"):
             return actions
 
-        if current.get("terminal_status") not in {None, "NEEDS_HUMAN"}:
+        if current.get("terminal_status") is not None:
             return actions
 
+        surfaced_signals = {
+            item.get("signal") for item in current.get("surface_history", []) if item.get("signal")
+        }
         pid = current.get("process_pid")
-        if pid and current.get("terminal_status") in {None, "NEEDS_HUMAN"} and self._pid_has_exited(int(pid)):
+        if pid and "process_exit" not in surfaced_signals and self._pid_has_exited(int(pid)):
             artifact = Path(current["artifact_path"])
             # Any landed bytes are conservatively surfaced for validation. Only
             # a confirmed exit with no candidate artifact is auto-failable.
@@ -199,21 +202,11 @@ class FailoverWatchdog:
                 actions.append({"action": "surfaced", "signal": "dispatch_ack_failure", "status": status})
             return actions
 
-        if current.get("terminal_status") is not None:
-            return actions
-        if current.get("accepted_at"):
-            heartbeat_at = _as_datetime(current.get("last_heartbeat_at") or current["accepted_at"])
-            if (now - heartbeat_at).total_seconds() >= ledger["heartbeat_timeout_seconds"]:
-                status = self.control.record_terminal_signal(
-                    task_id=task_id,
-                    attempt_id=current["attempt_id"],
-                    signal="missed_heartbeat",
-                )
-                actions.append({"action": "surfaced", "signal": "missed_heartbeat", "status": status})
-                return actions
-        if elapsed >= ledger["hard_deadline_seconds"]:
+        # Model-lane specialists do not emit heartbeats. Acceptance proves
+        # pickup; the 20/40-minute execution deadlines provide visibility.
+        if elapsed >= ledger["hard_deadline_seconds"] and "hard_deadline" not in surfaced_signals:
             signal = "hard_deadline"
-        elif elapsed >= ledger["soft_deadline_seconds"]:
+        elif elapsed >= ledger["soft_deadline_seconds"] and "soft_deadline" not in surfaced_signals:
             signal = "soft_deadline"
         else:
             return actions

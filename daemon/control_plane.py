@@ -264,6 +264,9 @@ class DispatchControlPlane:
             "lease_expiry": _iso(_utcnow() + timedelta(seconds=lease_seconds)),
             "terminal_status": None,
             "terminal_signal": None,
+            "surface_status": None,
+            "surface_signal": None,
+            "surface_history": [],
             "effective_model_history": [effective_model] if effective_model else [],
             "artifact_path": str(artifact_path),
             "artifact_hash": None,
@@ -528,13 +531,28 @@ class DispatchControlPlane:
                 status = "HARD_FAILED"
             elif signal in {"provider_error", "operational_error"} and typed_error:
                 status = "HARD_FAILED"
-            elif signal in AMBIGUOUS_SIGNALS or signal in HARD_SIGNALS:
-                status = "NEEDS_HUMAN"
             else:
                 status = "NEEDS_HUMAN"
-            attempt["terminal_signal"] = signal
-            attempt["terminal_status"] = status
-            attempt["lease_expiry"] = _iso(_utcnow())
+            if status == "NEEDS_HUMAN":
+                surfaced_at = _iso(_utcnow())
+                attempt["surface_status"] = status
+                attempt["surface_signal"] = signal
+                attempt.setdefault("surface_history", []).append(
+                    {"signal": signal, "status": status, "at": surfaced_at}
+                )
+                ledger["audit_events"].append(
+                    {
+                        "type": "attempt_surface",
+                        "attempt_id": attempt_id,
+                        "signal": signal,
+                        "status": status,
+                        "at": surfaced_at,
+                    }
+                )
+            else:
+                attempt["terminal_signal"] = signal
+                attempt["terminal_status"] = status
+                attempt["lease_expiry"] = _iso(_utcnow())
             self._save(task_id, ledger)
             return status
 
@@ -611,6 +629,23 @@ class DispatchControlPlane:
                 attempt["terminal_status"] = "ORPHANED"
                 self._save(task_id, ledger)
                 raise PublicationRejected("another attempt already won the CAS")
+            legacy_surface = (
+                attempt.get("terminal_status") == "NEEDS_HUMAN"
+                and attempt.get("terminal_signal") in AMBIGUOUS_SIGNALS
+            )
+            if legacy_surface:
+                attempt["surface_status"] = "NEEDS_HUMAN"
+                attempt["surface_signal"] = attempt["terminal_signal"]
+                attempt.setdefault("surface_history", []).append(
+                    {
+                        "signal": attempt["terminal_signal"],
+                        "status": "NEEDS_HUMAN",
+                        "at": _iso(_utcnow()),
+                        "migrated_from_terminal": True,
+                    }
+                )
+                attempt["terminal_status"] = None
+                attempt["terminal_signal"] = None
             if attempt["terminal_status"] not in {None, "SUCCEEDED"}:
                 raise PublicationRejected(f"attempt is terminal: {attempt['terminal_status']}")
             try:
@@ -685,6 +720,17 @@ class DispatchControlPlane:
             attempt["artifact_hash"] = artifact_hash
             attempt["terminal_status"] = "SUCCEEDED"
             attempt["terminal_signal"] = "valid_artifact"
+            if attempt.get("surface_status"):
+                ledger["audit_events"].append(
+                    {
+                        "type": "surface_superseded_by_valid_artifact",
+                        "attempt_id": attempt_id,
+                        "signal": attempt.get("surface_signal"),
+                        "at": _iso(_utcnow()),
+                    }
+                )
+            attempt["surface_status"] = None
+            attempt["surface_signal"] = None
             attempt["lease_expiry"] = _iso(_utcnow())
             ledger["winner_attempt_id"] = attempt_id
             self._save(task_id, ledger)

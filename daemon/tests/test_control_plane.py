@@ -101,12 +101,23 @@ def test_generation_fencing_prevents_late_primary_clobber(tmp_path):
 @pytest.mark.parametrize("signal", ["slow", "silent", "missed_heartbeat", "soft_deadline", "hard_deadline", "unknown"])
 def test_ambiguous_signals_surface_and_never_fail_over(tmp_path, signal):
     task_id = f"TASK-{signal}"
-    control, _canonical, attempt = initialized(tmp_path, task_id)
+    control, canonical, attempt = initialized(tmp_path, task_id)
     status = control.record_terminal_signal(task_id=task_id, attempt_id=attempt["attempt_id"], signal=signal)
     assert status == "NEEDS_HUMAN"
     with pytest.raises(FailoverRejected, match="requires HARD_FAILED"):
         control.begin_failover(task_id=task_id, lease_owner="backup")
-    assert len(control.read(task_id)["attempts"]) == 1
+    surfaced = control.read(task_id)["attempts"][0]
+    assert surfaced["terminal_status"] is None
+    assert surfaced["surface_status"] == "NEEDS_HUMAN"
+    assert surfaced["surface_signal"] == signal
+
+    stage(Path(attempt["artifact_path"]), response(task_id, "completed after soft surface"))
+    control.publish_attempt(task_id=task_id, attempt_id=attempt["attempt_id"])
+    completed = control.read(task_id)["attempts"][0]
+    assert completed["terminal_status"] == "SUCCEEDED"
+    assert completed["surface_status"] is None
+    assert completed["surface_history"][-1]["signal"] == signal
+    assert b"completed after soft surface" in canonical.read_bytes()
 
 
 @pytest.mark.parametrize("signal", ["safety_refusal", "policy_refusal", "possible_refusal"])
@@ -172,6 +183,9 @@ def test_dispatch_ack_failure_is_hard_but_process_exit_with_artifact_is_not(tmp_
         process_confirmed=True,
         valid_artifact=True,
     ) == "NEEDS_HUMAN"
+    surfaced = control2.read("TASK-exit-with-artifact")["attempts"][0]
+    assert surfaced["terminal_status"] is None
+    assert surfaced["surface_signal"] == "process_exit"
     with pytest.raises(FailoverRejected):
         control2.begin_failover(task_id="TASK-exit-with-artifact", lease_owner="backup")
 
@@ -309,25 +323,18 @@ def test_primary_backup_collision_degrades_to_no_backup(tmp_path):
         control.begin_failover(task_id="TASK-collision", lease_owner="backup")
 
 
-def test_operator_unlock_is_audited_and_allows_reviewed_needs_human_publish(tmp_path):
-    control, canonical, attempt = initialized(tmp_path, "TASK-unlock")
-    control.record_terminal_signal(task_id="TASK-unlock", attempt_id=attempt["attempt_id"], signal="slow")
-    stage(Path(attempt["artifact_path"]), response("TASK-unlock", "human reviewed"))
-    with pytest.raises(PublicationRejected, match="terminal"):
-        control.publish_attempt(task_id="TASK-unlock", attempt_id=attempt["attempt_id"])
-    result = control.operator_unlock(
-        task_id="TASK-unlock",
-        attempt_id=attempt["attempt_id"],
-        actor="operator@example",
-        reason="reviewed complete staging artifact",
-        approve_publish=True,
+def test_soft_surface_valid_completion_supersedes_without_operator_unlock(tmp_path):
+    control, canonical, attempt = initialized(tmp_path, "TASK-soft-superseded")
+    control.record_terminal_signal(
+        task_id="TASK-soft-superseded", attempt_id=attempt["attempt_id"], signal="missed_heartbeat"
     )
-    assert result["terminal_status"] is None
-    control.publish_attempt(task_id="TASK-unlock", attempt_id=attempt["attempt_id"])
-    assert b"human reviewed" in canonical.read_bytes()
-    audit = control.read("TASK-unlock")["audit_events"][-1]
-    assert audit["actor"] == "operator@example"
-    assert audit["approve_publish"] is True
+    stage(Path(attempt["artifact_path"]), response("TASK-soft-superseded", "finished normally"))
+    control.publish_attempt(task_id="TASK-soft-superseded", attempt_id=attempt["attempt_id"])
+    ledger = control.read("TASK-soft-superseded")
+    assert ledger["winner_attempt_id"] == attempt["attempt_id"]
+    assert ledger["attempts"][0]["terminal_status"] == "SUCCEEDED"
+    assert ledger["audit_events"][-1]["type"] == "surface_superseded_by_valid_artifact"
+    assert b"finished normally" in canonical.read_bytes()
 
 
 def test_operator_can_audit_clear_refusal_veto_for_current_attempt(tmp_path):
@@ -503,7 +510,9 @@ def test_cli_persists_packet_gate_authority_and_operator_unlock(tmp_path):
     control = DispatchControlPlane(tmp_path / "control")
     assert control.read(task_id)["gate_required"] is True
 
-    control.record_terminal_signal(task_id=task_id, attempt_id=attempt["attempt_id"], signal="slow")
+    control.record_terminal_signal(
+        task_id=task_id, attempt_id=attempt["attempt_id"], signal="possible_refusal"
+    )
     unlocked = subprocess.run(
         base
         + [
@@ -517,10 +526,12 @@ def test_cli_persists_packet_gate_authority_and_operator_unlock(tmp_path):
             "--reason",
             "manual artifact review",
             "--approve-publish",
+            "--clear-refusal-veto",
         ],
         check=True,
         capture_output=True,
         text=True,
     )
     assert json.loads(unlocked.stdout)["terminal_status"] is None
+    assert control.read(task_id)["refusal_veto_seen"] is False
     assert control.read(task_id)["audit_events"][-1]["type"] == "operator_unlock"

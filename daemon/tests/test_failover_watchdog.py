@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 
 import pytest
 
@@ -53,6 +55,16 @@ def after(attempt: dict, seconds: int) -> datetime:
     return datetime.fromisoformat(attempt["dispatched_at"]).astimezone(UTC) + timedelta(seconds=seconds)
 
 
+def completed_response(task_id: str) -> bytes:
+    return (
+        "---\n"
+        f"id: {task_id}-response\n"
+        f"in_response_to: {task_id}\n"
+        "status: completed\n"
+        "---\n\nCompleted after a soft surface.\n"
+    ).encode()
+
+
 def test_ack_timeout_hard_signal_redispatches_fenced_backup(tmp_path):
     control, primary, template, redispatch = initialized(
         tmp_path, "TASK-hard-ack", dispatch_ack_seconds=45
@@ -97,12 +109,13 @@ def test_ambiguous_runtime_event_surfaces_without_failover(tmp_path, event):
     ledger = control.read(f"TASK-{event}")
     assert actions == [{"action": "surfaced", "signal": event, "status": "NEEDS_HUMAN"}]
     assert len(ledger["attempts"]) == 1
-    assert ledger["attempts"][0]["terminal_status"] == "NEEDS_HUMAN"
+    assert ledger["attempts"][0]["terminal_status"] is None
+    assert ledger["attempts"][0]["surface_status"] == "NEEDS_HUMAN"
 
 
 @pytest.mark.parametrize(
     ("timer", "seconds", "expected"),
-    [("heartbeat", 31, "missed_heartbeat"), ("soft", 1201, "soft_deadline"), ("hard", 2401, "hard_deadline")],
+    [("soft", 1201, "soft_deadline"), ("hard", 2401, "hard_deadline")],
 )
 def test_ambiguous_timers_never_redispatch(tmp_path, timer, seconds, expected):
     task_id = f"TASK-{timer}-timer"
@@ -112,7 +125,7 @@ def test_ambiguous_timers_never_redispatch(tmp_path, timer, seconds, expected):
         task_id=task_id,
         attempt_id=primary["attempt_id"],
         event="accepted",
-        occurred_at=observed if timer != "heartbeat" else after(primary, 0),
+        occurred_at=observed,
     )
     actions = FailoverWatchdog(
         control,
@@ -127,6 +140,54 @@ def test_ambiguous_timers_never_redispatch(tmp_path, timer, seconds, expected):
         dispatcher=lambda *_: pytest.fail("terminal timer redispatched backup"),
         now=lambda: observed,
     ).evaluate_task(task_id) == []
+
+
+def test_heartbeat_timeout_is_disabled_for_non_heartbeating_specialists(tmp_path):
+    task_id = "TASK-no-heartbeat-noise"
+    control, primary, _template, _redispatch = initialized(tmp_path, task_id)
+    control.record_runtime_event(
+        task_id=task_id,
+        attempt_id=primary["attempt_id"],
+        event="accepted",
+        occurred_at=after(primary, 1),
+    )
+    actions = FailoverWatchdog(
+        control,
+        dispatcher=lambda *_: pytest.fail("heartbeat noise dispatched backup"),
+        now=lambda: after(primary, 1199),
+    ).evaluate_task(task_id)
+    attempt = control.read(task_id)["attempts"][0]
+    assert actions == []
+    assert attempt["terminal_status"] is None
+    assert attempt["surface_status"] is None
+
+
+def test_missed_heartbeat_surface_then_valid_completion_publishes(tmp_path):
+    task_id = "TASK-soft-then-complete"
+    control, primary, _template, _redispatch = initialized(tmp_path, task_id)
+    control.record_runtime_event(
+        task_id=task_id,
+        attempt_id=primary["attempt_id"],
+        event="missed_heartbeat",
+    )
+    actions = FailoverWatchdog(
+        control,
+        dispatcher=lambda *_: pytest.fail("soft surface dispatched backup"),
+    ).evaluate_task(task_id)
+    surfaced = control.read(task_id)["attempts"][0]
+    assert actions == [{"action": "surfaced", "signal": "missed_heartbeat", "status": "NEEDS_HUMAN"}]
+    assert surfaced["terminal_status"] is None
+    assert surfaced["surface_status"] == "NEEDS_HUMAN"
+
+    staging = Path(primary["artifact_path"])
+    staging.write_bytes(completed_response(task_id))
+    old = time.time() - 6
+    os.utime(staging, (old, old))
+    canonical = control.publish_attempt(task_id=task_id, attempt_id=primary["attempt_id"])
+    completed = control.read(task_id)["attempts"][0]
+    assert canonical.read_bytes() == completed_response(task_id)
+    assert completed["terminal_status"] == "SUCCEEDED"
+    assert completed["surface_status"] is None
 
 
 def test_typed_provider_error_redispatches_but_second_hop_is_forbidden(tmp_path):
