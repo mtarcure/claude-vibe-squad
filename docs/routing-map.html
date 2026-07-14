@@ -1,0 +1,672 @@
+<title>Vibe Squad Routing Map — 67 Specialists</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f3f5f7;
+    --surface: #ffffff;
+    --surface-raised: #ffffff;
+    --surface-muted: #e9edf1;
+    --ink: #17202a;
+    --ink-soft: #53606d;
+    --ink-faint: #727f8c;
+    --line: #d6dde4;
+    --line-strong: #bcc7d1;
+    --shadow: 0 12px 36px rgba(24, 35, 47, 0.08);
+    --sol: #a65f00;
+    --sol-fill: #975300;
+    --sol-soft: #fff0cf;
+    --sol-ink: #522d00;
+    --fable: #a4492d;
+    --fable-fill: #984029;
+    --fable-soft: #f9ddd4;
+    --fable-ink: #572213;
+    --gemini: #2167c7;
+    --gemini-fill: #1e5eaf;
+    --gemini-soft: #dceaff;
+    --gemini-ink: #123b74;
+    --kimi: #087f7b;
+    --kimi-fill: #066f6b;
+    --kimi-soft: #d5f1ee;
+    --kimi-ink: #064d4a;
+    --platinum: #5a6878;
+    --focus: #7b4dff;
+    --high-bg: #fff0d7;
+    --high-ink: #7a4500;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --bg: #0d141c;
+      --surface: #141e28;
+      --surface-raised: #182431;
+      --surface-muted: #202d39;
+      --ink: #edf3f8;
+      --ink-soft: #b4c0cb;
+      --ink-faint: #8f9daa;
+      --line: #2b3a48;
+      --line-strong: #425362;
+      --shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+      --sol: #f2aa31;
+      --sol-fill: #9d5d08;
+      --sol-soft: #3d2d17;
+      --sol-ink: #ffe2aa;
+      --fable: #e68161;
+      --fable-fill: #9e472f;
+      --fable-soft: #3b251f;
+      --fable-ink: #ffd3c5;
+      --gemini: #68a7ff;
+      --gemini-fill: #2865b8;
+      --gemini-soft: #1d304a;
+      --gemini-ink: #d6e7ff;
+      --kimi: #42c7be;
+      --kimi-fill: #08756f;
+      --kimi-soft: #173b3a;
+      --kimi-ink: #c3f4ef;
+      --platinum: #b6c2ce;
+      --focus: #b49aff;
+      --high-bg: #42321d;
+      --high-ink: #ffd18a;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #0d141c;
+    --surface: #141e28;
+    --surface-raised: #182431;
+    --surface-muted: #202d39;
+    --ink: #edf3f8;
+    --ink-soft: #b4c0cb;
+    --ink-faint: #8f9daa;
+    --line: #2b3a48;
+    --line-strong: #425362;
+    --shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+    --sol: #f2aa31;
+    --sol-fill: #9d5d08;
+    --sol-soft: #3d2d17;
+    --sol-ink: #ffe2aa;
+    --fable: #e68161;
+    --fable-fill: #9e472f;
+    --fable-soft: #3b251f;
+    --fable-ink: #ffd3c5;
+    --gemini: #68a7ff;
+    --gemini-fill: #2865b8;
+    --gemini-soft: #1d304a;
+    --gemini-ink: #d6e7ff;
+    --kimi: #42c7be;
+    --kimi-fill: #08756f;
+    --kimi-soft: #173b3a;
+    --kimi-ink: #c3f4ef;
+    --platinum: #b6c2ce;
+    --focus: #b49aff;
+    --high-bg: #42321d;
+    --high-ink: #ffd18a;
+  }
+
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --bg: #f3f5f7;
+    --surface: #ffffff;
+    --surface-raised: #ffffff;
+    --surface-muted: #e9edf1;
+    --ink: #17202a;
+    --ink-soft: #53606d;
+    --ink-faint: #727f8c;
+    --line: #d6dde4;
+    --line-strong: #bcc7d1;
+    --shadow: 0 12px 36px rgba(24, 35, 47, 0.08);
+    --sol: #a65f00;
+    --sol-fill: #975300;
+    --sol-soft: #fff0cf;
+    --sol-ink: #522d00;
+    --fable: #a4492d;
+    --fable-fill: #984029;
+    --fable-soft: #f9ddd4;
+    --fable-ink: #572213;
+    --gemini: #2167c7;
+    --gemini-fill: #1e5eaf;
+    --gemini-soft: #dceaff;
+    --gemini-ink: #123b74;
+    --kimi: #087f7b;
+    --kimi-fill: #066f6b;
+    --kimi-soft: #d5f1ee;
+    --kimi-ink: #064d4a;
+    --platinum: #5a6878;
+    --focus: #7b4dff;
+    --high-bg: #fff0d7;
+    --high-ink: #7a4500;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  body {
+    margin: 0;
+    overflow-x: hidden;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-variant-numeric: tabular-nums;
+  }
+  .routing-map {
+    width: min(1180px, calc(100% - 32px));
+    margin: 0 auto;
+    padding: 48px 0 56px;
+  }
+  .mono, code, .specialist, .model-id, .class-name {
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  }
+  .eyebrow {
+    margin: 0 0 12px;
+    color: var(--ink-faint);
+    font-size: 0.72rem;
+    font-weight: 750;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+  h1 {
+    margin: 0;
+    max-width: 820px;
+    font-size: clamp(2rem, 4vw, 3.55rem);
+    line-height: 1.02;
+    letter-spacing: -0.045em;
+  }
+  .subtitle {
+    margin: 18px 0 0;
+    max-width: 760px;
+    color: var(--ink-soft);
+    font-size: clamp(1rem, 1.5vw, 1.16rem);
+    line-height: 1.65;
+  }
+  .header-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 22px;
+  }
+  .meta-pill, .safety-pill {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--ink-soft);
+    font-size: 0.72rem;
+    font-weight: 720;
+    letter-spacing: 0.035em;
+    padding: 6px 10px;
+  }
+  .overview {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(250px, 0.9fr);
+    gap: 16px;
+    margin-top: 34px;
+  }
+  .panel {
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+  .legend-panel { padding: 18px; }
+  .panel-label {
+    margin: 0 0 13px;
+    color: var(--ink-faint);
+    font-size: 0.7rem;
+    font-weight: 780;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .lane-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .lane-card {
+    position: relative;
+    min-width: 0;
+    border: 1px solid var(--line);
+    border-radius: 13px;
+    background: var(--surface-raised);
+    padding: 13px 14px 13px 17px;
+    overflow: hidden;
+  }
+  .lane-card::before {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 4px;
+    background: var(--lane);
+    content: "";
+  }
+  .lane-card:focus-visible, .table-scroll:focus-visible, .jump-link:focus-visible {
+    outline: 3px solid var(--focus);
+    outline-offset: 3px;
+  }
+  .lane-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .lane-name { font-size: 0.95rem; font-weight: 780; }
+  .lane-count { color: var(--lane); font-size: 0.75rem; font-weight: 800; }
+  .model-id {
+    display: block;
+    margin-top: 7px;
+    color: var(--ink-soft);
+    font-size: 0.72rem;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+  .lane-note {
+    margin-top: 5px;
+    color: var(--ink-faint);
+    font-size: 0.68rem;
+    line-height: 1.4;
+  }
+  .sol { --lane: var(--sol); --lane-fill: var(--sol-fill); --lane-soft: var(--sol-soft); --lane-ink: var(--sol-ink); }
+  .fable { --lane: var(--fable); --lane-fill: var(--fable-fill); --lane-soft: var(--fable-soft); --lane-ink: var(--fable-ink); }
+  .gemini { --lane: var(--gemini); --lane-fill: var(--gemini-fill); --lane-soft: var(--gemini-soft); --lane-ink: var(--gemini-ink); }
+  .kimi { --lane: var(--kimi); --lane-fill: var(--kimi-fill); --lane-soft: var(--kimi-soft); --lane-ink: var(--kimi-ink); }
+  .chrono-card {
+    display: grid;
+    align-content: space-between;
+    gap: 18px;
+    padding: 19px;
+    background:
+      linear-gradient(145deg, color-mix(in srgb, var(--surface) 88%, var(--platinum)), var(--surface));
+  }
+  .chrono-mark {
+    display: inline-grid;
+    width: 36px;
+    height: 36px;
+    place-items: center;
+    border: 1px solid var(--line-strong);
+    border-radius: 10px;
+    color: var(--platinum);
+    font-weight: 850;
+  }
+  .chrono-card h2 { margin: 10px 0 5px; font-size: 1.05rem; }
+  .chrono-card p { margin: 0; color: var(--ink-soft); font-size: 0.82rem; line-height: 1.55; }
+  .distribution {
+    margin-top: 16px;
+    padding: 18px;
+  }
+  .distribution-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 13px;
+  }
+  .distribution-head strong { font-size: 0.88rem; }
+  .distribution-head span { color: var(--ink-faint); font-size: 0.72rem; }
+  .bar {
+    display: flex;
+    width: 100%;
+    min-height: 16px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface-muted);
+  }
+  .bar-segment { min-width: 0; }
+  .bar-segment.fable { background: var(--fable-fill); }
+  .bar-segment.sol { background: var(--sol-fill); }
+  .bar-segment.gemini { background: var(--gemini-fill); }
+  .distribution-key {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+    margin-top: 13px;
+  }
+  .key-item { display: inline-flex; align-items: center; gap: 7px; color: var(--ink-soft); font-size: 0.76rem; }
+  .key-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--lane); }
+  .section-jump {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+    margin: 28px 0 16px;
+  }
+  .jump-link {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--ink-soft);
+    font-size: 0.72rem;
+    font-weight: 720;
+    padding: 7px 10px;
+    text-decoration: none;
+  }
+  .jump-link:hover { border-color: var(--line-strong); color: var(--ink); }
+  .namespace-section { margin-top: 18px; scroll-margin-top: 16px; }
+  .namespace-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 14px;
+    margin: 0 2px 9px;
+  }
+  .namespace-heading h2 {
+    margin: 0;
+    font-size: 0.9rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+  }
+  .namespace-heading span { color: var(--ink-faint); font-size: 0.72rem; }
+  .table-scroll {
+    max-width: 100%;
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--surface);
+    box-shadow: 0 6px 22px rgba(20, 31, 43, 0.04);
+    scrollbar-color: var(--line-strong) transparent;
+  }
+  table {
+    width: 100%;
+    min-width: 720px;
+    border-collapse: collapse;
+  }
+  th, td {
+    border-bottom: 1px solid var(--line);
+    padding: 10px 14px;
+    text-align: left;
+    vertical-align: middle;
+  }
+  tbody tr:last-child td { border-bottom: 0; }
+  th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--surface-muted);
+    color: var(--ink-faint);
+    font-size: 0.65rem;
+    font-weight: 800;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+  }
+  tbody tr { transition: background-color 120ms ease; }
+  tbody tr:hover { background: color-mix(in srgb, var(--surface-muted) 60%, transparent); }
+  .specialist {
+    color: var(--ink);
+    font-size: 0.78rem;
+    font-weight: 690;
+    white-space: nowrap;
+  }
+  .class-name { color: var(--ink-soft); font-size: 0.7rem; white-space: nowrap; }
+  .specialist-wrap { display: flex; align-items: center; gap: 8px; }
+  .safety-pill {
+    border-color: color-mix(in srgb, var(--high-ink) 30%, transparent);
+    background: var(--high-bg);
+    color: var(--high-ink);
+    font-size: 0.56rem;
+    letter-spacing: 0.08em;
+    padding: 3px 6px;
+    text-transform: uppercase;
+  }
+  .lane-chip {
+    display: inline-flex;
+    min-width: 62px;
+    justify-content: center;
+    border: 1px solid var(--lane);
+    border-radius: 7px;
+    font-size: 0.68rem;
+    font-weight: 800;
+    line-height: 1;
+    padding: 6px 9px;
+  }
+  .lane-chip[data-kind="primary"] { background: var(--lane-fill); color: #fff; }
+  .lane-chip[data-kind="backup"] { background: var(--lane-soft); color: var(--lane-ink); }
+  .lane-chip[data-kind="review"] { background: transparent; color: var(--lane); }
+  .footer-notes {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 28px;
+  }
+  .note {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+    padding: 14px 15px;
+  }
+  .note strong { display: block; margin-bottom: 4px; font-size: 0.74rem; }
+  .note p { margin: 0; color: var(--ink-soft); font-size: 0.74rem; line-height: 1.55; }
+  .source-line {
+    margin: 18px 2px 0;
+    color: var(--ink-faint);
+    font-size: 0.68rem;
+  }
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  @media (max-width: 760px) {
+    .routing-map { width: min(100% - 22px, 1180px); padding-top: 30px; }
+    .overview { grid-template-columns: 1fr; }
+    .chrono-card { min-height: 180px; }
+    .footer-notes { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 500px) {
+    .lane-grid { grid-template-columns: 1fr; }
+    .distribution-head { display: block; }
+    .distribution-head span { display: block; margin-top: 4px; }
+    th, td { padding: 9px 11px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      scroll-behavior: auto !important;
+      transition-duration: 0.001ms !important;
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+    }
+  }
+</style>
+
+<main class="routing-map" aria-labelledby="routing-title">
+  <header>
+    <p class="eyebrow">Vibe Squad · Control-plane reference</p>
+    <h1 id="routing-title">Specialist routing map</h1>
+    <p class="subtitle">A scan-first reference for 67 role-based specialists: primary execution lane, live cross-family failover target, and independent review lane.</p>
+    <div class="header-meta" aria-label="Map summary">
+      <span class="meta-pill">67 specialists</span>
+      <span class="meta-pill">7 namespaces</span>
+      <span class="meta-pill">4 model lanes</span>
+      <span class="meta-pill">Generated 2026-07-13</span>
+    </div>
+  </header>
+
+  <section class="overview" aria-label="Lane legend and coordinator">
+    <div class="panel legend-panel">
+      <p class="panel-label">Execution lanes</p>
+      <div class="lane-grid">
+        <article class="lane-card sol" tabindex="0">
+          <div class="lane-top"><span class="lane-name">Sol</span><span class="lane-count">19 primary</span></div>
+          <code class="model-id">gpt-5.6-sol</code>
+          <div class="lane-note">codex · high reasoning</div>
+        </article>
+        <article class="lane-card fable" tabindex="0">
+          <div class="lane-top"><span class="lane-name">Fable</span><span class="lane-count">37 primary</span></div>
+          <code class="model-id">claude-fable-5</code>
+          <div class="lane-note">native fallback → claude-opus-4-8, claude-sonnet-5</div>
+        </article>
+        <article class="lane-card gemini" tabindex="0">
+          <div class="lane-top"><span class="lane-name">Gemini</span><span class="lane-count">11 primary</span></div>
+          <code class="model-id">gemini-3.5-flash</code>
+          <div class="lane-note">gemini · multimodal production</div>
+        </article>
+        <article class="lane-card kimi" tabindex="0">
+          <div class="lane-top"><span class="lane-name">Kimi</span><span class="lane-count">0 primary</span></div>
+          <code class="model-id">kimi-k2.7-code</code>
+          <div class="lane-note">throughput-only · downshift + research backup</div>
+        </article>
+      </div>
+    </div>
+    <aside class="panel chrono-card" aria-label="Chrono coordinator">
+      <div>
+        <span class="chrono-mark" aria-hidden="true">C</span>
+        <h2>Chrono coordinates</h2>
+        <p>Operator-facing orchestration sits above the four specialist lanes; Chrono is not a lane specialist.</p>
+      </div>
+      <code class="model-id">claude --model claude-opus-4-8</code>
+    </aside>
+  </section>
+
+  <section class="panel distribution" aria-labelledby="distribution-title">
+    <div class="distribution-head">
+      <strong id="distribution-title">Primary-lane distribution</strong>
+      <span>67 total assignments</span>
+    </div>
+    <div class="bar" role="img" aria-label="Fable 37, Sol 19, Gemini 11, Kimi 0 primary specialists">
+      <span class="bar-segment fable" style="width:55.2239%"></span>
+      <span class="bar-segment sol" style="width:28.3582%"></span>
+      <span class="bar-segment gemini" style="width:16.4179%"></span>
+    </div>
+    <div class="distribution-key" aria-hidden="true">
+      <span class="key-item fable"><i class="key-dot"></i>Fable <strong>37</strong></span>
+      <span class="key-item sol"><i class="key-dot"></i>Sol <strong>19</strong></span>
+      <span class="key-item gemini"><i class="key-dot"></i>Gemini <strong>11</strong></span>
+      <span class="key-item kimi"><i class="key-dot"></i>Kimi <strong>0</strong></span>
+    </div>
+  </section>
+
+  <nav class="section-jump" id="section-jump" aria-label="Jump to namespace"></nav>
+  <div id="namespace-sections"></div>
+
+  <footer>
+    <div class="footer-notes">
+      <article class="note"><strong>Escalation stays in-family</strong><p>Escalation means the best variant within the primary lane, so it is intentionally omitted as a separate column.</p></article>
+      <article class="note"><strong>Kimi is throughput-only</strong><p>It has zero primaries and is used for stakes-tiered downshift plus research backup capacity.</p></article>
+      <article class="note"><strong>Backup is live failover</strong><p>The Backup column is the cross-family target used by the conservative failover control plane, activated 2026-07-13.</p></article>
+      <article class="note"><strong>High safety means mandatory review</strong><p>Subtle HIGH markers identify rows whose safety level carries a mandatory independent review requirement.</p></article>
+    </div>
+    <p class="source-line">Source: <code>shared/specialist-runtime-map.tsv</code> · generated 2026-07-13</p>
+  </footer>
+</main>
+
+<script>
+(() => {
+  const raw = `
+CODING|ai-engineer|implementation|high|Sol|Fable|Fable
+CODING|architect|judgment|high|Fable|Sol|Sol
+CODING|backend-engineer|implementation|medium|Sol|Fable|Fable
+CODING|code-reviewer|code_review|high|Fable|Sol|Sol
+CODING|database-engineer|implementation|high|Sol|Fable|Fable
+CODING|devops-engineer|implementation|high|Sol|Fable|Fable
+CODING|frontend-engineer|implementation|medium|Sol|Fable|Gemini
+CODING|game-engineer|implementation|medium|Sol|Fable|Fable
+CODING|performance-optimizer|implementation|medium|Sol|Fable|Fable
+CODING|product-manager|judgment|medium|Fable|Sol|Sol
+CODING|refactor-cleaner|implementation|high|Sol|Fable|Fable
+CODING|scraping-engineer|implementation|high|Sol|Fable|Fable
+CODING|site-reliability-engineer|implementation|high|Sol|Fable|Fable
+CODING|smart-contract-engineer|implementation|high|Sol|Fable|Fable
+CODING|software-supply-chain-engineer|implementation|high|Sol|Fable|Fable
+CODING|systems-engineer|implementation|medium|Sol|Fable|Fable
+CODING|technical-artist|implementation|medium|Sol|Gemini|Fable
+CODING|test-engineer|implementation|medium|Sol|Fable|Fable
+CODING|ui-engineer|implementation|medium|Sol|Fable|Gemini
+CONTENT|accessibility-engineer|content_text|medium|Gemini|Fable|Fable
+CONTENT|asset-provenance-and-rights-auditor|judgment|high|Fable|Sol|Gemini
+CONTENT|brand-voice|content_text|low|Fable|Gemini|Gemini
+CONTENT|content-verifier|judgment|high|Fable|Sol|Gemini
+CONTENT|editor|content_text|low|Fable|Gemini|Gemini
+CONTENT|growth-and-search-analyst|research_synthesis|low|Gemini|Sol|Sol
+CONTENT|interactive-audio-designer|media_production|medium|Fable|Sol|Sol
+CONTENT|level-narrative-designer|game_design|medium|Fable|Gemini|Gemini
+CONTENT|localization-specialist|content_text|low|Fable|Gemini|Gemini
+CONTENT|social-strategist|content_text|medium|Gemini|Fable|Fable
+CONTENT|technical-writer|content_text|medium|Fable|Sol|Sol
+CONTENT-ENGINEER|copywriter|content_text|low|Gemini|Fable|Fable
+CONTENT-ENGINEER|game-designer|game_design|medium|Fable|Sol|Sol
+CONTENT-ENGINEER|image-designer|media_production|low|Gemini|Fable|Fable
+CONTENT-ENGINEER|music-composer|media_production|low|Gemini|Fable|Fable
+CONTENT-ENGINEER|sound-designer|media_production|low|Gemini|Fable|Fable
+CONTENT-ENGINEER|video-director|media_production|medium|Gemini|Fable|Fable
+CONTENT-ENGINEER|video-editor|media_production|low|Gemini|Fable|Fable
+CONTENT-ENGINEER|voice-agent-builder|media_production|medium|Gemini|Fable|Fable
+CONTENT-ENGINEER|voice-narrator|media_production|low|Gemini|Fable|Fable
+CONTENT-ENGINEER|web-builder|implementation|medium|Sol|Fable|Fable
+SECURITY|detection-engineer|security_defense|high|Fable|Sol|Sol
+SECURITY|exploit-developer|implementation|high|Sol|Fable|Fable
+SECURITY|impact-validator|security_reasoning|high|Fable|Sol|Sol
+SECURITY|incident-responder|security_defense|high|Fable|Sol|Sol
+SECURITY|privacy-steward|security_reasoning|high|Fable|Sol|Sol
+SECURITY|scout|security_reasoning|high|Fable|Sol|Sol
+SECURITY|security-analyst|security_reasoning|high|Fable|Sol|Sol
+SECURITY|threat-modeler|security_reasoning|high|Fable|Sol|Sol
+RESEARCH|data-extraction-engineer|extraction|medium|Sol|Kimi|Fable
+RESEARCH|large-context-analyst|research_synthesis|medium|Fable|Sol|Sol
+RESEARCH|learning-coach|judgment|low|Fable|Sol|Sol
+RESEARCH|research|research_synthesis|medium|Fable|Sol|Sol
+RESEARCH|synthesizer|research_synthesis|medium|Fable|Sol|Sol
+SHARED|planner|judgment|high|Fable|Sol|Sol
+SHARED|prompt-engineer|judgment|medium|Fable|Sol|Sol
+SHARED|skeptic|judgment|high|Fable|Sol|Sol
+SHARED|summarizer|research_synthesis|low|Fable|Sol|Sol
+SHARED|triage|judgment|medium|Fable|Sol|Sol
+SHARED|vibecoding-check|code_review|high|Fable|Sol|Sol
+SYSMGMT|agentops|judgment|high|Fable|Sol|Sol
+SYSMGMT|finance-analyst|judgment|medium|Fable|Sol|Sol
+SYSMGMT|harness-optimizer|judgment|high|Fable|Sol|Sol
+SYSMGMT|knowledge-librarian|judgment|medium|Fable|Sol|Sol
+SYSMGMT|loop-operator|judgment|high|Fable|Sol|Sol
+SYSMGMT|mac-ops|judgment|high|Fable|Sol|Sol
+SYSMGMT|memory-curator|judgment|high|Fable|Sol|Sol
+SYSMGMT|personal-ops|judgment|high|Fable|Sol|Sol
+  `.trim();
+
+  const rows = raw.split("\n").map(line => {
+    const [namespace, specialist, roleClass, safety, primary, backup, review] = line.split("|");
+    return { namespace, specialist, roleClass, safety, primary, backup, review };
+  });
+  const order = ["CODING", "CONTENT", "CONTENT-ENGINEER", "SECURITY", "RESEARCH", "SHARED", "SYSMGMT"];
+  const laneClass = name => name.toLowerCase();
+  const chip = (lane, kind) => `<span class="lane-chip ${laneClass(lane)}" data-kind="${kind}">${lane}</span>`;
+  const escapeText = value => value.replace(/[&<>"']/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[char]);
+
+  const jump = document.getElementById("section-jump");
+  const container = document.getElementById("namespace-sections");
+
+  order.forEach(namespace => {
+    const group = rows.filter(row => row.namespace === namespace);
+    const slug = namespace.toLowerCase();
+    const link = document.createElement("a");
+    link.className = "jump-link";
+    link.href = `#${slug}`;
+    link.textContent = `${namespace} · ${group.length}`;
+    jump.appendChild(link);
+
+    const section = document.createElement("section");
+    section.className = "namespace-section";
+    section.id = slug;
+    section.innerHTML = `
+      <div class="namespace-heading">
+        <h2>${escapeText(namespace)}</h2>
+        <span>${group.length} specialist${group.length === 1 ? "" : "s"}</span>
+      </div>
+      <div class="table-scroll" tabindex="0" role="region" aria-label="${escapeText(namespace)} routing table">
+        <table>
+          <caption class="visually-hidden">${escapeText(namespace)} specialist model routing</caption>
+          <thead><tr><th scope="col">Specialist</th><th scope="col">Class</th><th scope="col">Primary</th><th scope="col">Backup</th><th scope="col">Review</th></tr></thead>
+          <tbody>${group.map(row => `
+            <tr>
+              <td><div class="specialist-wrap"><span class="specialist">${escapeText(row.specialist)}</span>${row.safety === "high" ? '<span class="safety-pill" title="High safety · mandatory review">high</span>' : ""}</div></td>
+              <td><span class="class-name">${escapeText(row.roleClass)}</span></td>
+              <td>${chip(row.primary, "primary")}</td>
+              <td>${chip(row.backup, "backup")}</td>
+              <td>${chip(row.review, "review")}</td>
+            </tr>`).join("")}</tbody>
+        </table>
+      </div>`;
+    container.appendChild(section);
+  });
+})();
+</script>
