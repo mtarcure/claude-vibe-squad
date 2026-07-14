@@ -327,7 +327,7 @@ if $PANEL_ENABLED; then
                     || die "duplicate panel member '${member}'"
             done
         fi
-        PANEL_MEMBERS[$PANEL_COUNT]="$member"
+        PANEL_MEMBERS[PANEL_COUNT]="$member"
         PANEL_COUNT=$((PANEL_COUNT + 1))
     done
     (( PANEL_COUNT >= 2 && PANEL_COUNT <= 3 )) \
@@ -589,6 +589,7 @@ limitations: []
 ### Panel assignments
 PANEL_EOF
         for member in "${PANEL_MEMBERS[@]}"; do
+            # shellcheck disable=SC2016  # backticks are intentional literal markdown in the output
             printf '\n#### %s\n\nApply the canonical `%s` specialist brief to the parent objective. Return only the required member-result schema to the coordinator.\n' "$member" "$member"
         done
     } >> "$WORKING_COPY"
