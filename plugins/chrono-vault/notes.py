@@ -22,6 +22,7 @@ SENSITIVITIES = frozenset({"internal", "restricted"})
 FRONTMATTER_FIELDS = (
     "schema_version",
     "id",
+    "title",
     "type",
     "status",
     "target",
@@ -43,7 +44,9 @@ FRONTMATTER_FIELDS = (
     "revision",
 )
 IGNORED_LOCATION_FIELDS = frozenset({"id", "path", "dest"})
-ALLOWED_INPUT_FIELDS = frozenset(FRONTMATTER_FIELDS) | IGNORED_LOCATION_FIELDS
+ALLOWED_INPUT_FIELDS = (
+    frozenset(FRONTMATTER_FIELDS) | IGNORED_LOCATION_FIELDS | frozenset({"body"})
+)
 
 
 class SchemaError(ValueError):
@@ -121,9 +124,17 @@ def _normalize(note_type: str, fields: dict[str, Any]) -> dict[str, Any]:
     if fields.get("valid_to") is not None:
         raise SchemaError("valid_to must be null for a new note")
 
+    title = _require_nonempty_string(fields.get("title"), "title")
+    if "\n" in title or "\r" in title:
+        raise SchemaError("title must be one line")
+    body = _require_nonempty_string(fields.get("body"), "body")
+    if not body.endswith("\n"):
+        body += "\n"
+
     note = {
         "schema_version": 1,
         "id": None,
+        "title": title,
         "type": note_type,
         "status": status,
         "target": _require_nonempty_string(fields.get("target"), "target"),
@@ -151,6 +162,7 @@ def _normalize(note_type: str, fields: dict[str, Any]) -> dict[str, Any]:
             fields.get("evidence_refs", []), "evidence_refs"
         ),
         "revision": 1,
+        "body": body,
     }
 
     hash_payload = {
@@ -182,7 +194,7 @@ def _serialize(note: dict[str, Any]) -> bytes:
         )
         lines.append(f"{field}: {value}")
     lines.extend(("---", ""))
-    return "\n".join(lines).encode("utf-8")
+    return ("\n".join(lines) + note["body"]).encode("utf-8")
 
 
 def _directory_flags() -> int:
@@ -273,7 +285,7 @@ def _write_atomic(destination_fd: int, final_name: str, content: bytes) -> None:
 
 
 def record(note_type: str, fields: dict) -> dict[str, Any]:
-    """Validate and atomically write a canonical note without indexing it."""
+    """Validate, atomically write, and best-effort index a canonical note."""
     note = _normalize(note_type, fields)
     root = resolve_vault_root()
 
@@ -298,9 +310,21 @@ def record(note_type: str, fields: dict) -> dict[str, Any]:
             if descriptor >= 0:
                 os.close(descriptor)
 
+    path = root / "notes" / note_type / final_name
+    try:
+        from index import upsert
+
+        upsert({**note, "path": str(path)})
+    except Exception:
+        indexed = False
+        index_dirty = True
+    else:
+        indexed = True
+        index_dirty = False
+
     return {
         "id": note_id,
-        "path": str(root / "notes" / note_type / final_name),
-        "indexed": False,
-        "index_dirty": True,
+        "path": str(path),
+        "indexed": indexed,
+        "index_dirty": index_dirty,
     }

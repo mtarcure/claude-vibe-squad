@@ -57,6 +57,8 @@ class RecordTests(unittest.TestCase):
         result = notes.record(
             "finding",
             {
+                "title": "Forged inbound execution",
+                "body": "The executor accepts a forged inbound payload.",
                 "target": "push-chain",
                 "attack_class": "forged-inbound",
                 "program": "bounty",
@@ -65,8 +67,8 @@ class RecordTests(unittest.TestCase):
         )
 
         self.assertRegex(result["id"], r"^mem-[0-9a-f]{12}$")
-        self.assertFalse(result["indexed"])
-        self.assertTrue(result["index_dirty"])
+        self.assertTrue(result["indexed"])
+        self.assertFalse(result["index_dirty"])
 
         note_path = Path(result["path"])
         self.assertTrue(note_path.is_file())
@@ -77,6 +79,7 @@ class RecordTests(unittest.TestCase):
 
         frontmatter = parse_frontmatter(note_path)
         self.assertEqual(frontmatter["id"], result["id"])
+        self.assertEqual(frontmatter["title"], "Forged inbound execution")
         self.assertEqual(frontmatter["type"], "finding")
         self.assertEqual(frontmatter["status"], "candidate")
         self.assertEqual(frontmatter["sensitivity"], "internal")
@@ -84,6 +87,11 @@ class RecordTests(unittest.TestCase):
         self.assertEqual(frontmatter["schema_version"], 1)
         self.assertEqual(frontmatter["target"], "push-chain")
         self.assertEqual(frontmatter["attack_class"], "forged-inbound")
+        self.assertTrue(
+            note_path.read_text(encoding="utf-8").endswith(
+                "The executor accepts a forged inbound payload.\n"
+            )
+        )
         self.assertRegex(
             frontmatter["evidence_refs"][-1],
             r"^note-content-sha256:[0-9a-f]{64}$",
@@ -93,14 +101,47 @@ class RecordTests(unittest.TestCase):
 
     def test_missing_required_field_raises_before_creating_notes_dir(self) -> None:
         with self.assertRaises(notes.SchemaError):
-            notes.record("finding", {"attack_class": "forged-inbound"})
+            notes.record(
+                "finding",
+                {
+                    "title": "Missing target",
+                    "body": "This note is incomplete.",
+                    "attack_class": "forged-inbound",
+                },
+            )
         self.assertFalse((self.vault_root / "notes").exists())
+
+    def test_title_and_body_are_required_and_title_is_one_line(self) -> None:
+        cases = (
+            {
+                "body": "Body without title.",
+                "target": "target",
+                "attack_class": "class",
+            },
+            {
+                "title": "Title without body",
+                "target": "target",
+                "attack_class": "class",
+            },
+            {
+                "title": "two\nlines",
+                "body": "Body text.",
+                "target": "target",
+                "attack_class": "class",
+            },
+        )
+        for fields in cases:
+            with self.subTest(fields=fields):
+                with self.assertRaises(notes.SchemaError):
+                    notes.record("finding", fields)
 
     def test_unknown_field_raises(self) -> None:
         with self.assertRaises(notes.SchemaError):
             notes.record(
                 "finding",
                 {
+                    "title": "Unknown field",
+                    "body": "This should be rejected.",
                     "target": "push-chain",
                     "attack_class": "forged-inbound",
                     "unknown": "nope",
@@ -112,6 +153,8 @@ class RecordTests(unittest.TestCase):
         result = notes.record(
             "learning",
             {
+                "title": "Dispatch learning",
+                "body": "Dispatch paths are selected by the server.",
                 "target": "dispatch",
                 "attack_class": "operational",
                 "id": "mem-callerchosen",
@@ -163,7 +206,12 @@ class RecordTests(unittest.TestCase):
         with self.assertRaises(notes.NoteWriteError):
             notes.record(
                 "finding",
-                {"target": "target", "attack_class": "symlink-escape"},
+                {
+                    "title": "Symlink escape",
+                    "body": "The notes directory points outside the vault.",
+                    "target": "target",
+                    "attack_class": "symlink-escape",
+                },
             )
         self.assertEqual(list(outside.iterdir()), [])
 
@@ -171,7 +219,12 @@ class RecordTests(unittest.TestCase):
         injected = "line one\n---\n!!python/object:danger"
         result = notes.record(
             "attempt",
-            {"target": injected, "attack_class": "prompt-injection"},
+            {
+                "title": "Quoted control text",
+                "body": "The injected value must remain inert markdown.",
+                "target": injected,
+                "attack_class": "prompt-injection",
+            },
         )
         frontmatter = parse_frontmatter(Path(result["path"]))
         self.assertEqual(frontmatter["target"], injected)
@@ -180,6 +233,8 @@ class RecordTests(unittest.TestCase):
         first = notes.record(
             "finding",
             {
+                "title": "Stable semantic note",
+                "body": "Semantic content is stable.",
                 "target": "target-a",
                 "attack_class": "class-a",
                 "aliases": ["alpha"],
@@ -190,7 +245,9 @@ class RecordTests(unittest.TestCase):
             {
                 "aliases": ["alpha"],
                 "attack_class": "class-a",
+                "body": "Semantic content is stable.",
                 "target": "target-a",
+                "title": "Stable semantic note",
             },
         )
 
