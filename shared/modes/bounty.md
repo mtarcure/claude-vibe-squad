@@ -41,3 +41,20 @@ For bug bounty and vulnerability research. Chrono owns target selection, safety 
 - Mandatory multi-model review for exploitability, impact, privacy, auth, and final report claims.
 - No destructive testing, rate-limit abuse, persistence, credential use, or out-of-scope probing.
 - Run `vibecoding-check` before final operator summary.
+
+## Toolchain & audit skills (use by default — do not rediscover)
+
+The local CLI toolchain is well-stocked; specialists have shell access and MUST use it, not just grep:
+- **Go:** `gosec -severity=medium`, `staticcheck`, `golangci-lint`, `semgrep --config=p/gosec --config=p/golang`, `osv-scanner --lockfile go.mod`, `go test -race`, `go test -fuzz`.
+- **EVM:** `slither`, `myth`, Foundry (`forge`/`cast`/`anvil` fork-and-replay + fuzz), `echidna`, `halmos`, `aderyn`.
+- **Rust/Solana:** `cargo-audit`, `clippy`, `cargo-geiger`, `cargo-fuzz`, `anchor`, `solana`.
+- **General:** `trivy`, `grype`, `gitleaks`/`trufflehog` (secret scan is operator-gated for a target org).
+
+**Apply the domain audit-checklist skills on task start** (they encode the classes that convert):
+- Blockchain L1 / bridge / appchain → profile `blockchain-l1`; skills `cross-chain-bridge-audit`, `cosmos-sdk-audit-checklist`, `known-advisory-backport-check`.
+- Solidity/Rust contracts → profile `smart-contract`; skills `solana-anchor-audit-checklist` (Solana/Anchor), `known-advisory-backport-check` (forked deps).
+- All bounties → `chain-impact-rescore` (offensive chaining + reachability/terminus discipline).
+
+**Dynamic testing is mandatory for logic/nonce/reorg/concurrency bugs** — extract the logic into a hermetic harness (mock RPC + latest/safe/finalized heads), run `-race`, and include a negative control. Static isolation-review misses shared-predicate and concurrency bugs (it wrongly killed a real finalized-nonce bug for 5 waves until dynamic testing caught it).
+
+**Swarm it:** run specialists in parallel across lanes — a claude panel (security-analyst + threat-modeler) concurrent with codex (smart-contract-engineer / exploit-developer). Namespace is only the mailbox; each specialist routes to its best-fit model.

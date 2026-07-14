@@ -165,3 +165,7 @@ structured-data-authoring
 technical-seo-audit
 terminology-memory
 wcag-conformance-audit
+cross-chain-bridge-audit
+cosmos-sdk-audit-checklist
+known-advisory-backport-check
+solana-anchor-audit-checklist
