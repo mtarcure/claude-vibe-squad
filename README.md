@@ -1,77 +1,119 @@
 <p align="center">
-  <img src="assets/hero/vibe-squad-hero.svg" alt="Vibe Squad — one coordinator (Chrono) routes work across 4 frontier model lanes and 69 role-based specialists" width="900">
+  <img src="assets/hero/vibe-squad-hero.svg" alt="Vibe Squad — one coordinator (Chrono) routes work across four model lanes and 69 role-based specialists" width="900">
 </p>
 
-# Vibe Squad
+<h1 align="center">Vibe Squad</h1>
 
-**One request in. The right model, specialist, and review path out.**
+<p align="center"><b>A swarm of frontier-model specialists that reviews its own work — and built itself.</b></p>
 
-Vibe Squad is a markdown-first orchestration system that runs four frontier AI models — **GPT‑5.6 Sol**, **Claude Fable‑5**, **Gemini 3.5**, and **Kimi K2.7** — as live "model lanes" in a single tmux session. You talk to one coordinator, **Chrono**; it turns your request into a scoped, inspectable task packet, routes it to whichever of **69 role‑based specialists** fits best, and sends the risky work to a *different* model family for review before you ever see the result. No servers, no dashboards — the entire dispatch board is plain markdown files on disk.
+<p align="center">
+  <img alt="license AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-blue">
+  <img alt="python 3.13" src="https://img.shields.io/badge/python-3.13-blue">
+  <a href="https://github.com/mtarcure/claude-vibe-squad/actions/workflows/squad-validate.yml"><img alt="CI" src="https://github.com/mtarcure/claude-vibe-squad/actions/workflows/squad-validate.yml/badge.svg"></a>
+  <img alt="model lanes 4" src="https://img.shields.io/badge/model_lanes-4-8a2be2">
+  <img alt="specialists 69, 69/69 validated" src="https://img.shields.io/badge/specialists-69%20%C2%B7%2069%2F69%20validated-brightgreen">
+  <img alt="control plane markdown-first" src="https://img.shields.io/badge/control_plane-markdown--first-orange">
+</p>
 
-> **In plain English:** it makes four different AIs behave like one coordinated team, with a built‑in second opinion on anything that matters.
-> **Under the hood:** capability‑fit routing over a canonical 69‑row map, typed markdown task packets, bounded write scopes, cross‑family review gates, and a git checkpoint before every dispatch.
+You talk to **one coordinator, Chrono**, in plain language. It turns your request into a scoped, inspectable task packet, routes it to whichever of **69 role-based specialists** fits best across **four live model lanes**, can fan the work out to **parallel specialist panels**, and sends the risky parts to a **different model family for review** before you ever see the result — with a **git checkpoint before every dispatch**.
 
-It was built *through itself*: the squad's own refactors — including the 69‑specialist redesign described below — were drafted and cross‑reviewed by these model lanes. The `auto-snapshot` commits in this repo's history are the system checkpointing its own work.
+> **In plain English:** it makes several different AIs behave like one coordinated team, with a built-in second opinion on anything that matters — and a paper trail for all of it.
+>
+> *A "panel" runs inside one lane's model family — Claude **or** Codex. The multi-model story is cross-lane coordination plus a **different-family reviewer**, not four families debating in one panel.*
+
+<p align="center">
+  <!-- PLACEHOLDER: Chrono records the real swarm run and drops the GIF here -->
+  <img src="assets/media/swarm-demo.gif" alt="A task dispatched to a specialist panel: two specialists run in parallel (SWARM x2), a different model family reviews the risky part, and the coordinator returns one synthesized answer" width="900">
+</p>
 
 ---
 
-## Why it's interesting (the two things to notice)
+## Watch it work
 
-### 1. A *different* model family reviews the risky work
+One request becomes one audited answer, in four beats:
 
-An LLM is the worst judge of its own output — same‑model self‑review reproduces the same blind spots. So every high‑stakes specialist carries a `review_model` from a **different** model family, and the dispatcher refuses to send a `safety_level: high` job without one. Independent models are structurally pitted against each other's work.
+1. **You ask, in plain language.** Chrono writes a typed markdown task packet and checkpoints the repo.
+2. **Specialists light up in parallel.** For panel work, 2–3 canonical specialists run concurrently inside one lane — the terminal shows `⚡SWARM ×N` and each member's live state.
+3. **A *different* model family reviews the risky part.** High-stakes work carries a cross-family reviewer; the dispatcher refuses to send a `safety_level: high` job without one.
+4. **You get one synthesized result** — evidence-weighted, with dissent and coverage gaps preserved, written to a single `outbox/` artifact.
 
-**The redesign *is* the proof.** The current roster/model overhaul was executed *by the squad*: frontier model leads drafted **69 specialist definitions** (Fable authored the judgment/security/content set, Sol the engineering/systems set) and then **cross‑reviewed each other in two rounds**. The reviews caught concrete, non‑obvious defects, for example:
+> ▶ **The demo above is a recorded run of the real system — landing before release.** A sanitized, reproducible end-to-end trace (parent task, member returns, panel activity state, the cross-family review, the one synthesized answer, and the commit it checkpointed to) will ship alongside it in `examples/demo-run/`.
 
-- a reviewer lane accidentally set to the **same family as the author** (broke review independence) — flagged and repointed;
-- three high‑safety roles missing their mandatory **escalation floor** — flagged and corrected;
-- research/recon roles **mis‑pinned to a lane by folder name** rather than capability — re‑derived;
-- a specialist brief that **contradicted the routing map** on tool ownership — caught at final acceptance.
+---
 
-All of it is git‑verifiable in `departments/*/outbox/` and the commit trail — not a claim, a paper trail.
+## Why this is different — the moat
 
-### 2. The whole thing is git‑verifiable dogfooding
+Most multi-agent demos optimize for more conversation. Vibe Squad optimizes for **bounded execution, independent review, visible failure, and inspectable artifacts.**
 
-The coordination substrate is `grep`‑able text and a terminal multiplexer — deliberately, for transparency and recovery, in a field drowning in message buses and daemons.
+| | What it is | Proof |
+|---|---|---|
+| 🐝 **Real parallel panels → one accountable artifact** | 2–3 specialists run concurrently inside a lane; only the coordinator writes the result, and it preserves dissent, timeouts, and missing coverage. Panel collection is deadline-bounded (monotonic **and** wall-clock) — overdue members become explicit coverage gaps. | [`shared/modes/panel.md`](shared/modes/panel.md) · [`bin/panel-activity.sh`](bin/panel-activity.sh) |
+| 🔁 **A different model family reviews the risky work** | An LLM is the worst judge of its own output. The canonical map assigns every high-safety role a reviewer from a *different* model family, and dispatch rejects high-safety work that names no reviewer. Independent, not a logo collage. | [`shared/routing.md`](shared/routing.md) · [`shared/protocol.md`](shared/protocol.md) |
+| 🧾 **Git-verifiable self-building** | Every dispatch checkpoints first. The routing redesign, the panel/swarm feature, and the pre-public cleanup were all dispatched *by the squad* — the history is the receipt. | `git log --oneline --grep='auto-snapshot: before TASK-'` |
+| 🎛️ **One coordinator over four live lanes** | A persistent tmux control room keeps model families observable and separately routable instead of hidden behind one opaque chat. | [`bin/launch-squad.sh`](bin/launch-squad.sh) |
+| 🛡️ **Safety failures stay visible** | A genuine refusal, a gate hold, or a timeout surfaces as state; the coordinator never "shops" a refused request to a more permissive model. | [`shared/routing.md`](shared/routing.md) (safety model) |
 
-- **Every dispatch starts from a checkpoint.** Before any task goes out, the dispatcher commits an auto‑snapshot. At the time of writing, **99 of this repo's 231 commits** are `auto-snapshot: before TASK-… dispatch`. Verify it yourself: `git log --grep 'auto-snapshot' --oneline`.
-- **One writer owns a path at a time.** The dispatcher parses each packet's `write_scope` and refuses to dispatch if it overlaps an in‑flight task.
-- **The dispatch board is the filesystem** — `inbox/TASK-*.md` in, `outbox/TASK-*-response.md` out — every job human‑readable and diffable, no network service on the path.
+---
+
+## Built by vibe coding
+
+Vibe Squad was directed in plain natural language — *"build the swarm," "add independent review," "make the state visible," "clean it up for public release."* The same system translated those goals into scoped task packets, routed them to specialist roles, ran parallel analysis where it helped, requested **cross-family review**, executed tests, and **checkpointed every dispatch in git**. It did not choose its own mission and real-world actions stayed operator-gated — you supply the goals and the approvals; the system does the dispatch, the review, and the bookkeeping.
+
+The evidence is this repository: **100+ of its commits** are `auto-snapshot: before TASK-…` checkpoints (count them yourself — `git log --oneline --grep='auto-snapshot' | wc -l`).
+
+> **A multi-agent system, vibe-coded through the multi-agent system itself.**
 
 ---
 
 ## How it works
 
+<p align="center">
+  <img src="assets/hero/architecture-lanes.svg" alt="One coordinator, Chrono, routes typed task packets across four model lanes; high-stakes work returns through a cross-family reviewer" width="820">
+</p>
+
 ```
 Operator ──one voice──▶  Chrono (coordinator)
                               │  chooses mode · specialist · model lane · write scope · reviewer
                               ▼
-                   typed markdown task packet   ──inbox/TASK-*.md
-                              │  capability-fit routing (the 69-row map)
+                   typed markdown task packet   ──▶ inbox/TASK-*.md   (+ git snapshot)
+                              │  capability-fit routing over one 69-row map
         ┌─────────────────────┼─────────────────────┬─────────────────────┐
         ▼                     ▼                     ▼                     ▼
    gpt-codex               claude                gemini                 kimi
   (GPT-5.6 Sol)         (Claude Fable-5)      (Gemini 3.5)          (Kimi K2.7)
-  implementation        judgment / safety     content / media       throughput
-        └─────────────────────┴───────┬─────────────┴─────────────────────┘
+  implementation        judgment / safety     content / media      throughput-only
+        │                     │                                  (0 primary roles)
+        │  opt-in: 2–3 specialists run in parallel → one synthesis
+        └─────────────────────┴───────┬─────────────────────────────────────┘
                                        │  high-stakes → cross-family reviewer
                                        ▼
                           outbox/TASK-*-response.md ──▶ Chrono ──▶ Operator
 ```
 
 1. You ask **Chrono** for something in plain language.
-2. Chrono picks the **mode**, the **specialist**, the **model lane**, the **write scope**, and — if the work is high‑stakes — a **cross‑family reviewer**.
-3. It writes a **markdown task packet** to that namespace's `inbox/` (after a git snapshot + write‑scope check).
-4. The target **model lane** reads the packet and its specialist brief, does the work, and writes a response to the `outbox/`.
-5. Chrono runs any required **review**, then surfaces the result to you.
+2. Chrono picks the **mode**, the **specialist**, the **model lane**, the **write scope**, and — if the work is high-stakes — a **cross-family reviewer** (or a **parallel panel** of specialists).
+3. It writes a **markdown task packet** to that namespace's `inbox/` — after a git snapshot and a write-scope conflict check.
+4. The target **lane** reads the packet and its specialist brief, does the work, and writes a response to the `outbox/`.
+5. Chrono runs any required **review**, then surfaces one result to you.
+
+> **Routing is `specialist → model`, never `namespace → model`.** A specialist's folder is only a mailbox label. Every routing decision — primary lane, a cross-family backup, an escalation profile, and a separate reviewer — is one explicit row in [`shared/specialist-runtime-map.tsv`](shared/specialist-runtime-map.tsv), foreign-keyed into versioned profile and policy registries.
+
+---
 
 ## Quick start
 
+> [!IMPORTANT]
+> **`squad up` defaults to an autonomous "daily-driver" profile** that launches each model-lane CLI with **bypass/yolo-style permissions** (Codex `--dangerously-bypass-approvals-and-sandbox`, Claude `--permission-mode bypassPermissions`, Gemini/Kimi `--yolo`) — the lanes run tools without per-action prompts. It's gated only by a **one-time warning marker plus a `doctor` health check** (a printed warning and a sentinel file, not an interactive confirmation). **Start with `--safe`**, which uses **conservative per-lane permissions** — Claude prompts (no bypass), Codex runs sandboxed workspace-write, and Gemini/Kimi launch non-yolo — until you understand the workflow and trust your scopes.
+
 ```bash
-bin/vibe-squad          # thin passthrough to `bin/squad`; alias: `squad up`
+git clone https://github.com/mtarcure/claude-vibe-squad
+cd claude-vibe-squad
+
+bin/vibe-squad up --safe     # conservative permissions — recommended first run
+# bin/vibe-squad up          # autonomous daily-driver profile (bypass/yolo perms)
 ```
 
-Starts (or re‑attaches) a tmux session named `squad` with six windows: `chrono` (the coordinator you talk to), the four model lanes, and a watchers/status window.
+This starts (or re-attaches) a tmux session named `squad` with six windows — the coordinator you talk to, the four model lanes, and a watchers/status window:
 
 ```
 Ctrl-b 0 → chrono      Ctrl-b 3 → gemini
@@ -80,82 +122,118 @@ Ctrl-b 2 → claude      Ctrl-b 5 → watchers/status
 Ctrl-b d → detach (lanes keep running)
 ```
 
-Lifecycle: `squad up | stop | status | doctor | attach | detach`.
-Prerequisites: macOS, tmux, logged‑in Claude Code / Codex / Gemini / Kimi CLIs, Python 3.11+ (for the MCP servers and the optional daemon).
+```bash
+bin/vibe-squad doctor     # health check
+bin/vibe-squad status     # what each lane is doing
+# ...in the chrono window, just ask for something in plain language...
+bin/vibe-squad stop       # tear down
+```
 
-## The model lanes
+**Prerequisites:** macOS · tmux · **fswatch · jq · curl** · logged-in Claude Code / Codex / Gemini / Kimi CLIs · **Python 3.13** (required by `pyproject.toml` and `.python-version`; needed for the MCP servers and the optional daemon).
 
-Chrono is the only operator‑facing voice; the four lanes are interchangeable *execution* engines. **Roles are stable; models are replaceable lanes** — which model runs a specialist is a capability decision in one map, not something hidden in prompts or implied by a folder.
+---
 
-| Lane | Model (pinned) | Best‑fit work |
-|------|----------------|---------------|
-| `gpt-codex` | `gpt-5.6-sol` | implementation, tests, PoC mechanics, code‑review mechanics, graphics/runtime |
-| `claude` | `claude-fable-5` | judgment, planning, safety/security reasoning, defensive security, research & synthesis |
-| `gemini` | `gemini-3.5-flash` | content, design, media/multimodal, search‑grounded work |
-| `kimi` | `kimi-k2.7-code` | **throughput‑only lane** — bulk/mechanical passes under a strict gate; holds zero primary roles |
-
-> **Routing is `specialist → model`, never `namespace → model`.** A specialist's `source_namespace` is only a mailbox/storage label. Two specialists in the same folder can run on different lanes; the same kind of work can span namespaces. Every routing decision — primary lane, a cross‑family backup, an escalation profile, and a separate reviewer — is one explicit row in `shared/specialist-runtime-map.tsv`, foreign‑keyed into versioned profile and policy registries.
+## Under the hood
 
 <details>
-<summary><b>Routing &amp; the specialist map</b> — the 28‑column source of truth, profiles, and policies</summary>
+<summary><b>Routing &amp; the specialist map</b> — the 28-column source of truth, profiles, and policies</summary>
 
-`shared/specialist-runtime-map.tsv` is the canonical routing table: **69 rows, 28 columns**, one row per specialist. Rather than duplicating raw model IDs across every row, each routing slot references a **profile** (`codex.sol.high`, `claude.fable.xhigh`, `gemini.flash.default`, `kimi.k2.7.bulk`, …) that resolves — in `shared/registries/profiles.tsv` — to an exact model + effort + flags. Failover, escalation, and throughput behaviour are likewise **versioned policy IDs** (`shared/registries/policies.tsv`), not per‑row prose.
+<br>
 
-Each specialist declares a single `capability_class` (implementation · judgment · code_review · security_reasoning · security_defense · content_text · media_production · research_synthesis · extraction · game_design), a `safety_level`, and — for media roles — a `tool_profile` that pins the lane to whichever pane hosts the required generation tools (model choice is secondary there).
+[`shared/specialist-runtime-map.tsv`](shared/specialist-runtime-map.tsv) is the canonical routing table: **69 rows, 28 columns**, one row per specialist. Rather than duplicating raw model IDs, each routing slot references a **profile** (`codex.sol.high`, `claude.fable.xhigh`, `gemini.flash.default`, `kimi.k2.7.bulk`, …) that resolves — in [`shared/registries/profiles.tsv`](shared/registries/profiles.tsv) — to an exact model + effort + flags. Failover, escalation, and throughput behaviour are likewise **versioned policy IDs** ([`shared/registries/policies.tsv`](shared/registries/policies.tsv)), not per-row prose.
 
-- `bin/validate-specialists.sh` fail‑closes on schema, foreign‑key, sort, and rule violations — it enforces, among others, "kimi holds no primary roles," "high/heightened‑risk roles get the safety‑floor escalation policy and never a throughput downshift," and "code review runs cross‑family" (`anti_affinity: author_family`). The current roster passes **69/69**.
-- Adding a specialist = one TSV row + a markdown brief under `departments/<namespace>/specialists/`, then `bin/validate-specialists.sh`. `model-lanes/ROSTER.md` is a generated per‑lane view.
+- Each specialist declares a `capability_class` (implementation · judgment · code_review · security_reasoning · security_defense · content_text · media_production · research_synthesis · extraction · game_design), a `safety_level`, and — for media roles — a `tool_profile` that pins the lane to whichever pane hosts the required generation tools.
+- The **69 roles** span seven mailbox namespaces (coding 19 · content 11 · content-engineering 10 · security 10 · sysmgmt 8 · shared 6 · research 5). Kimi is a **throughput-only lane and holds zero primary roles** — bulk/mechanical passes under a strict downshift gate only.
+- [`bin/validate-specialists.sh`](bin/validate-specialists.sh) fail-closes on schema, foreign-key, sort, and rule violations — it enforces, among others, "kimi holds no primary roles" and "high/heightened-risk roles get the safety-floor escalation policy and never a throughput downshift." (The map *assigns* each high-safety role a different-family reviewer via `anti_affinity: author_family`; that family relationship is a map/authoring convention, not a validator- or dispatcher-enforced check.) The current roster passes **69/69**.
+- Adding a specialist = one TSV row + a markdown brief under `departments/<namespace>/specialists/`, then run the validator.
 
-Full details: `shared/routing.md` (narrative source of truth) and `docs/architecture.md`.
+Narrative source of truth: [`shared/routing.md`](shared/routing.md) · architecture: [`docs/architecture.md`](docs/architecture.md).
+
 </details>
 
 <details>
-<summary><b>The safety model</b> — refusal invariant, operator gates, and pre‑publication gates</summary>
+<summary><b>Inside a specialist swarm</b> — the panel-v1 contract</summary>
+
+<br>
+
+Panels are an **opt-in task shape**, not a new mode — without `--panel`, dispatch is unchanged.
+
+```bash
+bin/send-task.sh <task-file> \
+  --panel code-reviewer,security-analyst \
+  --panel-quorum all --panel-timeout 900
+```
+
+- **Supported lanes:** `claude`, `gpt-codex`. **2–3 members** (the coordinator consumes the fourth thread). Nested panels are prohibited.
+- A panel's member subagents **share the parent lane's model family** — so a single panel runs *inside* Claude or Codex. The multi-model story is **cross-lane coordination and review**, not four families debating in one panel.
+- All members launch **before** the coordinator waits. Polling is non-blocking and bounded by a **monotonic + wall-clock deadline**; failed, refused, late, and timed-out members stay visible as coverage gaps.
+- Synthesis is **evidence-weighted, not majority vote**. The coordinator is the **only** writer and emits exactly **one** canonical artifact. Members are read-only w.r.t. the response and staging.
+- [`bin/panel-activity.sh`](bin/panel-activity.sh) owns atomic per-task activity state, quorum/deadline closure, archiving, and stale cleanup; [`bin/vs-lane-status.sh`](bin/vs-lane-status.sh) renders member states and the global `⚡SWARM ×N` signal from local state (one daemon fetch per tick, zero network per render). `panel-activity` and the status renderer are covered by tests that run in CI ([`squad-validate.yml`](.github/workflows/squad-validate.yml)).
+
+</details>
+
+<details>
+<summary><b>The safety model</b> — refusal invariant, operator gates, and pre-publication gates</summary>
+
+<br>
+
+<p align="center"><img src="assets/hero/review-loop.svg" alt="Risk-triggered cross-family review returns to the coordinator before a result is surfaced" width="700"></p>
 
 Capability is separated from authorization — "can do" is not "may do."
 
-- **Global safety‑refusal invariant.** A genuine safety refusal on *any* lane surfaces to the operator and is **never cross‑family re‑dispatched in either direction** — the system will not shop a refused request to a more permissive model. (Operational failures like an overloaded lane *may* fail over; refusals may not.)
-- **Operator gates (Hard Rule 6).** A closed set of actions require explicit operator approval before execution: `delete · cleanup · credential_change · public_release · paid_media · live_outreach · production_mutation`. Specialists declare which gates apply; the `requires_approval` field is limited to actual tool names, so domain approvals can't hide there.
-- **Pre‑publication gates.** Two specialists act as machine‑checkable gates before anything ships: `content-verifier` (a fact/citation truth gate) and `asset-provenance-and-rights-auditor` (a license/consent/rights gate). Each emits a hash‑bound PASS/HOLD/FAIL record; a non‑PASS or a stale content hash blocks publication.
-- **Cross‑family mandatory review** is a dispatch‑time contract: high‑safety specialists must carry a reviewer from another family; same‑family reviews run in‑lane before "done," cross‑family reviews are Chrono‑coordinated after the response lands (`shared/protocol.md`).
-</details>
+- **Global safety-refusal invariant.** A genuine safety refusal on *any* lane surfaces to the operator and is **never cross-family re-dispatched in either direction.** Operational failures (an overloaded lane, a timeout) *may* fail over; refusals may not. Refusals are classified by structured policy event → typed status → content heuristic (only to *downgrade* certainty).
+- **Operator gates (Hard Rule 6).** A closed set of actions require explicit approval before execution: `delete · cleanup · credential_change · public_release · paid_media · live_outreach · production_mutation · offensive_execution · malware_detonation`. The `requires_approval` field is limited to actual tool names, so domain approvals can't hide there.
+- **Pre-publication gates.** `content-verifier` (fact/citation truth) and `asset-provenance-and-rights-auditor` (license/consent/rights) each emit a hash-bound PASS/HOLD/FAIL record; a non-PASS or a stale content hash blocks publication.
+- **Cross-family mandatory review is a dispatch-time contract, not automation.** The canonical map gives every high-safety specialist a different-family reviewer, and dispatch rejects high-safety work that names no reviewer — but the *family difference itself is a map assignment, not a dispatcher comparison.* Same-family reviews run in-lane before "done," and cross-family reviews are **Chrono-coordinated after the response lands** — there is no watcher that auto-launches every review (see [`shared/protocol.md`](shared/protocol.md)).
 
-<details>
-<summary><b>The failover control plane</b> — cross-family reviewed, opt-in, and currently <i>dormant</i></summary>
-
-The redesign specifies a full resilience layer: a per‑specialist **cross‑family backup** chain, Claude's native in‑lane fallback (`--fallback-model`), a **conservative‑first** auto‑failover policy (act only on hard signals — dispatch‑ack failure, confirmed process‑exit, typed provider error — and otherwise surface, never guess), a minimal **attempt ledger** with generation fencing, and a **lease/lock** so the native and Chrono‑coordinated paths can't double‑dispatch the same packet.
-
-**Honest status:** this control plane is *built and cross-family reviewed but opt-in and currently gated off (dormant).* It ships inert because `_state/**` is ignored and no enable sentinel is present in a public checkout. Dispatch today is Chrono‑coordinated; automatic failover is **not** live. It is described here as an architecture the operator can explicitly enable, not a feature that runs by default.
 </details>
 
 <details>
 <summary><b>Dispatch protocol &amp; repo tour</b> — packet schema, lifecycle, and where things live</summary>
 
-Every dispatch is a markdown file with the frontmatter schema in `shared/protocol.md` (`to_model`, `specialist`, `source_namespace`, `write_scope`, `review_model`, `mandatory_review`, `operator_approved`, `return_artifact`, …). `source_namespace` selects the specialist markdown; `compatibility_namespace` selects the mailbox folder; `to_model` selects the runtime lane. Dispatch is asynchronous — senders don't block on lane‑to‑lane work.
+<br>
+
+<p align="center"><img src="assets/hero/mailbox-flow.svg" alt="A task packet flows from Chrono to an inbox, is nudged to a lane, and returns as a response in the outbox" width="760"></p>
+
+Every dispatch is a markdown file with the frontmatter schema in [`shared/protocol.md`](shared/protocol.md) (`to_model`, `specialist`, `source_namespace`, `write_scope`, `review_model`, `mandatory_review`, `operator_approved`, `return_artifact`, …). `source_namespace` selects the specialist markdown; `compatibility_namespace` selects the mailbox folder; `to_model` selects the runtime lane. Dispatch is asynchronous — senders don't block on lane-to-lane work, and one writer owns a `write_scope` at a time.
 
 | Path | Purpose |
 |------|---------|
 | `bin/squad`, `bin/launch-squad.sh` | Lifecycle CLI + tmux launcher (six windows) |
-| `scripts/send-task.sh`, `bin/send-task.sh` | Dispatch: frontmatter generation + hardened writer (snapshot, write‑scope check, nudge) |
+| `scripts/send-task.sh`, `bin/send-task.sh` | Dispatch: frontmatter generation + hardened writer (snapshot, write-scope check, nudge) |
 | `shared/specialist-runtime-map.tsv` | Canonical routing (69 rows) + `shared/registries/*.tsv` (profiles, policies) |
-| `shared/routing.md`, `shared/protocol.md` | Routing model + packet schema/lifecycle/review behaviour |
-| `shared/modes/*.md` | Operator‑approved workflows (project, bounty, incident, content, research, …) |
+| `shared/routing.md`, `shared/protocol.md` | Routing model + packet schema / lifecycle / review behaviour |
+| `shared/modes/*.md` | Operator-approved workflows (project, bounty, incident, content, research, triage, …) |
 | `departments/*/specialists/`, `shared/specialists/` | Specialist markdown briefs |
-| `departments/*/inbox/`, `departments/*/outbox/` | The dispatch board (packets + responses) |
-| `bin/validate-specialists.sh` | Fail‑closed schema/routing validator |
+| `departments/*/inbox/`, `departments/*/outbox/` | The dispatch board (packets + responses) — private/local, git-ignored |
+| `bin/validate-specialists.sh` | Fail-closed schema/routing validator |
 | `daemon/` | Optional FastAPI service (status, summaries, triggers) — **not** on the dispatch path |
 
-MCP tools (knowledge graph/vault, research, content generation, recon) are registered **directly per CLI** — `~/.claude/settings.json`, `~/.codex/config.toml`, `~/.kimi/mcp.json`, `~/.gemini/settings.json` — with no proxy layer; `shared/api-catalog.md` tracks a `verified:` state per capability, and a specialist may only cite verified entries.
 </details>
+
+<details>
+<summary><b>Tools, plugins &amp; the optional daemon</b></summary>
+
+<br>
+
+- **The primary tool path is direct per-CLI MCP registration** (`~/.claude/settings.json`, `~/.codex/config.toml`, `~/.kimi/mcp.json`, `~/.gemini/settings.json`); the optional daemon also exposes a `/mcp/{server}/{tool}` proxy route. Four vendored plugins ship with the repo: **chrono-vault** (knowledge graph + Obsidian + auto-capture), **chrono-research-arsenal** (an arXiv/xAI wrapper plus the official Perplexity sibling MCP), **chrono-content-engineer** (image/video/audio), and **chrono-recon** (DNS / WHOIS / certificate-transparency / Wayback / GitHub-secret helpers). Availability varies by credential and lane; [`shared/api-catalog.md`](shared/api-catalog.md) tracks a `verified:` state per capability, and a specialist may only cite verified entries.
+- A **library of reusable skill modules** lives under [`shared/skills/`](shared/skills/) (indexed in `shared/skills/catalog.txt`); specialist briefs reference them and the validator checks they exist.
+- The optional **FastAPI daemon** ([`daemon/`](daemon/)) exposes authenticated status/summary/trigger endpoints with circuit breakers and a watcher, covered by tests in [`daemon/tests/`](daemon/tests/). It supports the system; it is **not** the dispatch spine.
+
+</details>
+
+---
 
 ## What's shipped vs. what isn't
 
-- **Shipped:** the tmux + markdown‑mailbox runtime; the 69‑specialist canonical map with profile/policy registries and a fail‑closed validator (69/69); per‑CLI MCP tooling; auto‑snapshot + write‑scope dispatch rails; the safety/approval model.
-- **Dormant (built, reviewed, gated off):** the automatic failover control plane described above.
-- **Historical design:** an earlier Ink‑TUI + FastAPI‑daemon dispatch-spine proposal was not implemented and is retained only as a curated narrative under `docs/design/`. The shipped spine is the markdown mailbox.
+- **Shipped:** the tmux + markdown-mailbox runtime; the 69-specialist canonical map with profile/policy registries and a fail-closed validator (69/69); opt-in parallel specialist panels with a live status UI; per-CLI MCP tooling; auto-snapshot + write-scope dispatch rails; the safety/approval model.
+- **Automatic failover:** built and cross-family-reviewed, but ships **dormant/opt-in** — not part of the default workflow.
+- **Historical design:** an earlier Ink-TUI + FastAPI-daemon dispatch-spine proposal was not implemented and is retained only as a curated narrative under [`docs/design/`](docs/design/). The shipped spine is the markdown mailbox.
 
 ## License
 
-AGPL‑3.0. See [LICENSE](./LICENSE).
+AGPL-3.0. See [LICENSE](./LICENSE).
 
-*This README, and the roster redesign it describes, were produced through the squad's own multi‑model workflow.*
+---
+
+<p align="center"><sub>This README, and the roster redesign and cleanup it describes, were produced through the squad's own multi-model workflow — dispatched, cross-reviewed, and checkpointed in this repo's own git history.</sub></p>

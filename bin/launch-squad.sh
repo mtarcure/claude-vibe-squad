@@ -238,7 +238,7 @@ if [[ "${SQUAD_UNSAFE_AUTONOMY}" == "1" ]]; then
     RESEARCH_CMD="kimi --yolo --thinking --model kimi-k2.7-code --agent-file ${VAULT_ROOT}/model-lanes/kimi/main.yaml --add-dir ${VAULT_ROOT}"
 else
     CODEX_CMD='codex --sandbox workspace-write --ask-for-approval never -c model_reasoning_effort=high'
-    CLAUDE_CMD="claude --permission-mode bypassPermissions --model claude-fable-5 --fallback-model claude-opus-4-8,claude-sonnet-5 --effort xhigh --add-dir ${VAULT_ROOT}"
+    CLAUDE_CMD="claude --permission-mode manual --model claude-fable-5 --fallback-model claude-opus-4-8,claude-sonnet-5 --effort xhigh --add-dir ${VAULT_ROOT}"
     CONTENT_CMD="gemini --skip-trust --model gemini-3.5-flash --include-directories ${VAULT_ROOT}"
     RESEARCH_CMD="kimi --thinking --model kimi-k2.7-code --agent-file ${VAULT_ROOT}/model-lanes/kimi/main.yaml --add-dir ${VAULT_ROOT}"
 fi

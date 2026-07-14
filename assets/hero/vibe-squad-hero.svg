@@ -26,7 +26,7 @@
   <text x="150" y="206" fill="#67e8f9" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="800">CHRONO</text>
   <text x="150" y="244" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="56" font-weight="800">One operator.</text>
   <text x="150" y="306" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="56" font-weight="800">Four model leads.</text>
-  <text x="150" y="368" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="56" font-weight="800">Sixty-seven specialists.</text>
+  <text x="150" y="368" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="56" font-weight="800">Sixty-nine specialists.</text>
   <text x="153" y="424" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="24">A local markdown-first AI command center for bounty,</text>
   <text x="153" y="458" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="24">project, research, content, ops, and release workflows.</text>
 
@@ -59,7 +59,7 @@
     <g transform="translate(26 280)">
       <rect width="378" height="54" rx="10" fill="#062025" stroke="#22d3ee"/>
       <text x="18" y="34" fill="#67e8f9" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="18" font-weight="800">KIMI</text>
-      <text x="94" y="34" fill="#cbd5e1" font-family="Inter, Arial, sans-serif" font-size="17">long-context analysis</text>
+      <text x="94" y="34" fill="#cbd5e1" font-family="Inter, Arial, sans-serif" font-size="17">high-throughput lane</text>
     </g>
   </g>
 </svg>
