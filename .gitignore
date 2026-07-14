@@ -87,3 +87,6 @@ chrono/memory.md
 /_archive/
 /projects/
 /docs/handoffs/
+
+# phantom KG dirs from unexpanded CHRONO_VAULT_ROOT (P0-8) — never track
+**/${CHRONO_VAULT_ROOT}/
