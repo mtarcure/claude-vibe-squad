@@ -62,15 +62,23 @@ if [[ "${#missing[@]}" -gt 0 ]]; then
     exit 1
 fi
 
-if [[ "${SQUAD_UNSAFE_AUTONOMY}" == "1" ]] && [[ -x "${VAULT_ROOT}/bin/doctor.sh" ]]; then
-    if ! "${VAULT_ROOT}/bin/doctor.sh" >/dev/null 2>&1; then
-        if [[ "${SQUAD_SKIP_DOCTOR:-0}" != "1" ]]; then
+# Pre-flight health gate. SQUAD_SKIP_DOCTOR=1 skips it ENTIRELY (doctor is never
+# even run) — important because a hung/slow doctor must never be able to freeze a
+# launch or restart. When it does run, hard-cap it with a timeout: a doctor that
+# hangs is treated as a failed check, not an infinite wait.
+if [[ "${SQUAD_UNSAFE_AUTONOMY}" == "1" ]] \
+   && [[ "${SQUAD_SKIP_DOCTOR:-0}" != "1" ]] \
+   && [[ -x "${VAULT_ROOT}/bin/doctor.sh" ]]; then
+    doctor_rc=0
+    timeout "${SQUAD_DOCTOR_TIMEOUT:-45}" "${VAULT_ROOT}/bin/doctor.sh" >/dev/null 2>&1 || doctor_rc=$?
+    if [[ "${doctor_rc}" -ne 0 ]]; then
+        if [[ "${doctor_rc}" -eq 124 ]]; then
+            echo "ERROR: doctor timed out (>${SQUAD_DOCTOR_TIMEOUT:-45}s) — autonomous launch blocked."
+        else
             echo "ERROR: doctor reported issues; autonomous launch blocked."
-            echo "Run: squad doctor"
-            echo "Override only after reviewing with: SQUAD_SKIP_DOCTOR=1 squad up"
-            exit 1
         fi
-        echo "WARNING: doctor reported issues; continuing because SQUAD_SKIP_DOCTOR=1."
+        echo "Investigate: squad doctor   |   Override: SQUAD_SKIP_DOCTOR=1 squad up"
+        exit 1
     fi
 fi
 
@@ -148,10 +156,16 @@ apply_squad_globals() {
 }
 
 # If the session already exists, re-assert globals (the server is up) and attach.
+# Only attach when we actually have a terminal — otherwise `tmux attach` hangs
+# forever with no tty, which is exactly what breaks automated restarts.
 if tmux has-session -t "${SESSION}" 2>/dev/null; then
     apply_squad_globals
-    echo "Session '${SESSION}' already exists. Attaching..."
-    tmux attach -t "${SESSION}"
+    if [[ -t 0 && -t 1 ]]; then
+        echo "Session '${SESSION}' already exists. Attaching..."
+        tmux attach -t "${SESSION}"
+    else
+        echo "Session '${SESSION}' already exists. Attach with: tmux attach -t ${SESSION}"
+    fi
     exit 0
 fi
 
@@ -350,8 +364,13 @@ echo "To kill the session:     tmux kill-session -t ${SESSION}"
 echo "Unsafe autonomous mode:  SQUAD_UNSAFE_AUTONOMY=1 bash bin/launch-squad.sh"
 echo "Pre-trust Codex MCPs:    SQUAD_TRUST_CODEX_MCPS=1 bash bin/launch-squad.sh"
 echo ""
-read -p "Attach now? (y/n) " -n 1 -r
-echo ""
-if [[ "$REPLY" =~ ^[Yy]$ ]]; then
-    tmux attach -t "${SESSION}"
+# Only prompt when run interactively. Without a tty (automated restart via
+# `squad stop && squad up`, a background/detached launch), `read` blocks forever
+# and the launcher never returns — the classic "restart didn't restart" hang.
+if [[ -t 0 ]]; then
+    read -p "Attach now? (y/n) " -n 1 -r
+    echo ""
+    if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+        tmux attach -t "${SESSION}"
+    fi
 fi
