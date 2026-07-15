@@ -20,6 +20,7 @@ function completenessEvidence({ calibration, negativeControl, coverage, transiti
   if (!guardBranchesExercised) missing.push("missing:guard-branches");
   if (!sinkReached) missing.push("missing:sink-reach");
   if (!deterministicShrinking) missing.push("missing:deterministic-shrinking");
+  const coverageEngine = coverage.engine.replace(/[^A-Za-z0-9._/-]/gu, "-");
 
   return {
     missing,
@@ -30,7 +31,7 @@ function completenessEvidence({ calibration, negativeControl, coverage, transiti
       coverage_saturated: coverageSaturated,
       sink_reached: sinkReached,
       deterministic_shrinking: deterministicShrinking,
-      evidence_ref: `coverage:synthetic-v8-f${rounded(coverage.functionPercent)}-r${rounded(coverage.rangePercent)}-t${covered.length}-of-${required.length}`,
+      evidence_ref: `coverage:synthetic-${coverageEngine}-f${rounded(coverage.functionPercent)}-r${rounded(coverage.rangePercent)}-t${covered.length}-of-${required.length}`,
     },
   };
 }

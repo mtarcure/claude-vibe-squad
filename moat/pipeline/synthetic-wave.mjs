@@ -17,6 +17,7 @@ export async function runSyntheticWave({
   numRuns = 10,
   omitTransitions = [],
   coverageThreshold = 70,
+  escalation = { enabled: false },
   ledger,
   independentReview,
 } = {}) {
@@ -76,7 +77,7 @@ export async function runSyntheticWave({
     flagged: patchedObservation.oracle.violations.length > 0
       || measured.value.negativeRun.successes > 0,
   };
-  const coverage = { ...measured.coverage, threshold: coverageThreshold };
+  let coverage = { ...measured.coverage, threshold: coverageThreshold };
   const transitions = {
     counts: measured.value.calibrationRun.counts,
     edges: measured.value.calibrationRun.edges,
@@ -86,7 +87,7 @@ export async function runSyntheticWave({
     || vulnerableObservation.oracle.actions.length > 0;
   const guardBranchesExercised = guardBranches(vulnerableObservation, patchedObservation);
 
-  const waveResult = await emitWaveResult({
+  const classificationInput = () => ({
     calibration,
     negativeControl,
     candidate: { passed: calibration.detected && !negativeControl.flagged, killRefs: [] },
@@ -99,6 +100,26 @@ export async function runSyntheticWave({
     independentReview,
     seed,
   });
+  let waveResult = await emitWaveResult(classificationInput());
+  let escalationEvidence = { driver: "fast-check", invoked: false };
+
+  if (escalation.enabled === true && waveResult.state === "INCONCLUSIVE") {
+    const { runJazzerEscalation } = await import("../fuzz/jazzer/driver.mjs");
+    escalationEvidence = await runJazzerEscalation({
+      seed,
+      maxRuns: escalation.maxRuns ?? 256,
+    });
+    for (const [name, count] of Object.entries(escalationEvidence.transitions)) {
+      transitions.counts[name] = (transitions.counts[name] ?? 0) + count;
+    }
+    coverage = {
+      ...coverage,
+      engine: "v8-jazzer",
+      functionPercent: Math.max(coverage.functionPercent, escalationEvidence.coverage.percent),
+      rangePercent: Math.max(coverage.rangePercent, escalationEvidence.coverage.percent),
+    };
+    waveResult = await emitWaveResult(classificationInput());
+  }
 
   return {
     waveResult,
@@ -107,6 +128,7 @@ export async function runSyntheticWave({
       negativeControl,
       coverage,
       transitions,
+      escalation: escalationEvidence,
       controls: {
         vulnerable: vulnerableObservation,
         patched: patchedObservation,

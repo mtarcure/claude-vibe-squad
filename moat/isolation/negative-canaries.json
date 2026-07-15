@@ -4,8 +4,8 @@
   "abort_on_unexpected_success": true,
   "require_loopback_control_success": true,
   "probes": [
-    { "id": "canary:ipv4-direct", "class": "ipv4", "destination": "example.com", "address_family": 4, "expected": "blocked" },
-    { "id": "canary:ipv6-direct", "class": "ipv6", "destination": "example.com", "address_family": 6, "expected": "blocked" },
+    { "id": "canary:ipv4-direct", "class": "ipv4", "destination": "192.0.2.1", "address_family": 4, "expected": "blocked" },
+    { "id": "canary:ipv6-direct", "class": "ipv6", "destination": "2001:db8::1", "address_family": 6, "expected": "blocked" },
     { "id": "canary:dns-external", "class": "dns", "destination": "example.com", "expected": "resolution-fails" },
     { "id": "canary:http-proxy", "class": "proxy_environment", "destination": "https://example.com/", "environment_variables": ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected": "blocked-or-unset" },
     { "id": "canary:host-gateway", "class": "host_gateway", "destination": "host.docker.internal", "expected": "unreachable" },
