@@ -192,7 +192,7 @@ Wire the spec's §11 tests 1-14 as an integration suite `plugins/chrono-vault/te
 ## Phase 6 — Documentation
 
 ### Task 6.1 — Memory system README + docs update
-**Files:** Create `plugins/chrono-vault/README.md`; Modify `CLAUDE.md` (+ `chrono/CLAUDE.md`) memory/session-resume references; audit `docs/` for stale KG mentions.
+**Files:** Create `plugins/chrono-vault/README.md` (detailed docs); Modify the **root `README.md`** (add a concise "Memory & learning" feature section + link to the plugin README — the private-local self-improving memory is a flagship differentiator; describe the *system/capability*, never expose vault *content*); Modify `CLAUDE.md` (+ `chrono/CLAUDE.md`) memory/session-resume references; audit `docs/` for stale KG mentions. (Operator decision 2026-07-14: do the plugin README + root-README section; do NOT extract chrono-vault into its own repo.)
 Document the memory/learning system as-built (no aspirational claims — describe what actually ships after Phases 0-5):
 - **What it is + architecture:** private markdown-as-truth vault + disposable FTS5/BM25 index; Obsidian as human lens; the write→recall→apply loop.
 - **Setup / config:** `CHRONO_VAULT_ROOT` (absolute private path, fail-closed), the `.chrono-vault` sentinel, the `notes/{attempt,finding,learning}` + `index/` + `backups/` layout. How the launcher wires it.
