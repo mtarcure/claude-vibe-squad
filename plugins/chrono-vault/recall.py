@@ -14,6 +14,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
+from clearance import can_read, lane_clearance
 from index import FTS_COLUMNS, INDEX_SCHEMA_VERSION
 from query import build_fts_query
 from vaultroot import resolve_vault_root
@@ -272,6 +273,12 @@ def recall(query: str, filters: dict = None, limit: int = 8) -> dict[str, Any]:
     structured, statuses = _validate_filters(filters)
     if not statuses:
         return _empty(recall_id)
+    clearance = lane_clearance()
+    allowed_sensitivities = (
+        ("internal", "restricted")
+        if clearance == "restricted"
+        else ("internal",)
+    )
 
     root = resolve_vault_root()
     with _read_index(root) as connection:
@@ -283,8 +290,13 @@ def recall(query: str, filters: dict = None, limit: int = 8) -> dict[str, Any]:
         clauses = [
             "notes_fts MATCH ?",
             f"m.status IN ({','.join('?' for _ in statuses)})",
+            f"m.sensitivity IN ({','.join('?' for _ in allowed_sensitivities)})",
         ]
-        parameters: list[Any] = [fts_query, *statuses]
+        parameters: list[Any] = [
+            fts_query,
+            *statuses,
+            *allowed_sensitivities,
+        ]
 
         column_filters = {
             "target": "notes_fts.target = ?",
@@ -331,6 +343,8 @@ def recall(query: str, filters: dict = None, limit: int = 8) -> dict[str, Any]:
         weight_components = dict(zip(WEIGHT_FIELDS, weights, strict=True))
         results: list[dict[str, Any]] = []
         for row in rows:
+            if not can_read(row["sensitivity"], clearance):
+                continue
             note_link = _note_link(root, row["path"])
             raw_rank = float(row["raw_rank"])
             score = -raw_rank

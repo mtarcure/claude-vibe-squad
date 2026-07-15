@@ -21,6 +21,7 @@ from typing import Any
 
 import httpx
 from mcp.server.fastmcp import FastMCP
+from clearance import ClearanceError, can_read, lane_clearance
 import index as vault_index
 from lifecycle import LifecycleError
 from lifecycle import get_note as lifecycle_get_note
@@ -31,6 +32,13 @@ from recall import RecallError, _read_index, recall as recall_notes
 from vaultroot import VaultRootError, read_sentinel, resolve_vault_root
 
 mcp = FastMCP("chrono-vault")
+
+
+def _get_note_for_lane(note_id: str) -> dict[str, Any]:
+    note = lifecycle_get_note(note_id)
+    if not can_read(note.get("sensitivity"), lane_clearance()):
+        raise ClearanceError("note is unavailable at the current clearance")
+    return note
 
 
 def _vault_root() -> Path:
@@ -157,8 +165,8 @@ def record_finding(
     attempt: dict[str, Any] | None = None
     if attempt_id:
         try:
-            candidate = lifecycle_get_note(attempt_id)
-        except LifecycleError:
+            candidate = _get_note_for_lane(attempt_id)
+        except (ClearanceError, LifecycleError):
             candidate = None
         if candidate is not None and candidate.get("type") == "attempt":
             attempt = candidate
@@ -185,6 +193,9 @@ def record_finding(
             "body": normalized_description,
             "target": normalized_target,
             "attack_class": normalized_attack_class,
+            "sensitivity": (
+                attempt["sensitivity"] if attempt is not None else "internal"
+            ),
             "keywords": [f"severity-{severity}"],
             "evidence_refs": evidence_refs,
         },
@@ -228,7 +239,7 @@ def recall(
 @mcp.tool()
 def get_note(id: str) -> dict[str, Any]:
     """Get one complete canonical memory note by stable ID."""
-    return lifecycle_get_note(id)
+    return _get_note_for_lane(id)
 
 
 @mcp.tool()
@@ -240,6 +251,9 @@ def set_status(
     supersedes: str | None = None,
 ) -> dict[str, Any]:
     """Compare-and-swap note status and maintain supersede links."""
+    _get_note_for_lane(id)
+    if supersedes is not None:
+        _get_note_for_lane(supersedes)
     return lifecycle_set_status(
         id=id,
         new_status=new_status,

@@ -121,7 +121,11 @@ class AutoCaptureTests(unittest.TestCase):
         self.assertIn("EmitterForgeVerdict", body)
         self.assertLessEqual(len(body), autocapture.MAX_SUMMARY_CHARS)
 
-        recalled = vault_recall.recall("EmitterForgeVerdict")
+        with mock.patch.dict(
+            os.environ,
+            {"CHRONO_VAULT_CLEARANCE": "restricted"},
+        ):
+            recalled = vault_recall.recall("EmitterForgeVerdict")
         self.assertIn(result["note_id"], [row["id"] for row in recalled["results"]])
 
     def test_general_response_is_internal_and_exact_reprocessing_is_idempotent(self) -> None:

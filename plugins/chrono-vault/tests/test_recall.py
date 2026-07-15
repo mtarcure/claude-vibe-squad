@@ -235,7 +235,7 @@ class RecallTests(unittest.TestCase):
         self.assertEqual(result["results"], [])
         self.assertFalse((self.vault_root / "index").exists())
 
-    def test_restricted_verified_note_is_returned_with_phase_1_label(self) -> None:
+    def test_restricted_note_is_not_exposed_without_server_clearance(self) -> None:
         restricted = notes.record(
             "finding",
             {
@@ -248,13 +248,18 @@ class RecallTests(unittest.TestCase):
             },
         )
 
-        result = vault_recall.recall("RestrictedToken")
+        hidden = vault_recall.recall("RestrictedToken")
+        with mock.patch.dict(
+            os.environ,
+            {"CHRONO_VAULT_CLEARANCE": "restricted"},
+        ):
+            visible = vault_recall.recall("RestrictedToken")
 
-        self.assertEqual([row["id"] for row in result["results"]], [restricted["id"]])
-        self.assertEqual(result["results"][0]["status"], "verified")
-        self.assertEqual(result["results"][0]["sensitivity"], "restricted")
-        self.assertIn("RestrictedToken", result["results"][0]["snippet"])
-        # TODO(Task 3.1): replace this Phase-1 behavior with per-lane clearance tests.
+        self.assertEqual(hidden["results"], [])
+        self.assertEqual([row["id"] for row in visible["results"]], [restricted["id"]])
+        self.assertEqual(visible["results"][0]["status"], "verified")
+        self.assertEqual(visible["results"][0]["sensitivity"], "restricted")
+        self.assertIn("RestrictedToken", visible["results"][0]["snippet"])
 
 
 if __name__ == "__main__":
