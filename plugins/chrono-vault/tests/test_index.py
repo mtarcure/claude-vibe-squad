@@ -86,14 +86,74 @@ class IndexTests(unittest.TestCase):
                 "SELECT count(*) FROM notes_fts WHERE notes_fts MATCH ?",
                 ("ZephyrToken",),
             ).fetchone()[0]
+            fts_columns = [
+                row[1]
+                for row in connection.execute("PRAGMA table_info(notes_fts)")
+            ]
             weights = connection.execute(
                 "SELECT value FROM config WHERE key='bm25_weights'"
             ).fetchone()[0]
+            schema_version = connection.execute(
+                "SELECT value FROM config WHERE key='index_schema_version'"
+            ).fetchone()[0]
+            user_version = connection.execute("PRAGMA user_version").fetchone()[0]
             journal_mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
         self.assertEqual(match_count, 1)
+        self.assertIn("keywords", fts_columns)
+        self.assertNotIn("tags", fts_columns)
         self.assertEqual(len(json.loads(weights)), 8)
+        self.assertEqual(int(schema_version), vault_index.INDEX_SCHEMA_VERSION)
+        self.assertEqual(user_version, vault_index.INDEX_SCHEMA_VERSION)
         self.assertEqual(journal_mode, "wal")
         self.assertEqual(stat.S_IMODE(self.db_path.stat().st_mode), 0o600)
+
+    def test_stale_tags_schema_rebuilds_from_markdown_with_new_generation(self) -> None:
+        result = self._record("SchemaBumpToken")
+        generation_before = vault_index.index_generation()
+        rows_before = self._rows()
+        with closing(sqlite3.connect(self.db_path)) as connection:
+            connection.execute("DROP TABLE notes_fts")
+            connection.execute(
+                """
+                CREATE VIRTUAL TABLE notes_fts USING fts5(
+                    title, body, aliases, target, component, attack_class,
+                    tags, evidence_summary, tokenize='unicode61'
+                )
+                """
+            )
+            connection.execute(
+                "INSERT INTO notes_fts(rowid, title, tags) VALUES(?,?,?)",
+                (1, "legacy row", "legacy-tag"),
+            )
+            connection.execute(
+                "INSERT OR REPLACE INTO config(key, value) "
+                "VALUES('index_schema_version', '1')"
+            )
+            connection.execute("PRAGMA user_version=1")
+            connection.commit()
+
+        report = vault_index.sync_index()
+
+        self.assertEqual(report["generation"], generation_before + 1)
+        self.assertEqual(self._rows(), rows_before)
+        with closing(sqlite3.connect(self.db_path)) as connection:
+            columns = [
+                row[1]
+                for row in connection.execute("PRAGMA table_info(notes_fts)")
+            ]
+            match = connection.execute(
+                "SELECT rowid FROM notes_fts WHERE keywords MATCH ?",
+                ("bridge",),
+            ).fetchone()
+            indexed_id = connection.execute(
+                "SELECT id FROM meta WHERE docid=?",
+                (match[0],),
+            ).fetchone()[0]
+            user_version = connection.execute("PRAGMA user_version").fetchone()[0]
+        self.assertIn("keywords", columns)
+        self.assertNotIn("tags", columns)
+        self.assertEqual(user_version, vault_index.INDEX_SCHEMA_VERSION)
+        self.assertEqual(indexed_id, result["id"])
 
     def test_rebuild_after_index_deletion_is_deterministic(self) -> None:
         self._record("FirstToken")

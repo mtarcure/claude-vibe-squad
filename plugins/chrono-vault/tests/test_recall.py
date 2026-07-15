@@ -133,11 +133,39 @@ class RecallTests(unittest.TestCase):
                 "target": "push-chain",
                 "component": "executor",
                 "type": "finding",
-                "tags": "bridge",
+                "keywords": "bridge",
             },
         )
 
         self.assertEqual([row["id"] for row in result["results"]], [expected["id"]])
+
+    def test_keyword_filter_returns_only_matching_notes(self) -> None:
+        expected = self._record(
+            "KeywordFilterToken critical finding",
+            "KeywordFilterToken appears in the matching note.",
+            attack_class="severity",
+            keywords=["severity-critical"],
+        )
+
+        matching = vault_recall.recall(
+            "KeywordFilterToken",
+            filters={"keywords": "severity-critical"},
+        )
+        excluded = vault_recall.recall(
+            "KeywordFilterToken",
+            filters={"keywords": "severity-low"},
+        )
+
+        self.assertEqual([row["id"] for row in matching["results"]], [expected["id"]])
+        self.assertEqual(excluded["results"], [])
+        weights = matching["results"][0]["score_components"]["weights"]
+        self.assertIn("keywords", weights)
+        self.assertNotIn("tags", weights)
+        with self.assertRaises(vault_recall.RecallError):
+            vault_recall.recall(
+                "KeywordFilterToken",
+                filters={"tags": "severity-critical"},
+            )
 
     def test_injection_like_body_is_bounded_and_quoted_as_untrusted_data(self) -> None:
         self._record(
@@ -207,21 +235,26 @@ class RecallTests(unittest.TestCase):
         self.assertEqual(result["results"], [])
         self.assertFalse((self.vault_root / "index").exists())
 
-    def test_restricted_note_is_not_exposed_without_server_clearance(self) -> None:
-        notes.record(
+    def test_restricted_verified_note_is_returned_with_phase_1_label(self) -> None:
+        restricted = notes.record(
             "finding",
             {
                 "title": "RestrictedToken evidence",
-                "body": "RestrictedToken must remain private.",
+                "body": "RestrictedToken is labeled for future clearance enforcement.",
                 "target": "push-chain",
                 "attack_class": "restricted",
+                "status": "verified",
                 "sensitivity": "restricted",
             },
         )
 
         result = vault_recall.recall("RestrictedToken")
 
-        self.assertEqual(result["results"], [])
+        self.assertEqual([row["id"] for row in result["results"]], [restricted["id"]])
+        self.assertEqual(result["results"][0]["status"], "verified")
+        self.assertEqual(result["results"][0]["sensitivity"], "restricted")
+        self.assertIn("RestrictedToken", result["results"][0]["snippet"])
+        # TODO(Task 3.1): replace this Phase-1 behavior with per-lane clearance tests.
 
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
+from index import FTS_COLUMNS, INDEX_SCHEMA_VERSION
 from vaultroot import resolve_vault_root
 
 
@@ -23,18 +24,9 @@ ALL_STATUSES = frozenset(
 )
 NOTE_TYPES = frozenset({"attempt", "finding", "learning"})
 FILTER_FIELDS = frozenset(
-    {"target", "attack_class", "component", "type", "tags", "status"}
+    {"target", "attack_class", "component", "type", "keywords", "status"}
 )
-WEIGHT_FIELDS = (
-    "title",
-    "body",
-    "aliases",
-    "target",
-    "component",
-    "attack_class",
-    "tags",
-    "evidence_summary",
-)
+WEIGHT_FIELDS = FTS_COLUMNS
 MAX_QUERY_CHARS = 512
 MAX_LIMIT = 50
 MAX_QUOTED_CONTENT_CHARS = 600
@@ -76,7 +68,7 @@ def _validate_filters(filters: dict | None) -> tuple[dict[str, str], tuple[str, 
         raise RecallError(f"unknown filters: {sorted(map(str, unknown))}")
 
     structured: dict[str, str] = {}
-    for field in ("target", "attack_class", "component", "type", "tags"):
+    for field in ("target", "attack_class", "component", "type", "keywords"):
         if field not in filters:
             continue
         value = filters[field]
@@ -175,6 +167,12 @@ def _read_index(root: Path) -> Iterator[sqlite3.Connection | None]:
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA busy_timeout=5000")
         connection.execute("PRAGMA query_only=ON")
+        user_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+        columns = tuple(
+            row[1] for row in connection.execute("PRAGMA table_info(notes_fts)")
+        )
+        if user_version != INDEX_SCHEMA_VERSION or columns != FTS_COLUMNS:
+            raise RecallError("index schema is stale; run rebuild_index")
         yield connection
     except OSError as exc:
         raise RecallError("index is unsafe or inaccessible") from exc
@@ -279,7 +277,6 @@ def recall(query: str, filters: dict = None, limit: int = 8) -> dict[str, Any]:
         clauses = [
             "notes_fts MATCH ?",
             f"m.status IN ({','.join('?' for _ in statuses)})",
-            "m.sensitivity = 'internal'",
         ]
         parameters: list[Any] = [query, *statuses]
 
@@ -293,12 +290,12 @@ def recall(query: str, filters: dict = None, limit: int = 8) -> dict[str, Any]:
             if field in structured:
                 clauses.append(clause)
                 parameters.append(structured[field])
-        if "tags" in structured:
+        if "keywords" in structured:
             clauses.append(
-                "instr(char(10) || notes_fts.tags || char(10), "
+                "instr(char(10) || notes_fts.keywords || char(10), "
                 "char(10) || ? || char(10)) > 0"
             )
-            parameters.append(structured["tags"])
+            parameters.append(structured["keywords"])
         parameters.append(validated_limit)
 
         sql = f"""

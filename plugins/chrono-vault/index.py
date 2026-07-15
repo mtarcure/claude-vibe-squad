@@ -46,6 +46,17 @@ FRONTMATTER_FIELDS = (
     "evidence_refs",
     "revision",
 )
+INDEX_SCHEMA_VERSION = 2
+FTS_COLUMNS = (
+    "title",
+    "body",
+    "aliases",
+    "target",
+    "component",
+    "attack_class",
+    "keywords",
+    "evidence_summary",
+)
 BM25_WEIGHTS = (8.0, 1.0, 6.0, 3.0, 2.0, 6.0, 3.0, 1.0)
 
 
@@ -55,6 +66,10 @@ class IndexError(RuntimeError):
 
 class MalformedNote(IndexError):
     """A source note cannot be represented in the canonical index."""
+
+
+class IndexSchemaMismatch(IndexError):
+    """The disposable index must be rebuilt for the current FTS schema."""
 
 
 def _index_dir(root: Path, *, create: bool) -> Path:
@@ -118,17 +133,6 @@ def _initialize(connection: sqlite3.Connection) -> None:
             sensitivity TEXT NOT NULL,
             note_type TEXT NOT NULL
         );
-        CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
-            title,
-            body,
-            aliases,
-            target,
-            component,
-            attack_class,
-            tags,
-            evidence_summary,
-            tokenize='unicode61'
-        );
         CREATE TABLE IF NOT EXISTS state (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
@@ -146,12 +150,72 @@ def _initialize(connection: sqlite3.Connection) -> None:
         """
     )
     connection.execute(
+        """
+        CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
+            title, body, aliases, target, component, attack_class,
+            keywords, evidence_summary, tokenize='unicode61'
+        )
+        """
+    )
+    columns = tuple(
+        row[1] for row in connection.execute("PRAGMA table_info(notes_fts)")
+    )
+    if columns != FTS_COLUMNS:
+        raise IndexSchemaMismatch("index FTS schema is stale; rebuild required")
+    connection.execute(
         "INSERT OR REPLACE INTO config(key, value) VALUES('bm25_weights', ?)",
         (json.dumps(BM25_WEIGHTS, separators=(",", ":")),),
     )
     connection.execute(
+        "INSERT OR REPLACE INTO config(key, value) "
+        "VALUES('index_schema_version', ?)",
+        (str(INDEX_SCHEMA_VERSION),),
+    )
+    connection.execute(
         "INSERT OR IGNORE INTO state(key, value) VALUES('generation', '0')"
     )
+    connection.execute(f"PRAGMA user_version={INDEX_SCHEMA_VERSION}")
+
+
+def _schema_is_current(connection: sqlite3.Connection) -> bool:
+    try:
+        user_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+        config_row = connection.execute(
+            "SELECT value FROM config WHERE key='index_schema_version'"
+        ).fetchone()
+        config_version = int(config_row[0]) if config_row is not None else None
+        columns = tuple(
+            row[1] for row in connection.execute("PRAGMA table_info(notes_fts)")
+        )
+    except (sqlite3.Error, TypeError, ValueError):
+        return False
+    return (
+        user_version == INDEX_SCHEMA_VERSION
+        and config_version == INDEX_SCHEMA_VERSION
+        and columns == FTS_COLUMNS
+    )
+
+
+def _existing_schema_is_current(path: Path) -> bool | None:
+    if not _prepare_database(path, create=False):
+        return None
+    try:
+        connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5.0)
+        try:
+            return _schema_is_current(connection)
+        finally:
+            connection.close()
+    except sqlite3.Error:
+        return False
+
+
+def _ensure_index_schema(root: Path) -> bool:
+    """Atomically rebuild a present stale index; return whether rebuilt."""
+    current = _existing_schema_is_current(root / "index" / "kg.db")
+    if current is not False:
+        return False
+    rebuild_index()
+    return True
 
 
 def _prepare_database(path: Path, *, create: bool) -> bool:
@@ -190,6 +254,11 @@ def _connect(path: Path, *, wal: bool) -> sqlite3.Connection:
     try:
         connection.execute("PRAGMA busy_timeout=5000")
         connection.execute(f"PRAGMA journal_mode={'WAL' if wal else 'DELETE'}")
+        has_fts = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE name='notes_fts'"
+        ).fetchone()
+        if has_fts and not _schema_is_current(connection):
+            raise IndexSchemaMismatch("index schema is stale; rebuild required")
         _initialize(connection)
         connection.commit()
         return connection
@@ -342,7 +411,7 @@ def _parse_note(path: Path) -> dict[str, Any]:
         "mtime_ns": stat_result.st_mtime_ns,
         "content_hash": hashlib.sha256(raw).hexdigest(),
         "aliases_text": "\n".join(aliases),
-        "tags": "\n".join(keywords),
+        "keywords_text": "\n".join(keywords),
         "evidence_summary": "",
         "component_text": component or "",
     }
@@ -394,13 +463,13 @@ def _upsert_connection(connection: sqlite3.Connection, note: dict[str, Any]) -> 
         """
         INSERT INTO notes_fts(
             rowid, title, body, aliases, target, component, attack_class,
-            tags, evidence_summary
+            keywords, evidence_summary
         ) VALUES(?,?,?,?,?,?,?,?,?)
         """,
         (
             docid, note["title"], note["body"], note["aliases_text"],
             note["target"], note["component_text"], note["attack_class"],
-            note["tags"], note["evidence_summary"],
+            note["keywords_text"], note["evidence_summary"],
         ),
     )
     connection.execute("DELETE FROM quarantine WHERE path=?", (note["path"],))
@@ -421,6 +490,9 @@ def upsert(note: dict) -> None:
     except ValueError as exc:
         raise IndexError("note path is outside the private notes directory") from exc
     parsed = _parse_note(canonical_path)
+
+    if _ensure_index_schema(root):
+        return
 
     with _locked(root) as index_dir:
         connection = _connect(index_dir / "kg.db", wal=True)
@@ -479,6 +551,7 @@ def _store_quarantine(connection: sqlite3.Connection, item: dict[str, str]) -> N
 def sync_index() -> dict[str, Any]:
     """Synchronize changed source notes and quarantine malformed documents."""
     root = resolve_vault_root()
+    _ensure_index_schema(root)
     with _locked(root) as index_dir:
         connection = _connect(index_dir / "kg.db", wal=True)
         indexed = 0
