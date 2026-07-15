@@ -64,6 +64,14 @@ The evidence is this repository: **100+ of its commits** are `auto-snapshot: bef
 
 ---
 
+## Flagship artifact — the offensive-research moat (`moat/`)
+
+Beyond building itself, the squad builds **durable capabilities**. [`moat/`](moat/README.md) is a reusable, leak-safe **security-research engine** — the "harness bones" that make offensive research *compound* instead of restarting each engagement: a self-improving finding **ledger** (ask memory before deep-diving), a fix-commit → reviewed-invariant → **uncovered-variant** patch-graph, an objective **PASS / FAIL / INCONCLUSIVE** impact measurement with calibration and negative controls, and **VM-backed no-egress execution** gated by a pre-run egress canary — all behind a **three-control, fail-closed leak boundary** that keeps private target data out of this public repo.
+
+It was specified across models and hardened through the same **cross-family review discipline** shown above — nine commits, 87/87 tests, every security-critical control independently pressure-tested by a *different* model family. Honest by design: it sharpens variant discovery and *proves or refutes* impact on a real deployment — it is explicitly **not** a "critical-producing machine." → **[`moat/README.md`](moat/README.md)**
+
+---
+
 ## How it works
 
 <p align="center">
