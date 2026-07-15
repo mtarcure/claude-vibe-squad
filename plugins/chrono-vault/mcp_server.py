@@ -22,6 +22,7 @@ from typing import Any
 
 import httpx
 from mcp.server.fastmcp import FastMCP
+from recall import recall as recall_notes
 from vaultroot import resolve_vault_root
 
 mcp = FastMCP("chrono-vault")
@@ -139,22 +140,13 @@ def list_attempts(
 
 
 @mcp.tool()
-def recall(query: str, topic: str | None = None, limit: int = 5) -> dict[str, Any]:
-    """Recall — minimal stub for Phase 2. Phase 4 expands with FTS + vector + decay weighting."""
-    _init_kg_schema()
-    sql = (
-        "SELECT title, description FROM findings "
-        "WHERE description LIKE ? OR title LIKE ? "
-        "ORDER BY ts DESC LIMIT ?"
-    )
-    pat = f"%{query}%"
-    with _connect("kg.db") as conn:
-        rows = list(conn.execute(sql, (pat, pat, limit)))
-    return {
-        "query": query,
-        "topic": topic,
-        "chunks": [{"title": r[0], "description": r[1]} for r in rows],
-    }
+def recall(
+    query: str,
+    filters: dict[str, Any] | None = None,
+    limit: int = 8,
+) -> dict[str, Any]:
+    """Recall ranked, quoted memory from the canonical FTS5 index."""
+    return recall_notes(query=query, filters=filters, limit=limit)
 
 
 OBSIDIAN_REST_BASE = "http://127.0.0.1:27123"
@@ -365,8 +357,12 @@ def _kg_alias_list_attempts(
 
 
 @kg_alias_mcp.tool(name="recall")
-def _kg_alias_recall(query: str, topic: str | None = None, limit: int = 5) -> dict[str, Any]:
-    return recall(query=query, topic=topic, limit=limit)
+def _kg_alias_recall(
+    query: str,
+    filters: dict[str, Any] | None = None,
+    limit: int = 8,
+) -> dict[str, Any]:
+    return recall(query=query, filters=filters, limit=limit)
 
 
 obsidian_alias_mcp = FastMCP("chrono-obsidian")
