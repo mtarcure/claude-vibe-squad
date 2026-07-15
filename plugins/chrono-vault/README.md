@@ -16,7 +16,7 @@ This document describes the system **as shipped** (see `mcp_server.py`, `notes.p
 Two environment variables, both read per MCP process:
 
 - **`CHRONO_VAULT_ROOT`** — absolute path to the private vault. Resolution is **fail-closed** (`vaultroot.py`): it errors, and never writes, when the value is unset, still contains an unexpanded `${…}`, is relative, does not name an existing directory, resolves **inside any public git worktree**, or lacks a valid sentinel. The vault root must contain a `.chrono-vault` JSON sentinel: `{"vault_id": "<non-empty>", "schema_version": <int ≥ 1>}`. `bin/launch-squad.sh` exports `CHRONO_VAULT_ROOT` for every lane (currently `$HOME/Obsidian-Chrono`, outside the public repo).
-- **`CHRONO_VAULT_CLEARANCE`** — `internal` (default, fail-safe) or `restricted` (`clearance.py`). It is **server-owned** (set on the MCP process, never supplied by a caller). An `internal` instance can read only `internal` notes; a `restricted` instance can read both. `launch-squad.sh` does not currently export it, so lanes default to `internal` until set explicitly.
+- **`CHRONO_VAULT_CLEARANCE`** — `internal` (default, fail-safe) or `restricted` (`clearance.py`). It is **server-owned** (set on the MCP process, never supplied by a caller). An `internal` instance can read only `internal` notes; a `restricted` instance can read both. `bin/launch-squad.sh` exports `CHRONO_VAULT_CLEARANCE=restricted` per-pane for the coordinator (chrono) and the security-capable lanes (claude, codex); the gemini and kimi panes receive no export and fall back to `internal` by least privilege.
 
 Vault layout (created on first write):
 
