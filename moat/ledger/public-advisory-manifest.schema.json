@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.com/moat/PublicAdvisoryManifest.schema.json",
+  "title": "PublicAdvisoryManifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "content_class", "entries"],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "content_class": { "const": "public-safe" },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "classification", "surface_keys", "source_ref"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^advisory:[A-Za-z0-9._/-]+$" },
+          "classification": { "enum": ["documented", "known_cve"] },
+          "surface_keys": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._/-]+$" }
+          },
+          "source_ref": { "type": "string", "pattern": "^public:[A-Za-z0-9._/-]+$" }
+        }
+      }
+    }
+  }
+}

@@ -14,6 +14,19 @@ export async function readJson(file) {
   return JSON.parse(await readText(file));
 }
 
+export async function readJsonWithin(root, relativePath) {
+  const rootPath = asPath(root);
+  const target = path.resolve(rootPath, relativePath);
+  if (target === rootPath || !target.startsWith(`${rootPath}${path.sep}`)) {
+    throw new Error("external path escapes its configured root");
+  }
+  return readJson(target);
+}
+
+export function toSystemPath(value) {
+  return asPath(value);
+}
+
 export async function sha256(file) {
   const content = await readFile(asPath(file));
   return createHash("sha256").update(content).digest("hex");

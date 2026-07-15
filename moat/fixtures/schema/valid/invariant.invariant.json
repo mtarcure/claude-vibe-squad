@@ -3,7 +3,7 @@
   "schema_version": "1.0.0",
   "source_fix_ref": "fix:synthetic-change",
   "applicability": { "language": "typescript", "version_range": ">=1.0.0" },
-  "confidence": 0.9,
+  "confidence": 0.8,
   "review_state": "reviewed",
   "trust_boundary": "request-state",
   "model": {

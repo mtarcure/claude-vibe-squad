@@ -16,6 +16,71 @@ const kindOf = (value) => {
 
 const deepEqual = (left, right) => JSON.stringify(left) === JSON.stringify(right);
 
+const RECOGNIZED_KEYWORDS = new Set([
+  "$id",
+  "$schema",
+  "additionalProperties",
+  "allOf",
+  "anyOf",
+  "const",
+  "description",
+  "else",
+  "enum",
+  "if",
+  "items",
+  "maximum",
+  "maxItems",
+  "maxLength",
+  "minimum",
+  "minItems",
+  "minLength",
+  "oneOf",
+  "pattern",
+  "properties",
+  "required",
+  "then",
+  "title",
+  "type",
+  "uniqueItems",
+  "x-moat-lte-properties",
+]);
+
+function assertSchemaNode(schema, path = "$") {
+  if (typeof schema === "boolean") return;
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
+    throw new TypeError(`schema node ${path} must be an object or boolean`);
+  }
+
+  for (const keyword of Object.keys(schema)) {
+    if (!RECOGNIZED_KEYWORDS.has(keyword)) {
+      throw new TypeError(`unrecognized JSON-Schema keyword ${keyword} at ${path}`);
+    }
+  }
+
+  for (const [name, child] of Object.entries(schema.properties ?? {})) {
+    assertSchemaNode(child, `${path}.properties.${name}`);
+  }
+  if (schema.items !== undefined) assertSchemaNode(schema.items, `${path}.items`);
+  for (const keyword of ["allOf", "anyOf", "oneOf"]) {
+    (schema[keyword] ?? []).forEach((child, index) =>
+      assertSchemaNode(child, `${path}.${keyword}[${index}]`));
+  }
+  for (const keyword of ["if", "then", "else"]) {
+    if (schema[keyword] !== undefined) assertSchemaNode(schema[keyword], `${path}.${keyword}`);
+  }
+  if (typeof schema.additionalProperties === "object") {
+    assertSchemaNode(schema.additionalProperties, `${path}.additionalProperties`);
+  }
+
+  if (schema["x-moat-lte-properties"] !== undefined) {
+    const pairs = schema["x-moat-lte-properties"];
+    const valid = Array.isArray(pairs)
+      && pairs.every((pair) => Array.isArray(pair) && pair.length === 2
+        && pair.every((name) => typeof name === "string" && name.length > 0));
+    if (!valid) throw new TypeError(`invalid x-moat-lte-properties at ${path}`);
+  }
+}
+
 function typeMatches(expected, value) {
   const actual = kindOf(value);
   if (expected === "number") return actual === "number" || actual === "integer";
@@ -127,10 +192,17 @@ function validateNode(schema, value, path, errors) {
         }
       }
     }
+
+    for (const [left, right] of schema["x-moat-lte-properties"] ?? []) {
+      if (typeof value[left] === "number" && typeof value[right] === "number" && value[left] > value[right]) {
+        errors.push({ instancePath: `${path}/${left}`, keyword: "x-moat-lte-properties", message: `must be <= ${right}` });
+      }
+    }
   }
 }
 
 export function validateInstance(schema, value) {
+  assertSchemaNode(schema);
   const errors = [];
   validateNode(schema, value, "", errors);
   return errors;

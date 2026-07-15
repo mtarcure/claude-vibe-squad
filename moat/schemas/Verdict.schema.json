@@ -46,5 +46,19 @@
     },
     "gate": { "enum": ["PASS", "KILL", "HOLD"] },
     "rationale": { "type": "string", "minLength": 1 }
-  }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "gate": { "const": "PASS" } } },
+      "then": {
+        "properties": {
+          "evidence_level": { "properties": { "level": { "enum": ["L3", "L4"] } } },
+          "terminus": { "properties": { "class": { "enum": ["value_moved", "secret_read", "code_exec"] } } },
+          "privilege_required": { "properties": { "level": { "const": "none" } } },
+          "documented_by_vendor": { "properties": { "value": { "const": false } } },
+          "net_new": { "properties": { "value": { "const": true } } }
+        }
+      }
+    }
+  ]
 }

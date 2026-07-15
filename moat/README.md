@@ -25,3 +25,20 @@ npm test
 ```
 
 The test output records the legitimate-corpus false-positive rate. The isolation profile is configuration only; Phase 1 does not provision containers or make network requests.
+
+## Manual slice and ledger
+
+Phase 2 adds the sole external-input adapter, a real chrono-vault FTS5/BM25 recall bridge, a normalized public-advisory manifest, and a synthetic end-to-end slice:
+
+```text
+reviewed GuardAnnotation
+  → canonical InvariantDescriptor
+  → generated thin index with drift rejection
+  → positive/negative external fixtures
+  → calibrated oracle
+  → evidence-referenced Verdict
+```
+
+Private JSON is addressed by logical `fixture:`, `manifest:`, and `descriptor:` references and resolved beneath `$CHRONO_BOUNTY_ROOT`. Vault recall requires both `$CHRONO_VAULT_ROOT` and an explicit `$CHRONO_VAULT_CLEARANCE`; missing configuration and recall/query errors return `recall_unavailable`, never `net_new`. The Python bridge imports the repository's real `plugins/chrono-vault/recall.py`; it does not implement a second search path.
+
+The public manifest file is an empty normalized template. Real advisory entries and prior finding content stay in Layer 2. Tier A remains standalone and non-enforcing during this phase.
