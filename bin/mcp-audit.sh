@@ -83,7 +83,15 @@ probe_mcp() {
     # shellcheck disable=SC2206
     local args_arr=($args_str)
     [[ -f "${args_arr[0]}" ]] || { echo "usable=false reason=missing-server"; return 1; }
-    "$CHRONO_PY" "$PROBE" "$CHRONO_PY" "${args_arr[@]}" 2>/dev/null
+    # Hard-cap the probe: an MCP server that hangs on init must be REPORTED as
+    # unusable, never allowed to freeze the audit (which freezes doctor + launch).
+    # -k SIGKILLs the process group if it ignores SIGTERM, so no orphaned server.
+    local rc=0
+    timeout -k 2 "${MCP_PROBE_TIMEOUT:-8}" "$CHRONO_PY" "$PROBE" "$CHRONO_PY" "${args_arr[@]}" 2>/dev/null || rc=$?
+    if [[ "$rc" -eq 124 || "$rc" -eq 137 ]]; then
+        echo "usable=false reason=probe-timeout"
+    fi
+    return "$rc"
 }
 
 {
@@ -98,10 +106,14 @@ warnings=0
 PROBE_CACHE="$(mktemp -d "${TMPDIR:-/tmp}/mcp-audit.XXXXXX")"
 trap 'rm -rf "${PROBE_CACHE}"' EXIT
 
+# Probe all MCP servers in PARALLEL. Each writes its own cache file and is
+# independently timeout-capped, so they don't interfere — this turns ~18×(up to
+# 8s) sequential into one ~8s wave, which is what kept doctor/launch slow.
 for entry in "${MCPS[@]}"; do
     IFS='|' read -r name _tier args_str _vars <<<"$entry"
-    probe_mcp "$args_str" > "${PROBE_CACHE}/${name}.txt" 2>/dev/null || true
+    probe_mcp "$args_str" > "${PROBE_CACHE}/${name}.txt" 2>/dev/null &
 done
+wait
 
 for cli in claude codex gemini kimi; do
     echo "## ${cli}" | tee -a "${LOG}"
