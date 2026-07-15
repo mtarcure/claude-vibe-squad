@@ -189,6 +189,23 @@ Wire the spec's §11 tests 1-14 as an integration suite `plugins/chrono-vault/te
 
 ---
 
+## Phase 6 — Documentation
+
+### Task 6.1 — Memory system README + docs update
+**Files:** Create `plugins/chrono-vault/README.md`; Modify `CLAUDE.md` (+ `chrono/CLAUDE.md`) memory/session-resume references; audit `docs/` for stale KG mentions.
+Document the memory/learning system as-built (no aspirational claims — describe what actually ships after Phases 0-5):
+- **What it is + architecture:** private markdown-as-truth vault + disposable FTS5/BM25 index; Obsidian as human lens; the write→recall→apply loop.
+- **Setup / config:** `CHRONO_VAULT_ROOT` (absolute private path, fail-closed), the `.chrono-vault` sentinel, the `notes/{attempt,finding,learning}` + `index/` + `backups/` layout. How the launcher wires it.
+- **API reference:** `record` · `recall` (natural-language BM25 + filters) · `get_note` · `set_status` (CAS, the status lifecycle) · `record_usage` (apply-feedback) · `health` · `sync_index`/`rebuild_index`; the `record_attempt`/`record_finding` compat wrappers.
+- **Usage patterns:** how a lane records findings/learnings, how the outbox auto-capture write-in works, how to recall by plain-English query, the bounty "capture learnings" phase.
+- **Public/private boundary + sensitivity:** why the vault lives outside the public repo, the per-lane clearance model, the pre-commit guard, the "never `rm` — invalidate/supersede" rule.
+- **Ops:** rebuilding the disposable index, checking `health`, the recall-quality gold eval + how to extend it.
+- **Reconcile stale docs:** update/remove any `CLAUDE.md`/README references to the old KG behavior so the docs match the shipped system (no contradictions — this is itself part of the no-orphans discipline).
+
+Commit `docs(vault): memory/learning system README + reconcile stale KG references`. Reviewer confirms docs match the shipped code (no aspirational/contradicted claims).
+
+---
+
 ## Self-Review
 - **Spec coverage:** §3 arch→T1.1-1.3; §4 schema→T1.1; §5 API→T1.1-1.5; §6 loop→T2.1-2.2+T1.3/1.4; §7 security→T0.2,3.1-3.3; §8 boundary→T0.1,3.4; §9 migration→T0.3; §10 decommission→T4.1-4.3; §11 tests→T5 + per-task; §12 rollout = phase order. No gap found.
 - **Placeholder scan:** none — each task has concrete files, signatures, and a named failing test. (Impl code is left to the TDD implementer per Vibe Squad dispatch model, but every task's *interface + test* is concrete.)
