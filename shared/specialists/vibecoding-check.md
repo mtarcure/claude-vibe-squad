@@ -22,7 +22,6 @@ Mode-exit contract verifier. Mechanically verifies that promises a mode made wer
 
 ### Expected MCPs (verify live before use)
 - `chrono-vault` MCP — read the run's manifest/approvals and record the pass/fail check result (required).
-- `chrono-catalog` MCP — confirm cited skills/tools actually exist in the local catalog when a check depends on them (required).
 - `chrono-research-arsenal` MCP — preferred; only to resolve an ambiguous external citation during a tier-3 judgment call.
 
 ### APIs available (via env)

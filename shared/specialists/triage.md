@@ -21,7 +21,7 @@ Classify incoming work, route to right mode and model lead, surface routing deci
 ## Tools available to me
 
 ### Expected MCPs (verify live before use)
-- `chrono-vault` MCP — check existing KG entries / prior findings for duplicates and record the triage decision (required).
+- `chrono-vault` MCP — recall prior findings for duplicates and record the triage decision (required).
 - `chrono-research-arsenal` MCP — preferred; a quick external lookup to classify an unfamiliar artifact when its type isn't obvious.
 
 ### APIs available (via env)

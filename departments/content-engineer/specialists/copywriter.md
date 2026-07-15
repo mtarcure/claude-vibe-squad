@@ -6,7 +6,7 @@ lane: gemini
 model_key: default
 required_tools:
   - firecrawl:scrape
-  - chrono-vault:kg_query
+  - chrono-vault:recall
 preferred_tools:
   - chrono-research-arsenal:perplexity_search_web
   - chrono-research-arsenal:grok_reason
@@ -27,7 +27,7 @@ Write short-form and long-form text content: marketing copy, landing pages, emai
 ## Tools available to me
 
 ### Expected MCPs (verify live before use)
-- `chrono-vault MCP` - KG read/write, project context. Use when: reading project briefs or prior handoffs.
+- `chrono-vault MCP` - Canonical memory recall for project context. Use when: reading project briefs or prior handoffs.
 - `chrono-content-engineer MCP` - Image/video generation for supporting media. Use when: task requires visual assets alongside copy.
 - `chrono-research-arsenal MCP` - Web search and reasoning for fact-checking. Use when: validating claims before publication.
 

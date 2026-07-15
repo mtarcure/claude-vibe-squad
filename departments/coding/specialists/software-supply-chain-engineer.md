@@ -36,7 +36,6 @@ Software supply-chain integrity: dependency provenance, SBOMs, signing and verif
 ## Tools available to me
 
 ### Expected MCPs (verify live before use)
-- `chrono-catalog MCP` - Verify package, SBOM, scanner, signing-verification, provenance, and registry integrations before use.
 - `chrono-vault MCP` - Optional storage for approved public keys, policy references, and provenance metadata; never store private signing material or registry secrets.
 - `sequential-thinking MCP` - Multi-stage reasoning for trust roots, dependency graphs, build isolation, publication gates, revocation, and rollback.
 

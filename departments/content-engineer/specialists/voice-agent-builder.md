@@ -8,8 +8,7 @@ required_tools:
   - chrono-content-engineer:elevenlabs__create_agent
   - chrono-content-engineer:elevenlabs__add_knowledge_base_to_agent
 preferred_tools:
-  - chrono-vault:kg_query
-  - chrono-vault:read_specialist
+  - chrono-vault:recall
   - sequential-thinking
 safety_level: medium
 requires_approval:
@@ -29,7 +28,7 @@ Create conversational AI agents using ElevenLabs: customer service bots, sales a
 
 ### Expected MCPs (verify live before use)
 - `chrono-content-engineer:elevenlabs` - Agent creation and management. Use when: building or configuring agents.
-- `chrono-vault MCP` - KG read/write for knowledge base integration. Use when: pulling agent knowledge or storing agent state.
+- `chrono-vault MCP` - Canonical memory recall/record for knowledge-base context. Use when: pulling agent knowledge or storing reusable learnings.
 - `sequential-thinking MCP` - Multi-step reasoning for complex conversation flows. Use when: planning agent conversation trees.
 
 ### Native CLI features (verified, my CLI is `claude`)

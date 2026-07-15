@@ -11,7 +11,7 @@ required_tools:
 preferred_tools:
   - chrono-content-engineer:higgsfield__explainer_video
   - chrono-content-engineer:higgsfield__shorts_studio_create
-  - chrono-vault:kg_query
+  - chrono-vault:recall
 safety_level: medium
 requires_approval:
   - Write
@@ -30,7 +30,7 @@ Generate video sequences and orchestrate motion across scenes. Write video brief
 ### Expected MCPs (verify live before use)
 - `chrono-content-engineer:higgsfield` - Video generation and motion control (deep model). Use when: orchestrating video sequences or complex motion effects.
 - `chrono-content-engineer:elevenlabs` - TTS coordination for narration pacing. Use when: syncing narration to visual beats.
-- `chrono-vault MCP` - KG read/write for project narrative context. Use when: understanding story arc and emotional requirements.
+- `chrono-vault MCP` - Canonical memory recall for project narrative context. Use when: understanding story arc and emotional requirements.
 
 ### Native CLI features (verified, my CLI is `gemini`)
 - `gemini -m / --model <model>` - Deep model for complex video direction and creative orchestration.

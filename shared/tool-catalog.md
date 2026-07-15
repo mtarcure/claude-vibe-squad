@@ -82,10 +82,13 @@ Reference for specialist `required_tools` / `preferred_tools`. Organized by capa
 
 ## Knowledge & memory
 
-- `chrono-vault:read_specialist` — read specialist definitions
-- `chrono-vault:write_specialist` — update specialist state
-- `chrono-vault:kg_query` — knowledge graph queries
-- `chrono-vault:obsidian_search` — Obsidian vault search
+- `chrono-vault:record` — write a canonical private memory note
+- `chrono-vault:recall` — ranked FTS5 recall over canonical notes
+- `chrono-vault:get_note` — retrieve a canonical note by stable ID
+- `chrono-vault:set_status` — compare-and-swap lifecycle update
+- `chrono-vault:record_usage` — record whether recalled memory was useful
+- `chrono-vault:health` — validate the private root and index state
+- `chrono-vault:vault_search` — human-only legacy Obsidian browsing; not a recall dependency
 
 ## Design & frontend
 

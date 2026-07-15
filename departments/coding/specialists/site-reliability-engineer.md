@@ -36,7 +36,6 @@ Production reliability engineering: SLOs, telemetry, capacity, incident mitigati
 ## Tools available to me
 
 ### Expected MCPs (verify live before use)
-- `chrono-catalog MCP` - Verify observability, infrastructure, incident, and load-test integrations before invoking them.
 - `chrono-vault MCP` - Optional durable storage for approved incident learnings and runbook references; never store secrets or raw sensitive telemetry without authorization.
 - `sequential-thinking MCP` - Multi-step reasoning for incident hypotheses, failure domains, capacity, rollback, and recovery plans.
 

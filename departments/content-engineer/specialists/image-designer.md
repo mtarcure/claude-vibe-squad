@@ -10,7 +10,7 @@ required_tools:
 preferred_tools:
   - chrono-content-engineer:higgsfield__outpaint_image
   - chrono-content-engineer:higgsfield__remove_background
-  - chrono-vault:kg_query
+  - chrono-vault:recall
 safety_level: low
 requires_approval:
   - Write
@@ -28,7 +28,7 @@ Generate original images for marketing, product, editorial, and design use. Writ
 
 ### Expected MCPs (verify live before use)
 - `chrono-content-engineer:higgsfield` - Image generation, upscaling, outpainting (image model). Use when: creating or enhancing visual assets.
-- `chrono-vault MCP` - KG read/write for brand visual guidelines. Use when: checking brand asset standards or narrative context.
+- `chrono-vault MCP` - Canonical memory recall for brand visual guidelines. Use when: checking brand asset standards or narrative context.
 - `figma MCP` - Design system reference. Use when: coordinating with web-builder on component specifications.
 
 ### Native CLI features (verified, my CLI is `gemini`)

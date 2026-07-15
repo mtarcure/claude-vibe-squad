@@ -9,7 +9,7 @@ required_tools:
   - chrono-content-engineer:elevenlabs__voice_clone
 preferred_tools:
   - chrono-content-engineer:elevenlabs__speech_to_speech
-  - chrono-vault:kg_query
+  - chrono-vault:recall
 safety_level: low
 requires_approval:
   - Write
@@ -27,7 +27,7 @@ Convert written content to professional voiceover narration. Select or clone voi
 
 ### Expected MCPs (verify live before use)
 - `chrono-content-engineer:elevenlabs` - TTS and voice cloning. Use when: generating narration or custom voices.
-- `chrono-vault MCP` - KG read/write for script context. Use when: understanding narrative arc or timing requirements.
+- `chrono-vault MCP` - Canonical memory recall for script context. Use when: understanding narrative arc or timing requirements.
 
 ### Native CLI features (verified, my CLI is `gemini`)
 - `gemini -m / --model <model>` - Voice direction and performance guidance.

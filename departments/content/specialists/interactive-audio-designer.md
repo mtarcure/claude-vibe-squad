@@ -51,7 +51,7 @@ The interactive layer over generated audio assets: adaptive music, dynamic SFX s
 ### Expected MCPs (verify live before use)
 - `chrono-vault` MCP - record audio-design decisions, event maps, reusable middleware patterns.
 - `chrono-kg` MCP - link audio state machines to upstream game-state definitions.
-- (standard claude-lane surface otherwise: chrono-obsidian, chrono-catalog, sequential-thinking)
+- (standard claude-lane surface otherwise: chrono-obsidian, sequential-thinking)
 
 ### Native CLI features (verified, my CLI is `claude`)
 - `claude --effort {low,medium,high,xhigh,max}` - see `shared/api-catalog.md`.

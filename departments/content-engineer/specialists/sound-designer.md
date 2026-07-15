@@ -8,7 +8,7 @@ required_tools:
   - chrono-content-engineer:elevenlabs__text_to_sound_effects
 preferred_tools:
   - chrono-content-engineer:elevenlabs__compose_music
-  - chrono-vault:kg_query
+  - chrono-vault:recall
 safety_level: low
 requires_approval:
   - Write
@@ -26,7 +26,7 @@ Create sound effects, ambient soundscapes, and audio branding elements. Generate
 
 ### Expected MCPs (verify live before use)
 - `chrono-content-engineer:elevenlabs` - SFX generation and sound design. Use when: creating individual effects or layered soundscapes.
-- `chrono-vault MCP` - KG read/write for sonic brand guidelines. Use when: understanding sonic identity requirements.
+- `chrono-vault MCP` - Canonical memory recall for sonic brand guidelines. Use when: understanding sonic identity requirements.
 
 ### Native CLI features (verified, my CLI is `gemini`)
 - `gemini -m / --model <model>` - Sound design direction and artistic guidance.

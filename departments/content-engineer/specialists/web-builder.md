@@ -34,7 +34,7 @@ Generate and deploy websites, landing pages, and web applications. Compose pages
 - `firebase MCP` - Backend, authentication, hosting, and database services. Use when: setting up application infrastructure.
 - `figma MCP` - Design system and component specifications. Use when: implementing component designs or verifying visual specs.
 - `github MCP` - Code repositories and deployment automation. Use when: managing repo, PRs, or CI/CD updates.
-- `chrono-vault MCP` - KG read/write for project requirements and deployment specs. Use when: checking project scope or deployment requirements.
+- `chrono-vault MCP` - Canonical memory recall for project requirements and deployment specs. Use when: checking project scope or deployment requirements.
 
 ### Native CLI features (verified, my CLI is `codex`)
 - `codex -m / --model <model>` - Backend implementation and architecture guidance.

@@ -9,7 +9,7 @@ required_tools:
   - chrono-content-engineer:elevenlabs__video_to_music
 preferred_tools:
   - chrono-content-engineer:elevenlabs__upload_music_for_inpainting
-  - chrono-vault:kg_query
+  - chrono-vault:recall
 safety_level: low
 requires_approval:
   - Write
@@ -27,7 +27,7 @@ Create original background music, theme tracks, and video accompaniment. Transfo
 
 ### Expected MCPs (verify live before use)
 - `chrono-content-engineer:elevenlabs` - Music composition and transformation. Use when: generating original scores or deriving music from video.
-- `chrono-vault MCP` - KG read/write for project context. Use when: understanding brand sonic identity or narrative requirements.
+- `chrono-vault MCP` - Canonical memory recall for project context. Use when: understanding brand sonic identity or narrative requirements.
 
 ### Native CLI features (verified, my CLI is `gemini`)
 - `gemini -m / --model <model>` - Music direction and emotional tone guidance.

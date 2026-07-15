@@ -51,7 +51,7 @@ Pre-publication rights gate (Hard Rule 6): license, consent, provenance, waterma
 ### Expected MCPs (verify live before use)
 - `chrono-vault` MCP - rights-audit record, license/consent inventory (auditable trail for Rule 6).
 - `chrono-kg` MCP - link assets to provenance/license facts.
-- (standard claude-lane surface otherwise: chrono-obsidian, chrono-catalog, sequential-thinking)
+- (standard claude-lane surface otherwise: chrono-obsidian, sequential-thinking)
 
 ### Native CLI features (verified, my CLI is `claude`)
 - `claude --effort {low,medium,high,xhigh,max}` - see `shared/api-catalog.md`.

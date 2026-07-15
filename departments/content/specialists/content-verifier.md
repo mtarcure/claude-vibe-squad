@@ -52,7 +52,7 @@ Pre-publication truth gate (Hard Rule 8): verifies facts, statistics, and citati
 - `chrono-kg` MCP - check a claim against recorded findings/contradictions.
 - `chrono-vault` MCP - record the verification verdict + citation-audit trail.
 - `chrono-research-arsenal` MCP - LIMITED on this lane: only `arxiv_search` + `xai_search` are live, NOT general web search. General web grounding comes via the grounding stage below.
-- (standard claude-lane surface otherwise: chrono-obsidian, chrono-catalog, sequential-thinking)
+- (standard claude-lane surface otherwise: chrono-obsidian, sequential-thinking)
 
 ### Native CLI features (verified, my CLI is `claude`)
 - `claude --effort {low,medium,high,xhigh,max}` - see `shared/api-catalog.md`.

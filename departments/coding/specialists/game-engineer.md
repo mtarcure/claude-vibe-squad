@@ -36,7 +36,6 @@ Game-engine runtime implementation, gameplay state, input, physics, save systems
 ## Tools available to me
 
 ### Expected MCPs (verify live before use)
-- `chrono-catalog MCP` - Verify engine, build, profiling, and packaging integrations before claiming they are available.
 - `chrono-content-engineer MCP` - Optional asset-generation handoff only. Use when the task explicitly authorizes media generation; otherwise consume typed assets from media specialists.
 - `sequential-thinking MCP` - Multi-stage reasoning for state architecture, cross-platform constraints, rollback, and integration planning.
 

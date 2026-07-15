@@ -36,7 +36,6 @@ Database architecture and operations: schema evolution, query planning, indexing
 ## Tools available to me
 
 ### Expected MCPs (verify live before use)
-- `chrono-catalog MCP` - Verify database clients, migration frameworks, plan analyzers, backup tools, and environment support before use.
 - `chrono-vault MCP` - Optional storage for approved schema/runbook references only; never store credentials, dumps, or personal data without explicit authorization.
 - `sequential-thinking MCP` - Multi-step reasoning for migration phases, locks, isolation, replication, rollback, and recovery.
 

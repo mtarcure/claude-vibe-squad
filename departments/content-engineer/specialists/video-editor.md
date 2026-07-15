@@ -11,7 +11,7 @@ required_tools:
 preferred_tools:
   - chrono-content-engineer:higgsfield__remove_background
   - chrono-content-engineer:higgsfield__virality_predictor
-  - chrono-vault:kg_query
+  - chrono-vault:recall
 safety_level: low
 requires_approval:
   - Write
@@ -29,7 +29,7 @@ Post-production on video sequences: reframe for different aspect ratios (TikTok,
 
 ### Expected MCPs (verify live before use)
 - `chrono-content-engineer:higgsfield` - Reframe, upscale, and compositing tools. Use when: transforming videos for platform distribution.
-- `chrono-vault MCP` - KG read/write for platform requirements and brand specs. Use when: checking platform compliance or format standards.
+- `chrono-vault MCP` - Canonical memory recall for platform requirements and brand specs. Use when: checking platform compliance or format standards.
 
 ### Native CLI features (verified, my CLI is `gemini`)
 - `gemini -m / --model <model>` - Post-production direction and quality assessment.

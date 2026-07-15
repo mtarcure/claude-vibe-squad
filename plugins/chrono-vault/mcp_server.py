@@ -1,15 +1,8 @@
-"""chrono-vault — shared infrastructure MCP for KG state + Obsidian navigation.
+"""Canonical private memory MCP with optional human-only Obsidian navigation.
 
-Merges old chrono-kg (record_attempt, record_finding, recall, etc.) with old
-chrono-obsidian (vault_list, vault_get, vault_search, etc.) into one plugin.
-
-SQLite indexes use WAL mode + 5000ms busy timeout for parallel-dispatch safety.
-Atomic writes per TOOLS.md: tmp + fsync + os.replace.
-
-Tools added in subsequent tasks:
-- Task 2: KG state ops (record_attempt, record_finding, recall, list_attempts)
-- Task 3: Obsidian REST navigation (vault_list, vault_get, vault_search, obsidian_health_check)
-- Task 4: capture_* helpers wrapping vendored capture support
+Markdown notes are the source of truth and the FTS5 index is disposable. Core
+record and recall paths do not require Obsidian, its REST client, or legacy KG
+SQLite stores.
 """
 from __future__ import annotations
 
@@ -19,7 +12,6 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-import httpx
 from mcp.server.fastmcp import FastMCP
 from clearance import ClearanceError, can_read, lane_clearance
 import index as vault_index
@@ -39,25 +31,6 @@ def _get_note_for_lane(note_id: str) -> dict[str, Any]:
     if not can_read(note.get("sensitivity"), lane_clearance()):
         raise ClearanceError("note is unavailable at the current clearance")
     return note
-
-
-def _vault_root() -> Path:
-    return resolve_vault_root()
-
-
-def _state_dir() -> Path:
-    return _vault_root() / "chrono" / "_state"
-
-
-def _connect(db_name: str) -> sqlite3.Connection:
-    """Open SQLite with WAL + busy timeout. Idempotent (safe on every call)."""
-    conn = sqlite3.connect(_state_dir() / db_name, timeout=5.0)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=5000")
-    return conn
-
-
-# Tools added in subsequent tasks.
 
 
 CANONICAL_SEVERITIES = frozenset({"critical", "high", "medium", "low", "info"})
@@ -84,32 +57,6 @@ def _compat_evidence_ref(value: str) -> str:
         return evidence
     digest = hashlib.sha256(evidence.encode("utf-8")).hexdigest()
     return f"legacy-evidence-sha256:{digest}"
-
-
-def _init_kg_schema() -> None:
-    """Idempotent schema init for KG tables."""
-    with _connect("kg.db") as conn:
-        conn.executescript("""
-            CREATE TABLE IF NOT EXISTS attempts (
-                attempt_id TEXT PRIMARY KEY,
-                role TEXT NOT NULL,
-                target TEXT NOT NULL,
-                attack_class TEXT NOT NULL,
-                ts REAL NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS findings (
-                finding_id TEXT PRIMARY KEY,
-                attempt_id TEXT NOT NULL,
-                title TEXT NOT NULL,
-                severity TEXT NOT NULL,
-                description TEXT NOT NULL,
-                evidence TEXT NOT NULL,
-                ts REAL NOT NULL,
-                FOREIGN KEY (attempt_id) REFERENCES attempts(attempt_id)
-            );
-            CREATE INDEX IF NOT EXISTS idx_attempts_target ON attempts(target);
-            CREATE INDEX IF NOT EXISTS idx_findings_attempt ON findings(attempt_id);
-        """)
 
 
 @mcp.tool()
@@ -201,29 +148,6 @@ def record_finding(
         },
     )
     return result["id"]
-
-
-@mcp.tool()
-def list_attempts(
-    target: str | None = None,
-    role: str | None = None,
-    limit: int = 50,
-) -> list[dict[str, Any]]:
-    """List attempts, optionally filtered by target or role. Most recent first."""
-    _init_kg_schema()
-    sql = "SELECT * FROM attempts WHERE 1=1"
-    params: list[Any] = []
-    if target:
-        sql += " AND target = ?"
-        params.append(target)
-    if role:
-        sql += " AND role = ?"
-        params.append(role)
-    sql += " ORDER BY ts DESC LIMIT ?"
-    params.append(limit)
-    with _connect("kg.db") as conn:
-        conn.row_factory = sqlite3.Row
-        return [dict(r) for r in conn.execute(sql, params)]
 
 
 @mcp.tool()
@@ -453,6 +377,15 @@ def health() -> dict[str, Any]:
 OBSIDIAN_REST_BASE = "http://127.0.0.1:27123"
 
 
+def _load_httpx() -> Any | None:
+    """Load the optional Obsidian REST dependency only for human browse tools."""
+    try:
+        import httpx
+    except ImportError:
+        return None
+    return httpx
+
+
 def _obsidian_headers() -> dict[str, str]:
     key = os.environ.get("OBSIDIAN_REST_API_KEY", "")
     if not key:
@@ -469,6 +402,9 @@ def vault_list(glob_pattern: str = "") -> dict[str, Any]:
     """List vault files via Obsidian Local REST API. Optional glob filter."""
     if not _obsidian_headers():
         return _degraded("missing OBSIDIAN_REST_API_KEY")
+    httpx = _load_httpx()
+    if httpx is None:
+        return _degraded("optional_dependency_unavailable: httpx")
     try:
         with httpx.Client(timeout=10.0) as client:
             r = client.get(f"{OBSIDIAN_REST_BASE}/vault/", headers=_obsidian_headers())
@@ -493,6 +429,9 @@ def vault_get(path: str) -> dict[str, Any]:
     """Get a single vault file's content."""
     if not _obsidian_headers():
         return _degraded("missing OBSIDIAN_REST_API_KEY")
+    httpx = _load_httpx()
+    if httpx is None:
+        return _degraded("optional_dependency_unavailable: httpx")
     try:
         with httpx.Client(timeout=10.0) as client:
             r = client.get(
@@ -512,9 +451,16 @@ def vault_get(path: str) -> dict[str, Any]:
 
 @mcp.tool()
 def vault_search(query: str, mode: str = "text") -> dict[str, Any]:
-    """Search vault. mode: text | regex. (dataview mode is Phase 4)"""
+    """Human-only legacy Obsidian search; never a memory correctness path."""
+    legacy = {"human_only": True, "legacy": True}
     if not _obsidian_headers():
-        return _degraded("missing OBSIDIAN_REST_API_KEY")
+        return {**_degraded("missing OBSIDIAN_REST_API_KEY"), **legacy}
+    httpx = _load_httpx()
+    if httpx is None:
+        return {
+            **_degraded("optional_dependency_unavailable: httpx"),
+            **legacy,
+        }
     try:
         with httpx.Client(timeout=15.0) as client:
             r = client.post(
@@ -523,14 +469,20 @@ def vault_search(query: str, mode: str = "text") -> dict[str, Any]:
                 headers=_obsidian_headers(),
             )
             r.raise_for_status()
-        return {"ok": True, "results": r.json()}
+        return {"ok": True, "results": r.json(), **legacy}
     except httpx.HTTPStatusError as exc:
-        return _degraded(
-            f"http_{exc.response.status_code}",
-            reason_phrase=exc.response.reason_phrase,
-        )
+        return {
+            **_degraded(
+                f"http_{exc.response.status_code}",
+                reason_phrase=exc.response.reason_phrase,
+            ),
+            **legacy,
+        }
     except (httpx.RequestError, OSError) as exc:
-        return _degraded(f"network_error: {type(exc).__name__}")
+        return {
+            **_degraded(f"network_error: {type(exc).__name__}"),
+            **legacy,
+        }
 
 
 @mcp.tool()
@@ -538,6 +490,9 @@ def obsidian_health_check() -> dict[str, Any]:
     """Check Obsidian Local REST API connectivity."""
     if not _obsidian_headers():
         return {"ok": False, "error": "missing OBSIDIAN_REST_API_KEY"}
+    httpx = _load_httpx()
+    if httpx is None:
+        return _degraded("optional_dependency_unavailable: httpx")
     try:
         with httpx.Client(timeout=5.0) as client:
             r = client.get(
@@ -586,11 +541,9 @@ def capture_research(query: str, tool: str, output: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Phase 4 Task 3 — MCP namespace aliases for archive role agent compat.
-# 24 archive role agents reference mcp__chrono_kg__*, mcp__chrono_obsidian__*,
-# mcp__chrono_catalog__* — names dropped in v1.3 §5 and folded into chrono-vault.
-# These additional FastMCP servers expose the same canonical functions under
-# the legacy namespaces so archive plugins continue to work without edits.
+# Legacy MCP namespace aliases for archive role-agent compatibility.
+# The KG alias exposes canonical markdown-backed operations; the Obsidian alias
+# remains a human-only browsing surface. No learning path uses legacy SQLite.
 #
 # Wrappers use FastMCP's @tool(name=...) so the registered tool name matches
 # the canonical (un-prefixed) name while the Python function uses a prefixed
@@ -627,15 +580,6 @@ def _kg_alias_record_finding(
     )
 
 
-@kg_alias_mcp.tool(name="list_attempts")
-def _kg_alias_list_attempts(
-    target: str | None = None,
-    role: str | None = None,
-    limit: int = 50,
-) -> list[dict[str, Any]]:
-    return list_attempts(target=target, role=role, limit=limit)
-
-
 @kg_alias_mcp.tool(name="recall")
 def _kg_alias_recall(
     query: str,
@@ -663,22 +607,6 @@ def _obsidian_alias_vault_search(query: str, mode: str = "text") -> dict[str, An
     return vault_search(query=query, mode=mode)
 
 
-catalog_alias_mcp = FastMCP("chrono-catalog")
-
-
-@catalog_alias_mcp.tool(name="list_skills")
-def _catalog_alias_list_skills(role: str = "") -> dict[str, Any]:
-    """chrono-catalog was dropped in v1.3; return graceful empty for archive callers."""
-    return {
-        "ok": True,
-        "skills": [],
-        "note": (
-            "chrono-catalog deprecated in chrono v1.3 — skills surfaced via plugin "
-            "manifests directly. Archive callers receive empty list to avoid breaking dispatch."
-        ),
-    }
-
-
 def _run_mcp_server(server: FastMCP) -> None:
     transport = os.environ.get("MCP_TRANSPORT", "stdio")
     if transport == "sse":
@@ -696,9 +624,7 @@ if __name__ == "__main__":
             _run_mcp_server(kg_alias_mcp)
         elif ns == "obsidian":
             _run_mcp_server(obsidian_alias_mcp)
-        elif ns == "catalog":
-            _run_mcp_server(catalog_alias_mcp)
         else:
-            _run_mcp_server(mcp)
+            raise SystemExit(f"unknown MCP namespace: {ns}")
     else:
         _run_mcp_server(mcp)
