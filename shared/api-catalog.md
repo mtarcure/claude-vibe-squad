@@ -928,17 +928,9 @@ Per-pane verification matrix for each chrono-* family MCP. Claude pane verificat
   - research pane (kimi): yes — `kimi mcp list` shows configured
 - last_checked: 2026-05-03 for claude panes; 2026-05-02 for codex/kimi; 2026-05-02 for gemini (absent)
 
-### chrono-catalog MCP
-- purpose: Local skill / plugin / tool catalog query surface
-- specialists: harness-optimizer, prompt-engineer, any specialist needing skill-discovery
-- verified per pane:
-  - chrono pane (claude): yes — test_reference: `claude mcp list` post-2026-05-03 tilde-fix shows ✓ Connected
-  - security pane (claude): yes — same
-  - sysmgmt pane (claude): yes — same
-  - coding pane (codex): yes — `codex mcp list` shows enabled (same binary, `--namespace catalog`)
-  - content pane (gemini): yes — verified post-Task 6
-  - research pane (kimi): yes — `kimi mcp list` shows configured
-- last_checked: 2026-05-03 for claude panes; 2026-05-02 for codex/kimi; 2026-05-02 for gemini (absent)
+### chrono-catalog MCP (retired/removed)
+- status: retired 2026-07-14 — the plugin registration was removed because the namespace was never implemented and crashed at startup
+- replacement: inspect installed plugin/skill manifests directly; use `chrono-vault` `record`/`recall` for durable memory
 
 ### chrono-research-arsenal MCP
 - purpose: Current live research wrapper exposing `arxiv_search`, `xai_search`, and `perplexity_search_web` (the last as a sibling MCP under the same plugin namespace via `uvx perplexity-mcp`). Brave, Apify, and Serper remain planned/unverified.
