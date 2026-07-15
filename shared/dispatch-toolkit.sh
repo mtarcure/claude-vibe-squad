@@ -162,7 +162,7 @@ case "${TO_MODEL}" in
 
 ## Expected Model Lane Tool Surface
 
-GPT/Codex lane is expected to have repo shell commands, file edits, tests, `chrono-research-arsenal`, `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `chrono-catalog`, `chrono-content-engineer` when relevant, and `sequential-thinking`.
+GPT/Codex lane is expected to have repo shell commands, file edits, tests, `chrono-research-arsenal`, `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `chrono-content-engineer` when relevant, and `sequential-thinking`.
 
 This is an expected surface, not proof of live availability. Verify the tool exists in your current runtime before using it. If missing, report `capability_gap` and use the task-approved fallback.
 EOF
@@ -172,7 +172,7 @@ EOF
 
 ## Expected Model Lane Tool Surface
 
-Claude lane is expected to have `chrono-research-arsenal`, `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `chrono-catalog`, and local shell where allowed by the task. Context7 and sequential thinking are optional conveniences only when the live Claude runtime exposes them. Use Playwright/CDP only when the packet explicitly allows browser work.
+Claude lane is expected to have `chrono-research-arsenal`, `chrono-vault`, `chrono-kg`, `chrono-obsidian`, and local shell where allowed by the task. Context7 and sequential thinking are optional conveniences only when the live Claude runtime exposes them. Use Playwright/CDP only when the packet explicitly allows browser work.
 
 This is an expected surface, not proof of live availability. Verify the tool exists in your current runtime before using it. If missing, report `capability_gap` and use the task-approved fallback.
 EOF
@@ -182,7 +182,7 @@ EOF
 
 ## Expected Model Lane Tool Surface
 
-Gemini lane is expected to have native Gemini grounding, `chrono-research-arsenal`, `chrono-content-engineer`, `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `chrono-catalog`, `sequential-thinking`, and media/design tools when the packet allows them. `chrono-content-engineer` currently exposes wrapper tools such as `generate_image`, `generate_video`, and `generate_audio`; ElevenLabs/Higgsfield child tool names are not available in this lane unless the live schema exposes them.
+Gemini lane is expected to have native Gemini grounding, `chrono-research-arsenal`, `chrono-content-engineer`, `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `sequential-thinking`, and media/design tools when the packet allows them. `chrono-content-engineer` currently exposes wrapper tools such as `generate_image`, `generate_video`, and `generate_audio`; ElevenLabs/Higgsfield child tool names are not available in this lane unless the live schema exposes them.
 
 This is an expected surface, not proof of live availability. Verify the tool exists in your current runtime before using it. If missing, report `capability_gap` and use the task-approved fallback.
 EOF
@@ -192,7 +192,7 @@ EOF
 
 ## Expected Model Lane Tool Surface
 
-Kimi lane is expected to have `chrono-research-arsenal`, `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `chrono-catalog`, `chrono-content-engineer` when relevant, and `sequential-thinking`. Live research MCP tools are `perplexity_search_web` (synthesized + cited — default for general research), `xai_search` (real-time web/X/news), and `arxiv_search` (papers). Brave/Apify/Serper are planned/unverified.
+Kimi lane is expected to have `chrono-research-arsenal`, `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `chrono-content-engineer` when relevant, and `sequential-thinking`. Live research MCP tools are `perplexity_search_web` (synthesized + cited — default for general research), `xai_search` (real-time web/X/news), and `arxiv_search` (papers). Brave/Apify/Serper are planned/unverified.
 
 This is an expected surface, not proof of live availability. Verify the tool exists in your current runtime before using it. If missing, report `capability_gap` and use the task-approved fallback.
 EOF
