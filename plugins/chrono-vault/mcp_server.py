@@ -13,20 +13,22 @@ Tools added in subsequent tasks:
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import sqlite3
-import time
-import uuid
 from pathlib import Path
 from typing import Any
 
 import httpx
 from mcp.server.fastmcp import FastMCP
+import index as vault_index
+from lifecycle import LifecycleError
 from lifecycle import get_note as lifecycle_get_note
 from lifecycle import record_usage as lifecycle_record_usage
 from lifecycle import set_status as lifecycle_set_status
-from recall import recall as recall_notes
-from vaultroot import resolve_vault_root
+from notes import NOTE_TYPES, record as record_note
+from recall import RecallError, _read_index, recall as recall_notes
+from vaultroot import VaultRootError, read_sentinel, resolve_vault_root
 
 mcp = FastMCP("chrono-vault")
 
@@ -51,6 +53,29 @@ def _connect(db_name: str) -> sqlite3.Connection:
 
 
 CANONICAL_SEVERITIES = frozenset({"critical", "high", "medium", "low", "info"})
+
+
+def _compat_text(value: str, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field} must be a non-empty string")
+    return value.strip()
+
+
+def _compat_evidence_ref(value: str) -> str:
+    evidence = _compat_text(value, "evidence")
+    immutable_prefixes = (
+        "artifact:",
+        "note:",
+        "sha256:",
+        "note-content-sha256:",
+        "legacy-evidence-sha256:",
+    )
+    if "\n" not in evidence and "\r" not in evidence and evidence.startswith(
+        immutable_prefixes
+    ):
+        return evidence
+    digest = hashlib.sha256(evidence.encode("utf-8")).hexdigest()
+    return f"legacy-evidence-sha256:{digest}"
 
 
 def _init_kg_schema() -> None:
@@ -81,42 +106,90 @@ def _init_kg_schema() -> None:
 
 @mcp.tool()
 def record_attempt(role: str, target: str, attack_class: str) -> str:
-    """Record a specialist attempt. Returns attempt_id."""
-    _init_kg_schema()
-    aid = f"a-{uuid.uuid4().hex[:12]}"
-    with _connect("kg.db") as conn:
-        conn.execute(
-            "INSERT INTO attempts(attempt_id, role, target, attack_class, ts) VALUES (?,?,?,?,?)",
-            (aid, role, target, attack_class, time.time()),
-        )
-    return aid
+    """Compatibility wrapper that records a canonical attempt note."""
+    normalized_role = _compat_text(role, "role")
+    normalized_target = _compat_text(target, "target")
+    normalized_attack_class = _compat_text(attack_class, "attack_class")
+    if any("\n" in value or "\r" in value for value in (normalized_role, normalized_target)):
+        raise ValueError("role and target must each be one line")
+    result = record_note(
+        "attempt",
+        {
+            "title": f"{normalized_role} attempt against {normalized_target}",
+            "body": (
+                f"Role: {normalized_role}\n"
+                f"Target: {normalized_target}\n"
+                f"Attack class: {normalized_attack_class}\n"
+            ),
+            "target": normalized_target,
+            "attack_class": normalized_attack_class,
+            "keywords": [f"role-{normalized_role}"],
+        },
+    )
+    return result["id"]
+
+
+@mcp.tool()
+def record(note_type: str, fields: dict[str, Any]) -> dict[str, Any]:
+    """Record one canonical markdown memory note."""
+    return record_note(note_type, fields)
 
 
 @mcp.tool()
 def record_finding(
-    attempt_id: str,
-    title: str,
-    severity: str,
-    description: str,
-    evidence: str,
+    attempt_id: str | None = None,
+    title: str = "",
+    severity: str = "",
+    description: str = "",
+    evidence: str = "",
+    target: str | None = None,
+    attack_class: str | None = None,
 ) -> str:
-    """Record a finding. Requires existing attempt_id. severity MUST be canonical lowercase enum."""
+    """Compatibility wrapper that records a canonical finding without FK friction."""
     if severity not in CANONICAL_SEVERITIES:
         raise ValueError(
             f"severity must be one of {sorted(CANONICAL_SEVERITIES)}, got {severity!r}"
         )
-    _init_kg_schema()
-    with _connect("kg.db") as conn:
-        cur = conn.execute("SELECT 1 FROM attempts WHERE attempt_id=?", (attempt_id,))
-        if cur.fetchone() is None:
-            raise LookupError(f"no such attempt_id: {attempt_id}")
-        fid = f"f-{uuid.uuid4().hex[:12]}"
-        conn.execute(
-            "INSERT INTO findings(finding_id, attempt_id, title, severity, description, evidence, ts) "
-            "VALUES (?,?,?,?,?,?,?)",
-            (fid, attempt_id, title, severity, description, evidence, time.time()),
+    normalized_title = _compat_text(title, "title")
+    normalized_description = _compat_text(description, "description")
+    normalized_evidence = _compat_evidence_ref(evidence)
+
+    attempt: dict[str, Any] | None = None
+    if attempt_id:
+        try:
+            candidate = lifecycle_get_note(attempt_id)
+        except LifecycleError:
+            candidate = None
+        if candidate is not None and candidate.get("type") == "attempt":
+            attempt = candidate
+
+    resolved_target = target if target is not None else (
+        attempt["target"] if attempt is not None else None
+    )
+    resolved_attack_class = attack_class if attack_class is not None else (
+        attempt["attack_class"] if attempt is not None else None
+    )
+    if resolved_target is None or resolved_attack_class is None:
+        raise ValueError(
+            "target and attack_class are required without a canonical attempt"
         )
-    return fid
+    normalized_target = _compat_text(resolved_target, "target")
+    normalized_attack_class = _compat_text(resolved_attack_class, "attack_class")
+    evidence_refs = [normalized_evidence]
+    if attempt is not None:
+        evidence_refs.append(f"note:{attempt['id']}")
+    result = record_note(
+        "finding",
+        {
+            "title": normalized_title,
+            "body": normalized_description,
+            "target": normalized_target,
+            "attack_class": normalized_attack_class,
+            "keywords": [f"severity-{severity}"],
+            "evidence_refs": evidence_refs,
+        },
+    )
+    return result["id"]
 
 
 @mcp.tool()
@@ -190,6 +263,177 @@ def record_usage(
         outcome=outcome,
         source_task=source_task,
     )
+
+
+def _fts5_available() -> bool:
+    connection: sqlite3.Connection | None = None
+    try:
+        connection = sqlite3.connect(":memory:")
+        connection.execute("CREATE VIRTUAL TABLE fts_probe USING fts5(content)")
+        return True
+    except sqlite3.Error:
+        return False
+    finally:
+        if connection is not None:
+            connection.close()
+
+
+def _note_inventory(
+    root: Path,
+) -> tuple[dict[str, int], dict[str, tuple[int, int, str]], bool]:
+    counts = {note_type: 0 for note_type in sorted(NOTE_TYPES)}
+    signatures: dict[str, tuple[int, int, str]] = {}
+    seen_ids: set[str] = set()
+    unsafe = False
+    notes_root = root / "notes"
+    if not notes_root.exists():
+        return counts, signatures, unsafe
+    if notes_root.is_symlink() or not notes_root.is_dir():
+        return counts, signatures, True
+
+    for note_type in sorted(NOTE_TYPES):
+        type_dir = notes_root / note_type
+        if not type_dir.exists():
+            continue
+        if type_dir.is_symlink() or not type_dir.is_dir():
+            unsafe = True
+            continue
+        try:
+            entries = list(type_dir.iterdir())
+        except OSError:
+            unsafe = True
+            continue
+        for path in entries:
+            if path.suffix != ".md":
+                continue
+            if path.is_symlink() or not path.is_file():
+                unsafe = True
+                continue
+            try:
+                parsed = vault_index._parse_note(path)
+            except (vault_index.MalformedNote, OSError):
+                unsafe = True
+                continue
+            if parsed["id"] in seen_ids:
+                unsafe = True
+            seen_ids.add(parsed["id"])
+            counts[note_type] += 1
+            signatures[str(path)] = (
+                int(parsed["size"]),
+                int(parsed["mtime_ns"]),
+                parsed["content_hash"],
+            )
+    return counts, signatures, unsafe
+
+
+def _index_health(
+    root: Path,
+    note_signatures: dict[str, tuple[int, int, str]],
+    unsafe_notes: bool,
+) -> tuple[int, bool]:
+    try:
+        with _read_index(root) as connection:
+            if connection is None:
+                return 0, True
+            generation_row = connection.execute(
+                "SELECT value FROM state WHERE key='generation'"
+            ).fetchone()
+            if generation_row is None:
+                return 0, True
+            generation = int(generation_row[0])
+            indexed = {
+                row[0]: (int(row[1]), int(row[2]), row[3])
+                for row in connection.execute(
+                    "SELECT path, size, mtime_ns, content_hash FROM meta"
+                )
+            }
+            quarantined = int(
+                connection.execute("SELECT count(*) FROM quarantine").fetchone()[0]
+            )
+            dirty = (
+                unsafe_notes
+                or not vault_index._schema_is_current(connection)
+                or indexed != note_signatures
+                or quarantined > 0
+            )
+            return generation, dirty
+    except (RecallError, OSError, sqlite3.Error, TypeError, ValueError):
+        return 0, True
+
+
+def _legacy_stores(root: Path | None) -> list[str]:
+    repo_root = Path(__file__).resolve().parents[2]
+    literal_phantom = Path("chrono") / "${CHRONO_VAULT_ROOT}"
+    candidates: list[tuple[str, Path]] = [
+        (
+            "public:chrono/${CHRONO_VAULT_ROOT}/kg.db",
+            repo_root / literal_phantom / "kg.db",
+        ),
+        (
+            "public:chrono/${CHRONO_VAULT_ROOT}/_state/kg.db",
+            repo_root / literal_phantom / "_state" / "kg.db",
+        ),
+        (
+            "public:plugins/chrono-vault/_state/kg.db",
+            Path(__file__).resolve().parent / "_state" / "kg.db",
+        ),
+    ]
+    if root is not None:
+        candidates.extend(
+            (
+                ("vault:kg.db", root / "kg.db"),
+                ("vault:_state/kg.db", root / "_state" / "kg.db"),
+                ("vault:chrono/_state/kg.db", root / "chrono" / "_state" / "kg.db"),
+                (
+                    "vault:chrono/${CHRONO_VAULT_ROOT}/kg.db",
+                    root / literal_phantom / "kg.db",
+                ),
+                (
+                    "vault:chrono/${CHRONO_VAULT_ROOT}/_state/kg.db",
+                    root / literal_phantom / "_state" / "kg.db",
+                ),
+            )
+        )
+    return sorted(
+        {
+            label
+            for label, path in candidates
+            if os.path.lexists(path) and (path.is_symlink() or path.is_file())
+        }
+    )
+
+
+@mcp.tool()
+def health() -> dict[str, Any]:
+    """Report canonical vault, index freshness, and legacy-store diagnostics."""
+    fts5 = _fts5_available()
+    try:
+        root = resolve_vault_root()
+        sentinel = read_sentinel(root)
+    except VaultRootError:
+        return {
+            "vault_id": None,
+            "root_valid": False,
+            "schema_version": None,
+            "fts5": fts5,
+            "note_counts": {note_type: 0 for note_type in sorted(NOTE_TYPES)},
+            "index_generation": 0,
+            "index_dirty": True,
+            "legacy_stores": _legacy_stores(None),
+        }
+
+    note_counts, note_signatures, unsafe_notes = _note_inventory(root)
+    generation, index_dirty = _index_health(root, note_signatures, unsafe_notes)
+    return {
+        "vault_id": sentinel["vault_id"],
+        "root_valid": True,
+        "schema_version": sentinel["schema_version"],
+        "fts5": fts5,
+        "note_counts": note_counts,
+        "index_generation": generation,
+        "index_dirty": index_dirty,
+        "legacy_stores": _legacy_stores(root),
+    }
 
 
 OBSIDIAN_REST_BASE = "http://127.0.0.1:27123"
@@ -375,11 +619,13 @@ def _kg_alias_record_attempt(role: str, target: str, attack_class: str) -> str:
 
 @kg_alias_mcp.tool(name="record_finding")
 def _kg_alias_record_finding(
-    attempt_id: str,
-    title: str,
-    severity: str,
-    description: str,
-    evidence: str,
+    attempt_id: str | None = None,
+    title: str = "",
+    severity: str = "",
+    description: str = "",
+    evidence: str = "",
+    target: str | None = None,
+    attack_class: str | None = None,
 ) -> str:
     return record_finding(
         attempt_id=attempt_id,
@@ -387,6 +633,8 @@ def _kg_alias_record_finding(
         severity=severity,
         description=description,
         evidence=evidence,
+        target=target,
+        attack_class=attack_class,
     )
 
 
