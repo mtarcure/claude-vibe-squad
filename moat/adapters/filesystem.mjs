@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -14,13 +14,23 @@ export async function readJson(file) {
   return JSON.parse(await readText(file));
 }
 
-export async function readJsonWithin(root, relativePath) {
+export async function readJsonWithin(root, relativePath, {
+  realpathImpl = realpath,
+  readJsonImpl = readJson,
+} = {}) {
   const rootPath = asPath(root);
   const target = path.resolve(rootPath, relativePath);
   if (target === rootPath || !target.startsWith(`${rootPath}${path.sep}`)) {
     throw new Error("external path escapes its configured root");
   }
-  return readJson(target);
+  const [realRoot, realTarget] = await Promise.all([
+    realpathImpl(rootPath),
+    realpathImpl(target),
+  ]);
+  if (realTarget === realRoot || !realTarget.startsWith(`${realRoot}${path.sep}`)) {
+    throw new Error("external real path escapes its configured root");
+  }
+  return readJsonImpl(realTarget);
 }
 
 export function toSystemPath(value) {

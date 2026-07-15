@@ -39,11 +39,21 @@ export function createExternalInput({
       if (!environment.CHRONO_VAULT_ROOT) {
         return { status: "recall_unavailable", reason: "vault_root_unset" };
       }
-      if (!environment.CHRONO_VAULT_CLEARANCE) {
-        return { status: "recall_unavailable", reason: "vault_clearance_unset" };
+      if (environment.CHRONO_VAULT_CLEARANCE !== "restricted") {
+        return {
+          status: "insufficient_clearance",
+          reason: "restricted_clearance_required",
+        };
       }
       try {
-        return await recallRunner({ query, filters, limit }, environment);
+        const result = await recallRunner({ query, filters, limit }, environment);
+        if (result.status === "ok" && result.clearance_effective !== "restricted") {
+          return {
+            status: "insufficient_clearance",
+            reason: "effective_clearance_not_restricted",
+          };
+        }
+        return result;
       } catch (error) {
         return {
           status: "recall_unavailable",

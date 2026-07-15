@@ -39,6 +39,10 @@ reviewed GuardAnnotation
   → evidence-referenced Verdict
 ```
 
-Private JSON is addressed by logical `fixture:`, `manifest:`, and `descriptor:` references and resolved beneath `$CHRONO_BOUNTY_ROOT`. Vault recall requires both `$CHRONO_VAULT_ROOT` and an explicit `$CHRONO_VAULT_CLEARANCE`; missing configuration and recall/query errors return `recall_unavailable`, never `net_new`. The Python bridge imports the repository's real `plugins/chrono-vault/recall.py`; it does not implement a second search path.
+Private JSON is addressed by logical `fixture:`, `manifest:`, and `descriptor:` references and resolved beneath `$CHRONO_BOUNTY_ROOT`. Both lexical and realpath containment are enforced, so a symlink cannot redirect a fixture read outside that root.
+
+Vault recall requires `$CHRONO_VAULT_ROOT` and the exact clearance `CHRONO_VAULT_CLEARANCE=restricted`. The bridge echoes its effective clearance and the Node adapter verifies it. A missing, internal, or misspelled clearance returns `insufficient_clearance`; missing roots and recall/query errors return `recall_unavailable`. The ledger maps every such result to non-clean `recall_unavailable`, never `net_new`, because an empty restricted-blind search is not evidence of an empty vault. The Python bridge imports the repository's real `plugins/chrono-vault/recall.py`; it does not implement a second search path.
+
+Recall hits are conservative: a reviewer-confirmed hit is `prior_kill`; otherwise automatic classification requires a score of at least `2` plus a structured target, attack-class, or component filter. Hits below that threshold return `needs_review`. Only an effective-restricted, error-free, genuinely empty result returns `net_new`.
 
 The public manifest file is an empty normalized template. Real advisory entries and prior finding content stay in Layer 2. Tier A remains standalone and non-enforcing during this phase.

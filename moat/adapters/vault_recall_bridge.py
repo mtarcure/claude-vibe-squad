@@ -18,8 +18,13 @@ def main() -> int:
     if not os.environ.get("CHRONO_VAULT_ROOT"):
         _emit({"status": "recall_unavailable", "reason": "vault_root_unset"})
         return 0
-    if not os.environ.get("CHRONO_VAULT_CLEARANCE"):
-        _emit({"status": "recall_unavailable", "reason": "vault_clearance_unset"})
+    if os.environ.get("CHRONO_VAULT_CLEARANCE") != "restricted":
+        _emit(
+            {
+                "status": "insufficient_clearance",
+                "reason": "restricted_clearance_required",
+            }
+        )
         return 0
 
     request = json.load(sys.stdin)
@@ -27,7 +32,19 @@ def main() -> int:
     sys.path.insert(0, str(plugin_dir))
 
     try:
+        from clearance import lane_clearance
         from recall import recall
+
+        effective_clearance = lane_clearance()
+        if effective_clearance != "restricted":
+            _emit(
+                {
+                    "status": "insufficient_clearance",
+                    "reason": "effective_clearance_not_restricted",
+                    "clearance_effective": effective_clearance,
+                }
+            )
+            return 0
 
         result = recall(
             request["query"],
@@ -44,7 +61,13 @@ def main() -> int:
         )
         return 0
 
-    _emit({"status": "ok", "recall": result})
+    _emit(
+        {
+            "status": "ok",
+            "clearance_effective": effective_clearance,
+            "recall": result,
+        }
+    )
     return 0
 
 
