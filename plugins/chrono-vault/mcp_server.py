@@ -22,6 +22,9 @@ from typing import Any
 
 import httpx
 from mcp.server.fastmcp import FastMCP
+from lifecycle import get_note as lifecycle_get_note
+from lifecycle import record_usage as lifecycle_record_usage
+from lifecycle import set_status as lifecycle_set_status
 from recall import recall as recall_notes
 from vaultroot import resolve_vault_root
 
@@ -147,6 +150,46 @@ def recall(
 ) -> dict[str, Any]:
     """Recall ranked, quoted memory from the canonical FTS5 index."""
     return recall_notes(query=query, filters=filters, limit=limit)
+
+
+@mcp.tool()
+def get_note(id: str) -> dict[str, Any]:
+    """Get one complete canonical memory note by stable ID."""
+    return lifecycle_get_note(id)
+
+
+@mcp.tool()
+def set_status(
+    id: str,
+    new_status: str,
+    reason: str,
+    expected_revision: int,
+    supersedes: str | None = None,
+) -> dict[str, Any]:
+    """Compare-and-swap note status and maintain supersede links."""
+    return lifecycle_set_status(
+        id=id,
+        new_status=new_status,
+        reason=reason,
+        expected_revision=expected_revision,
+        supersedes=supersedes,
+    )
+
+
+@mcp.tool()
+def record_usage(
+    recall_id: str,
+    note_id: str,
+    outcome: str,
+    source_task: str | None = None,
+) -> dict[str, Any]:
+    """Record whether a recalled note was used, unhelpful, or incorrect."""
+    return lifecycle_record_usage(
+        recall_id=recall_id,
+        note_id=note_id,
+        outcome=outcome,
+        source_task=source_task,
+    )
 
 
 OBSIDIAN_REST_BASE = "http://127.0.0.1:27123"

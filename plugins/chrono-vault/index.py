@@ -147,6 +147,17 @@ def _initialize(connection: sqlite3.Connection) -> None:
             error_code TEXT NOT NULL,
             error TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS usage (
+            recall_id TEXT NOT NULL,
+            note_id TEXT NOT NULL,
+            outcome TEXT NOT NULL CHECK(
+                outcome IN ('used', 'not_useful', 'incorrect')
+            ),
+            source_task TEXT,
+            ts TEXT NOT NULL,
+            PRIMARY KEY(recall_id, note_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_usage_recall_id ON usage(recall_id);
         """
     )
     connection.execute(
@@ -642,12 +653,36 @@ def _read_generation(path: Path) -> int:
         return 0
 
 
+def _read_usage_rows(path: Path) -> list[tuple[str, str, str, str | None, str]]:
+    if not _prepare_database(path, create=False):
+        return []
+    connection: sqlite3.Connection | None = None
+    try:
+        connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5.0)
+        exists = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='usage'"
+        ).fetchone()
+        if exists is None:
+            return []
+        return list(
+            connection.execute(
+                "SELECT recall_id, note_id, outcome, source_task, ts FROM usage"
+            )
+        )
+    except sqlite3.Error:
+        return []
+    finally:
+        if connection is not None:
+            connection.close()
+
+
 def rebuild_index() -> dict[str, Any]:
     """Build a complete temp index, integrity-check it, and atomically publish."""
     root = resolve_vault_root()
     with _locked(root) as index_dir:
         db_path = index_dir / "kg.db"
         previous_generation = _read_generation(db_path)
+        usage_rows = _read_usage_rows(db_path)
         temp_fd, temp_name = tempfile.mkstemp(
             prefix=".kg.db.", suffix=".tmp", dir=index_dir
         )
@@ -684,6 +719,12 @@ def rebuild_index() -> dict[str, Any]:
                     continue
                 _upsert_connection(connection, note)
                 indexed += 1
+
+            connection.executemany(
+                "INSERT INTO usage(recall_id, note_id, outcome, source_task, ts) "
+                "VALUES(?,?,?,?,?)",
+                usage_rows,
+            )
 
             generation = previous_generation + 1
             _set_generation(connection, generation)

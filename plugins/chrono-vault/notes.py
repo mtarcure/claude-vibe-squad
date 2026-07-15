@@ -79,6 +79,29 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _refresh_content_ref(note: dict[str, Any]) -> None:
+    evidence_refs = [
+        value
+        for value in note["evidence_refs"]
+        if not value.startswith("note-content-sha256:")
+    ]
+    note["evidence_refs"] = evidence_refs
+    hash_payload = {
+        key: note[key]
+        for key in (*FRONTMATTER_FIELDS, "body")
+        if key not in {"id", "created_at", "updated_at", "revision"}
+    }
+    digest = hashlib.sha256(
+        json.dumps(
+            hash_payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+    note["evidence_refs"].append(f"note-content-sha256:{digest}")
+
+
 def _normalize(note_type: str, fields: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(note_type, str) or note_type not in NOTE_TYPES:
         raise SchemaError(f"type must be one of {sorted(NOTE_TYPES)}")
@@ -165,22 +188,7 @@ def _normalize(note_type: str, fields: dict[str, Any]) -> dict[str, Any]:
         "body": body,
     }
 
-    hash_payload = {
-        key: value
-        for key, value in note.items()
-        if key not in {"id", "created_at", "updated_at", "revision"}
-    }
-    digest = hashlib.sha256(
-        json.dumps(
-            hash_payload,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        ).encode("utf-8")
-    ).hexdigest()
-    content_ref = f"note-content-sha256:{digest}"
-    if content_ref not in note["evidence_refs"]:
-        note["evidence_refs"].append(content_ref)
+    _refresh_content_ref(note)
     return note
 
 
