@@ -199,6 +199,26 @@ response_summary() {
     ' "$file"
 }
 
+autocapture_response_best_effort() {
+    local path="$1"
+    [[ -n "${CHRONO_VAULT_ROOT:-}" ]] || return 0
+    command -v python3 >/dev/null 2>&1 || {
+        echo "[$(date '+%H:%M:%S')] warning: python3 unavailable; response auto-capture skipped" >&2
+        return 0
+    }
+    if ! PYTHONPATH="${VAULT_ROOT}/plugins/chrono-vault" python3 -c \
+        'from vaultroot import resolve_vault_root; resolve_vault_root()' \
+        >/dev/null 2>&1; then
+        return 0
+    fi
+    if ! PYTHONPATH="${VAULT_ROOT}/plugins/chrono-vault" python3 \
+        "${VAULT_ROOT}/plugins/chrono-vault/autocapture.py" "$path" \
+        >/dev/null 2>&1; then
+        echo "[$(date '+%H:%M:%S')] warning: response auto-capture failed: $(basename "$path")" >&2
+    fi
+    return 0
+}
+
 release_chrono_queue_lock() {
     local lockdir="$1" tmp="$2" lock_acquired="$3"
     rm -f "$tmp"
@@ -341,6 +361,9 @@ handle_response_path() {
         fi
     fi
     PROCESSED_PATHS="${PROCESSED_PATHS}${path}|"
+    if [[ "$fname" == TASK-*-response.md ]]; then
+        autocapture_response_best_effort "$path" &
+    fi
     can_nudge=1
     if ! tmux has-session -t "$SESSION" 2>/dev/null; then
         can_nudge=0
