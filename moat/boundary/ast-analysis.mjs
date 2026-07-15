@@ -198,6 +198,7 @@ export function analyzeSource(text, fileName, { restrictedModules = [] } = {}) {
   const imports = [];
   const unresolvedImports = [];
   const directPrivateReads = [];
+  const evaluatedStrings = [];
   const flows = [];
   const createRequireNames = new Set(["createRequire"]);
   const requireNames = new Set(["require"]);
@@ -260,6 +261,18 @@ export function analyzeSource(text, fileName, { restrictedModules = [] } = {}) {
   requireBindingVisit(sourceFile);
 
   const visit = (node) => {
+    if (
+      ts.isStringLiteralLike(node)
+      || ts.isTemplateExpression(node)
+      || ts.isBinaryExpression(node)
+      || ts.isCallExpression(node)
+      || ts.isIdentifier(node)
+    ) {
+      const evaluated = evaluate(node, constants);
+      if (evaluated.known && typeof evaluated.value === "string") {
+        evaluatedStrings.push({ ...evaluated, offset: node.getStart(sourceFile) });
+      }
+    }
     if (ts.isExportDeclaration(node) && node.moduleSpecifier) {
       const value = evaluate(node.moduleSpecifier, constants);
       if (value.known) imports.push({ value: String(value.value), offset: node.getStart(sourceFile) });
@@ -313,6 +326,10 @@ export function analyzeSource(text, fileName, { restrictedModules = [] } = {}) {
       }))
       .filter(({ known: isKnown, value }) => isKnown && typeof value === "string"),
     directPrivateReads: [...new Set(directPrivateReads)],
+    evaluatedStrings: [...new Map(evaluatedStrings.map((item) => [
+      `${item.offset}:${item.encoded}:${item.value}`,
+      item,
+    ])).values()],
     flows,
     imports,
     parseErrors: (sourceFile.parseDiagnostics ?? []).map((diagnostic) => ({
