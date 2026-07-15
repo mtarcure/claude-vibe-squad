@@ -6,6 +6,9 @@
     "adapters/filesystem.mjs",
     "adapters/process.mjs"
   ],
+  "approved_dynamic_sink_modules": [
+    "patchgraph/patch-graph.mjs"
+  ],
   "inspection_implementation_modules": [
     "boundary/tier-a.mjs"
   ],

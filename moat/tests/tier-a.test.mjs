@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { listFiles, toSystemPath } from "../adapters/filesystem.mjs";
+import { listFiles, readJson, toSystemPath } from "../adapters/filesystem.mjs";
 import { runCommand } from "../adapters/process.mjs";
 import {
   ERROR_CLASSES,
@@ -33,6 +33,11 @@ const denied = [
   ["bare-ipv6-fetch.mjs", ERROR_CLASSES.EXTERNAL_IDENTIFIER],
   ["base64url-target.mjs", ERROR_CLASSES.ENCODED_IDENTIFIER],
   ["sink-host.mjs", ERROR_CLASSES.EXTERNAL_IDENTIFIER],
+  ["e2-concat-fetch.mjs", ERROR_CLASSES.EXTERNAL_IDENTIFIER],
+  ["e7-map-join-fetch.mjs", ERROR_CLASSES.UNRESOLVED_SINK],
+  ["e8-atob-fetch.mjs", ERROR_CLASSES.ENCODED_IDENTIFIER],
+  ["e9-replace-fetch.mjs", ERROR_CLASSES.EXTERNAL_IDENTIFIER],
+  ["bare-variable-fetch.mjs", ERROR_CLASSES.UNRESOLVED_SINK],
 ];
 
 for (const [name, expectedClass] of denied) {
@@ -57,6 +62,7 @@ test("Tier-A passes the legitimate generic-source corpus and records FP rate", a
     fixture("allow", "public-docs.ts"),
     fixture("allow", "public-component.tsx"),
     fixture("allow", "real-world-vectors.json"),
+    fixture("allow", "constant-sink-folding.mjs"),
   ];
   const result = await scanPaths(paths, {
     honorReviewedFixtureAllowlist: false,
@@ -69,6 +75,36 @@ test("Tier-A passes the legitimate generic-source corpus and records FP rate", a
   );
   assert.equal(result.ok, true);
   assert.equal(rate, 0);
+});
+
+test("Tier-A converts a forced per-file scanner exception into a finding", async () => {
+  const result = await scanPaths([fixture("allow", "public-docs.ts")], {
+    honorReviewedFixtureAllowlist: false,
+    secretScanner() {
+      throw new Error("forced scanner failure");
+    },
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.findings[0].errorClass, ERROR_CLASSES.SCAN_FAILURE);
+  assert.match(result.findings[0].file, /public-docs\.ts$/u);
+  assert.match(result.findings[0].message, /forced scanner failure/u);
+});
+
+test("Tier-A reports a simulated missing TypeScript parser without throwing", async () => {
+  const result = await scanPaths([fixture("allow", "public-docs.ts")], {
+    honorReviewedFixtureAllowlist: false,
+    parserAvailable: () => false,
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.findings[0].errorClass, ERROR_CLASSES.TOOL_UNAVAILABLE);
+  assert.match(result.findings[0].message, /TypeScript parser is unavailable/u);
+  assert.doesNotMatch(result.findings[0].message, /ERR_MODULE_NOT_FOUND/u);
+});
+
+test("Tier-A parser is a production dependency", async () => {
+  const packageJson = await readJson(new URL("../package.json", import.meta.url));
+  assert.equal(packageJson.dependencies?.typescript, "5.9.3");
+  assert.equal(packageJson.devDependencies?.typescript, undefined);
 });
 
 test("Tier-A staged mode accepts an explicit staged-file list", () => {

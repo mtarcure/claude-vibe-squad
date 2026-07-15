@@ -2,6 +2,8 @@
 
 Tier A parses JavaScript, TypeScript, and TSX with the TypeScript compiler API. It resolves bounded constant expressions before checking imports and values that flow into capability sinks. JSON provenance fields, logical references, content classes, and calibrated secret scanning remain part of the same standalone check.
 
+Install production dependencies with `npm ci --prefix moat` (or `npm install --prefix moat`) before invoking the scanner. If the TypeScript parser is absent, Tier A emits `MOAT_BOUNDARY_TOOL_UNAVAILABLE` instead of crashing with a module-loader stack.
+
 Run the complete public Layer-1 check:
 
 ```sh
@@ -21,6 +23,8 @@ git diff --cached --name-only -z --diff-filter=ACMR -- moat/ | xargs -0 node moa
 ```
 
 The check is enforcement-ready as a data-free public control. Private exact target, repository, advisory, and hostname matching remains Tier B and belongs in private pre-push/CI enforcement.
+
+Tier A deliberately fails closed when a capability sink receives a value the bounded evaluator cannot prove constant. A low-risk residual remains: capability bindings re-exported through a declared adapter are not traced transitively, so the declared adapter set must remain small and reviewed.
 
 ## Tier-B private exact-target boundary
 

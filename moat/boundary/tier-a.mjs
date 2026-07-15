@@ -9,7 +9,11 @@ import {
 } from "../adapters/filesystem.mjs";
 import { scanSecretsWithGitleaks } from "../adapters/process.mjs";
 import { validateNamed } from "../schema/validate.mjs";
-import { analyzeSource } from "./ast-analysis.mjs";
+import {
+  analyzeSource,
+  ParserUnavailableError,
+  parserAvailable,
+} from "./ast-analysis.mjs";
 
 const MOAT_ROOT = new URL("../", import.meta.url);
 
@@ -22,9 +26,11 @@ export const ERROR_CLASSES = Object.freeze({
   FORBIDDEN_IMPORT: "MOAT_BOUNDARY_FORBIDDEN_IMPORT",
   PATH_ROOT: "MOAT_BOUNDARY_PATH_ROOT",
   SCHEMA_INVALID: "MOAT_BOUNDARY_SCHEMA_INVALID",
+  SCAN_FAILURE: "MOAT_BOUNDARY_SCAN_FAILURE",
   SECRET: "MOAT_BOUNDARY_SECRET",
   SOURCE_PARSE: "MOAT_BOUNDARY_SOURCE_PARSE",
   TOOL_UNAVAILABLE: "MOAT_BOUNDARY_TOOL_UNAVAILABLE",
+  UNRESOLVED_SINK: "MOAT_BOUNDARY_UNRESOLVED_SINK",
 });
 
 const schemaBySuffix = new Map([
@@ -237,7 +243,8 @@ async function scanFile(file, options, policy, allowlist) {
   const inspectionModule = policy.inspection_implementation_modules.includes(details.relative);
 
   if (isSource) {
-    const analysis = analyzeSource(text, details.basename, {
+    const analyzer = options.analyzer ?? analyzeSource;
+    const analysis = analyzer(text, details.basename, {
       restrictedModules: policy.restricted_node_modules,
     });
     for (const parseError of analysis.parseErrors) {
@@ -253,6 +260,19 @@ async function scanFile(file, options, policy, allowlist) {
     }
     for (const unresolved of analysis.unresolvedImports) {
       findings.push(finding(ERROR_CLASSES.CAPABILITY_IMPORT, displayFile, lineForOffset(text, unresolved.offset), "dynamic module specifier must resolve to a bounded constant"));
+    }
+    for (const unresolved of analysis.unresolvedFlows) {
+      const approvedAdapterCall = unresolved.kind === "capability-call"
+        && policy.approved_capability_modules.includes(details.relative);
+      const approvedDynamicField = unresolved.kind === "field"
+        && policy.approved_dynamic_sink_modules.includes(details.relative);
+      if (approvedAdapterCall || approvedDynamicField) continue;
+      findings.push(finding(
+        ERROR_CLASSES.UNRESOLVED_SINK,
+        displayFile,
+        lineForOffset(text, unresolved.offset),
+        `capability sink ${unresolved.sink} requires a bounded constant value`,
+      ));
     }
 
     if (!inspectionModule && details.relative !== policy.approved_external_input_adapter) {
@@ -286,7 +306,7 @@ async function scanFile(file, options, policy, allowlist) {
       findings.push(finding(ERROR_CLASSES.SECRET, displayFile, lineForOffset(text, offset), "credential-shaped or high-entropy material is not allowed"));
     }
   }
-  const establishedSecretScan = scanSecretsWithGitleaks(text);
+  const establishedSecretScan = (options.secretScanner ?? scanSecretsWithGitleaks)(text);
   if (!establishedSecretScan.available) {
     findings.push(finding(ERROR_CLASSES.TOOL_UNAVAILABLE, displayFile, 1, "gitleaks is required for calibrated secret scanning"));
   } else {
@@ -321,10 +341,60 @@ async function scanFile(file, options, policy, allowlist) {
 }
 
 export async function scanPaths(paths, options = {}) {
-  const policy = await readJson(new URL("./policy.json", import.meta.url));
-  const allowlist = await reviewedFixtureMap();
+  const parserStatus = options.parserAvailable ?? parserAvailable;
+  if (!parserStatus()) {
+    const details = paths.length ? pathDetails(paths[0], MOAT_ROOT) : undefined;
+    return {
+      ok: false,
+      findings: [finding(
+        ERROR_CLASSES.TOOL_UNAVAILABLE,
+        details?.withinRoot ? `moat/${details.relative}` : "moat/",
+        1,
+        "TypeScript parser is unavailable; run npm install in moat/",
+      )],
+    };
+  }
+
+  let policy;
+  let allowlist;
+  try {
+    policy = await readJson(new URL("./policy.json", import.meta.url));
+    allowlist = await reviewedFixtureMap();
+  } catch (error) {
+    const reason = String(error?.message ?? error?.name ?? "unknown error")
+      .replace(/[\r\n]+/gu, " ")
+      .slice(0, 200);
+    return {
+      ok: false,
+      findings: [finding(
+        ERROR_CLASSES.SCAN_FAILURE,
+        "moat/",
+        1,
+        `boundary configuration could not be loaded: ${reason}`,
+      )],
+    };
+  }
+
   const findings = [];
-  for (const path of paths) findings.push(...await scanFile(path, options, policy, allowlist));
+  for (const path of paths) {
+    try {
+      findings.push(...await scanFile(path, options, policy, allowlist));
+    } catch (error) {
+      let details;
+      try { details = pathDetails(path, MOAT_ROOT); } catch { details = undefined; }
+      const unavailable = error instanceof ParserUnavailableError
+        || error?.code === "MOAT_TYPESCRIPT_PARSER_UNAVAILABLE";
+      const reason = String(error?.message ?? error?.name ?? "unknown error")
+        .replace(/[\r\n]+/gu, " ")
+        .slice(0, 200);
+      findings.push(finding(
+        unavailable ? ERROR_CLASSES.TOOL_UNAVAILABLE : ERROR_CLASSES.SCAN_FAILURE,
+        details?.withinRoot ? `moat/${details.relative}` : "moat/",
+        1,
+        unavailable ? "TypeScript parser is unavailable; run npm install in moat/" : `scan failed: ${reason}`,
+      ));
+    }
+  }
   return { ok: findings.length === 0, findings };
 }
 

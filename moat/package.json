@@ -9,7 +9,7 @@
     "tier-a": "node boundary/tier-a.mjs",
     "tier-b": "node boundary/tier-b.mjs"
   },
-  "devDependencies": {
+  "dependencies": {
     "typescript": "5.9.3"
   }
 }

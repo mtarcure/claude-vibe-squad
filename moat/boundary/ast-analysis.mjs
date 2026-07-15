@@ -1,4 +1,22 @@
-import ts from "typescript";
+let ts;
+try {
+  const parserModule = await import("typescript");
+  ts = parserModule.default ?? parserModule;
+} catch {
+  ts = undefined;
+}
+
+export class ParserUnavailableError extends Error {
+  constructor() {
+    super("TypeScript parser is unavailable; run npm install in moat/");
+    this.name = "ParserUnavailableError";
+    this.code = "MOAT_TYPESCRIPT_PARSER_UNAVAILABLE";
+  }
+}
+
+export function parserAvailable() {
+  return Boolean(ts);
+}
 
 const unknown = Object.freeze({ known: false, value: undefined, encoded: false });
 const known = (value, encoded = false) => ({ known: true, value, encoded });
@@ -61,11 +79,40 @@ function evaluate(node, constants, depth = 0) {
     return known(value, encoded);
   }
   if (ts.isArrayLiteralExpression(node)) {
-    const values = node.elements.map((element) => evaluate(element, constants, depth + 1));
-    if (values.some((value) => !value.known)) return unknown;
-    return known(values.map(({ value }) => value), values.some(({ encoded }) => encoded));
+    const values = [];
+    let encoded = false;
+    for (const element of node.elements) {
+      if (ts.isSpreadElement(element)) {
+        const spread = evaluate(element.expression, constants, depth + 1);
+        if (!spread.known || !Array.isArray(spread.value)) return unknown;
+        values.push(...spread.value);
+        encoded ||= spread.encoded;
+      } else {
+        const value = evaluate(element, constants, depth + 1);
+        if (!value.known) return unknown;
+        values.push(value.value);
+        encoded ||= value.encoded;
+      }
+      if (values.length > 4096) return unknown;
+    }
+    return known(values, encoded);
   }
   if (!ts.isCallExpression(node)) return unknown;
+
+  if (ts.isIdentifier(node.expression) && node.arguments.length === 1) {
+    const argument = evaluate(node.arguments[0], constants, depth + 1);
+    if (!argument.known || typeof argument.value !== "string") return unknown;
+    try {
+      if (node.expression.text === "atob") {
+        return known(Buffer.from(argument.value, "base64").toString("latin1"), true);
+      }
+      if (node.expression.text === "decodeURIComponent") {
+        return known(decodeURIComponent(argument.value), argument.encoded);
+      }
+    } catch {
+      return unknown;
+    }
+  }
 
   if (
     ts.isPropertyAccessExpression(node.expression)
@@ -104,6 +151,39 @@ function evaluate(node, constants, depth = 0) {
     const values = args.map(({ value }) => value);
     if (method === "join" && Array.isArray(receiver.value)) {
       return known(receiver.value.join(values[0] ?? ","), receiver.encoded || args.some(({ encoded }) => encoded));
+    }
+    if (method === "concat" && typeof receiver.value === "string") {
+      const result = receiver.value.concat(...values);
+      return result.length <= 65_536
+        ? known(result, receiver.encoded || args.some(({ encoded }) => encoded))
+        : unknown;
+    }
+    if (method === "concat" && Array.isArray(receiver.value)) {
+      const result = receiver.value.concat(...values);
+      return result.length <= 4096
+        ? known(result, receiver.encoded || args.some(({ encoded }) => encoded))
+        : unknown;
+    }
+    if (
+      method === "replace"
+      && typeof receiver.value === "string"
+      && typeof values[0] === "string"
+      && typeof values[1] === "string"
+    ) {
+      const result = receiver.value.replace(values[0], values[1]);
+      return result.length <= 65_536
+        ? known(result, receiver.encoded || args.some(({ encoded }) => encoded))
+        : unknown;
+    }
+    if (
+      method === "repeat"
+      && typeof receiver.value === "string"
+      && Number.isInteger(values[0])
+      && values[0] >= 0
+      && values[0] <= 1024
+    ) {
+      const result = receiver.value.repeat(values[0]);
+      return result.length <= 65_536 ? known(result, receiver.encoded) : unknown;
     }
     if (method === "toString" && Buffer.isBuffer(receiver.value)) {
       return known(receiver.value.toString(values[0] ?? "utf8"), receiver.encoded);
@@ -187,6 +267,7 @@ const sinkProperties = new Set([
 ]);
 
 export function analyzeSource(text, fileName, { restrictedModules = [] } = {}) {
+  if (!ts) throw new ParserUnavailableError();
   const sourceFile = ts.createSourceFile(
     fileName,
     text,
@@ -197,6 +278,7 @@ export function analyzeSource(text, fileName, { restrictedModules = [] } = {}) {
   const { constants, declarations } = collectConstants(sourceFile);
   const imports = [];
   const unresolvedImports = [];
+  const unresolvedFlows = [];
   const directPrivateReads = [];
   const evaluatedStrings = [];
   const flows = [];
@@ -290,6 +372,12 @@ export function analyzeSource(text, fileName, { restrictedModules = [] } = {}) {
         const value = evaluate(node.arguments[0], constants);
         if (value.known && typeof value.value === "string") {
           flows.push({ ...value, offset: node.arguments[0].getStart(sourceFile), sink: called.name });
+        } else if (!value.known) {
+          unresolvedFlows.push({
+            kind: called.name === "fetch" ? "fetch" : "capability-call",
+            offset: node.arguments[0]?.getStart(sourceFile) ?? node.getStart(sourceFile),
+            sink: called.name,
+          });
         }
       }
     }
@@ -301,6 +389,12 @@ export function analyzeSource(text, fileName, { restrictedModules = [] } = {}) {
       const value = evaluate(node.initializer, constants);
       if (value.known && typeof value.value === "string") {
         flows.push({ ...value, offset: node.initializer.getStart(sourceFile), sink: propertyName(node.name) });
+      } else if (!value.known) {
+        unresolvedFlows.push({
+          kind: "field",
+          offset: node.initializer.getStart(sourceFile),
+          sink: propertyName(node.name),
+        });
       }
     }
     if (
@@ -312,6 +406,12 @@ export function analyzeSource(text, fileName, { restrictedModules = [] } = {}) {
       const value = evaluate(node.right, constants);
       if (value.known && typeof value.value === "string") {
         flows.push({ ...value, offset: node.right.getStart(sourceFile), sink: node.left.name.text });
+      } else if (!value.known) {
+        unresolvedFlows.push({
+          kind: "field",
+          offset: node.right.getStart(sourceFile),
+          sink: node.left.name.text,
+        });
       }
     }
     ts.forEachChild(node, visit);
@@ -337,5 +437,6 @@ export function analyzeSource(text, fileName, { restrictedModules = [] } = {}) {
       message: ts.flattenDiagnosticMessageText(diagnostic.messageText, " "),
     })),
     unresolvedImports,
+    unresolvedFlows,
   };
 }
