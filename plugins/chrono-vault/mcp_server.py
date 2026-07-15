@@ -549,65 +549,40 @@ def obsidian_health_check() -> dict[str, Any]:
         return {"ok": False, "error": f"network_error: {type(exc).__name__}"}
 
 
-import importlib.util as _importlib_util
+_CAPTURE_DISABLED_ERROR = "capture_disabled_pending_canonical_migration"
 
 
-def _load_capture_support():
-    support_path = Path(__file__).resolve().parents[1] / "_support" / "capture.py"
-    spec = _importlib_util.spec_from_file_location("vibe_squad_capture", support_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"could not load capture support from {support_path}")
-    module = _importlib_util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-_capture = _load_capture_support()
+def _capture_disabled() -> dict[str, Any]:
+    """Fail closed until capture tools use the canonical rooted note writer."""
+    return {
+        "ok": False,
+        "disabled": True,
+        "error": _CAPTURE_DISABLED_ERROR,
+    }
 
 
 @mcp.tool()
 def capture_session(model: str, cwd: str, first_message: str = "") -> dict[str, Any]:
-    """Append session-start header to vault sessions/<today>.md. Wraps vendored capture support."""
-    _capture.handle_session_start({
-        "model": model,
-        "cwd": cwd,
-        "first_message": first_message,
-    })
-    return {"ok": True}
+    """Disabled pending migration to the canonical rooted note writer."""
+    return _capture_disabled()
 
 
 @mcp.tool()
 def capture_dispatch(role: str, model: str, prompt: str, output: str) -> dict[str, Any]:
-    """Append dispatch entry to vault dispatches/<today>.md. Wraps vendored capture support."""
-    _capture.handle_dispatch({
-        "role": role,
-        "model": model,
-        "prompt": prompt,
-        "output": output,
-    })
-    return {"ok": True}
+    """Disabled pending migration to the canonical rooted note writer."""
+    return _capture_disabled()
 
 
 @mcp.tool()
 def capture_review(provider: str, target: str, prompt: str, output: str) -> dict[str, Any]:
-    """Write cross-provider review to vault reviews/. Wraps vendored capture support."""
-    _capture.handle_review(provider, {
-        "target": target,
-        "prompt": prompt,
-        "output": output,
-    })
-    return {"ok": True}
+    """Disabled pending migration to the canonical rooted note writer."""
+    return _capture_disabled()
 
 
 @mcp.tool()
 def capture_research(query: str, tool: str, output: str) -> dict[str, Any]:
-    """Write research artifact to vault research/. Wraps vendored capture support."""
-    _capture.handle_research({
-        "query": query,
-        "tool": tool,
-        "output": output,
-    })
-    return {"ok": True}
+    """Disabled pending migration to the canonical rooted note writer."""
+    return _capture_disabled()
 
 
 # ---------------------------------------------------------------------------
