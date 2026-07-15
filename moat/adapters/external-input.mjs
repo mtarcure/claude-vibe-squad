@@ -1,19 +1,23 @@
-import { readJsonWithin, toSystemPath } from "./filesystem.mjs";
+import { readJsonWithin, resolvePathWithin, toSystemPath } from "./filesystem.mjs";
 import { runJsonCommand } from "./process.mjs";
 
-const referencePattern = /^(fixture|manifest|descriptor):([A-Za-z0-9._/-]+)$/u;
+const referencePattern = /^(fixture|manifest|descriptor|mirror):([A-Za-z0-9._/-]+)$/u;
 const directoryByKind = {
   descriptor: "descriptors",
   fixture: "fixtures",
   manifest: "manifests",
+  mirror: "mirrors",
 };
 
-function resolveReference(reference) {
+function resolveReference(reference, { json = true } = {}) {
   const match = referencePattern.exec(reference);
   if (!match || match[2].split("/").some((part) => part === ".." || !part)) {
     throw new Error("invalid external reference");
   }
-  return `${directoryByKind[match[1]]}/${match[2]}.json`;
+  if ((json && match[1] === "mirror") || (!json && match[1] !== "mirror")) {
+    throw new Error("external reference has the wrong content kind");
+  }
+  return `${directoryByKind[match[1]]}/${match[2]}${json ? ".json" : ""}`;
 }
 
 function defaultRecallRunner(request, environment) {
@@ -33,6 +37,13 @@ export function createExternalInput({
       const root = environment.CHRONO_BOUNTY_ROOT;
       if (!root) throw new Error("CHRONO_BOUNTY_ROOT is required for Layer-2 reads");
       return jsonLoader(root, resolveReference(reference));
+    },
+
+    async resolvePath(reference) {
+      const root = environment.CHRONO_BOUNTY_ROOT;
+      if (!root) throw new Error("CHRONO_BOUNTY_ROOT is required for Layer-2 reads");
+      if (!reference.startsWith("mirror:")) throw new Error("path reference must be a mirror");
+      return resolvePathWithin(root, resolveReference(reference, { json: false }));
     },
 
     async recall(query, filters = undefined, limit = 8) {

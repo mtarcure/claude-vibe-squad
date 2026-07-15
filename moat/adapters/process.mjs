@@ -1,18 +1,50 @@
 import { spawnSync } from "node:child_process";
 
-export function runJsonCommand(command, args, payload, { environment = process.env } = {}) {
+export function runCommand(command, args, {
+  allowExitCodes = [0],
+  allowMissing = false,
+  environment = process.env,
+  input,
+  workingDirectory,
+} = {}) {
   const result = spawnSync(command, args, {
-    input: JSON.stringify(payload),
+    cwd: workingDirectory,
     encoding: "utf8",
     env: environment,
+    input,
     maxBuffer: 4 * 1024 * 1024,
   });
 
+  if (result.error?.code === "ENOENT" && allowMissing) {
+    return { available: false, status: null, stdout: "", stderr: "" };
+  }
   if (result.error) throw result.error;
-  if (result.status !== 0) {
+  if (!allowExitCodes.includes(result.status)) {
     throw new Error(`${command} failed with status ${result.status}`);
   }
+  return {
+    available: true,
+    status: result.status,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+  };
+}
+
+export function runJsonCommand(command, args, payload, { environment = process.env } = {}) {
+  const result = runCommand(command, args, {
+    environment,
+    input: JSON.stringify(payload),
+  });
   return JSON.parse(result.stdout);
+}
+
+export function commandLineArguments() {
+  return process.argv.slice(2);
+}
+
+export function reportCommandError(message) {
+  process.stderr.write(`${message}\n`);
+  process.exitCode = 1;
 }
 
 export function scanSecretsWithGitleaks(text) {

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { readdir, readFile, realpath } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -14,9 +15,8 @@ export async function readJson(file) {
   return JSON.parse(await readText(file));
 }
 
-export async function readJsonWithin(root, relativePath, {
+export async function resolvePathWithin(root, relativePath, {
   realpathImpl = realpath,
-  readJsonImpl = readJson,
 } = {}) {
   const rootPath = asPath(root);
   const target = path.resolve(rootPath, relativePath);
@@ -30,11 +30,35 @@ export async function readJsonWithin(root, relativePath, {
   if (realTarget === realRoot || !realTarget.startsWith(`${realRoot}${path.sep}`)) {
     throw new Error("external real path escapes its configured root");
   }
+  return realTarget;
+}
+
+export async function readJsonWithin(root, relativePath, {
+  realpathImpl = realpath,
+  readJsonImpl = readJson,
+} = {}) {
+  const realTarget = await resolvePathWithin(root, relativePath, { realpathImpl });
   return readJsonImpl(realTarget);
 }
 
 export function toSystemPath(value) {
   return asPath(value);
+}
+
+export function joinSystemPath(...parts) {
+  return path.join(...parts.map(String));
+}
+
+export async function createTemporaryDirectory(prefix) {
+  return mkdtemp(path.join(tmpdir(), prefix));
+}
+
+export async function ensureDirectory(directory) {
+  await mkdir(asPath(directory), { recursive: true });
+}
+
+export async function writeText(file, content) {
+  await writeFile(asPath(file), content, "utf8");
 }
 
 export async function sha256(file) {
