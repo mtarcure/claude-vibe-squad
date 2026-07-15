@@ -249,7 +249,11 @@ fi
 # we just wire up logging and launch the coordinator.
 tmux pipe-pane -t "${SESSION}:chrono" -o "cat >> ${TMUX_LOG_DIR}/chrono.log"
 tmux send-keys -t "${SESSION}:chrono" "${PATH_PREFIX}" C-m
+# Restricted bounty memory is limited to the coordinator and security-capable
+# lanes: Claude owns security analysis, Codex owns PoC mechanics, while Gemini
+# media and Kimi throughput research stay fail-safe internal by least privilege.
 tmux send-keys -t "${SESSION}:chrono" "${MEDIA_AUTH_PREFIX}" C-m
+tmux send-keys -t "${SESSION}:chrono" 'export CHRONO_VAULT_CLEARANCE=restricted' C-m
 # vs-welcome.sh clears, prints the coordinator greeting, then execs claude with
 # acceptEdits + opus + effort xhigh + --add-dir (keeps OPENAI_API_KEY for media).
 tmux send-keys -t "${SESSION}:chrono" "bash ${VAULT_ROOT}/bin/vs-welcome.sh" C-m
@@ -276,6 +280,7 @@ tmux new-window -t "${SESSION}" -n "${GPT_CODEX_WIN}" -c "${VAULT_ROOT}/model-la
 tmux pipe-pane -t "${SESSION}:${GPT_CODEX_WIN}" -o "cat >> ${TMUX_LOG_DIR}/gpt-codex.log"
 tmux send-keys -t "${SESSION}:${GPT_CODEX_WIN}" "${PATH_PREFIX}" C-m
 tmux send-keys -t "${SESSION}:${GPT_CODEX_WIN}" "${AUTH_PREFIX}" C-m
+tmux send-keys -t "${SESSION}:${GPT_CODEX_WIN}" 'export CHRONO_VAULT_CLEARANCE=restricted' C-m
 tmux send-keys -t "${SESSION}:${GPT_CODEX_WIN}" "clear; echo '=== GPT/CODEX MODEL LEAD (implementation, tests, PoC mechanics) ==='" C-m
 tmux send-keys -t "${SESSION}:${GPT_CODEX_WIN}" "${CODEX_CMD}" C-m
 
@@ -284,6 +289,7 @@ tmux new-window -t "${SESSION}" -n "${CLAUDE_WIN}" -c "${VAULT_ROOT}/model-lanes
 tmux pipe-pane -t "${SESSION}:${CLAUDE_WIN}" -o "cat >> ${TMUX_LOG_DIR}/claude.log"
 tmux send-keys -t "${SESSION}:${CLAUDE_WIN}" "${PATH_PREFIX}" C-m
 tmux send-keys -t "${SESSION}:${CLAUDE_WIN}" "${MEDIA_AUTH_PREFIX}" C-m
+tmux send-keys -t "${SESSION}:${CLAUDE_WIN}" 'export CHRONO_VAULT_CLEARANCE=restricted' C-m
 tmux send-keys -t "${SESSION}:${CLAUDE_WIN}" "clear; echo '=== CLAUDE MODEL LEAD (judgment, safety review, careful reasoning) ==='" C-m
 tmux send-keys -t "${SESSION}:${CLAUDE_WIN}" "${CLAUDE_CMD}" C-m
 
