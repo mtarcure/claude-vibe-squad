@@ -16,8 +16,9 @@ Chrono is the only controller and the only operator-facing voice. Model leads ex
 - Mode workflows: `shared/modes/*.md`
 - Specialist behavior: `departments/*/specialists/*.md` and `shared/specialists/*.md`
 - Model lead prompts: `model-lanes/*`
+- Durable memory: private markdown vault via `chrono-vault` (`record`/`recall`); see `plugins/chrono-vault/README.md`
 
-Generated adapters, stale handoffs, old specs, and runtime logs are not source of truth.
+Generated adapters, stale handoffs, old specs, and runtime logs are not source of truth. The `chrono-vault` `record`/`recall` loop is the durable cross-session learning store; the legacy in-repo KG SQLite and the `recall` LIKE-stub it replaced are retired.
 
 ## Hard Rules
 
