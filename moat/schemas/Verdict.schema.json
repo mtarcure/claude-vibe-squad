@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.com/moat/Verdict.schema.json",
+  "title": "Verdict",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "evidence_level", "terminus", "privilege_required", "determinism", "documented_by_vendor", "net_new", "criteria", "gate", "rationale"],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "evidence_level": {
+      "type": "object", "additionalProperties": false, "required": ["level", "evidence_ref"],
+      "properties": { "level": { "enum": ["L0", "L1", "L2", "L3", "L4"] }, "evidence_ref": { "type": "string", "pattern": "^evidence:[A-Za-z0-9._/-]+$" } }
+    },
+    "terminus": {
+      "type": "object", "additionalProperties": false, "required": ["class", "evidence_ref"],
+      "properties": { "class": { "enum": ["value_moved", "secret_read", "code_exec", "none"] }, "evidence_ref": { "type": "string", "pattern": "^evidence:[A-Za-z0-9._/-]+$" } }
+    },
+    "privilege_required": {
+      "type": "object", "additionalProperties": false, "required": ["level", "path_evidence_ref"],
+      "properties": { "level": { "enum": ["none", "user", "governance", "operator"] }, "path_evidence_ref": { "type": "string", "pattern": "^evidence:[A-Za-z0-9._/-]+$" } }
+    },
+    "determinism": {
+      "type": "object", "additionalProperties": false, "required": ["mode", "replay_ref"],
+      "properties": { "mode": { "enum": ["deterministic", "racy"] }, "replay_ref": { "type": "string", "pattern": "^replay:[A-Za-z0-9._/-]+$" } }
+    },
+    "documented_by_vendor": {
+      "type": "object", "additionalProperties": false, "required": ["value", "source_ref"],
+      "properties": { "value": { "type": "boolean" }, "source_ref": { "type": "string", "pattern": "^ledger:[A-Za-z0-9._/-]+$" } }
+    },
+    "net_new": {
+      "type": "object", "additionalProperties": false, "required": ["value", "ledger_ref"],
+      "properties": { "value": { "type": "boolean" }, "ledger_ref": { "type": "string", "pattern": "^ledger:[A-Za-z0-9._/-]+$" } }
+    },
+    "criteria": {
+      "type": "object", "additionalProperties": false, "required": ["general_bounty_gate", "wave_criterion"],
+      "properties": {
+        "general_bounty_gate": {
+          "type": "object", "additionalProperties": false, "required": ["decision", "evidence_ref"],
+          "properties": { "decision": { "enum": ["PASS", "KILL", "HOLD"] }, "evidence_ref": { "type": "string", "pattern": "^evidence:[A-Za-z0-9._/-]+$" } }
+        },
+        "wave_criterion": {
+          "type": "object", "additionalProperties": false, "required": ["decision", "evidence_ref"],
+          "properties": { "decision": { "enum": ["PASS", "KILL", "HOLD"] }, "evidence_ref": { "type": "string", "pattern": "^evidence:[A-Za-z0-9._/-]+$" } }
+        }
+      }
+    },
+    "gate": { "enum": ["PASS", "KILL", "HOLD"] },
+    "rationale": { "type": "string", "minLength": 1 }
+  }
+}

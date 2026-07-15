@@ -1,0 +1,10 @@
+{
+  "name": "@vibe-squad/moat-boundary",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "tier-a": "node boundary/tier-a.mjs"
+  }
+}

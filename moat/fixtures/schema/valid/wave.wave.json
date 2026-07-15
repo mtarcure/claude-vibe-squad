@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0.0",
+  "state": "PASS",
+  "preregistration": {
+    "surface_ref": "surface:synthetic-boundary",
+    "budget_ref": "budget:synthetic-wave",
+    "configuration_profile_ref": "config:clean-default",
+    "intrinsic_canary_ref": "canary:synthetic-integrity",
+    "coverage_criteria_ref": "coverage:synthetic-thresholds"
+  },
+  "revision_ref": "revision:synthetic-latest",
+  "environment_fingerprint_ref": "environment:synthetic-linux-vm",
+  "attacker": { "privilege": "none", "request_path_ref": "evidence:synthetic-request-path" },
+  "intrinsic_canary": { "class": "integrity", "observation_ref": "evidence:synthetic-canary-change", "outside_attacker_control": true },
+  "reproduction": { "successes": 100, "attempts": 100, "fixed_seed_ref": "replay:synthetic-seed" },
+  "controls": { "patched_negative_ref": "control:synthetic-fixed", "known_vulnerable_calibration_ref": "control:synthetic-known-bad" },
+  "excluded_preconditions_ref": "evidence:synthetic-no-opt-out",
+  "ledger": { "dedup_ref": "ledger:synthetic-check", "net_new": true, "review_ref": "review:synthetic-novelty" },
+  "completeness": {
+    "calibration_passed": true,
+    "transitions_complete": true,
+    "guard_branches_exercised": true,
+    "coverage_saturated": true,
+    "sink_reached": true,
+    "deterministic_shrinking": true,
+    "evidence_ref": "coverage:synthetic-complete"
+  },
+  "candidate_kill_refs": [],
+  "missing_requirement_refs": [],
+  "independent_review": { "confirmed": true, "impact_ref": "review:synthetic-impact", "novelty_ref": "review:synthetic-novelty" }
+}

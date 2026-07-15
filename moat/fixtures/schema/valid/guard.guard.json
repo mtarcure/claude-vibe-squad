@@ -1,0 +1,14 @@
+{
+  "id": "guard:synthetic-route-state",
+  "schema_version": "1.0.0",
+  "before_predicate": "untrusted state may reach the decision",
+  "after_predicate": "trusted provenance is required before the decision",
+  "sources": ["synthetic request metadata"],
+  "barriers": ["trusted provenance marker"],
+  "sinks": ["synthetic protected action"],
+  "scope_callsites": ["module:synthetic-router"],
+  "positive_fixture_ref": "fixture:synthetic-known-bad",
+  "negative_fixture_ref": "fixture:synthetic-fixed",
+  "candidate": { "confidence": 0.8, "location_ref": "location:synthetic-diff" },
+  "review": { "state": "reviewed", "reviewer_ref": "review:independent-human" }
+}

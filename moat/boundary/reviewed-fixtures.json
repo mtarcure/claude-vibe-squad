@@ -1,0 +1,21 @@
+{
+  "content_class": "public-safe",
+  "purpose": "Exact-hash allowlist for synthetic deny and invalid-schema fixtures during whole-tree self-scan only.",
+  "files": [
+    { "path": "fixtures/purity/deny/base64-leak.txt", "sha256": "7dfa21ec6d9376365726256ef2fda3b055e769a2c308d8d6e6af5a79d30d03ad" },
+    { "path": "fixtures/purity/deny/capability-import.mjs", "sha256": "c0d992cd12daaadcaa2742fd10b40acfa15d5916256659be2456abcfb438b78f" },
+    { "path": "fixtures/purity/deny/comment-leak.mjs", "sha256": "4048b9dc7a06c679492e6c243041111ac5cbe117fd6ac973bda7e29fb25a21ee" },
+    { "path": "fixtures/purity/deny/credential.mjs", "sha256": "ade9f8e7c6b0976c5d3d2cb73d08cde32298a6f9f1dff78bf43676bf5c031dde" },
+    { "path": "fixtures/purity/deny/direct-read.mjs", "sha256": "958b26f2fd4ceda6d94a138f12e6a30c004b6acc8401798e5d91757369b242fe" },
+    { "path": "fixtures/purity/deny/fixture-ref.json", "sha256": "130a046b34f0dce5ad0f538b5c996c591b236327070b9ef2ef38bc9ebc22445b" },
+    { "path": "fixtures/purity/deny/forbidden-import.mjs", "sha256": "e1189d9494d66cfee57e606c0e5fe6edcc4769c1416bba15a95888bc13a871a5" },
+    { "path": "fixtures/purity/deny/json-leak.json", "sha256": "2709bec62256f326db6b1d0b8340e28884abb4fedb7987596ee35529aae8b5b4" },
+    { "path": "fixtures/purity/deny/split-literal.mjs", "sha256": "bbf9e22172d75c387b67e405345a69d8276d83ef75c9a3fc48ed0b4d3332e312" },
+    { "path": "fixtures/purity/deny/unicode-leak.mjs", "sha256": "5b898fa99ea0d66404ebf9c9ce6c2b1a62804d5c116be68238a741ee7dc3f1c9" },
+    { "path": "fixtures/purity/deny/yaml-leak.yaml", "sha256": "9c91482f6e7f983df1c20933ef7edb612399dbee67b8cdb566082cacb324820e" },
+    { "path": "fixtures/schema/invalid/guard.guard.json", "sha256": "aee9b264ef564b78dd666b1b6e6ecd9d8ad5da7ecd82cececdd9e0724e0b67d7" },
+    { "path": "fixtures/schema/invalid/invariant.invariant.json", "sha256": "6852201587245d808fd7f5d036cd1aed9e18710f86184893597e88ca215e4e69" },
+    { "path": "fixtures/schema/invalid/verdict.verdict.json", "sha256": "0955c1534f9dd52fbb95b6d719b05badca70d95897e46fb61ad2665bad511497" },
+    { "path": "fixtures/schema/invalid/wave.wave.json", "sha256": "43cd45cf94639d7090b2730c716defd56a295926c34e726f82e8643514f01eab" }
+  ]
+}

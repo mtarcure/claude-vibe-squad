@@ -1,0 +1,22 @@
+{
+  "id": "invariant:synthetic-route-state",
+  "schema_version": "1.0.0",
+  "source_fix_ref": "fix:synthetic-change",
+  "applicability": { "language": "typescript", "version_range": ">=1.0.0" },
+  "confidence": 0.9,
+  "review_state": "reviewed",
+  "trust_boundary": "request-state",
+  "model": {
+    "sources": ["synthetic request metadata"],
+    "barriers": ["trusted provenance marker"],
+    "sinks": ["synthetic protected action"]
+  },
+  "expected_observations": ["oracle records no unauthorized transition"],
+  "detector": { "engine": "semgrep", "rule_ref": "rule:synthetic-routing" },
+  "fixture_refs": {
+    "positive": "fixture:synthetic-known-bad",
+    "negative": "fixture:synthetic-fixed",
+    "content_class": "public-safe"
+  },
+  "dynamic_oracle_ref": "oracle:synthetic-counter"
+}

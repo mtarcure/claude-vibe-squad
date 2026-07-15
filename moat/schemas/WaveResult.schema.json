@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.com/moat/WaveResult.schema.json",
+  "title": "WaveResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "state", "preregistration", "revision_ref", "environment_fingerprint_ref", "attacker", "intrinsic_canary", "reproduction", "controls", "excluded_preconditions_ref", "ledger", "completeness", "candidate_kill_refs", "missing_requirement_refs", "independent_review"],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "state": { "enum": ["PASS", "FAIL", "INCONCLUSIVE"] },
+    "preregistration": {
+      "type": "object", "additionalProperties": false,
+      "required": ["surface_ref", "budget_ref", "configuration_profile_ref", "intrinsic_canary_ref", "coverage_criteria_ref"],
+      "properties": {
+        "surface_ref": { "type": "string", "pattern": "^surface:[A-Za-z0-9._/-]+$" },
+        "budget_ref": { "type": "string", "pattern": "^budget:[A-Za-z0-9._/-]+$" },
+        "configuration_profile_ref": { "type": "string", "pattern": "^config:[A-Za-z0-9._/-]+$" },
+        "intrinsic_canary_ref": { "type": "string", "pattern": "^canary:[A-Za-z0-9._/-]+$" },
+        "coverage_criteria_ref": { "type": "string", "pattern": "^coverage:[A-Za-z0-9._/-]+$" }
+      }
+    },
+    "revision_ref": { "type": "string", "pattern": "^revision:[A-Za-z0-9._/-]+$" },
+    "environment_fingerprint_ref": { "type": "string", "pattern": "^environment:[A-Za-z0-9._/-]+$" },
+    "attacker": {
+      "type": "object", "additionalProperties": false, "required": ["privilege", "request_path_ref"],
+      "properties": { "privilege": { "const": "none" }, "request_path_ref": { "type": "string", "pattern": "^evidence:[A-Za-z0-9._/-]+$" } }
+    },
+    "intrinsic_canary": {
+      "type": "object", "additionalProperties": false, "required": ["class", "observation_ref", "outside_attacker_control"],
+      "properties": {
+        "class": { "enum": ["confidentiality", "integrity", "availability"] },
+        "observation_ref": { "type": "string", "pattern": "^evidence:[A-Za-z0-9._/-]+$" },
+        "outside_attacker_control": { "const": true }
+      }
+    },
+    "reproduction": {
+      "type": "object", "additionalProperties": false, "required": ["successes", "attempts", "fixed_seed_ref"],
+      "properties": {
+        "successes": { "type": "integer", "minimum": 0 },
+        "attempts": { "type": "integer", "minimum": 1 },
+        "fixed_seed_ref": { "type": "string", "pattern": "^replay:[A-Za-z0-9._/-]+$" }
+      }
+    },
+    "controls": {
+      "type": "object", "additionalProperties": false, "required": ["patched_negative_ref", "known_vulnerable_calibration_ref"],
+      "properties": {
+        "patched_negative_ref": { "type": "string", "pattern": "^control:[A-Za-z0-9._/-]+$" },
+        "known_vulnerable_calibration_ref": { "type": "string", "pattern": "^control:[A-Za-z0-9._/-]+$" }
+      }
+    },
+    "excluded_preconditions_ref": { "type": "string", "pattern": "^evidence:[A-Za-z0-9._/-]+$" },
+    "ledger": {
+      "type": "object", "additionalProperties": false, "required": ["dedup_ref", "net_new", "review_ref"],
+      "properties": {
+        "dedup_ref": { "type": "string", "pattern": "^ledger:[A-Za-z0-9._/-]+$" },
+        "net_new": { "type": "boolean" },
+        "review_ref": { "type": "string", "pattern": "^review:[A-Za-z0-9._/-]+$" }
+      }
+    },
+    "completeness": {
+      "type": "object", "additionalProperties": false,
+      "required": ["calibration_passed", "transitions_complete", "guard_branches_exercised", "coverage_saturated", "sink_reached", "deterministic_shrinking", "evidence_ref"],
+      "properties": {
+        "calibration_passed": { "type": "boolean" },
+        "transitions_complete": { "type": "boolean" },
+        "guard_branches_exercised": { "type": "boolean" },
+        "coverage_saturated": { "type": "boolean" },
+        "sink_reached": { "type": "boolean" },
+        "deterministic_shrinking": { "type": "boolean" },
+        "evidence_ref": { "type": "string", "pattern": "^coverage:[A-Za-z0-9._/-]+$" }
+      }
+    },
+    "candidate_kill_refs": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^kill:[A-Za-z0-9._/-]+$" } },
+    "missing_requirement_refs": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^missing:[A-Za-z0-9._/-]+$" } },
+    "independent_review": {
+      "type": "object", "additionalProperties": false, "required": ["confirmed", "impact_ref", "novelty_ref"],
+      "properties": {
+        "confirmed": { "type": "boolean" },
+        "impact_ref": { "type": "string", "pattern": "^review:[A-Za-z0-9._/-]+$" },
+        "novelty_ref": { "type": "string", "pattern": "^review:[A-Za-z0-9._/-]+$" }
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "state": { "const": "PASS" },
+        "ledger": { "properties": { "net_new": { "const": true } } },
+        "independent_review": { "properties": { "confirmed": { "const": true } } },
+        "missing_requirement_refs": { "maxItems": 0 }
+      }
+    },
+    {
+      "properties": {
+        "state": { "const": "FAIL" },
+        "candidate_kill_refs": { "minItems": 1 },
+        "missing_requirement_refs": { "maxItems": 0 },
+        "completeness": {
+          "properties": {
+            "calibration_passed": { "const": true },
+            "transitions_complete": { "const": true },
+            "guard_branches_exercised": { "const": true },
+            "coverage_saturated": { "const": true },
+            "sink_reached": { "const": true },
+            "deterministic_shrinking": { "const": true }
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "state": { "const": "INCONCLUSIVE" },
+        "missing_requirement_refs": { "minItems": 1 }
+      }
+    }
+  ]
+}

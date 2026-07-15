@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0.0",
+  "evidence_level": { "level": "L3", "evidence_ref": "evidence:synthetic-oracle-log" },
+  "terminus": { "class": "code_exec", "evidence_ref": "evidence:synthetic-canary" },
+  "privilege_required": { "level": "none", "path_evidence_ref": "evidence:synthetic-request-path" },
+  "determinism": { "mode": "deterministic", "replay_ref": "replay:synthetic-fixed-seed" },
+  "documented_by_vendor": { "value": false, "source_ref": "ledger:synthetic-public-record" },
+  "net_new": { "value": true, "ledger_ref": "ledger:synthetic-dedup" },
+  "criteria": {
+    "general_bounty_gate": { "decision": "PASS", "evidence_ref": "evidence:synthetic-general-gate" },
+    "wave_criterion": { "decision": "PASS", "evidence_ref": "evidence:synthetic-wave-gate" }
+  },
+  "gate": "PASS",
+  "rationale": "Synthetic example satisfies every evidence-referenced clause."
+}
