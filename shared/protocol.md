@@ -51,6 +51,10 @@ The dispatcher contains a temporary compatibility bridge for older local packets
 selects the mailbox folder. Shared specialists do not have a `departments/shared`
 mailbox; Chrono chooses the mailbox namespace that matches the active workflow.
 
+## Memory Apply Citations
+
+When recalled memory materially informs a task, cite each consumed note by its stable `mem-…` ID in the response (for example, `Memory applied: mem-a1b2c3d4e5f6`) and retain the associated `recall_id`. Close the apply loop with `record_usage(recall_id, note_id, outcome, source_task)`, using `used`, `not_useful`, or `incorrect` to distinguish memory that helped from memory that did not; never copy private note text or sensitive evidence into public packets.
+
 ## Async Rule
 
 Senders do not block on lane-to-lane work. If a response is required, track the task ID and check/surface the outbox result later.

@@ -3,7 +3,7 @@ name: bounty
 version: 1.1
 primary_mode_namespace: security
 status: active
-phases: 11
+phases: 12
 ---
 
 # Mode: Bounty
@@ -25,6 +25,11 @@ For bug bounty and vulnerability research. Chrono owns target selection, safety 
 | 8 | Chain validation | `impact-validator`, `skeptic` |
 | 9 | Report draft | `technical-writer`, `security-analyst` |
 | 10 | Final review | `skeptic`, `vibecoding-check` |
+| 11 | Capture verified findings, KILLs, and process learnings | Chrono direct, contributing specialists |
+
+## Phase 11 — Capture Learnings
+
+After final review, Chrono records through chrono-vault `record`: every verified finding whether submitted or not, each KILL and why that attack class did not pan out, and reusable process learnings. All bounty-derived notes use `sensitivity: restricted` and retain source-task and evidence provenance. Outbox auto-capture already ingests response verdicts as `candidate` notes; this phase deduplicates and curates the important notes, promoting reviewed candidates to `verified` rather than creating parallel memory.
 
 ## Dispatch Notes
 
