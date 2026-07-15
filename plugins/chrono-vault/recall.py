@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from index import FTS_COLUMNS, INDEX_SCHEMA_VERSION
+from query import build_fts_query
 from vaultroot import resolve_vault_root
 
 
@@ -260,8 +261,13 @@ def recall(query: str, filters: dict = None, limit: int = 8) -> dict[str, Any]:
         raise RecallError("query must be a string")
     if not query.strip() or "\x00" in query or len(query) > MAX_QUERY_CHARS:
         return _empty(recall_id, query_error="invalid_fts_query")
-    if _has_unknown_column_selector(query):
+    if (
+        _has_unknown_column_selector(query)
+        or query.strip() == "*"
+        or query.count('"') % 2
+    ):
         return _empty(recall_id, query_error="invalid_fts_query")
+    fts_query = build_fts_query(query)
     validated_limit = _validate_limit(limit)
     structured, statuses = _validate_filters(filters)
     if not statuses:
@@ -278,7 +284,7 @@ def recall(query: str, filters: dict = None, limit: int = 8) -> dict[str, Any]:
             "notes_fts MATCH ?",
             f"m.status IN ({','.join('?' for _ in statuses)})",
         ]
-        parameters: list[Any] = [query, *statuses]
+        parameters: list[Any] = [fts_query, *statuses]
 
         column_filters = {
             "target": "notes_fts.target = ?",
