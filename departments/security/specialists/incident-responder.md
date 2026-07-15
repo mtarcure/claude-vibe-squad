@@ -49,7 +49,7 @@ Defensive incident handling: detection triage, containment, forensics, eradicati
 
 ### Expected MCPs (verify live before use)
 - `chrono-vault` MCP - durable incident record, IOC list, decision log, and post-incident findings (auditable). Never store raw sensitive PII without authorization.
-- `chrono-kg` MCP - correlate indicators against recorded findings/attempts.
+- `chrono-vault` MCP - correlate indicators against recorded findings/attempts.
 - (standard claude-lane surface otherwise: chrono-obsidian, sequential-thinking)
 
 ### Native CLI features (verified, my CLI is `claude`)

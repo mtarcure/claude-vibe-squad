@@ -49,7 +49,7 @@ Detection-as-code: SIEM rules, signatures, analytics, and threat-detection conte
 
 ### Expected MCPs (verify live before use)
 - `chrono-vault` MCP - detection ruleset, coverage matrix, tuning history (FP/FN notes).
-- `chrono-kg` MCP - map rules to TTPs and to incidents seen by `incident-responder`.
+- `chrono-vault` MCP - map rules to TTPs and to incidents seen by `incident-responder`.
 - (standard claude-lane surface otherwise: chrono-obsidian, sequential-thinking)
 
 ### Native CLI features (verified, my CLI is `claude`)

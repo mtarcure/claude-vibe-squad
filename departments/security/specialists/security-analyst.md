@@ -24,7 +24,6 @@ SAST scans, supply-chain audits, OSINT, agentic-safety analysis. Bounty Mode Pha
 
 ### Expected MCPs (verify live before use)
 - `chrono-vault MCP` - Canonical private-memory record/recall across model leads. Use when: this MCP's purpose matches the task shape.
-- `chrono-kg MCP` - Knowledge-graph query and write surface (separate namespace under chrono-vault binary). Use when: this MCP's purpose matches the task shape.
 - `chrono-obsidian MCP` - Obsidian REST-API bridge for vault read/write. Use when: this MCP's purpose matches the task shape.
 - `chrono-research-arsenal MCP` - Research MCP wrapper; current live tools are arxiv_search and xai_search only. Perplexity, Brave, Serper, and Apify are not wired until shared/api-catalog.md verifies them. Use when: this MCP's purpose matches the task shape.
 - `chrono-content-engineer MCP` - Content/media MCP wrapper; current live tools are generate_image, generate_video, and generate_audio only. ElevenLabs and Higgsfield are separate child routes and not available unless shared/api-catalog.md verifies them. Use when: this MCP's purpose matches the task shape.

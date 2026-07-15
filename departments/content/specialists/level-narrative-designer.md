@@ -49,7 +49,7 @@ Level design, narrative and quest/story structure, and level-specific pacing for
 
 ### Expected MCPs (verify live before use)
 - `chrono-vault` MCP - story bible, character/quest graph, pacing curves; reuse across levels.
-- `chrono-kg` MCP - link narrative beats to mechanics and to audio/mood cues (feeds interactive-audio-designer).
+- `chrono-vault` MCP - link narrative beats to mechanics and to audio/mood cues (feeds interactive-audio-designer).
 - (standard claude-lane surface otherwise: chrono-obsidian, sequential-thinking)
 
 ### Native CLI features (verified, my CLI is `claude`)

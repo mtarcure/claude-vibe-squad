@@ -52,7 +52,7 @@ Pipeline director for browser-based games: owns mechanics, player experience, an
 
 ### Expected MCPs (verify live before use)
 - `chrono-vault` MCP - game design docs, experience pillars, economy models, player personas (durable, reused across the pipeline).
-- `chrono-kg` MCP - link mechanics to level/narrative, audio, and asset contracts downstream.
+- `chrono-vault` MCP - link mechanics to level/narrative, audio, and asset contracts downstream.
 - (standard claude-lane surface otherwise: chrono-obsidian, sequential-thinking)
 
 ### Native CLI features (verified, my CLI is `claude`)

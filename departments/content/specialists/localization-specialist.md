@@ -49,7 +49,7 @@ Dialect/idiom translation and cultural adaptation, locale QA, regional-complianc
 
 ### Expected MCPs (verify live before use)
 - `chrono-vault` MCP - terminology memory / glossary, locale style guides, prior adaptations (consistency across jobs).
-- `chrono-kg` MCP - link source terms to per-locale renderings.
+- `chrono-vault` MCP - link source terms to per-locale renderings.
 - (standard claude-lane surface otherwise: chrono-obsidian, sequential-thinking)
 
 ### Native CLI features (verified, my CLI is `claude`)

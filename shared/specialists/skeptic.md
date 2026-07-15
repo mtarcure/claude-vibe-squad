@@ -22,7 +22,7 @@ Epistemic audit + cross-model verification + council-consensus (the absorbed cha
 
 ### Expected MCPs (verify live before use)
 - `chrono-vault` MCP — read the evidence chain / prior verdicts and record the verdict durably (required).
-- `chrono-kg` MCP — check a claim against recorded findings and contradictions in the knowledge graph (required).
+- `chrono-vault` MCP — check a claim against recorded findings and contradictions in the knowledge graph (required).
 - `chrono-research-arsenal` MCP — preferred; independent external corroboration of a factual claim or citation.
 
 ### APIs available (via env)
