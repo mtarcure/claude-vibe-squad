@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { listFiles } from "../adapters/filesystem.mjs";
+import { listFiles, toSystemPath } from "../adapters/filesystem.mjs";
+import { runCommand } from "../adapters/process.mjs";
 import {
   ERROR_CLASSES,
   scanPaths,
@@ -22,6 +23,16 @@ const denied = [
   ["direct-read.mjs", ERROR_CLASSES.DIRECT_PRIVATE_READ],
   ["capability-import.mjs", ERROR_CLASSES.CAPABILITY_IMPORT],
   ["credential.mjs", ERROR_CLASSES.SECRET],
+  ["template-host.mjs", ERROR_CLASSES.EXTERNAL_IDENTIFIER],
+  ["computed-import.mjs", ERROR_CLASSES.CAPABILITY_IMPORT],
+  ["variable-require.mjs", ERROR_CLASSES.CAPABILITY_IMPORT],
+  ["unresolved-require.mjs", ERROR_CLASSES.CAPABILITY_IMPORT],
+  ["create-require.mjs", ERROR_CLASSES.CAPABILITY_IMPORT],
+  ["char-code-import.mjs", ERROR_CLASSES.CAPABILITY_IMPORT],
+  ["ipv6-fetch.mjs", ERROR_CLASSES.EXTERNAL_IDENTIFIER],
+  ["bare-ipv6-fetch.mjs", ERROR_CLASSES.EXTERNAL_IDENTIFIER],
+  ["base64url-target.mjs", ERROR_CLASSES.ENCODED_IDENTIFIER],
+  ["sink-host.mjs", ERROR_CLASSES.EXTERNAL_IDENTIFIER],
 ];
 
 for (const [name, expectedClass] of denied) {
@@ -42,6 +53,10 @@ test("Tier-A passes the legitimate generic-source corpus and records FP rate", a
   const paths = [
     fixture("allow", "generic-constants.mjs"),
     fixture("allow", "protocol-vectors.json"),
+    fixture("allow", "package-metadata.json"),
+    fixture("allow", "public-docs.ts"),
+    fixture("allow", "public-component.tsx"),
+    fixture("allow", "real-world-vectors.json"),
   ];
   const result = await scanPaths(paths, {
     honorReviewedFixtureAllowlist: false,
@@ -54,6 +69,22 @@ test("Tier-A passes the legitimate generic-source corpus and records FP rate", a
   );
   assert.equal(result.ok, true);
   assert.equal(rate, 0);
+});
+
+test("Tier-A staged mode accepts an explicit staged-file list", () => {
+  const cli = toSystemPath(new URL("../boundary/tier-a.mjs", import.meta.url));
+  const allowed = runCommand("node", [cli, "--staged", toSystemPath(fixture("allow", "public-docs.ts"))], {
+    allowExitCodes: [0],
+  });
+  assert.equal(allowed.status, 0);
+
+  const reviewedDeny = runCommand("node", [cli, "--staged", toSystemPath(fixture("deny", "computed-import.mjs"))], {
+    allowExitCodes: [0],
+  });
+  assert.equal(reviewedDeny.status, 0);
+
+  const empty = runCommand("node", [cli, "--staged"], { allowExitCodes: [0] });
+  assert.equal(empty.status, 0);
 });
 
 test("Tier-A passes its own Layer-1 tree with reviewed synthetic fixtures", async () => {

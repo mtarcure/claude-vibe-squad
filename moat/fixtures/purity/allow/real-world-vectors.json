@@ -1,0 +1,12 @@
+{
+  "content_class": "public-safe",
+  "fixture_ref": "fixture:synthetic-real-world-vectors",
+  "base64url_protocol_frame": "Pz8_c3ludGhldGljLXByb3RvY29sLWZyYW1l",
+  "jwt_test_vector": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJzeW50aGV0aWMtdGVzdCJ9.c3ludGhldGljLXNpZ25hdHVyZV8t",
+  "data_uri": "data:text/plain;base64,U3ludGhldGljIHB1YmxpYyBmaXh0dXJl",
+  "source_map_uri": "data:application/json;charset=utf-8,%7B%22version%22%3A3%7D",
+  "large_numeric_array": [0, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987],
+  "css_colors": ["#fff", "#1a2b3c", "#abcdef80"],
+  "uuid": "123e4567-e89b-12d3-a456-426614174000",
+  "git_sha": "0123456789abcdef0123456789abcdef01234567"
+}

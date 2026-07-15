@@ -42,6 +42,10 @@
     "example.net",
     "example.org",
     "host.docker.internal",
+    "github.com",
+    "nodejs.org",
+    "registry.npmjs.org",
+    "developer.mozilla.org",
     "json-schema.org",
     "schemas.example.com"
   ],
@@ -59,5 +63,15 @@
     "198.51.100.0/24",
     "203.0.113.0/24"
   ],
-  "allowed_ipv6": ["::1"]
+  "allowed_ipv6": ["::1"],
+  "synthetic_deny_markers": [
+    "private-engagement.corp"
+  ],
+  "secret_scan_allowlist": [
+    {
+      "path": "fixtures/purity/allow/real-world-vectors.json",
+      "sha256": "3981d2f15883fc73f6905e2c1aaece09a971f104554ef5ddf4cda51d2a924af4",
+      "rule_ids": ["jwt"]
+    }
+  ]
 }

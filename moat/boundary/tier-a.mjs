@@ -9,6 +9,7 @@ import {
 } from "../adapters/filesystem.mjs";
 import { scanSecretsWithGitleaks } from "../adapters/process.mjs";
 import { validateNamed } from "../schema/validate.mjs";
+import { analyzeSource } from "./ast-analysis.mjs";
 
 const MOAT_ROOT = new URL("../", import.meta.url);
 
@@ -22,6 +23,7 @@ export const ERROR_CLASSES = Object.freeze({
   PATH_ROOT: "MOAT_BOUNDARY_PATH_ROOT",
   SCHEMA_INVALID: "MOAT_BOUNDARY_SCHEMA_INVALID",
   SECRET: "MOAT_BOUNDARY_SECRET",
+  SOURCE_PARSE: "MOAT_BOUNDARY_SOURCE_PARSE",
   TOOL_UNAVAILABLE: "MOAT_BOUNDARY_TOOL_UNAVAILABLE",
 });
 
@@ -38,29 +40,11 @@ const finding = (errorClass, file, line, message) => ({ errorClass, file, line, 
 
 const lineForOffset = (text, offset) => text.slice(0, offset).split("\n").length;
 
-function importSpecifiers(text) {
-  const specifiers = [];
-  const expression = /(?:\bimport\s*(?:\([^)]*?\)|[^;\n]*?\sfrom\s*)|\bexport\s+[^;\n]*?\sfrom\s*|\brequire\s*\()\s*["']([^"']+)["']/gu;
-  for (const match of text.matchAll(expression)) specifiers.push({ value: match[1], offset: match.index });
-  return specifiers;
-}
-
 function decodeEscapes(text) {
   return text
     .replace(/\\u\{([0-9a-f]{1,6})\}/giu, (_, hex) => String.fromCodePoint(Number.parseInt(hex, 16)))
     .replace(/\\u([0-9a-f]{4})/giu, (_, hex) => String.fromCodePoint(Number.parseInt(hex, 16)))
     .replace(/\\x([0-9a-f]{2})/giu, (_, hex) => String.fromCodePoint(Number.parseInt(hex, 16)));
-}
-
-function collapseSplitLiterals(text) {
-  let current = text;
-  const expression = /(["'])([^"'\n]*)\1\s*\+\s*(["'])([^"'\n]*)\3/gu;
-  for (let pass = 0; pass < 8; pass += 1) {
-    const next = current.replace(expression, (_, _leftQuote, left, rightQuote, right) => `${rightQuote}${left}${right}${rightQuote}`);
-    if (next === current) break;
-    current = next;
-  }
-  return current;
 }
 
 function entropy(value) {
@@ -88,22 +72,38 @@ function hostAllowed(host, policy) {
   return policy.allowed_host_suffixes.some((suffix) => normalized.endsWith(suffix));
 }
 
+function ipv6Allowed(value, policy) {
+  const normalized = value.toLowerCase().replace(/^\[|\]$/gu, "");
+  if (policy.allowed_ipv6.includes(normalized)) return true;
+  if (!/^[0-9a-f:]+$/u.test(normalized) || !normalized.includes(":")) return true;
+  if ((normalized.match(/::/gu) ?? []).length > 1) return true;
+  const parts = normalized.split(":");
+  const nonempty = parts.filter(Boolean);
+  if (nonempty.some((part) => part.length > 4)) return true;
+  const valid = normalized.includes("::") ? nonempty.length < 8 : nonempty.length === 8;
+  return !valid;
+}
+
 function externalIdentifiers(text, policy) {
   const results = [];
   const seen = new Set();
-  const candidates = [text, decodeEscapes(text), collapseSplitLiterals(decodeEscapes(text))];
+  const candidates = [String(text), decodeEscapes(String(text))];
 
   for (const candidate of candidates) {
-    for (const match of candidate.matchAll(/\bhttps?:\/\/([^\s/"'<>]+)/giu)) {
-      const host = match[1].replace(/:\d+$/u, "");
-      if (!hostAllowed(host, policy)) {
+    const urlRanges = [];
+    for (const match of candidate.matchAll(/\bhttps?:\/\/[^\s"'`<>]+/giu)) {
+      urlRanges.push([match.index, match.index + match[0].length]);
+      let host;
+      try { host = new URL(match[0]).hostname; } catch { host = undefined; }
+      if (host && !hostAllowed(host, policy)) {
         const key = `${match.index}:${host}`;
-        if (!seen.has(key)) results.push({ offset: match.index, kind: "external URL host" });
+        if (!seen.has(key)) results.push({ offset: match.index, kind: host.includes(":") ? "external IPv6 address" : "external URL host" });
         seen.add(key);
       }
     }
 
     for (const match of candidate.matchAll(/\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:com|net|org|io|dev|app|cloud|ai|corp|internal)\b/giu)) {
+      if (urlRanges.some(([start, end]) => match.index >= start && match.index < end)) continue;
       if (!hostAllowed(match[0], policy)) {
         const key = `${match.index}:${match[0]}`;
         if (!seen.has(key)) results.push({ offset: match.index, kind: "external hostname" });
@@ -118,6 +118,15 @@ function externalIdentifiers(text, policy) {
         seen.add(key);
       }
     }
+
+    for (const match of candidate.matchAll(/(?<![0-9a-f:])(?=[0-9a-f:]*:[0-9a-f:]*:)[0-9a-f:]{3,}(?![0-9a-f:])/giu)) {
+      if (urlRanges.some(([start, end]) => match.index >= start && match.index < end)) continue;
+      if (!ipv6Allowed(match[0], policy)) {
+        const key = `${match.index}:${match[0]}`;
+        if (!seen.has(key)) results.push({ offset: match.index, kind: "external IPv6 address" });
+        seen.add(key);
+      }
+    }
   }
 
   return results;
@@ -125,11 +134,15 @@ function externalIdentifiers(text, policy) {
 
 function encodedIdentifiers(text, policy) {
   const results = [];
-  for (const match of text.matchAll(/(?<![A-Za-z0-9+/])[A-Za-z0-9+/]{24,}={0,2}(?![A-Za-z0-9+/])/gu)) {
+  for (const match of text.matchAll(/(?<![A-Za-z0-9+/_-])[A-Za-z0-9+/_-]{24,}={0,2}(?![A-Za-z0-9+/_-])/gu)) {
     try {
-      const decoded = Buffer.from(match[0], "base64").toString("utf8");
+      const decoded = Buffer.from(match[0], "base64url").toString("utf8");
       const printable = [...decoded].filter((character) => character === "\n" || character === "\r" || character === "\t" || (character >= " " && character <= "~")).length;
-      if (decoded.length && printable / decoded.length > 0.9 && externalIdentifiers(decoded, policy).length) {
+      if (
+        decoded.length
+        && printable / decoded.length > 0.9
+        && policy.synthetic_deny_markers.some((marker) => decoded.includes(marker))
+      ) {
         results.push({ offset: match.index });
       }
     } catch {
@@ -161,9 +174,9 @@ function secretOffsets(text) {
   return [...new Set(offsets)];
 }
 
-function inspectStructured(value, file, findings, path = "$") {
+function inspectStructured(value, file, findings, policy, path = "$") {
   if (Array.isArray(value)) {
-    value.forEach((entry, index) => inspectStructured(entry, file, findings, `${path}[${index}]`));
+    value.forEach((entry, index) => inspectStructured(entry, file, findings, policy, `${path}[${index}]`));
     return;
   }
   if (!value || typeof value !== "object") return;
@@ -179,8 +192,24 @@ function inspectStructured(value, file, findings, path = "$") {
         findings.push(finding(ERROR_CLASSES.PATH_ROOT, file, 1, `${childPath} must be a logical external reference`));
       }
     }
-    inspectStructured(child, file, findings, childPath);
+    if (
+      typeof child === "string"
+      && ["endpoint", "fixture_path", "host", "hostname", "path", "target", "target_host", "target_url", "url"].includes(key)
+    ) {
+      for (const item of externalIdentifiers(child, policy)) {
+        findings.push(finding(ERROR_CLASSES.EXTERNAL_IDENTIFIER, file, 1, `${childPath} contains an ${item.kind}`));
+      }
+    }
+    inspectStructured(child, file, findings, policy, childPath);
   }
+}
+
+function syntheticMarkerOffsets(text, policy) {
+  const decoded = decodeEscapes(text);
+  return policy.synthetic_deny_markers.flatMap((marker) => {
+    const offset = decoded.indexOf(marker);
+    return offset < 0 ? [] : [offset];
+  });
 }
 
 async function reviewedFixtureMap() {
@@ -203,11 +232,18 @@ async function scanFile(file, options, policy, allowlist) {
 
   const text = await readText(details.absolute);
   const displayFile = `moat/${details.relative}`;
+  if (details.relative.startsWith("node_modules/")) return [];
   const isSource = sourceExtensions.has(details.extension);
   const inspectionModule = policy.inspection_implementation_modules.includes(details.relative);
 
   if (isSource) {
-    for (const specifier of importSpecifiers(text)) {
+    const analysis = analyzeSource(text, details.basename, {
+      restrictedModules: policy.restricted_node_modules,
+    });
+    for (const parseError of analysis.parseErrors) {
+      findings.push(finding(ERROR_CLASSES.SOURCE_PARSE, displayFile, lineForOffset(text, parseError.offset), parseError.message));
+    }
+    for (const specifier of analysis.imports) {
       if (policy.forbidden_import_fragments.some((fragment) => specifier.value.includes(fragment))) {
         findings.push(finding(ERROR_CLASSES.FORBIDDEN_IMPORT, displayFile, lineForOffset(text, specifier.offset), "forbidden target-data import"));
       }
@@ -215,29 +251,52 @@ async function scanFile(file, options, policy, allowlist) {
         findings.push(finding(ERROR_CLASSES.CAPABILITY_IMPORT, displayFile, lineForOffset(text, specifier.offset), "capability import must be isolated in a declared adapter"));
       }
     }
+    for (const unresolved of analysis.unresolvedImports) {
+      findings.push(finding(ERROR_CLASSES.CAPABILITY_IMPORT, displayFile, lineForOffset(text, unresolved.offset), "dynamic module specifier must resolve to a bounded constant"));
+    }
 
-    const directRootRead = /\bprocess\s*\.\s*env\s*(?:\.\s*CHRONO_BOUNTY_ROOT|\[\s*["']CHRONO_BOUNTY_ROOT["']\s*\])/gu;
     if (!inspectionModule && details.relative !== policy.approved_external_input_adapter) {
-      for (const match of text.matchAll(directRootRead)) {
-        findings.push(finding(ERROR_CLASSES.DIRECT_PRIVATE_READ, displayFile, lineForOffset(text, match.index), "private root access must use the external-input adapter"));
+      for (const offset of analysis.directPrivateReads) {
+        findings.push(finding(ERROR_CLASSES.DIRECT_PRIVATE_READ, displayFile, lineForOffset(text, offset), "private root access must use the external-input adapter"));
+      }
+    }
+
+    for (const flow of analysis.flows) {
+      for (const item of externalIdentifiers(flow.value, policy)) {
+        const errorClass = flow.encoded ? ERROR_CLASSES.ENCODED_IDENTIFIER : ERROR_CLASSES.EXTERNAL_IDENTIFIER;
+        findings.push(finding(errorClass, displayFile, lineForOffset(text, flow.offset), `${item.kind} flows into capability sink ${flow.sink}`));
+      }
+    }
+    for (const constant of analysis.constantValues) {
+      if (policy.synthetic_deny_markers.some((marker) => constant.value.includes(marker))) {
+        findings.push(finding(ERROR_CLASSES.EXTERNAL_IDENTIFIER, displayFile, lineForOffset(text, constant.offset), "synthetic red-team identifier is not public-safe"));
       }
     }
   }
-
-  for (const item of externalIdentifiers(text, policy)) {
-    findings.push(finding(ERROR_CLASSES.EXTERNAL_IDENTIFIER, displayFile, lineForOffset(text, item.offset), `${item.kind} is not public-safe or reserved`));
+  if (details.relative !== "boundary/policy.json") {
+    for (const offset of syntheticMarkerOffsets(text, policy)) {
+      findings.push(finding(ERROR_CLASSES.EXTERNAL_IDENTIFIER, displayFile, lineForOffset(text, offset), "synthetic red-team identifier is not public-safe"));
+    }
   }
   for (const item of encodedIdentifiers(text, policy)) {
     findings.push(finding(ERROR_CLASSES.ENCODED_IDENTIFIER, displayFile, lineForOffset(text, item.offset), "encoded external identifier is not public-safe"));
   }
-  for (const offset of secretOffsets(text)) {
-    findings.push(finding(ERROR_CLASSES.SECRET, displayFile, lineForOffset(text, offset), "credential-shaped or high-entropy material is not allowed"));
+  if (details.basename !== "package-lock.json") {
+    for (const offset of secretOffsets(text)) {
+      findings.push(finding(ERROR_CLASSES.SECRET, displayFile, lineForOffset(text, offset), "credential-shaped or high-entropy material is not allowed"));
+    }
   }
   const establishedSecretScan = scanSecretsWithGitleaks(text);
   if (!establishedSecretScan.available) {
     findings.push(finding(ERROR_CLASSES.TOOL_UNAVAILABLE, displayFile, 1, "gitleaks is required for calibrated secret scanning"));
   } else {
-    for (const item of establishedSecretScan.findings) {
+    const secretAllowance = policy.secret_scan_allowlist?.find((entry) => entry.path === details.relative);
+    const allowedSecretRules = new Set(
+      secretAllowance && await sha256(details.absolute) === secretAllowance.sha256
+        ? secretAllowance.rule_ids
+        : [],
+    );
+    for (const item of establishedSecretScan.findings.filter((item) => !allowedSecretRules.has(item.ruleId))) {
       findings.push(finding(ERROR_CLASSES.SECRET, displayFile, item.line, `gitleaks rule ${item.ruleId} matched redacted material`));
     }
   }
@@ -245,7 +304,7 @@ async function scanFile(file, options, policy, allowlist) {
   if (details.extension === ".json") {
     try {
       const value = JSON.parse(text);
-      inspectStructured(value, displayFile, findings);
+      inspectStructured(value, displayFile, findings, policy);
       const schemaEntry = [...schemaBySuffix].find(([suffix]) => details.basename.endsWith(suffix));
       if (schemaEntry) {
         const errors = await validateNamed(schemaEntry[1], value);
@@ -276,13 +335,17 @@ export function formatFindings(findings) {
 async function main() {
   const args = process.argv.slice(2);
   const selfCheck = args[0] === "--self-check";
-  const requested = selfCheck ? await listFiles(MOAT_ROOT) : args;
+  const staged = args[0] === "--staged";
+  const requested = selfCheck ? await listFiles(MOAT_ROOT) : staged ? args.slice(1) : args;
+  if (staged && !requested.length) return;
   if (!requested.length) {
-    console.error("usage: node boundary/tier-a.mjs [--self-check | <staged-file> ...]");
+    console.error("usage: node boundary/tier-a.mjs [--self-check | --staged <file>... | <file>...]");
     process.exitCode = 2;
     return;
   }
-  const result = await scanPaths(requested, { honorReviewedFixtureAllowlist: selfCheck });
+  const result = await scanPaths(requested, {
+    honorReviewedFixtureAllowlist: selfCheck || staged,
+  });
   if (!result.ok) {
     console.error(formatFindings(result.findings));
     process.exitCode = 1;
