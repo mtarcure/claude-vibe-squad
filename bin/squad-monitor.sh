@@ -28,12 +28,10 @@ STATE_DIR="${VAULT_ROOT}/_state/monitor"
 DISPATCH_LOG="${VAULT_ROOT}/_state/dispatch-log.jsonl"
 SESSION="squad"
 CHRONO_PANE="${SESSION}:chrono"
-NAMESPACES=(coding security content sysmgmt research)
 
 STUCK_THRESHOLD=300    # 5 min in seconds
 STALE_THRESHOLD=1800   # 30 min in seconds
 THRASH_WINDOW=1800     # 30 min in seconds
-THRASH_COUNT=2         # >N dispatches to same lead in window = thrash
 
 # Task-aware stall watchdog (Fix 1 + Fix 2). detect_stuck binds to the packet's
 # to_model executing lane, not the namespace default lead.
@@ -288,7 +286,7 @@ detect_thrash() {
 
     local window_start=$(( now - THRASH_WINDOW ))
 
-    for namespace in "${NAMESPACES[@]}"; do
+    for namespace in "${COMPATIBILITY_NAMESPACES[@]}"; do
         # Collect body hashes for all tasks dispatched to this namespace in window
         local hash_list=""
         while IFS= read -r task_id; do
@@ -388,7 +386,7 @@ fi
 # pending task to its real to_model executing pane (not the namespace default).
 update_lane_hashes
 
-for namespace in "${NAMESPACES[@]}"; do
+for namespace in "${COMPATIBILITY_NAMESPACES[@]}"; do
     archive_completed_inbox "$namespace"
     detect_stuck         "$namespace"
     detect_stale_active  "$namespace"

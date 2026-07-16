@@ -12,6 +12,9 @@
 set -uo pipefail
 
 VAULT_ROOT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
+# VAULT_ROOT is runtime-configurable.
+# shellcheck disable=SC1091
+source "${VAULT_ROOT}/shared/namespaces.sh"
 DATE="$(date -u +%Y-%m-%d)"
 LOG="${VAULT_ROOT}/_state/cleanup-logs/${DATE}-sweep-active.md"
 
@@ -40,7 +43,7 @@ response_exists_anywhere() {
     return 1
 }
 
-for lead in coding security content sysmgmt research; do
+for lead in "${COMPATIBILITY_NAMESPACES[@]}"; do
     active_dir="${VAULT_ROOT}/departments/${lead}/active"
     archive_dir="${VAULT_ROOT}/departments/${lead}/archive"
     mkdir -p "${archive_dir}"

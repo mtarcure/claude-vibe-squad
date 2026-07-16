@@ -18,7 +18,7 @@ source "${VAULT_ROOT}/shared/lead-windows.sh"
 
 if [[ $# -lt 3 ]]; then
     echo "usage: $0 <source-namespace> <body-file> <specialist> [to-model]"
-    echo "  source-namespace: coding | security | content | sysmgmt | research"
+    echo "  source-namespace: ${COMPATIBILITY_NAMESPACES[*]}"
     echo "  body-file: path to markdown file containing task body"
     echo "  specialist: canonical specialist name, or none only when direct_lane_work_allowed is intentionally true"
     exit 1
@@ -35,10 +35,10 @@ if [[ ! -f "${BODY_FILE}" ]]; then
     exit 1
 fi
 
-case "${COMPAT_NAMESPACE}" in
-    coding|security|content|sysmgmt|research) ;;
-    *) echo "ERROR: invalid compatibility namespace: ${COMPAT_NAMESPACE}"; exit 1 ;;
-esac
+if ! is_compatibility_namespace "${COMPAT_NAMESPACE}"; then
+    echo "ERROR: invalid compatibility namespace: ${COMPAT_NAMESPACE}"
+    exit 1
+fi
 
 if [[ -z "${TO_MODEL}" ]]; then
     TO_MODEL="$(namespace_default_model "${COMPAT_NAMESPACE}")"

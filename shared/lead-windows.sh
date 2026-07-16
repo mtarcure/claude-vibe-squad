@@ -5,8 +5,14 @@
 # tmux window and runtime. Do not infer one from the other unless a legacy
 # caller has no task packet to inspect.
 
+# Resolved relative to this sourced helper.
+# shellcheck disable=SC1091
+source "${BASH_SOURCE[0]%/*}/namespaces.sh"
+
 MODEL_LANES=(gpt-codex claude gemini kimi)
-SOURCE_NAMESPACES=(coding security content sysmgmt research)
+# Backward-compatible name for callers that treated source namespaces as
+# mailbox namespaces before the compatibility/source distinction was explicit.
+SOURCE_NAMESPACES=("${COMPATIBILITY_NAMESPACES[@]}")
 
 runtime_window_name() {
     case "$1" in

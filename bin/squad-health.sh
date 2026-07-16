@@ -11,12 +11,15 @@
 set -uo pipefail
 
 VAULT_ROOT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
+# VAULT_ROOT is runtime-configurable.
+# shellcheck disable=SC1091
+source "${VAULT_ROOT}/shared/namespaces.sh"
 
 active=0; pending=0; err=0; throughput=0
 now=$(date +%s)
 hour_ago=$((now - 3600))
 
-for namespace in coding security content sysmgmt research; do
+for namespace in "${COMPATIBILITY_NAMESPACES[@]}"; do
     dept="${VAULT_ROOT}/departments/${namespace}"
     a=$(ls "${dept}/active" 2>/dev/null | grep -v '\.gitkeep' | wc -l | tr -d ' ')
     p=$(ls "${dept}/inbox" 2>/dev/null | grep -v '\.gitkeep' | wc -l | tr -d ' ')

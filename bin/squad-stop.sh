@@ -16,6 +16,9 @@
 set -uo pipefail
 
 VAULT_ROOT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
+# VAULT_ROOT is runtime-configurable.
+# shellcheck disable=SC1091
+source "${VAULT_ROOT}/shared/namespaces.sh"
 SUMMARY_DIR="${VAULT_ROOT}/_state/shutdown-summaries"
 DATESTAMP="$(date -u +%Y-%m-%d-%H%M)"
 SUMMARY_FILE="${SUMMARY_DIR}/${DATESTAMP}-session-end.md"
@@ -72,7 +75,7 @@ if [[ ${chrono_responded} -eq 0 ]]; then
         echo '```'
         echo ""
         echo "## Per-namespace current state"
-        for namespace in coding security content sysmgmt research; do
+        for namespace in "${COMPATIBILITY_NAMESPACES[@]}"; do
             echo ""
             echo "### ${namespace}"
             echo '```markdown'
@@ -88,7 +91,7 @@ if [[ ${chrono_responded} -eq 0 ]]; then
         echo ""
         echo "## In-flight outboxes (today's responses awaiting Chrono surfacing)"
         echo ""
-        for namespace in coding security content sysmgmt research; do
+        for namespace in "${COMPATIBILITY_NAMESPACES[@]}"; do
             today=$(date -u +%Y-%m-%d)
             files=$(ls -1 "${VAULT_ROOT}/departments/${namespace}/outbox/" 2>/dev/null | grep "${today}" || true)
             if [[ -n "${files}" ]]; then

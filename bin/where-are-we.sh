@@ -59,7 +59,7 @@ echo ""
 # Mailbox state by source namespace
 hr
 color '1;33' '## MAILBOX'
-for lead in coding security content sysmgmt research; do
+for lead in "${COMPATIBILITY_NAMESPACES[@]}"; do
     in=$(ls "${VAULT_ROOT}/departments/${lead}/inbox/" 2>/dev/null | grep -v '^\.' | wc -l | tr -d ' ')
     act=$(ls "${VAULT_ROOT}/departments/${lead}/active/" 2>/dev/null | grep -v '^\.' | wc -l | tr -d ' ')
     out=$(ls "${VAULT_ROOT}/departments/${lead}/outbox/" 2>/dev/null | grep -v '^\.' | wc -l | tr -d ' ')
@@ -75,7 +75,7 @@ echo ""
 # Pending replies and contradictions
 hr
 color '1;33' '## RESPONSE DRIFT'
-for lead in coding security content sysmgmt research; do
+for lead in "${COMPATIBILITY_NAMESPACES[@]}"; do
     outbox_dir="${VAULT_ROOT}/departments/${lead}/outbox"
     pending=$(find "${outbox_dir}" -maxdepth 1 -name 'TASK-*-response.md' -type f 2>/dev/null | wc -l | tr -d ' ')
     [[ "${pending}" -gt 0 ]] && color '0;35' "  ${lead}: ${pending} response file(s) awaiting Chrono surfacing"

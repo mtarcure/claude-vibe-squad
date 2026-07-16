@@ -180,7 +180,7 @@ apply_squad_globals
 # Per-pane log dir — pipe-pane writes pane stdout here for grep-able audit
 TMUX_LOG_DIR="${VAULT_ROOT}/_state/tmux-logs"
 mkdir -p "${TMUX_LOG_DIR}"
-for ns in coding security content sysmgmt research; do
+for ns in "${COMPATIBILITY_NAMESPACES[@]}"; do
     mkdir -p "${VAULT_ROOT}/departments/${ns}/inbox" \
              "${VAULT_ROOT}/departments/${ns}/active" \
              "${VAULT_ROOT}/departments/${ns}/outbox" \
@@ -333,7 +333,8 @@ tmux send-keys -t "${SESSION}:${KIMI_WIN}" "${RESEARCH_CMD}" C-m
 WATCHERS_WIN="$(lead_window_name watchers)"
 tmux new-window -t "${SESSION}" -n "${WATCHERS_WIN}" -c "${VAULT_ROOT}"
 tmux pipe-pane -t "${SESSION}:${WATCHERS_WIN}" -o "cat >> ${TMUX_LOG_DIR}/watchers-status.log"
-tmux send-keys -t "${SESSION}:${WATCHERS_WIN}" "export SQUAD_SESSION=${SESSION}; for lead in coding security content sysmgmt research; do bash ${VAULT_ROOT}/bin/inbox-watcher.sh \"\$lead\" & bash ${VAULT_ROOT}/bin/outbox-watcher.sh \"\$lead\" & done; wait" Enter
+WATCHER_NAMESPACES="${COMPATIBILITY_NAMESPACES[*]}"
+tmux send-keys -t "${SESSION}:${WATCHERS_WIN}" "export SQUAD_SESSION=${SESSION}; for lead in ${WATCHER_NAMESPACES}; do bash ${VAULT_ROOT}/bin/inbox-watcher.sh \"\$lead\" & bash ${VAULT_ROOT}/bin/outbox-watcher.sh \"\$lead\" & done; wait" Enter
 
 # Give the model CLIs a moment to initialize so the sidebar's first capture
 # shows their welcome screens instead of empty shells.
@@ -353,7 +354,7 @@ echo "  1: ${GPT_CODEX_WIN}  (GPT/Codex model lead)"
 echo "  2: ${CLAUDE_WIN}     (Claude model lead)"
 echo "  3: ${GEMINI_WIN}     (Gemini model lead)"
 echo "  4: ${KIMI_WIN}       (Kimi model lead)"
-echo "  5: ${WATCHERS_WIN} (10 fswatch processes — inbox + outbox per namespace)"
+echo "  5: ${WATCHERS_WIN} ($((${#COMPATIBILITY_NAMESPACES[@]} * 2)) fswatch processes — inbox + outbox per namespace)"
 echo ""
 echo "Each window auto-started its CLI. Switch with Ctrl-b + <num>."
 echo "Chrono window has a 4-lane sidebar. Toggle off: bin/sidebar-off.sh"
