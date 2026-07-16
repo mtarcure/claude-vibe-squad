@@ -64,7 +64,8 @@ The lane derives `<id>` from the packet's `id` field and `<compatibility_namespa
 
 Envelope schema — frontmatter, then a summary body whose first paragraph the reconciler surfaces:
 
-```
+```markdown
+---
 id: <id>-response
 in_response_to: <id>
 from: gpt-codex | claude | gemini | kimi
@@ -72,6 +73,9 @@ to: chrono
 type: RESULT
 status: complete | needs_review | blocked
 return_artifact: <the return_artifact path>
+---
+
+One-paragraph summary of what you did (the reconciler surfaces this first paragraph).
 ```
 
 The reconciler keys on the `<id>-response.md` filename and reads `status` (canonicalizing `completed`→`complete`) plus the summary body; the other fields are provenance it tolerates. Use `needs_review` when the packet sets `mandatory_review: true`, and `blocked` if the work could not be finished. **Panel/fan-out members never write the envelope — the coordinator is the sole outbox writer for the parent task.**
