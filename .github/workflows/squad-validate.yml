@@ -115,3 +115,21 @@ jobs:
             exit 1
           fi
           echo "OK: no blocked private/runtime files tracked."
+
+  moat-boundary:
+    name: Moat Tier-A boundary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install moat boundary deps
+        run: npm ci --prefix moat
+      # Data-free public Layer-1 scan. --self-check validates the WHOLE moat/
+      # Layer-1 tree (capabilities, provenance, schemas, calibrated secrets), so
+      # it inherently covers any moat/-touching change. No user-controlled input
+      # in this run: block — safe from injection. Tier-B stays private (denylist,
+      # pre-push/CI only) and is intentionally NOT wired here.
+      - name: Tier-A boundary self-check
+        run: node moat/boundary/tier-a.mjs --self-check

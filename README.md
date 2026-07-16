@@ -60,9 +60,9 @@ The offensive-security research toolkit (in [`moat/`](moat/README.md)) is a publ
 - JavaScript/TypeScript AST boundary scanning and a private exact-denylist scanner;
 - patch/diff ingestion with human-reviewed invariant annotations;
 - a vulnerable/patched synthetic twin with property-state fuzzing, coverage, controls, and structured `PASS / FAIL / INCONCLUSIVE` results;
-- a separate hardened Docker runner with no network, a read-only root, a non-root user, resource limits, and negative egress canaries.
+- a hardened Docker runner with no network, a read-only root, a non-root user, resource limits, and negative egress canaries.
 
-These are real, tested components with explicit boundaries. The synthetic wave currently runs in-process and is not integrated with the container runner; the toolkit is not an end-to-end real-deployment exploit engine. Hook and CI wiring for all boundary scanners is also not fully deployed.
+These are real, tested components with explicit boundaries. The synthetic wave now runs **end-to-end inside the hardened Docker runner**: a mandatory pre-flight canary must confirm the loopback control reachable while every external class (IPv4/IPv6/DNS/proxy/host-gateway/TCP-TLS) is blocked, or the run aborts — no canary, no execution — and the data-free Tier-A boundary scanner is wired into both the pre-commit hook and CI. **By design it stays a synthetic impact engine, not a real-deployment exploit engine**: real targets remain Layer-2 private, so the toolkit proves or refutes impact against a known-vulnerable/patched twin. That scope is intentional, not a gap. (A clearly-labeled non-isolated in-process mode remains for fast local iteration.)
 
 ---
 

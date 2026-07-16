@@ -115,6 +115,23 @@ function assertSpec(spec) {
     || spec.command.some((part) => typeof part !== "string")) {
     throw new TypeError("target command must be a non-empty string array");
   }
+  // Optional read-only source mounts (profile.hardening.mounts.source = "read-only").
+  // Mounts are the ONLY way to make target code available inside the isolated
+  // container; they are constrained read-only so they cannot weaken isolation.
+  if (spec.mounts !== undefined) {
+    if (!Array.isArray(spec.mounts)) throw new TypeError("spec.mounts must be an array");
+    for (const mount of spec.mounts) {
+      if (typeof mount?.source !== "string" || !mount.source.startsWith("/")
+        || typeof mount?.target !== "string" || !mount.target.startsWith("/")) {
+        throw new TypeError("each mount requires an absolute string source and target");
+      }
+      if (mount.readOnly === false) throw new TypeError("isolation mounts are read-only");
+    }
+  }
+  if (spec.workdir !== undefined
+    && (typeof spec.workdir !== "string" || !spec.workdir.startsWith("/"))) {
+    throw new TypeError("spec.workdir must be an absolute path");
+  }
 }
 
 const REQUIRED_CANARY_CLASSES = Object.freeze([
@@ -154,8 +171,14 @@ function canaryPassed(canary, canarySuite) {
   });
 }
 
-function containerArguments({ image, name }, profile) {
+function containerArguments({ image, name, mounts = [], workdir }, profile) {
   const limits = profile.hardening.resource_limits;
+  // Additive, read-only-only mount + workdir args. These never relax any
+  // hardening flag below; every bind mount is forced `readonly`.
+  const mountArgs = mounts.flatMap(({ source, target }) => [
+    "--mount", `type=bind,src=${source},dst=${target},readonly`,
+  ]);
+  const workdirArgs = workdir ? ["--workdir", workdir] : [];
   return [
     "run",
     "--detach",
@@ -176,6 +199,8 @@ function containerArguments({ image, name }, profile) {
     "--env", "HTTPS_PROXY=",
     "--env", "ALL_PROXY=",
     "--env", "NO_PROXY=",
+    ...mountArgs,
+    ...workdirArgs,
     "--entrypoint", "sh",
     image,
     "-c", "while :; do sleep 3600; done",
