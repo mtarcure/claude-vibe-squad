@@ -8,7 +8,7 @@ ACTIVITY_ROOT="${PANEL_ACTIVITY_DIR:-${VAULT_ROOT}/_state/runtime/lane-activity}
 usage() {
     cat >&2 <<'EOF'
 Usage:
-  panel-activity.sh create --task-id ID --lane claude|gpt-codex --coordinator NAME --members a,b [--ttl SECONDS]
+  panel-activity.sh create --task-id ID --lane claude|gpt-codex --coordinator NAME --members a,b [--fanout] [--ttl SECONDS]
   panel-activity.sh update --task-id ID --member NAME --state running|done|failed|refused|timed_out [--detail TEXT]
   panel-activity.sh poll --task-id ID --quorum all|N --timeout SECONDS
   panel-activity.sh close --task-id ID --state done|failed|timed_out [--detail TEXT]
@@ -60,6 +60,7 @@ create.add_argument("--task-id", required=True)
 create.add_argument("--lane", required=True, choices=("claude", "gpt-codex"))
 create.add_argument("--coordinator", required=True)
 create.add_argument("--members", required=True)
+create.add_argument("--fanout", action="store_true")
 create.add_argument("--ttl", type=positive_int, default=300)
 
 update = sub.add_parser("update")
@@ -129,14 +130,17 @@ def atomic_write(path: Path, data: dict) -> None:
 now = int(time.time())
 
 if args.command == "create":
+    panel_mode = "fanout" if args.fanout else "review"
     validate_task_id(args.task_id)
     if not name_re.fullmatch(args.coordinator):
         raise SystemExit(f"invalid coordinator: {args.coordinator}")
     members = [item.strip() for item in args.members.split(",") if item.strip()]
     if not 2 <= len(members) <= 3:
         raise SystemExit("panel-v1 requires 2-3 members")
-    if len(set(members)) != len(members):
+    if panel_mode == "review" and len(set(members)) != len(members):
         raise SystemExit("panel members must be unique")
+    if panel_mode == "fanout" and len(set(members)) != 1:
+        raise SystemExit("fan-out members must name the same specialist")
     invalid = [member for member in members if not name_re.fullmatch(member)]
     if invalid:
         raise SystemExit(f"invalid panel members: {','.join(invalid)}")
@@ -149,14 +153,20 @@ if args.command == "create":
         "panel_id": "PANEL-" + args.task_id.removeprefix("TASK-"),
         "lane": args.lane,
         "dispatch_kind": "panel",
+        "panel_mode": panel_mode,
         "coordinator": args.coordinator,
         "state": "running",
         "started_at_epoch": now,
         "updated_at_epoch": now,
         "stale_ttl_seconds": args.ttl,
         "members": [
-            {"specialist": member, "state": "queued", "queued_at_epoch": now}
-            for member in members
+            {
+                "member_id": member if panel_mode == "review" else f"member-{index}",
+                "specialist": member,
+                "state": "queued",
+                "queued_at_epoch": now,
+            }
+            for index, member in enumerate(members, start=1)
         ],
     }
     atomic_write(path, data)
@@ -165,7 +175,7 @@ if args.command == "create":
 elif args.command == "update":
     path = active_path(args.task_id)
     data = load(path)
-    target = next((item for item in data["members"] if item["specialist"] == args.member), None)
+    target = next((item for item in data["members"] if item.get("member_id", item["specialist"]) == args.member), None)
     if target is None:
         raise SystemExit(f"member not found: {args.member}")
     previous = target["state"]
@@ -247,7 +257,7 @@ elif args.command == "poll":
                 member["detail"] = (
                     "panel collection closed after usable quorum was met"
                 )
-                timed_out.append(member["specialist"])
+                timed_out.append(member.get("member_id", member["specialist"]))
         if timed_out:
             data["updated_at_epoch"] = now
             data["collection_outcome"] = outcome
@@ -263,7 +273,7 @@ elif args.command == "poll":
                 member["detail"] = (
                     f"panel collection deadline expired after {args.timeout} seconds"
                 )
-                timed_out.append(member["specialist"])
+                timed_out.append(member.get("member_id", member["specialist"]))
         data["updated_at_epoch"] = now
         data["collection_outcome"] = outcome
         data["deadline_reached_at_epoch"] = wall_now
@@ -277,7 +287,7 @@ elif args.command == "poll":
         atomic_write(path, data)
 
     pending = [
-        member["specialist"]
+        member.get("member_id", member["specialist"])
         for member in members
         if member.get("state") in {"queued", "running"}
     ]

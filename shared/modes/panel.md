@@ -14,9 +14,26 @@ bin/send-task.sh <task-file> \
 
 Without `--panel`, `bin/send-task.sh` preserves the existing dispatch path.
 
+## Fan-out mode
+
+Fan-out is an opt-in panel variant for running the same specialist against different sub-tasks:
+
+```bash
+bin/send-task.sh <task-file> \
+  --panel summarizer,summarizer \
+  --fanout \
+  --panel-assignment "Summarize the API behavior." \
+  --panel-assignment "Summarize the persistence behavior." \
+  --panel-quorum all \
+  --panel-timeout 900
+```
+
+Each repeatable `--panel-assignment` maps by position to one `--panel` member. Fan-out requires every member to name the same specialist, exactly one non-empty single-line assignment per member, and distinct normalized assignments. Duplicate specialists are allowed only with `--fanout`; an ordinary review panel continues to reject them. Fan-out is not a review panel: it partitions work across instances of a specialist, while a review panel seeks diverse specialist judgments over a shared objective.
+
 ## Scope and limits
 
-- Supported lanes: `claude`, `gpt-codex`.
+- Review-panel lanes: `claude`, `gpt-codex`.
+- Fan-out is enabled on `claude`. It is gated on `gpt-codex` until a live test proves all three properties together: concurrent native subagent execution, inherited MCP availability inside each child, and correctly attributed structured parent-message returns. Passing that proof requires a reviewed code/config change to remove the dispatcher gate; there is no environment-variable bypass. Gemini and Kimi fan-out remain disabled because their subagents have verified MCP-loss gaps.
 - Member count: two or three. The coordinator consumes the fourth thread.
 - Nested panels are prohibited.
 - One panel is one parent task, one failover attempt, and one canonical artifact.
@@ -30,7 +47,9 @@ The dispatcher injects these fields into its working copy only:
 ```yaml
 dispatch_kind: panel
 panel_id: PANEL-<task-id-suffix>
+panel_mode: review # review | fanout
 panel_members: [code-reviewer, test-engineer]
+panel_member_ids: [code-reviewer, test-engineer]
 panel_policy: evidence-synthesis
 panel_quorum: all
 panel_timeout_seconds: 900
@@ -39,7 +58,7 @@ panel_return_contract: lane-native-v1
 panel_member_write_scope: []
 ```
 
-Per-member assignments are appended to the body. The original task file is not rewritten.
+Per-member assignments are appended to the body. In fan-out mode, deterministic IDs (`member-1`, `member-2`, and optionally `member-3`) distinguish repeated specialists in activity records, scratch paths, returns, and aggregation. The original task file is not rewritten.
 
 ## Invariants
 
@@ -51,16 +70,17 @@ Per-member assignments are appended to the body. The original task file is not r
 6. Failover observes only the parent task. Children do not create attempts or publish artifacts.
 7. Activity state has one writer: the coordinator.
 8. Member collection is a bounded poll loop. No lane-native receive, shell command, sleep, or helper call may wait without an explicit timeout shorter than the remaining panel deadline.
+9. Ordinary review panels require unique specialists. Fan-out alone permits duplicates, and every fan-out instance has one distinct assignment and member ID.
 
 ## Coordinator lifecycle
 
 The coordinator must implement this lifecycle in a finally-safe control flow:
 
 1. **Validate** the member roster, adapters, lane, concurrency budget, member write scope, quorum, timeout, return artifact, and result schema.
-2. **Create activity** with `bin/panel-activity.sh create`; every member begins `queued`.
+2. **Create activity** with `bin/panel-activity.sh create`; add `--fanout` for fan-out packets. Every member begins `queued`. Activity updates use the injected `member-N` IDs in fan-out mode, not the duplicated specialist name.
 3. **Spawn all members** before waiting. Transition each successfully spawned member to `running`.
 4. **Collect lane-native returns** and normalize them:
-   - Claude: coordinator-pull plus deterministic `_state/scratch/<task-id>/<member>.md` file return is required. Claude auto-return is not assumed.
+   - Claude: coordinator-pull plus deterministic `_state/scratch/<task-id>/<member-id>.md` file return is required. Claude auto-return is not assumed.
    - Codex: native parent-message return is primary. A scratch file is optional for oversized results when the packet grants that scope.
 5. **Update activity** for `done`, `failed`, `refused`, or `timed_out` members.
 6. **Run the mechanical bounded collection loop.** The coordinator must not perform a blocking receive. On every iteration it drains only lane-native returns that are already available, normalizes them, updates activity, and then invokes exactly one non-blocking check:
@@ -86,9 +106,10 @@ For any panel whose deliverable is code, include `vibecoding-check` among the me
 
 ## Member result schema
 
-Every lane adapter normalizes to this object:
+Every lane adapter normalizes to this object. `member_id` is mandatory; it is the activity update/poll attribution key and prevents repeated fan-out specialists from overwriting one another:
 
 ```yaml
+member_id: code-reviewer # member-N in fan-out mode
 specialist: code-reviewer
 status: completed # completed | failed | refused | timed_out
 summary: Bounded summary of this member's work.
@@ -132,7 +153,7 @@ Active records live at:
 _state/runtime/lane-activity/<task-id>.json
 ```
 
-`bin/panel-activity.sh` performs atomic same-directory temporary-write plus rename updates. Records contain the parent task/lane/coordinator state, timestamps, TTL, member transitions, and (after the first `poll`) the monotonic collection start/deadline. `poll` is a single non-blocking quorum/deadline check; it never sleeps or collects lane-native returns. `close` moves a terminal record into the `archive/` child directory. `sweep-stale` marks abandoned running records `stale` and running/queued members `timed_out`.
+`bin/panel-activity.sh` performs atomic same-directory temporary-write plus rename updates. Records contain the parent task/lane/coordinator state, panel mode, timestamps, TTL, member IDs, specialist names, member transitions, and (after the first `poll`) the monotonic collection start/deadline. `create --fanout` accepts repeated specialist names and assigns positional `member-N` IDs; default `create` preserves unique-name validation and uses the specialist name as its member ID. `poll` is a single non-blocking quorum/deadline check; it never sleeps or collects lane-native returns. `close` moves a terminal record into the `archive/` child directory. `sweep-stale` marks abandoned running records `stale` and running/queued members `timed_out`.
 
 The future status UI is a read-only projection of these records; it must never become the activity source of truth.
 

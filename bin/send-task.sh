@@ -11,6 +11,7 @@
 #   bin/send-task.sh <task-file> [--nudge-pane <tmux-target>] [--dry-run]
 #       [--panel a,b,c] [--panel-policy evidence-synthesis]
 #       [--panel-quorum all|N] [--panel-timeout SECONDS]
+#       [--fanout --panel-assignment TEXT --panel-assignment TEXT]
 #   bin/send-task.sh --close-task <TASK-ID>  # evidence-gated reconciliation
 #
 # Required frontmatter in task file:
@@ -164,6 +165,8 @@ PANEL_MEMBERS_RAW=""
 PANEL_POLICY="evidence-synthesis"
 PANEL_QUORUM="all"
 PANEL_TIMEOUT_SECONDS="900"
+FANOUT_ENABLED=false
+declare -a PANEL_ASSIGNMENTS=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -173,18 +176,24 @@ while [[ $# -gt 0 ]]; do
         --panel-policy) PANEL_POLICY="$2"; shift 2 ;;
         --panel-quorum) PANEL_QUORUM="$2"; shift 2 ;;
         --panel-timeout) PANEL_TIMEOUT_SECONDS="$2"; shift 2 ;;
+        --fanout) FANOUT_ENABLED=true; shift ;;
+        --panel-assignment) PANEL_ASSIGNMENTS+=("$2"); shift 2 ;;
         --dry-run)    DRY_RUN=true; shift ;;
         *)            TASK_FILE="$1"; shift ;;
     esac
 done
 
-[[ -z "$TASK_FILE" ]] && die "Usage: $0 <task-file> [--nudge-pane <target>] [--dry-run] [--panel a,b,c] [--panel-policy evidence-synthesis] [--panel-quorum all|N] [--panel-timeout SECONDS]"
+[[ -z "$TASK_FILE" ]] && die "Usage: $0 <task-file> [--nudge-pane <target>] [--dry-run] [--panel a,b,c] [--panel-policy evidence-synthesis] [--panel-quorum all|N] [--panel-timeout SECONDS] [--fanout --panel-assignment TEXT ...]"
 [[ -f "$TASK_FILE" ]] || die "Task file not found: $TASK_FILE"
 
 if ! $PANEL_ENABLED; then
     [[ "$PANEL_POLICY" == "evidence-synthesis" ]] || die "--panel-policy requires --panel"
     [[ "$PANEL_QUORUM" == "all" ]] || die "--panel-quorum requires --panel"
     [[ "$PANEL_TIMEOUT_SECONDS" == "900" ]] || die "--panel-timeout requires --panel"
+    ! $FANOUT_ENABLED || die "--fanout requires --panel"
+    (( ${#PANEL_ASSIGNMENTS[@]} == 0 )) || die "--panel-assignment requires --panel and --fanout"
+elif ! $FANOUT_ENABLED && (( ${#PANEL_ASSIGNMENTS[@]} > 0 )); then
+    die "--panel-assignment requires --fanout"
 fi
 
 # ── read task metadata ────────────────────────────────────────────────────────
@@ -280,6 +289,8 @@ fi
 
 PANEL_MEMBERS_CSV=""
 PANEL_MEMBERS_YAML="[]"
+PANEL_MEMBER_IDS_CSV=""
+PANEL_MEMBER_IDS_YAML="[]"
 PANEL_COUNT=0
 if $PANEL_ENABLED; then
     [[ "$TO_MODEL" == "claude" || "$TO_MODEL" == "gpt-codex" ]] \
@@ -290,6 +301,13 @@ if $PANEL_ENABLED; then
         || die "panel timeout must be a positive integer, got '${PANEL_TIMEOUT_SECONDS}'"
     (( PANEL_TIMEOUT_SECONDS <= 86400 )) \
         || die "panel timeout exceeds 86400 seconds"
+    if $FANOUT_ENABLED; then
+        if [[ "$TO_MODEL" == "gpt-codex" ]]; then
+            die "fan-out on gpt-codex is gated pending a live proof of concurrent native subagents, MCP inheritance, and structured parent-message return"
+        fi
+        [[ "$TO_MODEL" == "claude" ]] \
+            || die "fan-out supports only the claude lane; gpt-codex is gated and gemini/kimi are disabled"
+    fi
 
     [[ -z "$(frontmatter_field "$TASK_FILE" "dispatch_kind")" ]] \
         || die "task already contains dispatch_kind; do not combine a pre-panelized packet with --panel"
@@ -303,7 +321,7 @@ if $PANEL_ENABLED; then
             || die "invalid panel member '${raw_member}'"
         if (( PANEL_COUNT > 0 )); then
             for existing_member in "${PANEL_MEMBERS[@]}"; do
-                [[ "$existing_member" != "$member" ]] \
+                $FANOUT_ENABLED || [[ "$existing_member" != "$member" ]] \
                     || die "duplicate panel member '${member}'"
             done
         fi
@@ -312,6 +330,33 @@ if $PANEL_ENABLED; then
     done
     (( PANEL_COUNT >= 2 && PANEL_COUNT <= 3 )) \
         || die "panel-v1 requires 2-3 members (3 members + coordinator = 4-thread cap), got ${PANEL_COUNT}"
+
+    declare -a PANEL_MEMBER_IDS=()
+    if $FANOUT_ENABLED; then
+        for member in "${PANEL_MEMBERS[@]}"; do
+            [[ "$member" == "${PANEL_MEMBERS[0]}" ]] \
+                || die "fan-out requires every panel member to name the same specialist"
+        done
+        (( ${#PANEL_ASSIGNMENTS[@]} == PANEL_COUNT )) \
+            || die "fan-out requires one non-empty --panel-assignment per member: got ${#PANEL_ASSIGNMENTS[@]} for ${PANEL_COUNT}"
+        declare -a NORMALIZED_ASSIGNMENTS=()
+        for (( assignment_index=0; assignment_index<PANEL_COUNT; assignment_index++ )); do
+            assignment="${PANEL_ASSIGNMENTS[$assignment_index]}"
+            [[ "$assignment" != *$'\n'* && "$assignment" != *$'\r'* ]] \
+                || die "fan-out assignments must be single-line text"
+            normalized_assignment="$(printf '%s' "$assignment" | awk '{$1=$1; print}')"
+            [[ -n "$normalized_assignment" ]] \
+                || die "fan-out assignment $((assignment_index + 1)) is missing"
+            for existing_assignment in "${NORMALIZED_ASSIGNMENTS[@]:-}"; do
+                [[ "$existing_assignment" != "$normalized_assignment" ]] \
+                    || die "fan-out assignments must be distinct; duplicate assignment: '${normalized_assignment}'"
+            done
+            NORMALIZED_ASSIGNMENTS+=("$normalized_assignment")
+            PANEL_MEMBER_IDS+=("member-$((assignment_index + 1))")
+        done
+    else
+        PANEL_MEMBER_IDS=("${PANEL_MEMBERS[@]}")
+    fi
 
     if [[ "$PANEL_QUORUM" != "all" ]]; then
         [[ "$PANEL_QUORUM" =~ ^[1-9][0-9]*$ ]] \
@@ -338,6 +383,8 @@ if $PANEL_ENABLED; then
 
     PANEL_MEMBERS_CSV="$(IFS=,; echo "${PANEL_MEMBERS[*]}")"
     PANEL_MEMBERS_YAML="[$(IFS=', '; echo "${PANEL_MEMBERS[*]}")]"
+    PANEL_MEMBER_IDS_CSV="$(IFS=,; echo "${PANEL_MEMBER_IDS[*]}")"
+    PANEL_MEMBER_IDS_YAML="[$(IFS=', '; echo "${PANEL_MEMBER_IDS[*]}")]"
 fi
 
 if [[ "$SPECIALIST" != "none" ]]; then
@@ -395,7 +442,9 @@ if $DRY_RUN; then
     echo "[DRY RUN] per_task_versioning=${PER_TASK_VERSIONING:-false}"
     echo "[DRY RUN] write_scope=${WRITE_SCOPE_RAW:-[]}"
     if $PANEL_ENABLED; then
-        echo "[DRY RUN] dispatch_kind=panel members=${PANEL_MEMBERS_CSV} policy=${PANEL_POLICY} quorum=${PANEL_QUORUM} timeout=${PANEL_TIMEOUT_SECONDS}"
+        PANEL_MODE="review"
+        $FANOUT_ENABLED && PANEL_MODE="fanout"
+        echo "[DRY RUN] dispatch_kind=panel mode=${PANEL_MODE} members=${PANEL_MEMBERS_CSV} member_ids=${PANEL_MEMBER_IDS_CSV} policy=${PANEL_POLICY} quorum=${PANEL_QUORUM} timeout=${PANEL_TIMEOUT_SECONDS} assignments=${#PANEL_ASSIGNMENTS[@]}"
     fi
     exit 2
 fi
@@ -458,9 +507,13 @@ fi
 
 WORKING_COPY=$(mktemp "${TASK_FILE%.md}.XXXXXX.md")
 if $PANEL_ENABLED; then
+    PANEL_MODE="review"
+    $FANOUT_ENABLED && PANEL_MODE="fanout"
     awk \
         -v panel_id="PANEL-${TASK_ID#TASK-}" \
         -v members="$PANEL_MEMBERS_YAML" \
+        -v member_ids="$PANEL_MEMBER_IDS_YAML" \
+        -v panel_mode="$PANEL_MODE" \
         -v policy="$PANEL_POLICY" \
         -v quorum="$PANEL_QUORUM" \
         -v timeout="$PANEL_TIMEOUT_SECONDS" \
@@ -470,7 +523,9 @@ if $PANEL_ENABLED; then
         in_frontmatter && $0 == "---" && !inserted {
             print "dispatch_kind: panel"
             print "panel_id: " panel_id
+            print "panel_mode: " panel_mode
             print "panel_members: " members
+            print "panel_member_ids: " member_ids
             print "panel_policy: " policy
             print "panel_quorum: " quorum
             print "panel_timeout_seconds: " timeout
@@ -494,10 +549,10 @@ if $PANEL_ENABLED; then
 
 This is an opt-in panel dispatch governed by `shared/modes/panel.md`.
 
-1. Validate every named member and create `_state/runtime/lane-activity/<task-id>.json` with `bin/panel-activity.sh create` before spawning.
+1. Validate every named member and create `_state/runtime/lane-activity/<task-id>.json` with `bin/panel-activity.sh create` before spawning; add `--fanout` when `panel_mode: fanout`. Review-panel member IDs are specialist names; fan-out member IDs are the injected `member-N` values and MUST be used for activity updates and result attribution.
 2. Spawn all members in parallel, never serially. Reserve the coordinator as the fourth thread.
 3. Members may use only the packet's read/write scope and MUST NEVER write `departments/*/outbox/` or `_state/failover/staging/`.
-4. Claude requires coordinator-pull plus deterministic `_state/scratch/<task-id>/<member>.md` file return. Codex uses native parent-message return primarily; a scratch file is optional for oversized results.
+4. Claude requires coordinator-pull plus deterministic `_state/scratch/<task-id>/<member-id>.md` file return. Codex uses native parent-message return primarily; a scratch file is optional for oversized results.
 5. Normalize only returns already available to the coordinator; never make a blocking receive. Update activity state on spawn, return, failure, refusal, and timeout.
 6. Run the mandatory bounded collection loop from `shared/modes/panel.md`: drain immediately available returns, then call `timeout 5 bin/panel-activity.sh poll --task-id <id> --quorum <panel_quorum> --timeout <panel_timeout_seconds>` exactly once per iteration. For `outcome: waiting`, use only a bounded short sleep (`timeout 2 sleep 1`) before repeating. Stop immediately on `quorum_met` or `timed_out`. The first poll persists a monotonic deadline; deadline expiry atomically marks every queued/running member `timed_out`. Numeric quorum closure also atomically marks any remaining queued/running members `timed_out` as explicit gaps. Guard the complete shell-side collection phase with `timeout` no greater than `panel_timeout_seconds + 15`, and guard every potentially blocking step with at most two minutes. A late, failed, refused, or timed-out member is a coverage gap and never blocks the outbox.
 7. Aggregate by deterministic collation followed by evidence synthesis. Preserve attribution, unique findings, contradictions, refusals, failures, and limitations. Never majority-vote or fake unanimity.
@@ -506,6 +561,7 @@ This is an opt-in panel dispatch governed by `shared/modes/panel.md`.
 ### Required member-result schema
 
 ```yaml
+member_id: <specialist-name or member-N>
 specialist: <canonical-name>
 status: completed # completed | failed | refused | timed_out
 summary: <bounded summary>
@@ -522,9 +578,15 @@ limitations: []
 
 ### Panel assignments
 PANEL_EOF
-        for member in "${PANEL_MEMBERS[@]}"; do
+        for (( member_index=0; member_index<PANEL_COUNT; member_index++ )); do
+            member="${PANEL_MEMBERS[$member_index]}"
+            member_id="${PANEL_MEMBER_IDS[$member_index]}"
             # shellcheck disable=SC2016  # backticks are intentional literal markdown in the output
-            printf '\n#### %s\n\nApply the canonical `%s` specialist brief to the parent objective. Return only the required member-result schema to the coordinator.\n' "$member" "$member"
+            if $FANOUT_ENABLED; then
+                printf '\n#### %s (%s)\n\nAssignment: %s\n\nApply the canonical `%s` specialist brief only to this assignment. Return only the required member-result schema to the coordinator, with `member_id: %s`.\n' "$member_id" "$member" "${PANEL_ASSIGNMENTS[$member_index]}" "$member" "$member_id"
+            else
+                printf '\n#### %s\n\nApply the canonical `%s` specialist brief to the parent objective. Return only the required member-result schema to the coordinator, with `member_id: %s`.\n' "$member" "$member" "$member_id"
+            fi
         done
     } >> "$WORKING_COPY"
 else
@@ -655,6 +717,8 @@ entry = {
     "status": "in-flight",
     "dispatch_kind": "panel" if "${PANEL_ENABLED}" == "true" else "single",
     "panel_members": [m for m in "${PANEL_MEMBERS_CSV}".split(",") if m],
+    "panel_member_ids": [m for m in "${PANEL_MEMBER_IDS_CSV}".split(",") if m],
+    "panel_mode": ("fanout" if "${FANOUT_ENABLED}" == "true" else "review") if "${PANEL_ENABLED}" == "true" else "single",
 }
 print(json.dumps(entry, separators=(",", ":")))
 PYEOF
