@@ -17,7 +17,7 @@
 #   id: TASK-YYYY-MM-DD-HHMM-<hash>
 #   to_model: gpt-codex | claude | gemini | kimi
 #   specialist: <canonical specialist>
-#   source_namespace: coding | security | content | sysmgmt | research | shared
+#   source_namespace: coding | security | content | content-engineer | sysmgmt | research | shared
 #
 # Optional frontmatter:
 #   write_scope: [path1, path2]     — conflict-checked against active tasks
@@ -262,7 +262,7 @@ case "$REVIEW_MODEL" in
     *) die "invalid review_model '${REVIEW_MODEL}'. Expected gpt-codex|claude|gemini|kimi|none." ;;
 esac
 case "$SOURCE_NAMESPACE" in
-    coding|security|content|sysmgmt|research|shared|chrono) ;;
+    coding|security|content|content-engineer|sysmgmt|research|shared|chrono) ;;
     *) die "invalid source_namespace '${SOURCE_NAMESPACE}'." ;;
 esac
 case "$MANDATORY_REVIEW" in
