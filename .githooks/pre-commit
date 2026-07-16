@@ -1,0 +1,107 @@
+#!/bin/bash
+# .githooks/pre-commit — tracked squad pre-commit hook (opt-in).
+#
+# Unlike .git/hooks/pre-commit (local, never reaches clones), this hook is
+# tracked. Enable it once per clone with:
+#
+#   git config core.hooksPath .githooks
+#
+# See docs/git-hooks.md. It runs, in order:
+#   1. specialist validation (only when specialist files are staged)
+#   2. fast format checks (warnings only, non-blocking)
+#   3. moat Tier-A boundary check (only when moat/ files are staged; blocking)
+#
+# The retired Spec-1.5 auto-snapshot check is intentionally NOT present here:
+# current dispatch deliberately leaves git untouched, so a hook that demanded an
+# "auto-snapshot" string would contradict the shipped design. Do not reintroduce it.
+
+set -uo pipefail
+export PATH="${HOME}/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:${PATH}"
+
+VAULT_ROOT="$(git rev-parse --show-toplevel)"
+cd "${VAULT_ROOT}" || exit 1
+CHANGED_FILES=$(git diff --cached --name-only)
+
+# ── specialist validation ─────────────────────────────────────────────────────
+# Only run if any specialist file changed. Fast — reads files, no network.
+
+SPECIALIST_CHANGED=false
+while IFS= read -r f; do
+    if [[ "$f" == departments/*/specialists/*.md || "$f" == shared/specialists/*.md || "$f" == .claude/agents/*.md ]]; then
+        SPECIALIST_CHANGED=true
+        break
+    fi
+done <<< "$CHANGED_FILES"
+
+if $SPECIALIST_CHANGED; then
+    echo "[pre-commit] Specialist files changed — running validate-specialists.sh"
+    if ! bash "${VAULT_ROOT}/bin/validate-specialists.sh" --quiet; then
+        echo "[pre-commit] BLOCKED: specialist validation failed."
+        echo "  Run 'bash bin/validate-specialists.sh' for details."
+        exit 1
+    fi
+fi
+
+# ── format checks ─────────────────────────────────────────────────────────────
+# Fast, deterministic, no network. Warnings only (do not block dev flow).
+
+FORMAT_FAIL=false
+
+while IFS= read -r f; do
+    [[ -f "${VAULT_ROOT}/${f}" ]] || continue
+    case "$f" in
+        *.sh)
+            # Check for missing set -e or set -uo pipefail (common squad pattern)
+            if ! grep -q 'set -' "${VAULT_ROOT}/${f}" 2>/dev/null; then
+                echo "[pre-commit] WARN: ${f} has no 'set -' safety flags"
+                FORMAT_FAIL=true
+            fi
+            ;;
+        departments/*/inbox/TASK-*.md|departments/*/outbox/TASK-*.md)
+            # Task files must have required frontmatter fields
+            for field in id to_lead type status; do
+                if ! grep -q "^${field}:" "${VAULT_ROOT}/${f}"; then
+                    echo "[pre-commit] WARN: ${f} missing frontmatter field: ${field}"
+                    FORMAT_FAIL=true
+                fi
+            done
+            ;;
+        shared/dispatch-toolkit.sh)
+            # Must contain the no-delete rule marker (Spec 1.5 item 4)
+            if ! grep -q 'spec-1.5-no-delete-rule' "${VAULT_ROOT}/${f}"; then
+                echo "[pre-commit] WARN: dispatch-toolkit.sh missing no-delete rule block"
+                FORMAT_FAIL=true
+            fi
+            ;;
+    esac
+done <<< "$CHANGED_FILES"
+
+if $FORMAT_FAIL; then
+    echo "[pre-commit] Format check warnings found. Commit proceeds (warnings only)."
+    # Note: format issues are warnings, not blockers, to avoid slowing dev flow.
+    # Promote to exit 1 once squad has zero warnings on a clean audit.
+fi
+
+# ── moat Tier-A boundary check ────────────────────────────────────────────────
+# Public, data-free Layer-1 leak-boundary scan (moat/boundary/README.md). Only
+# fires when this commit stages files under moat/, so non-moat commits are a
+# no-op. Blocks (exit 1) on failure. Fails OPEN with a note — never blocks a
+# clone that simply lacks node or the scanner — because it is a defense-in-depth
+# public check, not the sole gate.
+
+if git diff --cached --name-only --diff-filter=ACMR -- moat/ | grep -q .; then
+    if command -v node >/dev/null 2>&1 && [[ -f moat/boundary/tier-a.mjs ]]; then
+        echo "[pre-commit] Staged moat/ files — running Tier-A boundary check"
+        if ! git diff --cached --name-only -z --diff-filter=ACMR -- moat/ \
+            | xargs -0 node moat/boundary/tier-a.mjs --staged; then
+            echo "[pre-commit] BLOCKED: moat Tier-A boundary check failed."
+            echo "  Inspect the reported files/lines; run 'node moat/boundary/tier-a.mjs --self-check' to sanity-check the scanner."
+            exit 1
+        fi
+    else
+        echo "[pre-commit] NOTE: staged moat/ files but 'node' or moat/boundary/tier-a.mjs is unavailable; skipping Tier-A."
+        echo "  Install deps with 'npm ci --prefix moat' and ensure node is on PATH to enable this check."
+    fi
+fi
+
+exit 0
