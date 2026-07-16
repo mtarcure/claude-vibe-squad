@@ -37,7 +37,7 @@ Every specialist row carries a full chain, resolved from the profile registry:
 | codex | `gpt-5.6-sol` (high) | `gpt-5.6-sol` Ultra/max | implementation · tests · PoC · code review mechanics · graphics/runtime |
 | claude | `claude-fable-5` (xhigh) | `claude-fable-5` max | judgment · planning · safety/security reasoning · security defense · research/synthesis/long-context · developmental content · game/level/audio design |
 | gemini | `gemini-3.5-flash` | `gemini-3.1-pro-preview` (deep) | content/text · design · media/multimodal · search grounding |
-| kimi | `kimi-k2.7-code` | cross-family (Fable/Sol) | **throughput-only lane — 0 primaries** |
+| kimi | `kimi-code/kimi-for-coding` | cross-family (Fable/Sol) | **throughput-only lane — 0 primaries** |
 
 **Kimi is the throughput-only lane.** It holds no primary assignments. It is used solely as (a) a `throughput_lane` for genuine bulk/mechanical work under the downshift gate, and (b) the `data-extraction-engineer` bulk backup. K2.7-Code is a code specialist with no independent general benchmark and a 262K context (< Fable/Sol 1M); research, synthesis, long-context, judgment, and linguistic work never route to it. `summarizer` is its one legitimate low-safety bulk primary-equivalent use.
 

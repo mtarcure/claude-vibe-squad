@@ -25,7 +25,7 @@ cmd_for() {
     gpt-codex) echo "codex --dangerously-bypass-approvals-and-sandbox -c model_reasoning_effort=high" ;;
     claude)    echo "claude --permission-mode bypassPermissions --model claude-fable-5 --fallback-model claude-opus-4-8,claude-sonnet-5 --effort xhigh --add-dir ${VR}" ;;
     gemini)    echo "gemini --yolo --skip-trust --model gemini-3.5-flash --include-directories ${VR}" ;;
-    kimi)      echo "kimi --yolo --thinking --model kimi-k2.7-code --agent-file ${VR}/model-lanes/kimi/main.yaml --add-dir ${VR}" ;;
+    kimi)      echo "kimi --yolo --thinking --model kimi-code/kimi-for-coding --agent-file ${VR}/model-lanes/kimi/main.yaml --add-dir ${VR}" ;;
     *)         echo "" ;;
   esac
 }

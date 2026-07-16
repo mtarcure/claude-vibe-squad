@@ -8,4 +8,4 @@ codex.sol.ultra	codex	gpt-5.6-sol	max	ultra	escalation
 codex.terra.default	codex	gpt-5.6-terra	default	none	optional-routine
 gemini.flash.default	gemini	gemini-3.5-flash	default	none	primary
 gemini.pro.deep	gemini	gemini-3.1-pro-preview	deep	preview	escalation
-kimi.k2.7.bulk	kimi	kimi-k2.7-code-highspeed	default	highspeed	throughput-only
+kimi.k2.7.bulk	kimi	kimi-code/kimi-for-coding-highspeed	default	highspeed	throughput-only
