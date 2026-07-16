@@ -199,6 +199,44 @@ EOF
         ;;
 esac
 
+# ── completion contract: lanes emit BOTH return_artifact AND outbox envelope ──
+# Appended to every dispatched brief. bin/outbox-watcher.sh + registry_reconciler
+# key on departments/<ns>/outbox/<id>-response.md; without it finished work sits
+# in-flight until Chrono hand-reconciles. This is the primary path; the
+# reconciler's work-done-no-envelope flag is only the backstop.
+
+cat <<'COMPLETION_EOF'
+
+---
+
+## Completion contract — write BOTH outputs when you finish
+
+On finishing this task you MUST write TWO files:
+
+1. **Your work** → the `return_artifact` path in the packet frontmatter.
+2. **The outbox completion envelope** → `departments/<compatibility_namespace>/outbox/<id>-response.md`, where `<id>` is this packet's `id` and `<compatibility_namespace>` is the department mailbox this packet was read from (`departments/<X>/inbox/<id>.md` → use `<X>`; authoritative even when the packet omits a `compatibility_namespace` field). The live `bin/outbox-watcher.sh` keys on this envelope to auto-reconcile the registry and surface your result to Chrono. Without it, finished work sits `in-flight` until it is hand-reconciled.
+
+The envelope is markdown — this frontmatter, then a short summary body (its first paragraph is surfaced as the summary):
+
+```
+---
+id: <id>-response
+in_response_to: <id>
+from: <lane>          # gpt-codex | claude | gemini | kimi
+to: chrono
+type: RESULT
+status: complete      # complete | needs_review | blocked
+return_artifact: <the return_artifact path>
+---
+
+<one-paragraph summary of the outcome.>
+```
+
+- `status` must be `complete`, `needs_review`, or `blocked` (the reconciler canonicalizes `completed`→`complete`). Use `needs_review` when the packet sets `mandatory_review: true`; use `blocked` if you could not finish.
+- The reconciler matches on the `<id>-response.md` filename and reads `status` plus the summary body; the remaining fields are provenance.
+- **Panel / fan-out MEMBERS do NOT write an envelope** — only the panel coordinator writes the single outbox envelope for the parent task.
+COMPLETION_EOF
+
 # ── SPEC 1.5 ITEM 4: hard no-delete rule ─────────────────────────────────────
 # Appended to every dispatched brief regardless of namespace.
 # Prevents destructive ops by dispatched agents without operator approval.

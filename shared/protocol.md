@@ -51,6 +51,31 @@ The dispatcher contains a temporary compatibility bridge for older local packets
 selects the mailbox folder. Shared specialists do not have a `departments/shared`
 mailbox; Chrono chooses the mailbox namespace that matches the active workflow.
 
+## Completion Contract
+
+Lifecycle step 6 has **two** required outputs, not one. On finishing a task the model lead writes both:
+
+1. the **`return_artifact`** named in the packet, and
+2. the **outbox completion envelope** at `departments/<compatibility_namespace>/outbox/<id>-response.md`.
+
+`bin/outbox-watcher.sh` watches for `<id>-response.md` and `scripts/python/registry_reconciler.py` reconciles the active-task registry and nudges Chrono from it. Writing only the `return_artifact` leaves the task `in-flight`: the reconciler's `work-done-no-envelope` path is a **backstop** (it flags settled-but-unenveloped work after a grace period once the lane goes idle), not the primary path. Emitting the envelope is what makes reconciliation instant and deterministic.
+
+The lane derives `<id>` from the packet's `id` field and `<compatibility_namespace>` from the packet's own mailbox path (`departments/<X>/inbox/<id>.md` → `<X>`), which is present for every packet even when the `compatibility_namespace` frontmatter field is omitted.
+
+Envelope schema — frontmatter, then a summary body whose first paragraph the reconciler surfaces:
+
+```
+id: <id>-response
+in_response_to: <id>
+from: gpt-codex | claude | gemini | kimi
+to: chrono
+type: RESULT
+status: complete | needs_review | blocked
+return_artifact: <the return_artifact path>
+```
+
+The reconciler keys on the `<id>-response.md` filename and reads `status` (canonicalizing `completed`→`complete`) plus the summary body; the other fields are provenance it tolerates. Use `needs_review` when the packet sets `mandatory_review: true`, and `blocked` if the work could not be finished. **Panel/fan-out members never write the envelope — the coordinator is the sole outbox writer for the parent task.**
+
 ## Memory Apply Citations
 
 When recalled memory materially informs a task, cite each consumed note by its stable `mem-…` ID in the response (for example, `Memory applied: mem-a1b2c3d4e5f6`) and retain the associated `recall_id`. Close the apply loop with `record_usage(recall_id, note_id, outcome, source_task)`, using `used`, `not_useful`, or `incorrect` to distinguish memory that helped from memory that did not; never copy private note text or sensitive evidence into public packets.
