@@ -1,0 +1,7 @@
+version: 1
+agent:
+  name: growth-and-search-analyst
+  extend: default
+  description: "Throughput-only deterministic metadata templating from supplied data under throughput.downshift_gated.v1."
+  system_prompt_path: ../prompts/growth-and-search-analyst.md
+  model: kimi-code/kimi-for-coding

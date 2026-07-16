@@ -940,7 +940,7 @@ Per-pane verification matrix for each chrono-* family MCP. Claude pane verificat
   - security pane (claude): yes — same
   - sysmgmt pane (claude): yes — same
   - coding pane (codex): yes — registered; task packets must still verify `tools/list` before naming provider-specific tools
-  - content pane (gemini): no — **INTENTIONALLY SKIPPED in Hybrid Path A.** Google Search grounding (built into `gemini-3.1-pro-preview`) is the substitute. Gemini pane research uses native grounding, not chrono-research-arsenal.
+  - content pane (gemini): yes — live runtime probe 2026-07-15 confirmed `arxiv_search` and `xai_search` return live results. GAP: `perplexity_search_web` is NOT registered on gemini (the sibling `perplexity` MCP server is defined in the plugin's `plugin.json` but missing from gemini's `settings.json`). Evidence: `_state/research-probe-2026-07-15/gemini.md`.
   - research pane (kimi): registered; same wrapper; `xai_search` endpoint fixed tool-wide via the 2026-07-12 Responses API patch. Re-smoke in-lane before relying on Kimi-specific tool availability.
 - last_checked: 2026-07-12 for `xai_search` endpoint fix + arxiv/perplexity sibling smoke tests
 

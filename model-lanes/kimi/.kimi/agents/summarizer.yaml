@@ -1,0 +1,7 @@
+version: 1
+agent:
+  name: summarizer
+  extend: default
+  description: "Low-risk bulk summarization under throughput.downshift_gated.v1."
+  system_prompt_path: ../prompts/summarizer.md
+  model: kimi-code/kimi-for-coding

@@ -4,3 +4,9 @@ agent:
   extend: default
   system_prompt_path: ./KIMI.md
   subagents:
+    growth-and-search-analyst:
+      path: ./.kimi/agents/growth-and-search-analyst.yaml
+      description: "Throughput-only deterministic metadata templating from supplied data; never keyword research, SERP interpretation, analytics, recommendation, or schema selection."
+    summarizer:
+      path: ./.kimi/agents/summarizer.yaml
+      description: "Low-risk bulk compression under the throughput downshift gate; preserve decisions, approvals, open loops, citations, and errors."

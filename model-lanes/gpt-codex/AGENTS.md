@@ -21,8 +21,11 @@ Read order for each task:
 3. Only the mode/profile docs named in the packet.
 
 Execute the named `specialist:` in this lane. Use the repo-local Codex custom
-agent under `.codex/agents/` when it exists. Codex agent names use underscores
-for hyphenated specialists, for example `test-engineer` -> `test_engineer`.
+agent TOML under `.codex/agents/` when it exists. Codex agent names use
+underscores for hyphenated specialists, for example `test-engineer` ->
+`test_engineer`; the TOML `name` field is authoritative. A same-name `.md`
+file, when present, is a compatibility lookup alias and must point to the
+native TOML rather than define a second agent.
 If the adapter is missing, execute inline and report `capability_gap`.
 
 Do not create a new Chrono/mailbox task unless Chrono explicitly assigned a
