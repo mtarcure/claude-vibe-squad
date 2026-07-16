@@ -7,6 +7,9 @@ import {
   IsolationCanaryError,
 } from "../isolation/runner.mjs";
 import { runIsolatedSyntheticWave } from "../pipeline/isolated-wave.mjs";
+import { runSyntheticWave } from "../pipeline/synthetic-wave.mjs";
+
+const MOAT_ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/u, "");
 
 const syntheticProfile = {
   single_process: { network_mode: "none" },
@@ -18,6 +21,22 @@ const syntheticProfile = {
     resource_limits: { pids: 16, memory_mb: 64, cpu_count: 1, file_size_mb: 8 },
   },
 };
+
+const syntheticCanarySuite = {
+  abort_on_unexpected_success: true,
+  require_loopback_control_success: true,
+  probes: ["ipv4", "ipv6", "dns", "proxy_environment", "host_gateway", "tcp_tls", "loopback_control"]
+    .map((canaryClass) => ({ id: `canary:${canaryClass}`, class: canaryClass })),
+};
+
+let validPayloadPromise;
+function validPayload() {
+  validPayloadPromise ??= runSyntheticWave({
+    ledger: { netNew: true },
+    independentReview: { confirmed: true },
+  });
+  return validPayloadPromise;
+}
 
 // A canary result that satisfies the runner's real canaryPassed() for a suite:
 // loopback reachable, every external class blocked, all probes passed.
@@ -36,22 +55,33 @@ function passingCanary(suite) {
 // Build a runnerFactory that plugs a fake runtime + injected canary into the
 // REAL createIsolationRunner, so the genuine canary gate + hardening asserts run.
 function factory(fakeRuntime, canaryResult) {
-  return ({ profile, canarySuite }) =>
+  return ({ profile, canarySuite, approvedMountRoots }) =>
     createIsolationRunner({
       runtime: fakeRuntime,
       profile,
       canarySuite,
       canaryExecutor: async () => canaryResult ?? passingCanary(canarySuite),
+      approvedMountRoots,
     });
 }
 
-test("container mode: canary passes → wave runs in-container and WaveResult is parsed", async () => {
+async function runWithStdout(stdout) {
+  const fakeRuntime = {
+    async start() { return { id: "c" }; },
+    async exec() { return { status: 0, stdout, stderr: "" }; },
+    async remove() {},
+  };
+  return runIsolatedSyntheticWave({ runnerFactory: factory(fakeRuntime) });
+}
+
+test("container mode: canary passes → schema-valid WaveResult is parsed", async () => {
   const execCalls = [];
+  const payload = await validPayload();
   const fakeRuntime = {
     async start() { return { id: "test-container" }; },
     async exec(_container, command) {
       execCalls.push(command);
-      return { status: 0, stdout: JSON.stringify({ waveResult: { state: "FAIL" }, evidence: { ok: true } }), stderr: "" };
+      return { status: 0, stdout: JSON.stringify(payload), stderr: "" };
     },
     async remove() {},
   };
@@ -60,8 +90,9 @@ test("container mode: canary passes → wave runs in-container and WaveResult is
 
   assert.equal(result.isolation.isolated, true);
   assert.equal(result.isolation.state, "ok");
-  assert.equal(result.waveResult.state, "FAIL");
-  assert.equal(result.evidence.ok, true);
+  assert.equal(result.waveResult.schema_version, "1.0.0");
+  assert.ok(["PASS", "FAIL", "INCONCLUSIVE"].includes(result.waveResult.state));
+  assert.ok(result.evidence.coverage);
   // The wave command executed inside the container (after the canary gate).
   assert.deepEqual(execCalls, [["node", "/moat/pipeline/wave-entrypoint.mjs"]]);
   assert.equal(result.isolation.canary.ok, true);
@@ -100,6 +131,25 @@ test("graceful-unavailable: runtime that cannot start surfaces container_runtime
   assert.match(result.isolation.reason, /Docker daemon/);
 });
 
+test("mount-policy rejection is fail-closed and never mislabeled runtime-unavailable", async () => {
+  let startCalls = 0;
+  let execCalls = 0;
+  const fakeRuntime = {
+    async start() { startCalls += 1; return { id: "must-not-start" }; },
+    async exec() { execCalls += 1; return { status: 0, stdout: "{}" }; },
+    async remove() {},
+  };
+  const result = await runIsolatedSyntheticWave({
+    moatDir: "/var/run/docker.sock",
+    runnerFactory: factory(fakeRuntime),
+  });
+  assert.equal(result.isolation.state, "isolation_spec_invalid");
+  assert.notEqual(result.isolation.state, "container_runtime_unavailable");
+  assert.equal(result.waveResult, null);
+  assert.equal(startCalls, 0);
+  assert.equal(execCalls, 0);
+});
+
 test("in-process mode is available but explicitly labeled NON-ISOLATED", async () => {
   const result = await runIsolatedSyntheticWave({ mode: "in-process" });
   assert.equal(result.isolation.mode, "in-process");
@@ -130,6 +180,24 @@ test("container run with unparseable stdout is a labeled failure", async () => {
   assert.equal(result.isolation.state, "wave_output_unparseable");
   assert.equal(result.waveResult, null);
 });
+
+const invalidEnvelopeCases = [
+  ["empty object", async () => ({})],
+  ["null", async () => null],
+  ["array", async () => []],
+  ["incomplete WaveResult", async () => ({ waveResult: { state: "FAIL" }, evidence: {} })],
+  ["fabricated PASS", async () => ({ waveResult: { state: "PASS" }, evidence: {} })],
+  ["unexpected envelope field", async () => ({ ...(await validPayload()), unexpected: true })],
+];
+
+for (const [label, payload] of invalidEnvelopeCases) {
+  test(`container output fails closed for ${label}`, async () => {
+    const result = await runWithStdout(JSON.stringify(await payload()));
+    assert.equal(result.isolation.state, "wave_output_unparseable");
+    assert.notEqual(result.isolation.state, "ok");
+    assert.equal(result.waveResult, null);
+  });
+}
 
 test("read-only mount + workdir are additive; every hardening flag stays intact", async () => {
   const captured = [];
@@ -171,4 +239,48 @@ test("assertSpec rejects a writable mount and a relative mount source", async ()
     () => runner({ image: "img", command: ["node"], mounts: [{ source: "relative/path", target: "/moat" }] }),
     /absolute string source/,
   );
+});
+
+test("mount policy rejects runtime sockets, devices, and out-of-scope paths before start", async () => {
+  let startCalls = 0;
+  let execCalls = 0;
+  const runtime = {
+    async start() { startCalls += 1; return { id: "must-not-start" }; },
+    async exec() { execCalls += 1; return { status: 0, stdout: "{}" }; },
+    async remove() {},
+  };
+  const runner = createIsolationRunner({
+    runtime,
+    profile: syntheticProfile,
+    canarySuite: syntheticCanarySuite,
+    canaryExecutor: async () => passingCanary(syntheticCanarySuite),
+    approvedMountRoots: [MOAT_ROOT],
+  });
+
+  await assert.rejects(
+    () => runner({
+      image: "img",
+      command: ["node"],
+      mounts: [{ source: "/var/run/docker.sock", target: "/var/run/docker.sock", readOnly: true }],
+    }),
+    /runtime endpoints/,
+  );
+  await assert.rejects(
+    () => runner({ image: "img", command: ["node"], mounts: [{ source: "/", target: "/host" }] }),
+    /outside approved roots/,
+  );
+  await assert.rejects(
+    () => runner({ image: "img", command: ["node"], mounts: [{ source: "/dev/null", target: "/moat/device" }] }),
+    /regular file or directory/,
+  );
+  await assert.rejects(
+    () => runner({
+      image: "img",
+      command: ["node"],
+      mounts: [{ source: MOAT_ROOT, target: "/run/containerd/containerd.sock" }],
+    }),
+    /runtime endpoints/,
+  );
+  assert.equal(startCalls, 0);
+  assert.equal(execCalls, 0);
 });

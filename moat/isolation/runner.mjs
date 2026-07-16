@@ -1,9 +1,110 @@
 import { randomUUID } from "node:crypto";
+import path from "node:path";
 
 import { readJson } from "../adapters/filesystem.mjs";
 import { runCommand } from "../adapters/process.mjs";
 
 const ALL_EXIT_CODES = Object.freeze(Array.from({ length: 256 }, (_, code) => code));
+
+const PATH_PROBE_PROGRAM = String.raw`
+import { realpathSync, statSync } from "node:fs";
+try {
+  const canonical = realpathSync(process.argv[1]);
+  const details = statSync(canonical);
+  const kind = details.isFile() ? "file"
+    : details.isDirectory() ? "directory"
+      : details.isSocket() ? "socket"
+        : details.isBlockDevice() ? "block-device"
+          : details.isCharacterDevice() ? "character-device"
+            : details.isFIFO() ? "fifo"
+              : "other";
+  process.stdout.write(JSON.stringify({ canonical, kind }));
+} catch {
+  process.exitCode = 1;
+}
+`;
+
+const RUNTIME_ENDPOINT_PATTERNS = Object.freeze([
+  /^\/(?:var\/)?run\/docker\.sock$/u,
+  /^\/(?:var\/)?run\/containerd(?:\/|$)/u,
+  /^\/(?:var\/)?run\/podman(?:\/|$)/u,
+  /^\/run\/user\/[^/]+\/podman(?:\/|$)/u,
+  /^\/(?:var\/)?run\/crio(?:\/|$)/u,
+  /\/\.colima(?:\/[^/]+)?\/docker\.sock$/u,
+  /\/\.docker\/run\/docker\.sock$/u,
+]);
+
+function isRuntimeEndpoint(candidate) {
+  return RUNTIME_ENDPOINT_PATTERNS.some((pattern) => pattern.test(candidate));
+}
+
+function isWithinRoot(candidate, root) {
+  const relative = path.relative(root, candidate);
+  return relative === "" || (!relative.startsWith(`..${path.sep}`)
+    && relative !== ".." && !path.isAbsolute(relative));
+}
+
+function probePath(candidate) {
+  try {
+    const result = runCommand("node", ["--input-type=module", "--eval", PATH_PROBE_PROGRAM, candidate]);
+    const details = JSON.parse(result.stdout);
+    if (typeof details?.canonical !== "string" || typeof details?.kind !== "string") {
+      throw new TypeError("invalid path probe response");
+    }
+    return details;
+  } catch {
+    throw new TypeError("path cannot be canonicalized");
+  }
+}
+
+function canonicalizeApprovedRoots(roots) {
+  if (!Array.isArray(roots)) throw new TypeError("approved mount roots must be an array");
+  return roots.map((root) => {
+    if (typeof root !== "string" || !path.isAbsolute(root)) {
+      throw new TypeError("approved mount roots must be absolute paths");
+    }
+    const details = probePath(root);
+    if (details.kind !== "directory") {
+      throw new TypeError("approved mount root must be a directory");
+    }
+    return details.canonical;
+  });
+}
+
+function assertMount(mount, approvedRoots) {
+  if (typeof mount?.source !== "string" || !path.isAbsolute(mount.source)
+    || typeof mount?.target !== "string" || !path.posix.isAbsolute(mount.target)) {
+    throw new TypeError("each mount requires an absolute string source and target");
+  }
+  if (mount.readOnly === false) throw new TypeError("isolation mounts are read-only");
+  if (/[\0\r\n,]/u.test(mount.source) || /[\0\r\n,]/u.test(mount.target)) {
+    throw new TypeError("mount paths contain forbidden characters");
+  }
+
+  const normalizedSource = path.normalize(mount.source);
+  const canonicalTarget = path.posix.normalize(mount.target);
+  if (isRuntimeEndpoint(normalizedSource) || isRuntimeEndpoint(canonicalTarget)) {
+    throw new TypeError("container runtime endpoints cannot be mounted");
+  }
+
+  const sourceDetails = probePath(normalizedSource);
+  const canonicalSource = sourceDetails.canonical;
+  if (canonicalSource !== normalizedSource) {
+    throw new TypeError("mount source must use its canonical real path");
+  }
+  if (isRuntimeEndpoint(canonicalSource)) {
+    throw new TypeError("container runtime endpoints cannot be mounted");
+  }
+  if (sourceDetails.kind !== "file" && sourceDetails.kind !== "directory") {
+    throw new TypeError("mount source must be a regular file or directory");
+  }
+  if (!approvedRoots.some((root) => isWithinRoot(canonicalSource, root))) {
+    throw new TypeError("mount source resolves outside approved roots");
+  }
+  if (mount.target !== canonicalTarget) {
+    throw new TypeError("mount target must use its normalized absolute path");
+  }
+}
 
 const CANARY_PROGRAM = String.raw`
 import http.server
@@ -109,7 +210,7 @@ function assertProfile(profile) {
   }
 }
 
-function assertSpec(spec) {
+function assertSpec(spec, approvedMountRoots) {
   if (typeof spec?.image !== "string" || !spec.image) throw new TypeError("container image is required");
   if (!Array.isArray(spec.command) || spec.command.length === 0
     || spec.command.some((part) => typeof part !== "string")) {
@@ -120,18 +221,13 @@ function assertSpec(spec) {
   // container; they are constrained read-only so they cannot weaken isolation.
   if (spec.mounts !== undefined) {
     if (!Array.isArray(spec.mounts)) throw new TypeError("spec.mounts must be an array");
-    for (const mount of spec.mounts) {
-      if (typeof mount?.source !== "string" || !mount.source.startsWith("/")
-        || typeof mount?.target !== "string" || !mount.target.startsWith("/")) {
-        throw new TypeError("each mount requires an absolute string source and target");
-      }
-      if (mount.readOnly === false) throw new TypeError("isolation mounts are read-only");
-    }
+    for (const mount of spec.mounts) assertMount(mount, approvedMountRoots);
   }
   if (spec.workdir !== undefined
     && (typeof spec.workdir !== "string" || !spec.workdir.startsWith("/"))) {
     throw new TypeError("spec.workdir must be an absolute path");
   }
+  return { ...spec, mounts: [...(spec.mounts ?? [])] };
 }
 
 const REQUIRED_CANARY_CLASSES = Object.freeze([
@@ -253,27 +349,42 @@ export class IsolationCanaryError extends Error {
   }
 }
 
+export class IsolationSpecError extends Error {
+  constructor(cause) {
+    super(`isolation specification rejected: ${cause?.message ?? "invalid specification"}`, { cause });
+    this.name = "IsolationSpecError";
+    this.code = "MOAT_ISOLATION_SPEC_REJECTED";
+  }
+}
+
 export function createIsolationRunner({
   runtime,
   profile,
   canarySuite,
   canaryExecutor = executeCanarySuite,
+  approvedMountRoots = [],
 }) {
   assertProfile(profile);
   assertCanarySuite(canarySuite);
+  const canonicalMountRoots = canonicalizeApprovedRoots(approvedMountRoots);
   if (!runtime || typeof runtime.start !== "function"
     || typeof runtime.exec !== "function" || typeof runtime.remove !== "function") {
     throw new TypeError("container runtime contract is incomplete");
   }
 
   return async function isolatedRun(spec) {
-    assertSpec(spec);
-    const container = await runtime.start(spec, profile);
+    let validatedSpec;
+    try {
+      validatedSpec = assertSpec(spec, canonicalMountRoots);
+    } catch (error) {
+      throw new IsolationSpecError(error);
+    }
+    const container = await runtime.start(validatedSpec, profile);
     const result = { ok: false, canary: null, execution: null, containerRemoved: false };
     try {
       result.canary = await canaryExecutor({ runtime, container, canarySuite });
       if (!canaryPassed(result.canary, canarySuite)) throw new IsolationCanaryError(result.canary);
-      result.execution = await runtime.exec(container, spec.command);
+      result.execution = await runtime.exec(container, validatedSpec.command);
       result.ok = result.execution.status === 0;
       return result;
     } finally {

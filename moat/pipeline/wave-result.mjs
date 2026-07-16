@@ -1,5 +1,9 @@
 import { validateNamed } from "../schema/validate.mjs";
 
+export async function validateWaveResult(value) {
+  return validateNamed("WaveResult", value);
+}
+
 const rounded = (value) => Math.max(0, Math.round(value));
 
 function completenessEvidence({ calibration, negativeControl, coverage, transitions,
@@ -115,7 +119,7 @@ export async function emitWaveResult({
     },
   };
 
-  const errors = await validateNamed("WaveResult", wave);
+  const errors = await validateWaveResult(wave);
   if (errors.length) throw new Error(`emitted WaveResult is invalid: ${JSON.stringify(errors)}`);
   return wave;
 }

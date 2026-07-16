@@ -5,7 +5,7 @@
 It does three honest things well:
 
 1. **Finds better variants** — turns a fixed vulnerability into an executable invariant and hunts the sibling code the fix didn't cover.
-2. **Proves or refutes impact** — stands a candidate up against a real, isolated deployment and returns an objective, evidence-referenced verdict.
+2. **Proves or refutes impact** — stands a candidate up against an isolated vulnerable/patched synthetic twin and returns an objective, evidence-referenced verdict.
 3. **Compounds** — checks what's already known *before* a deep-dive, so effort never repeats itself.
 
 > **What it is not.** This is not a "critical-producing machine," and it doesn't claim to be. It raises the quality of variant discovery, it *measures* impact instead of asserting it, and it remembers. A clean, coverage-complete **FAIL** is a first-class, honest outcome — the point is a trustworthy verdict, not a guaranteed finding. That honesty is the feature.
@@ -33,7 +33,7 @@ Keeping private target data out of a public repo is the whole ballgame, so it's 
 2. **Tier-A — capability & provenance** *(public, data-free)* — parses JS/TS/TSX with the TypeScript compiler API, folds bounded constant expressions, and flags private-capability imports, values that flow into network/process/filesystem **sinks**, schema/path/content-class violations, and credential-shaped material (via `gitleaks`, fail-closed). It **fails closed** when a sink receives a value the evaluator can't prove constant, and emits `MOAT_BOUNDARY_TOOL_UNAVAILABLE` rather than crashing if its parser or scanner is missing.
 3. **Tier-B — exact private targets** *(private pre-push + mandatory CI)* — loads a restricted denylist through the external-input adapter (never committed) and matches exact hostnames, repositories, advisory IDs, and paths against Layer-1 file text, AST-evaluated strings, and base64/base64url-decoded strings. It reports only class, file, and line — **never** the matched token — and **fails closed** when its denylist is unavailable or malformed.
 
-The public pre-commit path stays data-free; exact-target matching is deliberately private. Composable one-line hook wirings are documented in [`boundary/README.md`](boundary/README.md) and intentionally left un-applied for the operator to gate.
+The public pre-commit path stays data-free; exact-target matching is deliberately private. Tier-A is present in the tracked `.githooks/pre-commit` hook and becomes active per clone only after the operator runs `git config core.hooksPath .githooks`; Tier-A also runs in public CI.
 
 ### The self-improving ledger
 
@@ -61,7 +61,7 @@ The reviewed annotation is the source of truth: automated extraction only ever *
 
 ### Objective impact measurement — `WaveResult`
 
-A "wave" measures a candidate against a real deployment and returns one of **`PASS` / `FAIL` / `INCONCLUSIVE`** — never a vibe. The verdict is schema-validated and every claim carries an evidence reference. A result can only read:
+A "wave" measures a candidate against the isolated vulnerable/patched synthetic twin and returns one of **`PASS` / `FAIL` / `INCONCLUSIVE`** — never a vibe. The verdict is schema-validated and every claim carries an evidence reference. A result can only read:
 
 - **`PASS`** — the calibration (known-vulnerable) control fires, the negative (patched) control stays clean, coverage saturates, every declared transition and guard branch is exercised, shrinking is deterministic, the finding is `net_new`, and an independent reviewer confirms intrinsic impact and novelty;
 - **`FAIL`** — the campaign is coverage-complete and no candidate reaches default-reachable impact (each recorded with a kill reason);
@@ -71,7 +71,7 @@ The shipped pipeline exercises this whole path end-to-end against a **synthetic 
 
 ### Isolated execution — no-egress, canary-gated
 
-Impact runs happen inside a VM-backed container (`macOS → Colima/Lima/Docker Desktop → Linux`) launched `--network none` with hardening: non-root, read-only rootfs, all capabilities dropped, `no-new-privileges`, pids/memory/CPU/file-size limits, `noexec` tmpfs, and cleared proxy environment. Before the target runs, a **pre-flight canary** must pass: the loopback control has to succeed while every external class — IPv4, IPv6, DNS, proxy-environment, host-gateway, and TCP/TLS — is confirmed **blocked**. Any unexpected external success aborts the run. No canary, no execution.
+Public Layer-1 synthetic impact runs happen inside a VM-backed container (`macOS → Colima/Lima/Docker Desktop → Linux`) launched `--network none` with hardening: non-root, read-only rootfs, all capabilities dropped, `no-new-privileges`, pids/memory/CPU/file-size limits, `noexec` tmpfs, and cleared proxy environment. Before the synthetic twin runs, a **pre-flight canary** must pass: the loopback control has to succeed while every external class — IPv4, IPv6, DNS, proxy-environment, host-gateway, and TCP/TLS — is confirmed **blocked**. Any unexpected external success aborts the run. No canary, no execution.
 
 ### Hostile test doubles (held private)
 
@@ -102,7 +102,7 @@ ledger.check ──(net_new?)──▶ patch-graph ──▶ reviewed invariant 
 - **Least privilege for memory.** Recall runs only at explicit `restricted` clearance; a clearance-blind empty result can never be read as "nothing known."
 - **Isolation is proven, not assumed.** Every impact run is gated on a passing egress canary; hostile doubles refuse to run outside it.
 - **Untrusted data stays quoted.** Vault snippets and external content are handled as untrusted throughout; no matched private token is ever echoed into output.
-- **The boundary is testable and composable.** Tier-A is enforcement-ready as a data-free public check; Tier-B belongs in private pre-push/CI. Hook compositions are documented and left for the operator to wire.
+- **The boundary is testable and composable.** Tier-A runs in public CI and is available through the tracked, opt-in `.githooks/pre-commit`; Tier-B belongs in private pre-push/CI.
 
 ---
 
@@ -111,7 +111,7 @@ ledger.check ──(net_new?)──▶ patch-graph ──▶ reviewed invariant 
 ```sh
 cd moat
 npm ci            # installs the pinned TypeScript parser used by Tier-A
-npm test          # 88/88
+npm test          # 103/103
 
 node boundary/tier-a.mjs --self-check                 # public Layer-1 boundary self-check
 node boundary/tier-a.mjs --staged <file>...           # scan an explicit staged list
@@ -132,7 +132,7 @@ isolation/   VM-backed no-egress container runner + negative-canary suite
 adapters/    the single external-input adapter + filesystem/process boundaries
 ```
 
-**Status:** feature-complete across nine commits, 87/87 tests green. Every security-critical control — the leak boundary, the clearance-gated ledger, the isolation canary — was hardened through adversarial, **cross-family** review (built by one model family, pressure-tested by another).
+**Status:** the public synthetic path is feature-complete, with 103/103 tests green. Security-critical controls — the leak boundary, the clearance-gated ledger, the isolation canary — are tested locally and routed through adversarial, **cross-family** review.
 
 ---
 
