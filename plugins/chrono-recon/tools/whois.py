@@ -1,5 +1,6 @@
 import whois
 
+
 def whois_lookup(domain_or_ip: str) -> dict:
     try:
         w = whois.whois(domain_or_ip)
@@ -11,5 +12,5 @@ def whois_lookup(domain_or_ip: str) -> dict:
             "status": w.status,
             "raw": str(w.text)[:2000] if w.text else None,
         }
-    except Exception as e:
-        return {"error": str(e)}
+    except (whois.WhoisError, OSError, ValueError, TypeError, AttributeError) as exc:
+        return {"error": type(exc).__name__}

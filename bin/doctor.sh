@@ -106,11 +106,31 @@ echo "" >> "${DOCTOR_LOG}"
 echo "## Instruction Drift" >> "${DOCTOR_LOG}"
 DRIFT_HITS=0
 if command -v grep >/dev/null 2>&1; then
-    DRIFT_HITS=$(grep -RInE '45 specialists|all 45 specialists|scripts/send-req\.sh|currently has FILL placeholders|<FILL:|docs/handoffs/[0-9]{4}-|docs/specs/spec-[0-9]|docs/plans/[0-9]{4}-' \
-        "${VAULT_ROOT}/README.md" "${VAULT_ROOT}/CLAUDE.md" "${VAULT_ROOT}/chrono" \
-        "${VAULT_ROOT}/docs" "${VAULT_ROOT}/shared" 2>/dev/null \
+    DRIFT_PATHS=("${VAULT_ROOT}/README.md" "${VAULT_ROOT}/CLAUDE.md" "${VAULT_ROOT}/chrono" \
+        "${VAULT_ROOT}/docs" "${VAULT_ROOT}/shared")
+    SPECIALIST_COUNT=$(awk -F '\t' 'NR > 1 && $1 != "" {count++} END {print count + 0}' \
+        "${VAULT_ROOT}/shared/specialist-runtime-map.tsv" 2>/dev/null)
+    STALE_COUNT_HITS=$(grep -RInE '[0-9][0-9]+ specialists' "${DRIFT_PATHS[@]}" 2>/dev/null \
         | grep -v 'bin/upgrade-specialists.py' \
-        | wc -l | tr -d ' ')
+        | awk -v expected="${SPECIALIST_COUNT:-0}" '
+            {
+                text = $0
+                while (match(text, /[0-9][0-9]+ specialists/)) {
+                    value = substr(text, RSTART, RLENGTH)
+                    sub(/ specialists$/, "", value)
+                    if ((value + 0) != expected) {
+                        hits++
+                        break
+                    }
+                    text = substr(text, RSTART + RLENGTH)
+                }
+            }
+            END {print hits + 0}
+        ')
+    OTHER_DRIFT_HITS=$(grep -RInE 'scripts/send-req\.sh|currently has FILL placeholders|<FILL:|docs/handoffs/[0-9]{4}-|docs/specs/spec-[0-9]|docs/plans/[0-9]{4}-' \
+        "${DRIFT_PATHS[@]}" 2>/dev/null \
+        | awk '!/bin\/upgrade-specialists.py/ {count++} END {print count + 0}')
+    DRIFT_HITS=$((STALE_COUNT_HITS + OTHER_DRIFT_HITS))
 fi
 if [[ "${DRIFT_HITS:-0}" -eq 0 ]]; then
     echo "- ✓ No stale count/FILL/script/spec-handoff references in public instruction surfaces" >> "${DOCTOR_LOG}"
@@ -121,7 +141,7 @@ else
 fi
 
 if [[ -x "${VAULT_ROOT}/bin/validate-specialists.sh" ]]; then
-    if VALIDATE_OUTPUT=$("${VAULT_ROOT}/bin/validate-specialists.sh" >/tmp/vibe-squad-validate-specialists.out 2>&1); then
+    if "${VAULT_ROOT}/bin/validate-specialists.sh" >/dev/null 2>&1; then
         echo "- ✓ Specialist, routing, and generated-adapter validation passed" >> "${DOCTOR_LOG}"
         HEALTHY+=("specialist/routing validation passed")
     else

@@ -39,7 +39,6 @@ import hashlib
 import json
 import os
 import re
-import shlex
 import shutil
 import subprocess
 import sys
@@ -626,9 +625,8 @@ def podcast_transcript_content(item: dict[str, Any]) -> tuple[str | None, str]:
 
 def deep_content_for_item(item: dict[str, Any]) -> tuple[str, str]:
     feed_type = item.get("feed_type")
-    source_type = item.get("source_type")
     fallback = item.get("summary_short") or item.get("triage_reason") or ""
-    if source_type == "youtube-channel" or feed_type == "youtube-channel":
+    if is_youtube_item(item):
         text, source = youtube_transcript_content(item)
     elif feed_type == "podcast":
         text, source = podcast_transcript_content(item)
@@ -1059,8 +1057,12 @@ def ensure_podcast_transcript(item: dict[str, Any]) -> str | None:
     return transcript
 
 
+def is_youtube_item(item: dict[str, Any]) -> bool:
+    return item.get("source_type") == "youtube-channel" or item.get("feed_type") == "youtube-channel"
+
+
 def process_depth_item(item: dict[str, Any]) -> tuple[str, str | None, str | None]:
-    if item.get("source_type") == "youtube-channel" or item.get("feed_type") == "youtube-channel":
+    if is_youtube_item(item):
         ensure_youtube_transcript(item)
     elif item.get("feed_type") == "podcast" and item.get("audio_url"):
         ensure_podcast_transcript(item)
@@ -1069,19 +1071,6 @@ def process_depth_item(item: dict[str, Any]) -> tuple[str, str | None, str | Non
     out_path = output_path_for(item)
     atomic_write(out_path, render_analysis_brief(item, analysis, content_source))
     return ("ok", str(out_path.relative_to(VAULT_ROOT)), err)
-
-
-def process_blog_item(item: dict[str, Any]) -> tuple[str, str | None, str | None]:
-    """Returns (status, output_path_str, error)."""
-    text = fetch_article_text(item["url"])
-    if not text:
-        return ("failed", None, "could not extract article text")
-    summary = kimi_summarize(text)
-    if not summary:
-        return ("failed", None, "kimi summarization returned empty")
-    out_path = output_path_for(item)
-    atomic_write(out_path, render_blog_brief(item, summary))
-    return ("ok", str(out_path.relative_to(VAULT_ROOT)), None)
 
 
 def process_skim_item(item: dict[str, Any]) -> tuple[str, str | None, str | None]:
@@ -1315,7 +1304,7 @@ def main() -> int:
             continue
 
         print(f"Processing: [{item['feed_name']}] {item['title'][:80]}")
-        is_youtube = item.get("source_type") == "youtube-channel" and item.get("feed_type") == "youtube-channel"
+        is_youtube = is_youtube_item(item)
         if tier_name == "drop":
             status, out_path, err, tier = "skipped", None, "triage tier=drop", "drop"
         elif tier_name == "skim":

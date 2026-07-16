@@ -550,18 +550,18 @@ def enforce_budgets(items: list[dict[str, Any]], run: TriageRun, max_depth: int 
         if item["relevance_score"] >= 0.72:
             admit_depth(item, "standard")
 
+    # Request-count guardrail: no more than max_depth deep-summary calls per night.
+    depth = sorted([i for i in items if i["tier"] == "depth"], key=lambda x: x["relevance_score"], reverse=True)
+    for item in depth[max_depth:]:
+        item["tier"] = "skim"
+        item["depth_kind"] = None
+
     run.lane_budget_log = {}
     for lane, lane_items in by_lane.items():
         run.lane_budget_log[lane] = {
             "admitted_to_depth": sum(1 for i in lane_items if i["tier"] == "depth"),
             "candidates_above_threshold": sum(1 for i in lane_items if i["relevance_score"] >= 0.62),
         }
-
-    # Request-count guardrail: no more than max_depth deep-summary calls per night.
-    depth = sorted([i for i in items if i["tier"] == "depth"], key=lambda x: x["relevance_score"], reverse=True)
-    for item in depth[max_depth:]:
-        item["tier"] = "skim"
-        item["depth_kind"] = None
 
 
 def triage_items(raw_items: list[dict[str, Any]], feed_config: dict[str, Any], interests: dict[str, Any], run: TriageRun, enable_llm: bool) -> list[dict[str, Any]]:

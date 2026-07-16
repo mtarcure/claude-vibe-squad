@@ -12,7 +12,6 @@ BRIEF="${VAULT_ROOT}/_state/morning-briefs/${DATE}.md"
 mkdir -p "$(dirname "${BRIEF}")"
 
 # Pull info from earlier phase logs
-DOCTOR_LOG="${VAULT_ROOT}/_state/doctor-logs/${DATE}.md"
 DOCTOR_SUMMARY="${VAULT_ROOT}/_state/doctor-logs/${DATE}-summary.json"
 DREAM_LOG="${VAULT_ROOT}/_state/dream-logs/${DATE}.md"
 TRIAGE_MANIFEST="${VAULT_ROOT}/_state/content-triage-${DATE}.json"

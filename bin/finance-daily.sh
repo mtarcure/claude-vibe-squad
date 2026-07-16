@@ -12,9 +12,6 @@ mkdir -p "$(dirname "$OUT")"
 # Get today's per-pane dispatch count
 yesterday=$(date -u -v-1d +%FT%TZ)
 
-# Read baseline from token-budget file
-BUDGET_FILE="${VAULT_ROOT}/_state/token-budget-2026-05-W2.md"
-
 {
     echo "# Finance Daily — $TODAY"
     echo
