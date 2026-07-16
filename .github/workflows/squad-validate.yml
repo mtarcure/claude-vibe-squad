@@ -9,6 +9,9 @@ name: Squad Validate
     branches: ["**"]
   pull_request:
     branches: [main]
+  schedule:
+    - cron: "17 10 * * *"
+  workflow_dispatch:
 
 jobs:
   validate-specialists:
@@ -27,7 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Shell syntax
-        run: bash -n bin/*.sh scripts/*.sh shared/*.sh
+        run: bash -n bin/test bin/*.sh scripts/*.sh shared/*.sh
       - name: Python compile
         run: python3 -m py_compile scripts/python/*.py bin/*.py
       - name: Install shellcheck
@@ -36,6 +39,53 @@ jobs:
         run: shellcheck bin/*.sh || true
       - name: Hard-fail on send-task.sh issues
         run: shellcheck bin/send-task.sh
+      - name: Hard-fail on unified test runner issues
+        run: shellcheck bin/test
+
+  test-fast:
+    name: Hermetic test gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install pinned Python test dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Install pinned moat dependencies
+        run: npm ci --prefix moat
+      - name: Run required hermetic suites
+        run: bin/test
+
+  test-full:
+    name: Nightly and manual full tests
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    # The `moat` label denotes a dedicated runner with Docker available and
+    # python:3.11 preloaded; the runner never pulls an image implicitly.
+    runs-on: [self-hosted, linux, moat]
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install pinned Python test dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Install pinned moat dependencies
+        run: npm ci --prefix moat
+      # The only live container test is isolated from push/PR gates. It runs
+      # without repository secrets and proves network-none canary behavior.
+      # A runner must pre-provision python:3.11; bin/test refuses an implicit
+      # image pull and reports a clear skip when that sandbox input is absent.
+      - name: Run daemon and isolated-container suites
+        run: bin/test --full
 
   panel-status-tests:
     name: Panel and status tests

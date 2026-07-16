@@ -1,0 +1,197 @@
+#!/usr/bin/env bash
+# Unified Vibe Squad test runner. The default tier is hermetic and CI-gating;
+# --full adds the daemon suite and the opt-in Docker isolation check.
+
+set -o pipefail
+
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+TIER="fast"
+
+usage() {
+    cat <<'EOF'
+Usage: bin/test [--fast|--full]
+
+  --fast  Run the hermetic CI gate (default).
+  --full  Also run daemon tests and the live Docker isolation check.
+
+Set SKIP_MOAT_CONTAINER=1 to record an explicit container skip in the full tier.
+EOF
+}
+
+case "${1:-}" in
+    ""|--fast) TIER="fast" ;;
+    --full) TIER="full" ;;
+    -h|--help)
+        usage
+        exit 0
+        ;;
+    *)
+        usage >&2
+        exit 2
+        ;;
+esac
+
+if [[ $# -gt 1 ]]; then
+    usage >&2
+    exit 2
+fi
+
+cd "$ROOT" || exit 1
+
+SUITE_NAMES=()
+SUITE_RESULTS=()
+SUITE_DETAILS=()
+PASS_COUNT=0
+FAIL_COUNT=0
+SKIP_COUNT=0
+
+record_result() {
+    local name="$1" result="$2" detail="$3"
+    SUITE_NAMES+=("$name")
+    SUITE_RESULTS+=("$result")
+    SUITE_DETAILS+=("$detail")
+    case "$result" in
+        PASS) PASS_COUNT=$((PASS_COUNT + 1)) ;;
+        FAIL) FAIL_COUNT=$((FAIL_COUNT + 1)) ;;
+        SKIP) SKIP_COUNT=$((SKIP_COUNT + 1)) ;;
+    esac
+}
+
+run_suite() {
+    local name="$1" rc
+    shift
+    echo
+    echo "==> ${name}"
+    if "$@"; then
+        record_result "$name" "PASS" "ok"
+        echo "PASS: ${name}"
+    else
+        rc=$?
+        record_result "$name" "FAIL" "exit ${rc}"
+        echo "FAIL: ${name} (exit ${rc})" >&2
+    fi
+}
+
+skip_suite() {
+    local name="$1" reason="$2"
+    record_result "$name" "SKIP" "$reason"
+    echo
+    echo "WARNING: SKIP ${name}: ${reason}" >&2
+}
+
+python_has_fast_deps() {
+    "$PYTHON_BIN" -c 'import httpx; from mcp.server.fastmcp import FastMCP' >/dev/null 2>&1
+}
+
+python_has_daemon_deps() {
+    "$PYTHON_BIN" -c 'import fastapi, httpx, pydantic, pytest, watchfiles, yaml' >/dev/null 2>&1
+}
+
+run_moat_fast() {
+    local file
+    local files=()
+    for file in moat/tests/*.test.mjs; do
+        if [[ "$file" != "moat/tests/phase4b-operational.test.mjs" ]]; then
+            files+=("$file")
+        fi
+    done
+    node --test "${files[@]}" &&
+        node --test \
+            --test-name-pattern='runIsolated hard-aborts|Docker runtime enforces|Jazzer escalation resolves|disabled Jazzer escalation' \
+            moat/tests/phase4b-operational.test.mjs
+}
+
+run_moat_container() {
+    local pattern
+    pattern='^real Colima container blocks every external canary and permits loopback$'
+    node --test --test-name-pattern="$pattern" moat/tests/phase4b-operational.test.mjs
+}
+
+if ! command -v node >/dev/null 2>&1; then
+    skip_suite "moat hermetic" "node is unavailable"
+elif [[ ! -d moat/node_modules/typescript ]]; then
+    skip_suite "moat hermetic" "moat dependencies are missing; run npm ci --prefix moat"
+else
+    run_suite "moat hermetic" run_moat_fast
+fi
+
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+    skip_suite "dispatch enforcement" "${PYTHON_BIN} is unavailable"
+    skip_suite "chrono-vault" "${PYTHON_BIN} is unavailable"
+    skip_suite "content-engineer" "${PYTHON_BIN} is unavailable"
+else
+    run_suite \
+        "dispatch enforcement" \
+        "$PYTHON_BIN" -m unittest discover -s scripts/python/tests -p 'test_*.py'
+    if python_has_fast_deps; then
+        run_suite \
+            "chrono-vault" \
+            env -u CHRONO_VAULT_CLEARANCE \
+            "$PYTHON_BIN" -m unittest discover -s plugins/chrono-vault/tests -p 'test_*.py'
+        run_suite \
+            "content-engineer" \
+            "$PYTHON_BIN" -m unittest discover -s plugins/chrono-content-engineer/tests -p 'test_*.py'
+    else
+        skip_suite "chrono-vault" "Python test deps are missing; install requirements-dev.txt"
+        skip_suite "content-engineer" "Python test deps are missing; install requirements-dev.txt"
+    fi
+fi
+
+if ! command -v python3 >/dev/null 2>&1; then
+    skip_suite "reconcile selftest" "python3 is unavailable"
+else
+    run_suite \
+        "reconcile selftest" \
+        env VAULT_ROOT_UNDER_TEST="$ROOT" bash bin/reconcile-selftest.sh
+fi
+
+run_suite \
+    "specialist validation" \
+    env VAULT_ROOT="$ROOT" bash bin/validate-specialists.sh
+
+if [[ "$TIER" == "full" ]]; then
+    if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+        skip_suite "daemon" "${PYTHON_BIN} is unavailable"
+    elif ! python_has_daemon_deps; then
+        skip_suite "daemon" "Python daemon deps are missing; install requirements-dev.txt"
+    elif ! command -v uv >/dev/null 2>&1; then
+        skip_suite "daemon" "the uv test executable is missing; install requirements-dev.txt"
+    else
+        run_suite "daemon" "$PYTHON_BIN" -m pytest daemon/tests
+    fi
+
+    if [[ "${SKIP_MOAT_CONTAINER:-0}" == "1" ]]; then
+        skip_suite "moat container e2e" "disabled by SKIP_MOAT_CONTAINER=1"
+    elif ! command -v node >/dev/null 2>&1; then
+        skip_suite "moat container e2e" "node is unavailable"
+    elif [[ ! -d moat/node_modules/typescript ]]; then
+        skip_suite "moat container e2e" "moat dependencies are missing; run npm ci --prefix moat"
+    elif ! command -v docker >/dev/null 2>&1; then
+        skip_suite "moat container e2e" "docker is unavailable"
+    elif ! docker info >/dev/null 2>&1; then
+        skip_suite "moat container e2e" "docker daemon is unavailable"
+    elif ! docker image inspect python:3.11 >/dev/null 2>&1; then
+        skip_suite "moat container e2e" "python:3.11 image is not preloaded; refusing an implicit network pull"
+    else
+        run_suite "moat container e2e" run_moat_container
+    fi
+fi
+
+echo
+echo "Test summary (${TIER})"
+echo "--------------------"
+index=0
+while [[ $index -lt ${#SUITE_NAMES[@]} ]]; do
+    printf '%-22s %-4s %s\n' \
+        "${SUITE_NAMES[$index]}" \
+        "${SUITE_RESULTS[$index]}" \
+        "${SUITE_DETAILS[$index]}"
+    index=$((index + 1))
+done
+echo "--------------------"
+echo "Total suites: ${#SUITE_NAMES[@]} (pass=${PASS_COUNT}, fail=${FAIL_COUNT}, skip=${SKIP_COUNT})"
+
+if [[ $FAIL_COUNT -gt 0 ]]; then
+    exit 1
+fi
