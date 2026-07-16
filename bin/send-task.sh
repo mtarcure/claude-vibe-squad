@@ -11,7 +11,7 @@
 #   bin/send-task.sh <task-file> [--nudge-pane <tmux-target>] [--dry-run]
 #       [--panel a,b,c] [--panel-policy evidence-synthesis]
 #       [--panel-quorum all|N] [--panel-timeout SECONDS]
-#   bin/send-task.sh --close-task <TASK-ID>
+#   bin/send-task.sh --close-task <TASK-ID>  # evidence-gated reconciliation
 #
 # Required frontmatter in task file:
 #   id: TASK-YYYY-MM-DD-HHMM-<hash>
@@ -83,7 +83,7 @@ validate_native_adapter() {
             grep -q "^name: ${specialist}$" "$adapter" || die "predispatch blocked: Gemini adapter name mismatch for specialist '${specialist}'"
             ;;
         kimi)
-            adapter="${VAULT_ROOT}/model-lanes/kimi/subagents/${specialist}.yaml"
+            adapter="${VAULT_ROOT}/model-lanes/kimi/.kimi/agents/${specialist}.yaml"
             [[ -f "$adapter" ]] || die "predispatch blocked: missing Kimi adapter for specialist '${specialist}'"
             grep -q "^[[:space:]]*${specialist}:" "${VAULT_ROOT}/model-lanes/kimi/main.yaml" || die "predispatch blocked: Kimi main.yaml missing subagent '${specialist}'"
             ;;
@@ -142,36 +142,15 @@ if issues:
 PYEOF
 }
 
-# ── sub-command: close task on response landing ───────────────────────────────
-# Called by response-landing hook when a lane writes TASK-*-response.md.
+# ── sub-command: reconcile task on response landing ──────────────────────────
+# Called by the response-landing hook when a lane writes TASK-*-response.md.
+# This is evidence-gated: it reconciles from a valid landed envelope (or the
+# guarded return-artifact safety net) and never force-promotes a task.
 
 if [[ "${1:-}" == "--close-task" ]]; then
     CLOSE_ID="${2:-}"
     [[ -z "$CLOSE_ID" ]] && die "Usage: $0 --close-task <TASK-ID>"
-    python3 - <<PYEOF
-import json, os
-from datetime import datetime, timezone
-from pathlib import Path
-
-registry_path = Path("${ACTIVE_REGISTRY}")
-if not registry_path.exists():
-    raise SystemExit(0)
-
-try:
-    registry = json.loads(registry_path.read_text())
-except json.JSONDecodeError:
-    raise SystemExit("ERROR: active-task registry is not valid JSON")
-
-if "${CLOSE_ID}" in registry:
-    registry["${CLOSE_ID}"]["status"] = "complete"
-    registry["${CLOSE_ID}"]["completed_at"] = datetime.now(timezone.utc).isoformat()
-    tmp = str(registry_path) + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(registry, f, indent=2)
-    os.rename(tmp, str(registry_path))
-    print(f"Closed ${CLOSE_ID} in active-task registry")
-PYEOF
-    exit $?
+    exec "${VAULT_ROOT}/bin/registry-reconciler.sh" --task-id "$CLOSE_ID"
 fi
 
 # ── arg parse ─────────────────────────────────────────────────────────────────
@@ -213,6 +192,7 @@ fi
 TASK_ID=$(frontmatter_field "$TASK_FILE" "id")
 TO_LEAD=$(frontmatter_field "$TASK_FILE" "to_lead")
 COMPAT_NAMESPACE=$(frontmatter_field "$TASK_FILE" "compatibility_namespace")
+# shellcheck disable=SC2034  # retained compatibility metadata for legacy packets
 RUN_ID=$(frontmatter_field "$TASK_FILE" "run_id")
 WRITE_SCOPE_RAW=$(frontmatter_field "$TASK_FILE" "write_scope")
 PER_TASK_VERSIONING=$(frontmatter_field "$TASK_FILE" "per_task_versioning")
@@ -228,6 +208,7 @@ DIRECT_LANE_WORK_ALLOWED=$(frontmatter_field "$TASK_FILE" "direct_lane_work_allo
 LEGACY_LEAD_DIRECT_ALLOWED=$(frontmatter_field "$TASK_FILE" "lead_direct_allowed")
 PARALLEL_SAFE=$(frontmatter_field "$TASK_FILE" "parallel_safe")
 PANEL_MEMBER_WRITE_SCOPE=$(frontmatter_field "$TASK_FILE" "panel_member_write_scope")
+RETURN_ARTIFACT=$(frontmatter_field "$TASK_FILE" "return_artifact")
 MAP_BACKUP="none"
 MAP_OPERATOR_GATE="[]"
 MAP_SAFETY=""
@@ -426,38 +407,8 @@ fi
 
 if [[ -f "$ACTIVE_REGISTRY" ]]; then
     info "Reconciling active-task registry with landed responses..."
-    python3 - <<PYEOF || echo "WARNING: Active-task registry reconciliation failed (non-blocking)" >&2
-import json, os
-from datetime import datetime, timezone
-from pathlib import Path
-
-vault = Path("${VAULT_ROOT}")
-registry_path = Path("${ACTIVE_REGISTRY}")
-
-try:
-    registry = json.loads(registry_path.read_text())
-except json.JSONDecodeError:
-    raise SystemExit(1)
-
-changed = False
-for task_id, entry in registry.items():
-    if entry.get("status") != "in-flight":
-        continue
-    namespace = entry.get("compatibility_namespace") or entry.get("source_namespace") or entry.get("to_lead")
-    if not namespace:
-        continue
-    response = vault / "departments" / namespace / "outbox" / f"{task_id}-response.md"
-    if response.exists():
-        entry["status"] = "complete"
-        entry["completed_at"] = datetime.now(timezone.utc).isoformat()
-        changed = True
-
-if changed:
-    tmp = str(registry_path) + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(registry, f, indent=2)
-    os.rename(tmp, str(registry_path))
-PYEOF
+    "${VAULT_ROOT}/bin/registry-reconciler.sh" \
+        || echo "WARNING: Active-task registry reconciliation failed (non-blocking)" >&2
 fi
 
 if [[ -n "$WRITE_SCOPE_RAW" && "$WRITE_SCOPE_RAW" != "[]" && -f "$ACTIVE_REGISTRY" ]]; then
@@ -591,14 +542,14 @@ fi
 
 ACTUAL_TASK_FILE="$WORKING_COPY"
 if [[ "$PER_TASK_VERSIONING" == "true" ]]; then
-    RETURN_ART=$(frontmatter_field "$TASK_FILE" "return_artifact")
-    if [[ -n "$RETURN_ART" ]]; then
-        ART_DIR=$(dirname "$RETURN_ART")
-        ART_FILE=$(basename "$RETURN_ART")
+    if [[ -n "$RETURN_ARTIFACT" ]]; then
+        ART_DIR=$(dirname "$RETURN_ARTIFACT")
+        ART_FILE=$(basename "$RETURN_ARTIFACT")
         NEW_ART="${ART_DIR}/${TASK_ID}/${ART_FILE}"
         VERSIONED_COPY=$(mktemp "${TASK_FILE%.md}.versioned.XXXXXX.md")
         sed "s|return_artifact:.*|return_artifact: ${NEW_ART}|" "$WORKING_COPY" > "$VERSIONED_COPY"
         ACTUAL_TASK_FILE="$VERSIONED_COPY"
+        RETURN_ARTIFACT="$NEW_ART"
         info "Per-task versioning: return_artifact → ${NEW_ART}"
     fi
 fi
@@ -677,26 +628,19 @@ if [[ "$CONTROL_ACTIVE" == "1" ]]; then
 fi
 
 # ── ITEM 7: active-task registry ─────────────────────────────────────────────
-# Atomic write (temp+rename). Remove entry when this task's response lands —
-# the response-landing hook calls: send-task.sh --close-task <TASK-ID>
+# Build the entry here, then register it through the shared reconciler so entry
+# creation and response reconciliation use the same flock + atomic rename.
 
-python3 - <<PYEOF || echo "WARNING: Active-task registry update failed (non-blocking)"
+if REGISTRY_ENTRY_JSON="$(RETURN_ARTIFACT_VALUE="$RETURN_ARTIFACT" python3 - <<PYEOF
 import json, os, re
 from datetime import datetime, timezone
-from pathlib import Path
-
-registry_path = Path("${ACTIVE_REGISTRY}")
-try:
-    registry = json.loads(registry_path.read_text()) if registry_path.exists() else {}
-except json.JSONDecodeError:
-    registry = {}
 
 scope_raw = """${WRITE_SCOPE_RAW}"""
 scope = [s.strip().strip('"').strip("'")
          for s in re.sub(r'[\[\]]', '', scope_raw).split(',')
          if s.strip()]
 
-registry["${TASK_ID}"] = {
+entry = {
     "compatibility_namespace": "${COMPAT_NAMESPACE}",
     "specialist": "${SPECIALIST}",
     "to_model": "${TO_MODEL}",
@@ -706,19 +650,20 @@ registry["${TASK_ID}"] = {
     "parallel_safe": "${PARALLEL_SAFE}",
     "direct_lane_work_allowed": "${DIRECT_LANE_WORK_ALLOWED}",
     "dispatched_at": datetime.now(timezone.utc).isoformat(),
+    "return_artifact": os.environ.get("RETURN_ARTIFACT_VALUE", ""),
     "write_scope": scope,
     "status": "in-flight",
     "dispatch_kind": "panel" if "${PANEL_ENABLED}" == "true" else "single",
     "panel_members": [m for m in "${PANEL_MEMBERS_CSV}".split(",") if m],
 }
-
-tmp = str(registry_path) + ".tmp"
-with open(tmp, "w") as f:
-    json.dump(registry, f, indent=2)
-os.rename(tmp, str(registry_path))
+print(json.dumps(entry, separators=(",", ":")))
 PYEOF
-
-info "Active-task registry updated"
+)" && "${VAULT_ROOT}/bin/registry-reconciler.sh" \
+    --register-task "$TASK_ID" --entry-json "$REGISTRY_ENTRY_JSON"; then
+    info "Active-task registry updated under shared lock"
+else
+    echo "WARNING: Active-task registry update failed (non-blocking)" >&2
+fi
 
 # ── central dispatch log ─────────────────────────────────────────────────────
 

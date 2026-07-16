@@ -1,5 +1,6 @@
 #!/bin/bash
-# Sweep stale active/ tasks → archive/ when their response has landed in outbox/.
+# Sweep stale active/ tasks → archive/ when their response has landed in any
+# department outbox/ or archive/.
 #
 # Why: the mailbox protocol expects a Lead to move TASK from active/ → archive/
 # after writing the response to outbox/. In practice, this step sometimes fails
@@ -26,10 +27,21 @@ Run at: $(date -u +%FT%TZ)
 EOF
 
 moved=0
-closed=0
+reconcile_runs=0
+reconcile_output="$("${VAULT_ROOT}/bin/registry-reconciler.sh" 2>&1)" && reconcile_runs=1 || true
+
+response_exists_anywhere() {
+    local task_id="$1" candidate
+    for candidate in \
+        "${VAULT_ROOT}"/departments/*/outbox/"${task_id}-response.md" \
+        "${VAULT_ROOT}"/departments/*/archive/"${task_id}-response.md"; do
+        [[ -f "$candidate" ]] && return 0
+    done
+    return 1
+}
+
 for lead in coding security content sysmgmt research; do
     active_dir="${VAULT_ROOT}/departments/${lead}/active"
-    outbox_dir="${VAULT_ROOT}/departments/${lead}/outbox"
     archive_dir="${VAULT_ROOT}/departments/${lead}/archive"
     mkdir -p "${archive_dir}"
 
@@ -38,15 +50,11 @@ for lead in coding security content sysmgmt research; do
     for task in "${active_dir}"/TASK-*.md; do
         [[ -f "${task}" ]] || continue
         task_id=$(basename "${task}" .md)
-        # Response convention: <task-id>-response.md in outbox/ OR archive/
-        if [[ -f "${outbox_dir}/${task_id}-response.md" ]] \
-           || [[ -f "${archive_dir}/${task_id}-response.md" ]]; then
-            if "${VAULT_ROOT}/bin/send-task.sh" --close-task "${task_id}" >/dev/null 2>&1; then
-                closed=$((closed + 1))
-            fi
+        # Match by task id across every compatibility namespace.
+        if response_exists_anywhere "$task_id"; then
             # Idempotent move — silent if already there, no error if source vanishes
             if mv "${task}" "${archive_dir}/" 2>/dev/null; then
-                echo "- ✓ ${lead}/${task_id} → archive (response exists)" >> "${LOG}"
+                echo "- ✓ ${lead}/${task_id} → archive (response exists in a department mailbox)" >> "${LOG}"
                 moved=$((moved + 1))
             fi
         fi
@@ -59,7 +67,8 @@ cat >> "${LOG}" <<EOF
 
 ## Summary
 - Tasks moved: ${moved}
-- Registry close attempts: ${closed}
+- Shared registry reconcile runs: ${reconcile_runs}
+- Reconciler output: ${reconcile_output//$'\n'/; }
 EOF
 
-echo "Sweep active complete. Moved ${moved} tasks, closed ${closed} registry entries. Log: ${LOG}"
+echo "Sweep active complete. Moved ${moved} tasks; shared reconcile runs: ${reconcile_runs}. Log: ${LOG}"

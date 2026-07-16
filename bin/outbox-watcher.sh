@@ -39,6 +39,11 @@ fi
 
 VAULT_ROOT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
 SESSION="${SQUAD_SESSION:-squad}"
+RESPONSE_MIN_AGE_SECONDS="${RESPONSE_MIN_AGE_SECONDS:-5}"
+if [[ ! "$RESPONSE_MIN_AGE_SECONDS" =~ ^[0-9]+$ ]]; then
+    echo "RESPONSE_MIN_AGE_SECONDS must be a non-negative integer" >&2
+    exit 1
+fi
 OUTBOX="${VAULT_ROOT}/departments/${NAMESPACE}/outbox"
 STATE_DIR="${VAULT_ROOT}/_state"
 FAILOVER_STAGING="${STATE_DIR}/failover/staging"
@@ -143,7 +148,9 @@ response_ready_for_status() {
     mtime="$(stat -f %m "$file" 2>/dev/null || stat -c %Y "$file" 2>/dev/null || echo 0)"
     now="$(date +%s)"
     age=$((now - mtime))
-    [[ "$age" -ge 5 ]] || return 1
+    # Keep this gate synchronized with registry_reconciler.py so the watcher
+    # never hands off an envelope before the shared reconciler considers it ready.
+    [[ "$age" -ge "$RESPONSE_MIN_AGE_SECONDS" ]] || return 1
     awk '/^---$/{p=!p; next} p && /^status:[[:space:]]*/ {found=1; exit} END{exit found ? 0 : 1}' "$file"
 }
 
@@ -154,9 +161,11 @@ response_status() {
         completed|complete) printf 'completed' ;;
         completed_with_partials) printf 'completed_with_partials' ;;
         completed_with_notes) printf 'completed_with_notes' ;;
+        needs_review) printf 'needs_review' ;;
         needs_human) printf 'needs_human' ;;
-        BLOCKED|blocked) printf 'BLOCKED' ;;
+        BLOCKED|blocked) printf 'blocked' ;;
         cancelled|canceled) printf 'cancelled' ;;
+        failed|refused|timed_out) printf '%s' "$raw" ;;
         *) printf 'unknown' ;;
     esac
 }
@@ -165,8 +174,9 @@ status_nudge_prefix() {
     case "$1" in
         completed) printf '✅ DONE' ;;
         completed_with_partials|completed_with_notes) printf '⚠️ PARTIAL' ;;
+        needs_review) printf '🔎 NEEDS REVIEW' ;;
         needs_human) printf '🚨 NEEDS HUMAN' ;;
-        BLOCKED) printf '❌ BLOCKED' ;;
+        blocked|failed|refused|timed_out) printf '❌ BLOCKED' ;;
         cancelled) printf '🚫 CANCELLED' ;;
         *) printf '❓ UNKNOWN STATUS' ;;
     esac
@@ -297,7 +307,7 @@ PROCESSED_PATHS="|"
 PENDING_PATHS="|"
 
 handle_response_path() {
-    local path="$1" fname ctx status status_prefix task_id NUDGE_MSG state task_file can_nudge
+    local path="$1" fname ctx status status_prefix task_id NUDGE_MSG state task_file can_nudge dept reconciler_handled reconcile_output
     # Lane-owned files land only in attempt staging. The controller validates
     # schema/ID/hash and generation, then atomically publishes the canonical
     # outbox file. A rejected or partial staging write is never surfaced.
@@ -343,6 +353,7 @@ handle_response_path() {
     status="unknown"
     status_prefix="❓ UNKNOWN STATUS"
     task_id=""
+    reconciler_handled=0
     if [[ "$fname" == TASK-*-response.md ]]; then
         task_id="${fname%-response.md}"
         if response_ready_for_status "$path"; then
@@ -351,12 +362,20 @@ handle_response_path() {
         else
             echo "[$(date '+%H:%M:%S')] response not status-ready yet: ${fname}; scheduling delayed retry"
             case "$PENDING_PATHS" in
-                *"|$path|"*) ;;
-                *)
-                    PENDING_PATHS="${PENDING_PATHS}${path}|"
-                    ( sleep 6; handle_response_path "$path" ) &
-                    ;;
-            esac
+                    *"|$path|"*) ;;
+                    *)
+                        PENDING_PATHS="${PENDING_PATHS}${path}|"
+                        (
+                            while [[ -f "$path" ]]; do
+                                sleep 1
+                                if response_ready_for_status "$path"; then
+                                    handle_response_path "$path"
+                                    break
+                                fi
+                            done
+                        ) &
+                        ;;
+                esac
             return
         fi
     fi
@@ -373,25 +392,43 @@ handle_response_path() {
     echo "[$(date '+%H:%M:%S')] new: ${fname} from ${ctx} via ${NAMESPACE} namespace -> queueing chrono status"
 
     if [[ "$fname" == TASK-*-response.md ]]; then
-        if "${VAULT_ROOT}/bin/registry-reconciler.sh" --task-id "$task_id" >/dev/null 2>&1
-        then
-            echo "[$(date '+%H:%M:%S')] reconciled active-task registry entry if eligible: ${task_id}"
-        else
-            echo "[$(date '+%H:%M:%S')] warning: failed registry reconciliation for: ${task_id}" >&2
-        fi
-        if append_chrono_queue "$task_id" "$status" "$path"; then
-            echo "[$(date '+%H:%M:%S')] queued chrono status entry: ${status} ${NAMESPACE}/${task_id}"
-        else
-            echo "[$(date '+%H:%M:%S')] warning: failed to queue chrono status entry: ${status} ${NAMESPACE}/${task_id}" >&2
-        fi
-        for state in inbox active; do
-            task_file="${VAULT_ROOT}/departments/${NAMESPACE}/${state}/${task_id}.md"
-            if [[ -f "$task_file" ]]; then
-                mkdir -p "${VAULT_ROOT}/departments/${NAMESPACE}/archive"
-                mv "$task_file" "${VAULT_ROOT}/departments/${NAMESPACE}/archive/${task_id}.md"
-                echo "[$(date '+%H:%M:%S')] archived completed task packet: ${state}/${task_id}.md"
+        if reconcile_output="$("${VAULT_ROOT}/bin/registry-reconciler.sh" --task-id "$task_id" 2>&1)"; then
+            if grep -Fq "reconciled ${task_id} ->" <<<"$reconcile_output" \
+                || grep -Fq "already-settled ${task_id} ->" <<<"$reconcile_output"; then
+                reconciler_handled=1
+                echo "[$(date '+%H:%M:%S')] shared reconciler handled registry entry: ${task_id}"
+            else
+                echo "[$(date '+%H:%M:%S')] shared reconciler found no settled registry entry; using notification fallback: ${task_id}"
             fi
+        else
+            echo "[$(date '+%H:%M:%S')] warning: failed registry reconciliation for ${task_id}: ${reconcile_output}" >&2
+        fi
+        if [[ "$reconciler_handled" == 0 ]]; then
+            if append_chrono_queue "$task_id" "$status" "$path"; then
+                echo "[$(date '+%H:%M:%S')] fallback queued chrono status entry: ${status} ${NAMESPACE}/${task_id}"
+            else
+                echo "[$(date '+%H:%M:%S')] warning: failed to queue chrono status entry: ${status} ${NAMESPACE}/${task_id}" >&2
+            fi
+        fi
+        # A response may land in a non-dispatch namespace. Archive the matching
+        # task packet by id wherever it actually lives.
+        for dept in "${VAULT_ROOT}"/departments/*; do
+            [[ -d "$dept" ]] || continue
+            for state in inbox active; do
+                task_file="${dept}/${state}/${task_id}.md"
+                if [[ -f "$task_file" ]]; then
+                    mkdir -p "${dept}/archive"
+                    mv "$task_file" "${dept}/archive/${task_id}.md"
+                    echo "[$(date '+%H:%M:%S')] archived landed task packet: $(basename "$dept")/${state}/${task_id}.md"
+                fi
+            done
         done
+    fi
+
+    # TASK responses are queued and nudged by the shared reconciler. Keep this
+    # legacy path only for RESP-* replies or as a reconciler-failure fallback.
+    if [[ "$fname" == TASK-*-response.md && "$reconciler_handled" == 1 ]]; then
+        return
     fi
 
     # Compose the nudge. Chrono receives this in its conversation as if the
