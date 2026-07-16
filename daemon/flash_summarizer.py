@@ -30,6 +30,3 @@ class FlashSummarizer:
             resp.raise_for_status()
             data = resp.json()
             return data["candidates"][0]["content"]["parts"][0]["text"]
-
-
-SUMMARIZER = FlashSummarizer()

@@ -1,7 +1,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from daemon.routes import health, task, mcp, events, summarize, project, catalog
+from daemon.routes import catalog, events, health, mcp, summarize, task
 from daemon.watcher import WATCHER
 from daemon.auth import BearerTokenAuth
 
@@ -24,7 +24,6 @@ app.include_router(task.router)
 app.include_router(mcp.router)
 app.include_router(events.router)
 app.include_router(summarize.router)
-app.include_router(project.router)
 app.include_router(catalog.router)
 
 if __name__ == "__main__":

@@ -1,6 +1,5 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from daemon.watcher import WATCHER
-import asyncio
 import json
 
 router = APIRouter()

@@ -23,7 +23,11 @@ REPO = Path(__file__).resolve().parents[1]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
-from daemon.control_plane import ControlPlaneError, DispatchControlPlane, FailoverRejected
+from daemon.control_plane import (  # noqa: E402
+    ControlPlaneError,
+    DispatchControlPlane,
+    FailoverRejected,
+)
 
 
 HARD_RUNTIME_EVENTS = {"provider_error", "operational_error", "process_exit"}

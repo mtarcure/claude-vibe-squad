@@ -1,7 +1,6 @@
 import asyncio
 from pathlib import Path
 from watchfiles import awatch, Change
-from typing import AsyncIterator
 import os
 
 class OutboxWatcher:
