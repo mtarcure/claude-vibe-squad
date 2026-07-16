@@ -47,10 +47,10 @@ def load_json(path, default):
 
 
 # ---- working specialists per lane: panels (members) + single active tasks ----
-work = {l: [] for l in LANES}          # (specialist, state, started_epoch)
-task_title = {l: "" for l in LANES}
-has_queued = {l: False for l in LANES}
-has_blocked = {l: False for l in LANES}
+work = {lane: [] for lane in LANES}          # (specialist, state, started_epoch)
+task_title = {lane: "" for lane in LANES}
+has_queued = {lane: False for lane in LANES}
+has_blocked = {lane: False for lane in LANES}
 
 def panel_task_title(task_id):
     if not task_id:
@@ -136,7 +136,7 @@ cache = load_json(LAST_CACHE, {})
 cache_ts = cache.get("_ts", 0) if isinstance(cache, dict) else 0
 if not isinstance(cache, dict) or NOW - int(cache_ts or 0) > LAST_TTL:
     fresh = {"_ts": NOW}
-    best = {l: (0, "", "") for l in LANES}   # (mtime, specialist, title)
+    best = {lane: (0, "", "") for lane in LANES}   # (mtime, specialist, title)
     for resp in glob.glob(str(DEPTS / "*/outbox/TASK-*-response.md")):
         try:
             mtime = int(os.stat(resp).st_mtime)
@@ -166,8 +166,8 @@ if not isinstance(cache, dict) or NOW - int(cache_ts or 0) > LAST_TTL:
             except Exception:
                 title = ""
             best[lane] = (mtime, clean(spec or ""), title)
-    for l in LANES:
-        fresh[l] = [best[l][1], best[l][2]]
+    for lane in LANES:
+        fresh[lane] = [best[lane][1], best[lane][2]]
     try:
         LAST_CACHE.write_text(json.dumps(fresh))
     except Exception:
@@ -183,11 +183,14 @@ for lane in LANES:
         state = "running"
         started = min((w[2] for w in running if w[2] > 0), default=0)
     elif has_queued[lane] or any(w[1] == "queued" for w in ws):
-        state = "queued"; started = 0
+        state = "queued"
+        started = 0
     elif has_blocked[lane]:
-        state = "blocked"; started = 0
+        state = "blocked"
+        started = 0
     else:
-        state = "idle"; started = 0
+        state = "idle"
+        started = 0
     out.append(f"@LANE\t{lane}\t{state}\t{started}")
     for spec, st, s_ep in ws:
         out.append(f"@WORK\t{spec}\t{st}\t{s_ep}")

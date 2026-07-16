@@ -7,7 +7,6 @@ import json
 import os
 import secrets
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 from vaultroot import resolve_vault_root

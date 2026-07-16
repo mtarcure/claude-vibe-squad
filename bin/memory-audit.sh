@@ -24,7 +24,7 @@ warnings=0
 
 for file in "${VAULT_ROOT}/departments"/*/memory.md; do
     [[ -f "$file" ]] || continue
-    rel="${file#${VAULT_ROOT}/}"
+    rel="${file#"${VAULT_ROOT}/"}"
     echo "## ${rel}" >> "$LOG"
 
     if grep -q 'shared/memory-discipline.md' "$file"; then

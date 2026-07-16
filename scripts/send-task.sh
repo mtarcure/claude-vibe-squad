@@ -74,7 +74,7 @@ if [[ ! -x "${HARDENED_DISPATCH}" ]]; then
 fi
 
 TIMESTAMP="$(date +%Y-%m-%d-%H%M)"
-TASK_ID="TASK-${TIMESTAMP}-$(uuidgen | head -c 8 | tr 'A-Z' 'a-z')"
+TASK_ID="TASK-${TIMESTAMP}-$(uuidgen | head -c 8 | tr '[:upper:]' '[:lower:]')"
 STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/squad-task.XXXXXX")"
 TASK_FILE="${STAGING_DIR}/${TASK_ID}.md"
 trap 'rm -rf "${STAGING_DIR}"' EXIT

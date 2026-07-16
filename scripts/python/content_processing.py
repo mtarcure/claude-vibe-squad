@@ -267,27 +267,6 @@ def kimi_summarize(text: str, max_chars: int = 12000) -> str | None:
     return out or None
 
 
-def render_blog_brief(item: dict[str, Any], summary: str) -> str:
-    return (
-        f"---\n"
-        f"feed: {item['feed_name']}\n"
-        f"title: {json.dumps(item['title'])}\n"
-        f"url: {item['url']}\n"
-        f"published: {item.get('published_iso', '')}\n"
-        f"cadence_tag: {item['cadence_tag']}\n"
-        f"processed_at: {datetime.now(timezone.utc).isoformat()}\n"
-        f"processor: kimi-summarize\n"
-        f"tier: full\n"
-        f"---\n\n"
-        f"# {item['title']}\n\n"
-        f"**Source:** [{item['feed_name']}]({item['url']})\n\n"
-        f"## Summary\n\n"
-        f"{summary}\n\n"
-        f"## Original\n\n"
-        f"{item['url']}\n"
-    )
-
-
 def normalize_list(value: Any) -> list[str]:
     if isinstance(value, list):
         return [str(v).strip() for v in value if str(v).strip() and str(v).strip().lower() not in {"none", "(none)", "none observed", "(none observed)"}]

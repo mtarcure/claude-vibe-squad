@@ -42,7 +42,6 @@ State files:
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
 import subprocess
@@ -376,10 +375,12 @@ def check_project_git_clean(manifest: dict[str, Any]) -> CheckResult:
         return CheckResult(name="git_clean", passed=False, tier=TIER_RETRY,
                            detail=f"git exit {result.returncode}: {result.stderr.strip()[:200]}")
 
-    dirty_lines = [l for l in result.stdout.splitlines() if l.strip()]
+    dirty_lines = [line for line in result.stdout.splitlines() if line.strip()]
     # Filter out runtime-state files that are gitignored or expected-dirty.
     runtime_paths = ("_state/", "departments/", "chrono/current.md", ".gemini/")
-    blocking = [l for l in dirty_lines if not any(p in l for p in runtime_paths)]
+    blocking = [
+        line for line in dirty_lines if not any(path in line for path in runtime_paths)
+    ]
 
     if blocking:
         return CheckResult(name="git_clean", passed=False, tier=TIER_RETRY,
@@ -609,7 +610,7 @@ def render_report(report: RunReport) -> str:
     }[report.overall_tier]
 
     lines = [
-        f"---",
+        "---",
         f"run_id: {report.run_id}",
         f"mode: {report.mode}",
         f"verdict: {overall}",
@@ -617,7 +618,7 @@ def render_report(report: RunReport) -> str:
         f"finished_at: {report.finished_at}",
         f"check_count: {len(report.checks)}",
         f"failed_count: {sum(1 for c in report.checks if not c.passed)}",
-        f"---",
+        "---",
         "",
         f"# Vibecoding Check — {report.run_id}",
         "",
@@ -633,7 +634,7 @@ def render_report(report: RunReport) -> str:
         if c.detail:
             lines.append(f"    - {c.detail}")
         if c.auto_fixed:
-            lines.append(f"    - *auto-fixed*")
+            lines.append("    - *auto-fixed*")
     lines.append("")
     if report.overall_tier == TIER_OPERATOR:
         lines.append("## Operator action required")

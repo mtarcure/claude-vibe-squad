@@ -19,7 +19,6 @@ Output: `_state/cleanup-logs/<date>-weekly.md` + `_state/weekly-briefs/<date>-we
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import subprocess

@@ -28,21 +28,6 @@ FRAMES='⣷⣯⣟⡿⢿⣻⣽⣾'
 FRAME_COUNT=${#FRAMES}
 mkdir -p "$VIBESQUAD_STATUS_DIR"
 
-# Colors — match Claude Code palette (colour74 cyan accent, colour252 text,
-# colour240 dim, colour214 amber, colour167 red).
-#
-# CRITICAL: emit tmux-native #[...] markup, NOT raw \033[ ANSI. This output is
-# consumed by tmux via #(cat /tmp/vs-*.status) in status/pane-border formats,
-# and tmux interprets #[fg=colourNN] but renders raw ANSI escapes as literal
-# garbage text (e.g. "[38;5;74m●daemon"). #[default] resets to the format's
-# surrounding style.
-CYAN='#[fg=colour74]'
-TEXT='#[fg=colour252]'
-DIM='#[fg=colour240]'
-AMBER='#[fg=colour214]'
-RED='#[fg=colour167]'
-RESET='#[default]'
-
 tick=0
 while :; do
     tick=$((tick + 1))

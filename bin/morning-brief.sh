@@ -121,7 +121,7 @@ if [[ ${blog_count} -gt 0 ]]; then
         [[ -f "$f" ]] || continue
         title=$(awk -F'"' '/^title: / {print $2; exit}' "$f")
         feed=$(awk -F': ' '/^feed: / {print $2; exit}' "$f" | tr -d '\r')
-        rel="${f#${VAULT_ROOT}/}"
+        rel="${f#"${VAULT_ROOT}/"}"
         echo "- **${feed}** — [${title}](../../${rel#_state/})" >> "${BRIEF}"
     done
 fi
@@ -133,7 +133,7 @@ if [[ ${podcast_count} -gt 0 ]]; then
         [[ -f "$f" ]] || continue
         title=$(awk -F'"' '/^title: / {print $2; exit}' "$f")
         feed=$(awk -F': ' '/^feed: / {print $2; exit}' "$f" | tr -d '\r')
-        rel="${f#${VAULT_ROOT}/}"
+        rel="${f#"${VAULT_ROOT}/"}"
         echo "- **${feed}** — [${title}](../../${rel#_state/})" >> "${BRIEF}"
     done
 fi
@@ -158,7 +158,7 @@ echo "## Cards for your decision" >> "${BRIEF}"
 if [[ ${#PENDING_CONTENT_ACTIONS[@]} -gt 0 ]]; then
     for p in "${PENDING_CONTENT_ACTIONS[@]}"; do
         title=$(awk '/^# / {sub(/^# /, ""); print; exit}' "$p" 2>/dev/null)
-        rel="${p#${VAULT_ROOT}/}"
+        rel="${p#"${VAULT_ROOT}/"}"
         echo "- **${title}** — [\`${rel}\`](../../${rel#_state/})" >> "${BRIEF}"
     done
     echo "" >> "${BRIEF}"
@@ -206,7 +206,7 @@ if [[ ${#PENDING_PROPOSALS[@]} -gt 0 ]]; then
         title=$(awk '/^# / {sub(/^# /, ""); print; exit}' "$p" 2>/dev/null)
         kind=$(awk -F': ' '/^kind:/ {print $2; exit}' "$p" 2>/dev/null)
         risk=$(awk -F': ' '/^risk:/ {print $2; exit}' "$p" 2>/dev/null)
-        rel="${p#${VAULT_ROOT}/}"
+        rel="${p#"${VAULT_ROOT}/"}"
         echo "- *${kind}* (risk: ${risk}) — **${title}**" >> "${BRIEF}"
         echo "    - [\`${rel}\`](../../${rel#_state/})" >> "${BRIEF}"
     done
@@ -223,7 +223,7 @@ for current_file in "${VAULT_ROOT}/chrono/current.md" "${VAULT_ROOT}/departments
     # Look for Active Tasks section with non-"None" content (skip the header itself)
     if awk '/^## Active Tasks/{flag=1; next} /^## /{flag=0} flag' "${current_file}" 2>/dev/null \
         | grep -vqiE '^(none|$|---|none yet)' ; then
-        rel="${current_file#${VAULT_ROOT}/}"
+        rel="${current_file#"${VAULT_ROOT}/"}"
         owner=$(dirname "${rel}" | xargs basename)
         active_count=$((active_count + 1))
         echo "- **${owner}**: see [\`${rel}\`](../../${rel})" >> "${BRIEF}"

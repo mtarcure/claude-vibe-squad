@@ -392,8 +392,8 @@ def _parse_note(path: Path) -> dict[str, Any]:
     title = _require_string(frontmatter["title"], "title")
     if "\n" in title or "\r" in title:
         raise MalformedNote("title must be one line")
-    target = _require_string(frontmatter["target"], "target")
-    attack_class = _require_string(frontmatter["attack_class"], "attack_class")
+    _require_string(frontmatter["target"], "target")
+    _require_string(frontmatter["attack_class"], "attack_class")
     for field in ("created_at", "updated_at"):
         _require_string(frontmatter[field], field)
     for field in (

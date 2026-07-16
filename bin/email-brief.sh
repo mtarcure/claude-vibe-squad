@@ -344,7 +344,7 @@ fi
 
 atomic_write "${MARKER}" "delivered_at: $(date -u +%FT%TZ)
 draft_id: ${DRAFT_ID}
-log: ${LOG#${VAULT_ROOT}/}
+log: ${LOG#"${VAULT_ROOT}/"}
 "
 
 echo "email-brief delivered draft ${DRAFT_ID}"
