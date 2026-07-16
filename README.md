@@ -231,6 +231,10 @@ bin/vibe-squad stop     # stop the session
 ## How it works
 
 <p align="center">
+  <img src="assets/media/dispatch-demo.gif" alt="One plain-language request becomes a typed task packet, routes to a lane by capability, and returns as an inspectable file inside a declared write scope" width="820">
+</p>
+
+<p align="center">
   <img src="assets/hero/architecture-lanes.svg" alt="Chrono routes task packets to four persistent provider lanes and coordinates a separate review path" width="820">
 </p>
 

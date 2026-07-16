@@ -28,7 +28,7 @@ printf '\033[2A'
 p "     ${GRN}✓${R} code-reviewer      ${DIM}done${R}   negative cart total          ${ORA}High${R}    "
 p "     ${GRN}✓${R} security-analyst   ${DIM}done${R}   SQL injection                ${RED}Critical${R}"
 sleep 0.5
-p "     ${DIM}↳ ran concurrently — ~78s wall-clock, not ~143s serial${R}"
+p "     ${DIM}↳ ran concurrently — one deadline-bounded batch, quorum 2/2${R}"
 sleep 1.7
 p ""
 p "  ${DIM}→ coordinator synthesizes ${R}${BOLD}one${R}${DIM} evidence-weighted result${R}"
@@ -40,6 +40,6 @@ sleep 1.9
 p ""
 p "    ${GRN}→${R} panel-result.md   ${DIM}· one canonical artifact${R}"
 sleep 0.7
-p "    ${GRN}✓${R} ${DIM}git checkpoint auto-recorded before dispatch${R}"
+p "    ${GRN}✓${R} ${DIM}every step left as an inspectable file — request to result${R}"
 sleep 2.0
 p ""
