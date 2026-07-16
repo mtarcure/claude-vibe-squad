@@ -96,3 +96,13 @@ _state/bounty/**
 **/kg.db*
 **/*.db-wal
 **/*.db-shm
+
+# Lane-local runtime config + secrets — never track (hold locally).
+model-lanes/*/.gemini/settings.json
+.env
+.env.*
+*.log
+/logs/
+**/*secret*.json
+**/*.key
+**/*.pem

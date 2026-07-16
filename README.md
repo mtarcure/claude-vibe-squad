@@ -52,7 +52,7 @@ The guiding idea is simple: **use model diversity deliberately, then keep the ev
 
 ---
 
-## Flagship capability: a state-of-the-art offensive-security research toolkit
+## Flagship capability: an offensive-security research toolkit
 
 The offensive-security research toolkit (in [`moat/`](moat/README.md)) is a public-safe set of building blocks for making JavaScript/TypeScript security research more repeatable:
 
