@@ -175,6 +175,34 @@ def _source_namespace(path: Path) -> str | None:
     return namespace
 
 
+def _resolve_specialist(
+    response_path: Path, source_task: str, fields: dict[str, Any]
+) -> str:
+    """Specialist from the envelope, else the source packet, else a safe default.
+
+    The canonical completion envelope (shared/protocol.md) does not carry a
+    `specialist` field, so a hard requirement on it silently dropped
+    correctly-formatted completions. When the envelope omits it, derive it from
+    the original task packet (departments/<ns>/{archive,inbox}/<id>.md) to
+    preserve recall quality; fall back to a stable placeholder only if neither
+    source has it.
+    """
+    envelope_value = fields.get("specialist")
+    if isinstance(envelope_value, str) and envelope_value.strip():
+        return _slug(envelope_value, "unknown-specialist")
+    department = response_path.parent.parent  # departments/<namespace>
+    for mailbox in ("archive", "inbox"):
+        packet = department / mailbox / f"{source_task}.md"
+        try:
+            text = packet.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        match = re.search(r"(?m)^specialist:[ \t]*(\S.*?)[ \t]*$", text)
+        if match and match.group(1).strip():
+            return _slug(match.group(1), "unknown-specialist")
+    return "unknown-specialist"
+
+
 def _clean_one_line(value: str) -> str:
     cleaned = " ".join(value.replace("\x00", "").split())
     return "".join(character for character in cleaned if ord(character) >= 32)
@@ -340,13 +368,11 @@ def capture_response(response_path: str) -> dict[str, bool | str | None]:
         if declared_task is not None and declared_task != source_task:
             raise CaptureError("task_mismatch")
 
-        required = ("specialist", "status")
-        if any(
-            not isinstance(fields.get(key), str) or not fields[key].strip()
-            for key in required
-        ):
+        # `status` is the only always-present field in the canonical envelope
+        # (shared/protocol.md); `specialist` is optional and derived below.
+        if not isinstance(fields.get("status"), str) or not fields["status"].strip():
             raise CaptureError("missing_metadata")
-        specialist = _slug(fields["specialist"], "unknown-specialist")
+        specialist = _resolve_specialist(path, source_task, fields)
         status_value = _slug(fields["status"], "unknown")
         raw_mode = fields.get("mode", "unknown")
         if not isinstance(raw_mode, str):

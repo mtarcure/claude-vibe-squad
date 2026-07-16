@@ -49,7 +49,7 @@ MCP tools (canonical server name `chrono-vault`; legacy aliases `chrono-kg` and 
 
 **Human-only Obsidian navigation** (need `OBSIDIAN_REST_API_KEY` + the optional `httpx` dependency; degrade gracefully): `vault_list`, `vault_get`, `vault_search` (legacy/human-only), `obsidian_health_check`.
 
-**Disabled:** `capture_session` / `capture_dispatch` / `capture_review` / `capture_research` return `capture_disabled_pending_canonical_migration`. Auto-capture is done by `autocapture.py` instead (below).
+**Auto-capture:** the four legacy `capture_*` MCP tools (`capture_session` / `capture_dispatch` / `capture_review` / `capture_research`) have been removed from the surface; auto-capture is done by `autocapture.py`, invoked by `bin/outbox-watcher.sh` (below).
 
 ## Usage
 

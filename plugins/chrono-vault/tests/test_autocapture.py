@@ -128,6 +128,71 @@ class AutoCaptureTests(unittest.TestCase):
             recalled = vault_recall.recall("EmitterForgeVerdict")
         self.assertIn(result["note_id"], [row["id"] for row in recalled["results"]])
 
+    def test_envelope_without_specialist_derives_from_packet(self) -> None:
+        # The canonical completion envelope (shared/protocol.md) omits
+        # `specialist`; autocapture must still capture, deriving it from the
+        # original task packet rather than dropping the completion.
+        namespace = "coding"
+        task_id = "TASK-2026-07-15-1853-73988d8b"
+        outbox = self.mailbox_root / "departments" / namespace / "outbox"
+        outbox.mkdir(parents=True)
+        path = outbox / f"{task_id}-response.md"
+        path.write_bytes(
+            (
+                "---\n"
+                f"id: {task_id}-response\n"
+                f"in_response_to: {json.dumps(task_id)}\n"
+                "from: gpt-codex\n"
+                "to: chrono\n"
+                "type: RESULT\n"
+                "status: needs_review\n"
+                "return_artifact: /tmp/report.md\n"
+                "---\n\n"
+                "Implemented atomic inbox publication in bin/send-task.sh.\n"
+            ).encode("utf-8")
+        )
+        archive = self.mailbox_root / "departments" / namespace / "archive"
+        archive.mkdir(parents=True)
+        (archive / f"{task_id}.md").write_text(
+            "---\n"
+            f"id: {task_id}\n"
+            "specialist: site-reliability-engineer\n"
+            "status: done\n"
+            "---\n\nbody\n",
+            encoding="utf-8",
+        )
+
+        result = autocapture.capture_response(str(path))
+
+        self.assertTrue(result["captured"])
+        note_path = next((self.vault_root / "notes" / "learning").glob("*.md"))
+        frontmatter, _ = parse_note(note_path)
+        self.assertIn(
+            "specialist-site-reliability-engineer", frontmatter["keywords"]
+        )
+
+    def test_envelope_without_specialist_or_packet_defaults(self) -> None:
+        namespace = "coding"
+        task_id = "TASK-2026-07-15-1900-abcdef01"
+        outbox = self.mailbox_root / "departments" / namespace / "outbox"
+        outbox.mkdir(parents=True)
+        path = outbox / f"{task_id}-response.md"
+        path.write_bytes(
+            (
+                "---\n"
+                f"in_response_to: {json.dumps(task_id)}\n"
+                "status: complete\n"
+                "---\n\nDid the thing.\n"
+            ).encode("utf-8")
+        )
+
+        result = autocapture.capture_response(str(path))
+
+        self.assertTrue(result["captured"])
+        note_path = next((self.vault_root / "notes" / "learning").glob("*.md"))
+        frontmatter, _ = parse_note(note_path)
+        self.assertIn("specialist-unknown-specialist", frontmatter["keywords"])
+
     def test_general_response_is_internal_and_exact_reprocessing_is_idempotent(self) -> None:
         path, _ = self._response(
             "coding",

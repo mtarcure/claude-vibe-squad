@@ -504,40 +504,11 @@ def obsidian_health_check() -> dict[str, Any]:
         return {"ok": False, "error": f"network_error: {type(exc).__name__}"}
 
 
-_CAPTURE_DISABLED_ERROR = "capture_disabled_pending_canonical_migration"
-
-
-def _capture_disabled() -> dict[str, Any]:
-    """Fail closed until capture tools use the canonical rooted note writer."""
-    return {
-        "ok": False,
-        "disabled": True,
-        "error": _CAPTURE_DISABLED_ERROR,
-    }
-
-
-@mcp.tool()
-def capture_session(model: str, cwd: str, first_message: str = "") -> dict[str, Any]:
-    """Disabled pending migration to the canonical rooted note writer."""
-    return _capture_disabled()
-
-
-@mcp.tool()
-def capture_dispatch(role: str, model: str, prompt: str, output: str) -> dict[str, Any]:
-    """Disabled pending migration to the canonical rooted note writer."""
-    return _capture_disabled()
-
-
-@mcp.tool()
-def capture_review(provider: str, target: str, prompt: str, output: str) -> dict[str, Any]:
-    """Disabled pending migration to the canonical rooted note writer."""
-    return _capture_disabled()
-
-
-@mcp.tool()
-def capture_research(query: str, tool: str, output: str) -> dict[str, Any]:
-    """Disabled pending migration to the canonical rooted note writer."""
-    return _capture_disabled()
+# The disabled `capture_*` MCP tools (capture_session / capture_dispatch /
+# capture_review / capture_research) were unregistered on 2026-07-15. They only
+# ever returned `capture_disabled_pending_canonical_migration` and had no live
+# caller (verified repo-wide). The live capture path is `autocapture.py`,
+# invoked directly by `bin/outbox-watcher.sh` — not an MCP tool.
 
 
 # ---------------------------------------------------------------------------
