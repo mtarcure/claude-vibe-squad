@@ -114,8 +114,8 @@ echo "Shutdown summary: ${SUMMARY_FILE}"
 echo ""
 echo "Cleaning up mode-spawned Chrome profiles..."
 for profile in \
-    "/Users/${USER}/Library/Caches/ms-playwright/mcp-chrome-" \
-    "/Users/${USER}/.cache/chrome-devtools-mcp/chrome-profile"
+    "${HOME}/Library/Caches/ms-playwright/mcp-chrome-" \
+    "${HOME}/.cache/chrome-devtools-mcp/chrome-profile"
 do
     pids=$(pgrep -f "user-data-dir=${profile}" 2>/dev/null || true)
     if [[ -n "${pids}" ]]; then

@@ -229,6 +229,6 @@ This constraint fires even if files look like drafts, temp files, or
 prior-run artifacts. The operator decides what's ephemeral.
 
 Violation of this rule is treated as a task failure requiring immediate
-operator review. An auto-snapshot was taken before this task was dispatched —
-the tree is recoverable regardless, but the constraint still applies.
+operator review. This constraint applies regardless of repository state or
+available recovery mechanisms.
 NODELETE

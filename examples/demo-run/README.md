@@ -37,10 +37,12 @@ negative), and **converged** on the same top fix from opposite directions.
 From [`panel-activity.json`](panel-activity.json) — the actual activity ledger:
 
 - Both members were marked `running` at the **same epoch** (`1784027216`).
-- `code-reviewer` ran ~77.9 s, `security-analyst` ~65.2 s, launched together.
-- The pair finished in **≈78 s wall-clock** (the longer of the two) — **not**
-  the ≈143 s a serial run would have taken. That gap is the proof they ran in
-  parallel.
+- Both member records span that shared start through epoch `1784027350`, so
+  the ledger shows a concurrent 134-second batch rather than distinct
+  per-member finish times.
+- The panel closed at epoch `1784027351`, 135 seconds after its recorded start.
+  This activity ledger records panel lifecycle and batch closure; it does not
+  provide a measured serial baseline or prove a wall-clock speedup.
 - Collection was deadline-bounded and closed on `quorum_met` (2/2 returned,
   0 timed out); the record was archived in the coordinator's `finally` path —
   one parent task, one artifact.

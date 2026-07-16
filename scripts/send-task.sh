@@ -6,7 +6,7 @@
 #
 # This wrapper generates standard TASK frontmatter, then routes the packet
 # through bin/send-task.sh so normal Chrono dispatches get the same safety path
-# as prepared task files: auto-snapshot, write-scope checks, toolkit injection,
+# as prepared task files: write-scope checks, toolkit injection,
 # active registry updates, dispatch logging, and optional pane nudging.
 
 set -euo pipefail
