@@ -154,6 +154,11 @@ response_ready_for_status() {
     awk '/^---$/{p=!p; next} p && /^status:[[:space:]]*/ {found=1; exit} END{exit found ? 0 : 1}' "$file"
 }
 
+# FIX 3 (wave-2): this mapping is DISPLAY-ONLY (it only chooses the nudge prefix).
+# It never settles a task — settlement is delegated to registry_reconciler.py via
+# `registry-reconciler.sh --task-id` below, and that module's SETTLEABLE_STATUSES
+# is the single canonical settle vocabulary. A status this function does not
+# recognize maps to 'unknown' (informational) and cannot settle anything here.
 response_status() {
     local file="$1" raw
     raw="$(frontmatter_field "$file" status | tr -d '"' | tr -d "'" | xargs)"
@@ -410,19 +415,29 @@ handle_response_path() {
                 echo "[$(date '+%H:%M:%S')] warning: failed to queue chrono status entry: ${status} ${NAMESPACE}/${task_id}" >&2
             fi
         fi
-        # A response may land in a non-dispatch namespace. Archive the matching
-        # task packet by id wherever it actually lives.
-        for dept in "${VAULT_ROOT}"/departments/*; do
-            [[ -d "$dept" ]] || continue
-            for state in inbox active; do
-                task_file="${dept}/${state}/${task_id}.md"
-                if [[ -f "$task_file" ]]; then
-                    mkdir -p "${dept}/archive"
-                    mv "$task_file" "${dept}/archive/${task_id}.md"
-                    echo "[$(date '+%H:%M:%S')] archived landed task packet: $(basename "$dept")/${state}/${task_id}.md"
-                fi
+        # BLOCK3 (wave-2): archive ONLY after the shared reconciler confirms a
+        # canonical settlement (reconciler_handled=1 — set on "reconciled ... ->" or
+        # "already-settled ... ->"). A mere response file — with an unknown/typo status,
+        # a cross-family review hold, or a failed reconcile — leaves the registry OPEN;
+        # moving the packet to archive then hides an actionable task from the active
+        # mailbox while it is still open. Fail closed: keep the packet where it is.
+        if [[ "$reconciler_handled" == 1 ]]; then
+            # A response may land in a non-dispatch namespace. Archive the matching
+            # task packet by id wherever it actually lives.
+            for dept in "${VAULT_ROOT}"/departments/*; do
+                [[ -d "$dept" ]] || continue
+                for state in inbox active; do
+                    task_file="${dept}/${state}/${task_id}.md"
+                    if [[ -f "$task_file" ]]; then
+                        mkdir -p "${dept}/archive"
+                        mv "$task_file" "${dept}/archive/${task_id}.md"
+                        echo "[$(date '+%H:%M:%S')] archived landed task packet: $(basename "$dept")/${state}/${task_id}.md"
+                    fi
+                done
             done
-        done
+        else
+            echo "[$(date '+%H:%M:%S')] not archiving ${task_id}: registry not canonically settled (kept in active mailbox)"
+        fi
     fi
 
     # TASK responses are queued and nudged by the shared reconciler. Keep this

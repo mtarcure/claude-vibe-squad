@@ -198,6 +198,15 @@ fi
 
 # ── read task metadata ────────────────────────────────────────────────────────
 
+# MED5 (wave-2): command substitution silently strips NUL bytes, so a raw NUL in
+# the id frontmatter would collide to a different valid id instead of being
+# rejected (overwrite / identity ambiguity). A task packet must never contain a
+# NUL byte — validate the raw file bytes before parsing/trusting any frontmatter
+# field, because $(frontmatter_field ...) can no longer reveal an embedded NUL.
+if [[ -f "$TASK_FILE" ]] && ! LC_ALL=C tr -d '\000' < "$TASK_FILE" | cmp -s - "$TASK_FILE"; then
+    die "invalid task file (contains a NUL byte): $TASK_FILE"
+fi
+
 TASK_ID=$(frontmatter_field "$TASK_FILE" "id")
 TO_LEAD=$(frontmatter_field "$TASK_FILE" "to_lead")
 COMPAT_NAMESPACE=$(frontmatter_field "$TASK_FILE" "compatibility_namespace")
@@ -223,6 +232,12 @@ MAP_OPERATOR_GATE="[]"
 MAP_SAFETY=""
 
 [[ -z "$TASK_ID" ]]  && die "Task file missing 'id' frontmatter: $TASK_FILE"
+# FIX 1 (wave-2): TASK_ID becomes a path component for inbox/temp/outbox files.
+# Require the exact canonical task-id format so it cannot contain a path
+# separator, '.', '..', NUL, or whitespace and redirect a write outside the inbox.
+if [[ ! "$TASK_ID" =~ ^TASK-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}-[A-Za-z0-9][A-Za-z0-9-]*$ ]]; then
+    die "invalid task id '${TASK_ID}': must match TASK-YYYY-MM-DD-HHMM-<suffix> (alphanumeric/hyphen)"
+fi
 [[ -z "$SPECIALIST" ]] && die "Task file missing 'specialist' frontmatter: $TASK_FILE"
 [[ -z "$PARALLEL_SAFE" ]] && die "Task file missing 'parallel_safe' frontmatter: $TASK_FILE"
 if [[ -z "$DIRECT_LANE_WORK_ALLOWED" ]]; then
@@ -273,6 +288,13 @@ esac
 case "$SOURCE_NAMESPACE" in
     coding|security|content|content-engineer|sysmgmt|research|shared|chrono) ;;
     *) die "invalid source_namespace '${SOURCE_NAMESPACE}'." ;;
+esac
+# compatibility_namespace is interpolated into the mailbox path. Shared/Chrono
+# coordinator packets may choose a different mailbox, but it must still be one
+# of the real compatibility mailboxes — never an arbitrary path component.
+case "$COMPAT_NAMESPACE" in
+    coding|security|content|content-engineer|sysmgmt|research) ;;
+    *) die "invalid compatibility_namespace '${COMPAT_NAMESPACE}'." ;;
 esac
 case "$MANDATORY_REVIEW" in
     true|false) ;;
@@ -425,14 +447,43 @@ if [[ "$SPECIALIST" != "none" ]]; then
     if [[ "$MAP_SAFETY" == "high" && "$MANDATORY_REVIEW" != "true" ]]; then
         die "high-safety specialist '${SPECIALIST}' requires mandatory_review:true"
     fi
+    # Non-blocking heads-up: a genuine cross-family mandatory_review task will NOT
+    # auto-settle to complete until a separate reviewer-lane response lands
+    # (enforced by scripts/python/registry_reconciler.py). gpt-codex->claude runs
+    # in-lane, so it is exempt; every other cross-lane pair needs the follow-up.
+    if [[ "$MANDATORY_REVIEW" == "true" && "$REVIEW_MODEL" != "none" \
+        && "$MAP_MODEL" != "$REVIEW_MODEL" \
+        && ! ( "$MAP_MODEL" == "gpt-codex" && "$REVIEW_MODEL" == "claude" ) ]]; then
+        info "cross-family review required: ${SPECIALIST} (${MAP_MODEL}) will stay review-required until a ${REVIEW_MODEL} review response lands."
+    fi
 fi
 
 validate_native_adapter "$TO_MODEL" "$SPECIALIST"
 validate_task_capabilities "$TASK_FILE" || die "task references unavailable or unverified live capability"
 
-MAILBOX_ROOT="${VAULT_ROOT}/departments/${COMPAT_NAMESPACE}"
-mkdir -p "${MAILBOX_ROOT}/inbox" "${MAILBOX_ROOT}/active" "${MAILBOX_ROOT}/outbox" "${MAILBOX_ROOT}/archive"
+DEPARTMENTS_ROOT="${VAULT_ROOT}/departments"
+MAILBOX_ROOT="${DEPARTMENTS_ROOT}/${COMPAT_NAMESPACE}"
 INBOX="${MAILBOX_ROOT}/inbox"
+
+# Basic path hardening must happen before mailbox creation: otherwise a malformed
+# compatibility namespace or an existing symlinked component could redirect the
+# mkdir itself. VAULT_ROOT may have a benign symlinked prefix (macOS /tmp ->
+# /private/tmp), so resolve the configured root and reject symlinks only inside
+# the squad-owned mailbox hierarchy.
+VAULT_PHYS="$(cd "$VAULT_ROOT" 2>/dev/null && pwd -P)" || VAULT_PHYS=""
+[[ -n "$VAULT_PHYS" ]] || die "cannot resolve VAULT_ROOT: ${VAULT_ROOT}"
+for MAILBOX_COMPONENT in \
+    "$DEPARTMENTS_ROOT" "$MAILBOX_ROOT" \
+    "$INBOX" "${MAILBOX_ROOT}/active" "${MAILBOX_ROOT}/outbox" "${MAILBOX_ROOT}/archive"; do
+    [[ ! -L "$MAILBOX_COMPONENT" ]] \
+        || die "refusing to create or publish through a symlinked mailbox path component: ${MAILBOX_COMPONENT}"
+done
+
+mkdir -p "$INBOX" "${MAILBOX_ROOT}/active" "${MAILBOX_ROOT}/outbox" "${MAILBOX_ROOT}/archive"
+INBOX_PHYS="$(cd "$INBOX" 2>/dev/null && pwd -P)" || INBOX_PHYS=""
+EXPECTED_INBOX="${VAULT_PHYS}/departments/${COMPAT_NAMESPACE}/inbox"
+[[ -n "$INBOX_PHYS" && "$INBOX_PHYS" == "$EXPECTED_INBOX" ]] \
+    || die "refusing to use mailbox outside the expected physical directory under VAULT_ROOT: ${INBOX}"
 
 echo "Dispatching ${TASK_ID} → ${TO_MODEL}/${SPECIALIST}"
 echo "  Model lane: ${TO_MODEL}  Specialist: ${SPECIALIST}  Source namespace: ${SOURCE_NAMESPACE}"
@@ -658,6 +709,17 @@ fi
 # ── copy to source namespace inbox ────────────────────────────────────────────
 
 DEST="${INBOX}/${TASK_ID}.md"
+# Re-check immediately before publish so accidental mailbox drift fails closed.
+# This is pathname hardening for the trusted single-user squad filesystem, not an
+# atomic defense against a concurrent local process replacing directories between
+# this check and mktemp; shared/protocol.md documents that explicit boundary.
+INBOX_PHYS="$(cd "$INBOX" 2>/dev/null && pwd -P)" || INBOX_PHYS=""
+EXPECTED_INBOX="${VAULT_PHYS}/departments/${COMPAT_NAMESPACE}/inbox"
+[[ -n "$VAULT_PHYS" && -n "$INBOX_PHYS" && "$INBOX_PHYS" == "$EXPECTED_INBOX" ]] \
+    || die "refusing to publish: inbox is not the expected physical directory under VAULT_ROOT: ${INBOX}"
+if [[ -L "$INBOX" || -L "$MAILBOX_ROOT" ]]; then
+    die "refusing to publish through a symlinked mailbox path component: ${INBOX}"
+fi
 INBOX_TEMP=""
 if ! INBOX_TEMP=$(mktemp "${INBOX}/.${TASK_ID}.tmp.XXXXXX") \
     || ! cp "$ACTUAL_TASK_FILE" "$INBOX_TEMP" \

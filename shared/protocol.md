@@ -11,8 +11,8 @@ run_id: none
 from: chrono
 to_model: gpt-codex | claude | gemini | kimi
 specialist: <canonical-specialist>
-source_namespace: coding | security | content | sysmgmt | research | shared
-compatibility_namespace: coding | security | content | sysmgmt | research
+source_namespace: coding | security | content | content-engineer | sysmgmt | research | shared
+compatibility_namespace: coding | security | content | content-engineer | sysmgmt | research
 review_model: gpt-codex | claude | gemini | kimi | none
 mandatory_review: true | false
 mode: bounty | project | content | maintenance | incident | research | triage | outreach | none
@@ -50,6 +50,27 @@ The dispatcher contains a temporary compatibility bridge for older local packets
 `source_namespace` selects the specialist markdown. `compatibility_namespace`
 selects the mailbox folder. Shared specialists do not have a `departments/shared`
 mailbox; Chrono chooses the mailbox namespace that matches the active workflow.
+
+### Dispatcher filesystem threat boundary
+
+The local dispatcher is designed for the squad's trusted, single-user control
+plane: Chrono authors packets, `launch-squad.sh` creates the mailbox topology,
+and no untrusted or concurrent process may rename or replace `departments/`, a
+mailbox directory, or its `inbox/` while dispatch is running.
+
+Within that boundary, `bin/send-task.sh` rejects NUL bytes and non-canonical task
+IDs, allowlists every `compatibility_namespace` before using it as a path
+component, rejects existing symlinked mailbox components before creation, and
+requires the physical inbox to equal the expected directory below the resolved
+`VAULT_ROOT`. A symlinked prefix in the configured root itself is allowed (for
+example macOS `/tmp` resolving to `/private/tmp`).
+
+The Bash `check → mktemp → copy → rename` sequence is not an atomic
+`openat`/`O_NOFOLLOW` security primitive. A hostile local process that can mutate
+the mailbox tree between those operations is outside the supported threat model.
+If Vibe Squad gains untrusted packet authors, shared filesystem writers, or a
+multi-user mailbox, dispatch must move to a directory-descriptor-relative,
+no-follow publisher before that environment is supported.
 
 ## Completion Contract
 
@@ -102,4 +123,24 @@ Operators / specialists writing packets should:
 2. Treat `mandatory_review: true` as "Chrono guarantees a reviewer will see this before operator-facing surfacing happens" — not as automation.
 3. If a high-safety specialist's response lands without evidence of in-lane review, Chrono is expected to dispatch a reviewer follow-up before treating the response as final.
 
-A future enhancement could make cross-family reviews auto-fire from `bin/outbox-watcher.sh` (detect response landing + `mandatory_review: true` + lane mismatch → auto-dispatch reviewer). Not implemented; tracked as a parked architectural item.
+### Machine-enforced block-settle (implemented)
+
+`scripts/python/registry_reconciler.py` (run by `bin/outbox-watcher.sh` when a response lands) **enforces** the cross-family case so it cannot be silently skipped. A task is *cross-family-review-pending* when its registry entry has `mandatory_review: true`, a `review_model` that is a real lane, and an **actual executing lane** (`to_model`, after dispatch override validation; falling back to the specialist's mapped primary lane) that cannot run that review in-lane. The only in-lane-capable cross-lane pair today is **gpt-codex → claude** (a Codex lane can invoke Claude directly), which is exempt and settles normally as same-family; every other cross-lane pair (for example claude → gpt-codex) is enforced. An indeterminate executing lane fails **closed**.
+
+For a pending task, automatic behavior is deliberately limited to **flag, hold, and surface**:
+
+- the task's own response does not reconcile to `complete`; the registry remains `review-required` and emits one `REVIEW-REQUIRED` queue line per hold/required-lane transition;
+- reviewer response files have **no automatic settlement authority**. Their text, frontmatter verdict, filename order, and filesystem timestamps are never parsed to decide registry completion. Malformed, ambiguous, nonterminal, conflicting, or late review files therefore cannot false-settle a task;
+- after reading a satisfactory final review and confirming that no blocking finding remains, Chrono explicitly settles the held task under the registry flock:
+
+  ```bash
+  python scripts/python/registry_reconciler.py \
+    --settle-review TASK-... \
+    --review-ref departments/<namespace>/<outbox|archive>/TASK-...-response.md
+  ```
+
+  The review path is audit provenance only. The command requires an existing in-vault mailbox response, a held cross-family task, and a landed subject response in `complete` or `needs_review`; it is lock-serialized, idempotent for the same task/reference, rejects conflicting references, records `review_settled_by: chrono-explicit`, and emits one `REVIEW-SETTLED` audit line. Task lanes must not invoke this controller capability themselves. If a review is blocked, incomplete, malformed, or ambiguous, Chrono does not run the command and the task stays open.
+
+To prevent infinite review-of-review regress, a task is exempt from cross-family enforcement only when `write_scope` is the explicit empty list and its specialist is exactly `code-reviewer` or `security-analyst`. Reviewer-role tasks with missing, malformed, or non-empty scope remain gated. Existing lock-serialized registration is unchanged. The `work-done-no-envelope` backstop remains available only when no response candidate exists; a candidate still inside its quiescence window suppresses the backstop, and a candidate arriving after provisional settlement reopens the task until its status can be classified.
+
+Still parked (not implemented): **auto-firing** the reviewer dispatch itself. The reconciler blocks settle and surfaces `REVIEW-REQUIRED`, but a human/Chrono still dispatches the actual review packet. Auto-dispatch from the watcher (detect response landing + lane mismatch → send the reviewer task) remains a future enhancement.

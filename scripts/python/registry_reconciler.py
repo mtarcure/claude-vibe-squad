@@ -12,6 +12,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import time
 import uuid
 from contextlib import contextmanager
@@ -44,6 +45,20 @@ NO_ENVELOPE_MIN_DISPATCH_AGE = timedelta(
     seconds=float(os.environ.get("NO_ENVELOPE_MIN_DISPATCH_AGE_SECONDS", "60"))
 )
 SETTLED_WITHOUT_ENVELOPE = "work-done-no-envelope"
+REVIEW_REQUIRED = "review-required"
+RUNTIME_MAP_PATH = VAULT_ROOT / "shared" / "specialist-runtime-map.tsv"
+
+# Executing lane -> review lanes it can run IN-LANE (same-family), per
+# shared/protocol.md "Mandatory Review Behavior". Only gpt-codex can invoke
+# Claude as an in-lane tool today; every OTHER cross-lane pair needs a separate
+# reviewer response, which is exactly what this enforcement requires. Lanes are
+# normalized to the registry spelling ("gpt-codex", not the map's "codex").
+IN_LANE_REVIEW_CAPABLE = {"gpt-codex": {"claude"}}
+
+# Read-only review packets performed by verdict-producing roles must not require
+# a review of their own review. The explicit empty write scope is essential:
+# reviewer specialists doing implementation work still follow the normal gate.
+REVIEW_VERDICT_SPECIALISTS = frozenset({"code-reviewer", "security-analyst"})
 
 
 def utc_date() -> str:
@@ -164,12 +179,66 @@ def emit_event(status: str, task_ref: str, summary: str, nudge: str) -> bool:
     return nudge_chrono(nudge)
 
 
-def load_registry() -> dict[str, Any]:
+class RegistryCorruptError(RuntimeError):
+    """active-tasks.json exists but is malformed or is not a JSON object."""
+
+
+def _preserve_corrupt_registry(raw: bytes) -> None:
+    """Best-effort timestamped diagnostic copy of a corrupt registry.
+
+    Writes the raw bytes byte-for-byte (binary) so an invalid-UTF-8 registry is
+    preserved exactly, not lossily re-encoded.
+    """
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    diagnostic = REGISTRY_PATH.with_name(f"{REGISTRY_PATH.name}.corrupt.{stamp}")
     try:
-        data = json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except (FileNotFoundError, json.JSONDecodeError):
+        if not diagnostic.exists():
+            with diagnostic.open("xb") as handle:
+                handle.write(raw)
+    except OSError:
+        pass
+
+
+def load_registry() -> dict[str, Any]:
+    """Load the active-task registry.
+
+    An ABSENT file is a legitimate empty registry ({}). A file that EXISTS but is
+    not valid UTF-8, not valid JSON, or is valid JSON that is not an object, is a
+    HARD corruption error: we refuse to write (a subsequent register/reconcile
+    write would erase every in-flight task), preserve a timestamped diagnostic copy
+    (byte-for-byte), and surface the failure — we never silently reset the registry
+    to empty.
+    """
+    try:
+        raw_bytes = REGISTRY_PATH.read_bytes()
+    except FileNotFoundError:
         return {}
+    # MED4 (wave-2): read BYTES first. read_text(encoding="utf-8") raises
+    # UnicodeDecodeError BEFORE the JSON branch, which would escape uncaught (no
+    # exit-2, no diagnostic). Decode explicitly and translate the failure.
+    try:
+        raw = raw_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        _preserve_corrupt_registry(raw_bytes)
+        raise RegistryCorruptError(
+            f"active-tasks.json is not valid UTF-8 ({exc}); refusing to write and "
+            "preserving a diagnostic copy — will not reset the registry to empty"
+        ) from exc
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        _preserve_corrupt_registry(raw_bytes)
+        raise RegistryCorruptError(
+            f"active-tasks.json is not valid JSON ({exc}); refusing to write and "
+            "preserving a diagnostic copy — will not reset the registry to empty"
+        ) from exc
+    if not isinstance(data, dict):
+        _preserve_corrupt_registry(raw_bytes)
+        raise RegistryCorruptError(
+            "active-tasks.json is not a JSON object; refusing to write and "
+            "preserving a diagnostic copy — will not reset the registry to empty"
+        )
+    return data
 
 
 def locked_registry():
@@ -203,14 +272,25 @@ def strip_frontmatter(text: str) -> dict[str, str]:
     return meta
 
 
+# FIX 3 (wave-2): ONE canonical settleable-status vocabulary — the single source
+# of truth for which response statuses may settle a task. A landed response may
+# settle a task only to a status here; empty / unknown / typo statuses canonicalize
+# to "" and are rejected, so a misspelling can NEVER settle a task with a bogus
+# state (fail closed → the task stays open). `bin/outbox-watcher.sh` delegates ALL
+# settlement to this module and never settles on its own, so this is the sole
+# settle authority. `review-required` / `work-done-no-envelope` are reconciler
+# registry states, not response statuses, and are intentionally not settleable here.
+_STATUS_ALIASES = {"completed": "complete", "canceled": "cancelled"}
+SETTLEABLE_STATUSES = frozenset(
+    {"complete", "needs_review", "blocked", "needs_human", "cancelled"}
+)
+
+
 def registry_status(raw: str) -> str:
-    """Preserve truthful response states while retaining the historical close alias."""
-    status = raw.strip()
-    if status in {"complete", "completed"}:
-        return "complete"
-    if status == "canceled":
-        return "cancelled"
-    return status
+    """Canonicalize a landed response status; '' for empty/unknown (fail closed)."""
+    status = (raw or "").strip()
+    status = _STATUS_ALIASES.get(status, status)
+    return status if status in SETTLEABLE_STATUSES else ""
 
 
 def response_status(path: Path) -> str:
@@ -218,7 +298,8 @@ def response_status(path: Path) -> str:
 
 
 def valid_response_status(status: str) -> bool:
-    return bool(re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,63}", status)) and status != "in-flight"
+    """True only for a canonical settleable status (rejects '', 'in-flight', typos)."""
+    return status in SETTLEABLE_STATUSES
 
 
 def response_ready(path: Path) -> bool:
@@ -240,8 +321,10 @@ def response_candidates(task_id: str) -> list[Path]:
     )
 
 
-def landed_response(task_id: str) -> tuple[Path | None, str]:
-    for candidate in response_candidates(task_id):
+def landed_response(
+    task_id: str, candidates: list[Path] | None = None
+) -> tuple[Path | None, str]:
+    for candidate in candidates if candidates is not None else response_candidates(task_id):
         if not response_ready(candidate):
             continue
         status = response_status(candidate)
@@ -289,6 +372,146 @@ def return_artifact_path(task_id: str, entry: dict[str, Any]) -> Path | None:
         return None
     path = Path(raw).expanduser()
     return path if path.is_absolute() else VAULT_ROOT / path
+
+
+def _lane(value: Any) -> str:
+    lane = str(value or "").strip().lower()
+    return "gpt-codex" if lane == "codex" else lane
+
+
+def _specialist_primary_lane(specialist: str) -> str:
+    """Primary lane (registry spelling) for a specialist from the runtime map."""
+    if not specialist:
+        return ""
+    try:
+        with RUNTIME_MAP_PATH.open(encoding="utf-8") as handle:
+            for line in handle:
+                parts = line.rstrip("\n").split("\t")
+                if parts and parts[0] == specialist and len(parts) >= 7:
+                    return _lane(parts[6])
+    except OSError:
+        return ""
+    return ""
+
+
+def _is_read_only_review_task(entry: dict[str, Any]) -> bool:
+    """True only for an explicitly read-only task owned by a verdict role."""
+    specialist = str(entry.get("specialist") or "").strip()
+    return specialist in REVIEW_VERDICT_SPECIALISTS and entry.get("write_scope") == []
+
+
+def cross_family_review_pending(entry: dict[str, Any]) -> tuple[bool, str, str]:
+    """Decide whether a task needs an out-of-lane review response before settling.
+
+    Returns (pending, executing_lane, review_lane). Pending is True for a genuine
+    cross-family review: mandatory_review is true, review_model names a real lane,
+    and the task's ACTUAL executing lane cannot run that review in-lane.
+
+    The exemption is based on the real execution lane (`to_model`, after dispatch
+    override validation) — falling back to the specialist's mapped primary lane
+    only when `to_model` is absent — so a specialist mapped to gpt-codex but
+    overridden to another lane cannot inherit the gpt-codex->claude exemption.
+    An indeterminate lane fails CLOSED (pending) rather than settling silently.
+    """
+    if str(entry.get("mandatory_review", "")).strip().lower() != "true":
+        return (False, "", "")
+    review_lane = _lane(entry.get("review_model"))
+    if review_lane in ("", "none"):
+        return (False, "", "")
+    executing_lane = _lane(entry.get("to_model")) \
+        or _specialist_primary_lane(str(entry.get("specialist") or ""))
+    if not executing_lane:
+        # Fix 6: unknown execution lane for a mandatory review with a real
+        # reviewer — fail closed (open), never treat as non-pending.
+        return (True, "unknown", review_lane)
+    if _is_read_only_review_task(entry):
+        # A review of a read-only review creates an infinite regress. The exact
+        # role allowlist and explicit empty write scope keep this exemption
+        # narrow; implementation-bearing reviewer tasks are not exempt.
+        return (False, executing_lane, review_lane)
+    if executing_lane == review_lane:
+        return (False, executing_lane, review_lane)
+    if review_lane in IN_LANE_REVIEW_CAPABLE.get(executing_lane, set()):
+        return (False, executing_lane, review_lane)
+    return (True, executing_lane, review_lane)
+
+
+def _review_reference(raw: str) -> tuple[Path, str]:
+    """Resolve an explicit review reference to a mailbox response file."""
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        path = VAULT_ROOT / path
+    if path.is_symlink():
+        raise ValueError("--review-ref must not be a symlink")
+    try:
+        resolved = path.resolve(strict=True)
+        relative = resolved.relative_to(VAULT_ROOT.resolve())
+    except (FileNotFoundError, ValueError) as exc:
+        raise ValueError("--review-ref must name an existing mailbox response") from exc
+    parts = relative.parts
+    if (
+        not resolved.is_file()
+        or len(parts) != 4
+        or parts[0] != "departments"
+        or parts[2] not in {"outbox", "archive"}
+        or not parts[3].endswith("-response.md")
+    ):
+        raise ValueError("--review-ref must name an outbox/archive response inside VAULT_ROOT")
+    return resolved, str(relative)
+
+
+def settle_review(task_id: str, review_ref: str) -> bool:
+    """Explicitly settle one held cross-family review under the registry lock.
+
+    Review files have no automatic authority. This command is the trusted Chrono
+    action taken only after the controller has read the referenced review and
+    decided that the task may close. Returns False for an idempotent retry.
+    """
+    _review_path, normalized_ref = _review_reference(review_ref)
+    with locked_registry() as _lock:
+        registry = load_registry()
+        entry = registry.get(task_id)
+        if not isinstance(entry, dict):
+            raise ValueError(f"unknown registry task: {task_id}")
+        if entry.get("status") == "complete" and entry.get("review_settled_by") == "chrono-explicit":
+            if entry.get("cross_family_review_ref") == normalized_ref:
+                return False
+            raise ValueError(f"task already settled with a different review ref: {task_id}")
+        if entry.get("status") != REVIEW_REQUIRED:
+            raise ValueError(f"task is not {REVIEW_REQUIRED}: {task_id}")
+        pending, _executing_lane, _review_lane = cross_family_review_pending(entry)
+        if not pending:
+            raise ValueError(f"task does not require cross-family settlement: {task_id}")
+        response, status = landed_response(task_id)
+        if response is None:
+            raise ValueError(f"task has no landed response: {task_id}")
+        if status not in {"complete", "needs_review"}:
+            raise ValueError(f"task response status cannot be settled: {status or 'missing'}")
+        if normalized_ref == str(response.relative_to(VAULT_ROOT)):
+            raise ValueError("--review-ref must not be the task's own response")
+
+        now = datetime.now(timezone.utc)
+        entry["status"] = "complete"
+        entry["completed_at"] = now.isoformat()
+        entry["reconciled_at"] = now.isoformat()
+        entry["review_settled_at"] = now.isoformat()
+        entry["review_settled_by"] = "chrono-explicit"
+        entry["cross_family_review_ref"] = normalized_ref
+        entry["response_path"] = str(response.relative_to(VAULT_ROOT))
+        entry.pop("review_blocking_ref", None)
+        entry.pop("review_signature", None)
+        atomic_write(REGISTRY_PATH, json.dumps(registry, indent=2, ensure_ascii=False) + "\n")
+        namespace = str(
+            entry.get("compatibility_namespace")
+            or entry.get("source_namespace")
+            or "coding"
+        )
+    append_chrono_queue(
+        "REVIEW-SETTLED",
+        f"{namespace}/{task_id}",
+        f"explicit Chrono settlement; review={normalized_ref}",
+    )
+    return True
 
 
 def parse_dt(value: Any) -> datetime | None:
@@ -388,13 +611,117 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
             if not isinstance(raw_entry, dict):
                 continue
             current_status = str(raw_entry.get("status", ""))
-            if current_status not in {"in-flight", SETTLED_WITHOUT_ENVELOPE}:
+            if current_status not in {"in-flight", SETTLED_WITHOUT_ENVELOPE, REVIEW_REQUIRED}:
                 if task_id_filter:
                     messages.append(f"already-settled {task_id} -> {current_status}")
                 continue
-            response, status = landed_response(task_id)
+            candidates = response_candidates(task_id)
+            response, status = landed_response(task_id, candidates)
+            if response is None and candidates:
+                # BLOCK2 (wave-2): a response file may EXIST and be old enough to
+                # settle yet carry a non-canonical status (typo/unknown). landed_response
+                # returns None for it; without this guard execution falls through to the
+                # return-artifact path and settles the task to work-done-no-envelope —
+                # which, for a mandatory cross-family task, silently bypasses the Option-A
+                # review-required hold. Distinguish "no response exists" from "a response
+                # exists but its status is INVALID": for the latter keep the task OPEN
+                # (fail closed) and flag it; never settle on an unusable status.
+                # Presence alone suppresses the no-envelope backstop, including
+                # during the response quiescence/min-age window. Otherwise a young
+                # invalid response can be ignored once, settle through the artifact
+                # backstop, and remain provisionally settled when it becomes ready.
+                reopened = current_status == SETTLED_WITHOUT_ENVELOPE
+                if reopened:
+                    raw_entry["status"] = "in-flight"
+                    raw_entry.pop("work_landed_at", None)
+                    raw_entry.pop("missing_envelope_artifact", None)
+                    raw_entry.pop("prior_missing_envelope_status", None)
+
+                stray = next((cand for cand in candidates if response_ready(cand)), None)
+                if stray is None:
+                    if reopened:
+                        raw_entry["reconciled_at"] = now.isoformat()
+                        changed += 1
+                        messages.append(
+                            f"response-pending {task_id} -> reopened pending status validation"
+                        )
+                    elif task_id_filter:
+                        messages.append(f"response-pending {task_id} -> awaiting status validation")
+                    continue
+
+                bad_status = strip_frontmatter(read_text(stray)).get("status", "")
+                namespace = response_namespace(stray)
+                response_path = str(stray.relative_to(VAULT_ROOT))
+                metadata_changed = (
+                    raw_entry.get("response_path") != response_path
+                    or raw_entry.get("invalid_response_status") != bad_status
+                )
+                if reopened or metadata_changed:
+                    raw_entry["invalid_response_status"] = bad_status
+                    raw_entry["response_path"] = response_path
+                    raw_entry["reconciled_at"] = now.isoformat()
+                    changed += 1
+                    messages.append(
+                        f"invalid-response-status {task_id} -> {bad_status!r} (kept open)"
+                    )
+                    events.append(
+                        (
+                            "INVALID-RESPONSE-STATUS",
+                            f"{namespace}/{task_id}",
+                            f"response {response_path} has non-canonical status {bad_status!r}",
+                            f"INVALID RESPONSE STATUS: {task_id} response status {bad_status!r} is "
+                            "not canonical; registry kept OPEN (not settled, review hold intact). "
+                            "Fix the response 'status' field or re-dispatch.",
+                        )
+                    )
+                continue
             if response is not None:
                 namespace = response_namespace(response)
+                # A genuine cross-family mandatory_review task may NOT settle on
+                # its own response or on any parsed review file. It stays held
+                # until Chrono explicitly runs --settle-review after reading the
+                # review. Unknown or malformed review state is therefore inert.
+                pending, executing_lane, review_lane = cross_family_review_pending(raw_entry)
+                if pending:
+                    newly_flagged = current_status != REVIEW_REQUIRED
+                    lane_changed = raw_entry.get("review_required_by") != review_lane
+                    response_path = str(response.relative_to(VAULT_ROOT))
+                    response_changed = raw_entry.get("response_path") != response_path
+                    obsolete_present = any(
+                        key in raw_entry
+                        for key in (
+                            "cross_family_review_ref",
+                            "review_blocking_ref",
+                            "review_signature",
+                            "invalid_response_status",
+                        )
+                    )
+                    raw_entry["status"] = REVIEW_REQUIRED
+                    raw_entry["review_required_by"] = review_lane
+                    raw_entry["response_path"] = response_path
+                    raw_entry["reconciled_at"] = now.isoformat()
+                    raw_entry.pop("cross_family_review_ref", None)
+                    raw_entry.pop("review_blocking_ref", None)
+                    raw_entry.pop("review_signature", None)
+                    raw_entry.pop("invalid_response_status", None)
+                    if newly_flagged or lane_changed or response_changed or obsolete_present:
+                        changed += 1
+                    if newly_flagged or lane_changed:
+                        reason = f"awaiting explicit Chrono settlement after {review_lane} review"
+                        messages.append(f"review-required {task_id} -> {reason}")
+                        events.append(
+                            (
+                                "REVIEW-REQUIRED",
+                                f"{namespace}/{task_id}",
+                                f"{executing_lane} specialist '{raw_entry.get('specialist')}' "
+                                f"needs {review_lane} review; {reason}",
+                                f"REVIEW-REQUIRED: {task_id} ({raw_entry.get('specialist')}, lane "
+                                f"{executing_lane}) must be cross-family reviewed by {review_lane} "
+                                f"before it can settle. {reason}. Dispatch/read the {review_lane} review, "
+                                "then use registry_reconciler.py --settle-review with its review ref.",
+                            )
+                        )
+                    continue
                 if current_status == SETTLED_WITHOUT_ENVELOPE:
                     raw_entry["prior_missing_envelope_status"] = current_status
                 raw_entry["status"] = status
@@ -404,6 +731,7 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                 raw_entry["reconciled_at"] = now.isoformat()
                 raw_entry["auto_reconciled_at"] = now.isoformat()
                 raw_entry["response_path"] = str(response.relative_to(VAULT_ROOT))
+                raw_entry.pop("invalid_response_status", None)
                 changed += 1
                 messages.append(f"reconciled {task_id} -> {status} via {namespace}")
                 events.append(
@@ -476,23 +804,50 @@ def main() -> int:
     parser.add_argument("--task-id")
     parser.add_argument("--register-task")
     parser.add_argument("--entry-json")
+    parser.add_argument("--settle-review")
+    parser.add_argument("--review-ref")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     if bool(args.register_task) != bool(args.entry_json):
         parser.error("--register-task and --entry-json must be used together")
+    if bool(args.settle_review) != bool(args.review_ref):
+        parser.error("--settle-review and --review-ref must be used together")
     if args.register_task:
-        if args.dry_run or args.task_id:
-            parser.error("--register-task cannot be combined with --task-id or --dry-run")
+        if args.dry_run or args.task_id or args.settle_review:
+            parser.error(
+                "--register-task cannot be combined with --task-id, --settle-review, or --dry-run"
+            )
         try:
             entry = json.loads(args.entry_json)
         except json.JSONDecodeError as exc:
             parser.error(f"--entry-json is not valid JSON: {exc}")
         if not isinstance(entry, dict):
             parser.error("--entry-json must decode to an object")
-        register_task(args.register_task, entry)
+        try:
+            register_task(args.register_task, entry)
+        except RegistryCorruptError as exc:
+            print(f"registry-reconciler ERROR: {exc}", file=sys.stderr)
+            return 2
         print(f"registry-reconciler register: task={args.register_task}")
         return 0
-    changed, messages = reconcile(args.task_id, args.dry_run)
+    if args.settle_review:
+        if args.dry_run or args.task_id:
+            parser.error("--settle-review cannot be combined with --task-id or --dry-run")
+        try:
+            changed = settle_review(args.settle_review, args.review_ref)
+        except RegistryCorruptError as exc:
+            print(f"registry-reconciler ERROR: {exc}", file=sys.stderr)
+            return 2
+        except ValueError as exc:
+            parser.error(str(exc))
+        outcome = "settled" if changed else "already-settled"
+        print(f"registry-reconciler review: {outcome} task={args.settle_review}")
+        return 0
+    try:
+        changed, messages = reconcile(args.task_id, args.dry_run)
+    except RegistryCorruptError as exc:
+        print(f"registry-reconciler ERROR: {exc}", file=sys.stderr)
+        return 2
     mode = "dry-run" if args.dry_run else "write"
     print(f"registry-reconciler {mode}: changes={changed}")
     for message in messages:
