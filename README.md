@@ -74,16 +74,14 @@ The canonical map in [`shared/specialist-runtime-map.tsv`](shared/specialist-run
 |---|---:|---|---:|
 | Coding | 19 | Claude, Codex | all 19 |
 | Content | 11 | Claude, Gemini | all 11 |
-| Media production (`content-engineer`) | 10 | Gemini, Codex, Claude | catalog-only* |
-| Security | 10 | Claude, Codex | 8 (2 adapters pending) |
+| Media production (`content-engineer`) | 10 | Gemini, Codex, Claude | all 10 |
+| Security | 10 | Claude, Codex | all 10 |
 | System management | 8 | Claude | all 8 |
 | Shared / planning | 6 | Claude | all 6 |
 | Research | 5 | Claude, Codex | all 5 |
-| **Total** | **69** | **Claude 38 · Codex 20 · Gemini 11 · Kimi 0** | **57 routable, 12 catalog-only** |
+| **Total** | **69** | **Claude 38 · Codex 20 · Gemini 11 · Kimi 0** | **69 routable, 0 catalog-only** |
 
-*The media-production namespace is defined and validated but not yet dispatchable through the standard path (namespace enum).*
-
-**69 role definitions in one validated registry. 57 are dispatchable through the standard path today; the media-production group and two security roles are catalog-complete but pending an adapter/namespace fix. Kimi is a throughput-only lane and holds no primary roles.**
+**69 role definitions in one validated registry, and all 69 are dispatchable through the standard path. Kimi is a throughput-only lane and holds no primary roles.**
 
 <details>
 <summary><b>Browse all 69 specialist roles</b></summary>
@@ -132,16 +130,16 @@ The canonical map in [`shared/specialist-runtime-map.tsv`](shared/specialist-run
 
 | Specialist | Domain | Primary lane | Role | Status |
 |---|---|---|---|---|
-| `copywriter` | Media production | Gemini | Write short-form and long-form text content: marketing copy, landing pages, email campaigns, ad copy, blog articles, product descriptions, case studies. Match the operator's voice (direct, vibecoded, honest). Research references and brand context before drafting. When writing marketing copy for a project, read the project brief and any handoffs first. | catalog-only |
-| `game-designer` | Media production | Claude | Pipeline director for browser-based games: owns mechanics, player experience, and economy/progression design, and orchestrates the staged production pipeline. Produces the design contract the rest of the pipeline builds from; does not implement, render, or deploy. | catalog-only |
-| `image-designer` | Media production | Gemini | Generate original images for marketing, product, editorial, and design use. Write detailed visual briefs with composition, mood, style, and technical requirements. Upscale to required resolutions (2K, 4K, print). Edit and composite multiple images. Expand/uncrop frames for layout needs. Iterate on color, lighting, and visual hierarchy. | catalog-only |
-| `music-composer` | Media production | Gemini | Create original background music, theme tracks, and video accompaniment. Transform video narratives into matching musical scores. Write brief on mood, tempo, instrumentation preferences before generating. Iterate on pacing and emotional arc. | catalog-only |
-| `sound-designer` | Media production | Gemini | Create sound effects, ambient soundscapes, and audio branding elements. Generate SFX for interface interactions, motion sequences, and atmospheric audio layers. Layer multiple SFX sources for rich, dimensional sound design. Coordinate timing with video-director on visual sync points. | catalog-only |
-| `video-director` | Media production | Gemini | Generate video sequences and orchestrate motion across scenes. Write video briefs with scene descriptions, timing, motion requirements, and creative direction. Use virality predictor to validate hook strength and engagement risk. Coordinate narration timing with voice-narrator. Iterate on pacing, visual effects, and emotional arc. | catalog-only |
-| `video-editor` | Media production | Gemini | Post-production on video sequences: reframe for different aspect ratios (TikTok, YouTube Shorts, 16:9, square), upscale to 2K/4K, expand/uncrop frames for platform requirements. Polish visual composition and technical quality. Iterate on colors, timing, and output formats for multiple platforms. | catalog-only |
-| `voice-agent-builder` | Media production | Gemini | Create conversational AI agents using ElevenLabs: customer service bots, sales assistants, educational tutors, content narrators with interactivity. Write agent briefs (personality, knowledge domain, conversation flows). Integrate knowledge bases from docs or KGs. Configure voice, tone, and response patterns. Test conversation loops and edge cases. Deploy and monitor live agents. | catalog-only |
-| `voice-narrator` | Media production | Gemini | Convert written content to professional voiceover narration. Select or clone voices to match tone and audience. Produce clean, well-paced TTS output for explainer videos, podcasts, audiobooks, and narrated tutorials. Coordinate with video-director on pacing and timing. | catalog-only |
-| `web-builder` | Media production | GPT/Codex | Generate and deploy websites, landing pages, and web applications. Compose pages from copywriter and image-designer assets. Integrate Figma design systems and Firebase backend. Manage deployment configs, DNS, and hosting. Write clean, accessible HTML/CSS with performance optimization. Iterate on responsive design and user experience across devices. | catalog-only |
+| `copywriter` | Media production | Gemini | Write short-form and long-form text content: marketing copy, landing pages, email campaigns, ad copy, blog articles, product descriptions, case studies. Match the operator's voice (direct, vibecoded, honest). Research references and brand context before drafting. When writing marketing copy for a project, read the project brief and any handoffs first. | routable |
+| `game-designer` | Media production | Claude | Pipeline director for browser-based games: owns mechanics, player experience, and economy/progression design, and orchestrates the staged production pipeline. Produces the design contract the rest of the pipeline builds from; does not implement, render, or deploy. | routable |
+| `image-designer` | Media production | Gemini | Generate original images for marketing, product, editorial, and design use. Write detailed visual briefs with composition, mood, style, and technical requirements. Upscale to required resolutions (2K, 4K, print). Edit and composite multiple images. Expand/uncrop frames for layout needs. Iterate on color, lighting, and visual hierarchy. | routable |
+| `music-composer` | Media production | Gemini | Create original background music, theme tracks, and video accompaniment. Transform video narratives into matching musical scores. Write brief on mood, tempo, instrumentation preferences before generating. Iterate on pacing and emotional arc. | routable |
+| `sound-designer` | Media production | Gemini | Create sound effects, ambient soundscapes, and audio branding elements. Generate SFX for interface interactions, motion sequences, and atmospheric audio layers. Layer multiple SFX sources for rich, dimensional sound design. Coordinate timing with video-director on visual sync points. | routable |
+| `video-director` | Media production | Gemini | Generate video sequences and orchestrate motion across scenes. Write video briefs with scene descriptions, timing, motion requirements, and creative direction. Use virality predictor to validate hook strength and engagement risk. Coordinate narration timing with voice-narrator. Iterate on pacing, visual effects, and emotional arc. | routable |
+| `video-editor` | Media production | Gemini | Post-production on video sequences: reframe for different aspect ratios (TikTok, YouTube Shorts, 16:9, square), upscale to 2K/4K, expand/uncrop frames for platform requirements. Polish visual composition and technical quality. Iterate on colors, timing, and output formats for multiple platforms. | routable |
+| `voice-agent-builder` | Media production | Gemini | Create conversational AI agents using ElevenLabs: customer service bots, sales assistants, educational tutors, content narrators with interactivity. Write agent briefs (personality, knowledge domain, conversation flows). Integrate knowledge bases from docs or KGs. Configure voice, tone, and response patterns. Test conversation loops and edge cases. Deploy and monitor live agents. | routable |
+| `voice-narrator` | Media production | Gemini | Convert written content to professional voiceover narration. Select or clone voices to match tone and audience. Produce clean, well-paced TTS output for explainer videos, podcasts, audiobooks, and narrated tutorials. Coordinate with video-director on pacing and timing. | routable |
+| `web-builder` | Media production | GPT/Codex | Generate and deploy websites, landing pages, and web applications. Compose pages from copywriter and image-designer assets. Integrate Figma design systems and Firebase backend. Manage deployment configs, DNS, and hosting. Write clean, accessible HTML/CSS with performance optimization. Iterate on responsive design and user experience across devices. | routable |
 
 ### Security
 
@@ -152,8 +150,8 @@ The canonical map in [`shared/specialist-runtime-map.tsv`](shared/specialist-run
 | `impact-validator` | Security | Claude | CVSS v4.0 scoring, CWE policy check, NVD/OSV calibration, duplicate detection, self-inflicted detector, and — first and foremost — the **mandatory G1–G4 pre-submit gate**, the terminal go/no-go I run before greenlighting any bounty submission (see the very next section). Bounty Mode Phase 10. | routable |
 | `incident-responder` | Security | Claude | Defensive incident handling: detection triage, containment, forensics, eradication, recovery, and post-incident review. Leads once compromise is suspected; plans and recommends live actions, which the operator authorizes. | routable |
 | `privacy-steward` | Security | Claude | Tool permissions, data-retention paths, mailbox/vault leakage prevention, PII handling, secret exposure, OAuth scopes, "should this agent be allowed to act?" policies. | routable |
-| `red-team-operator` | Security | GPT/Codex | Plan, coordinate, and execute authorized end-to-end adversary-emulation engagements. Exercise realistic attack paths—including scoped lateral movement and detection-evasion testing—to validate security controls, response readiness, and business-impact assumptions. Produce reproducible evidence and remediation-oriented reporting without exceeding the engagement's written authorization. | catalog-only |
-| `reverse-engineer` | Security | Claude | Analyze binaries, malware, packed or obfuscated artifacts, and firmware to explain structure, behavior, provenance indicators, vulnerabilities, and defensive implications. Support authorized vulnerability research and bug-bounty work, incident response, detection engineering, and remediation without turning analysis into unauthorized deployment or operational abuse. | catalog-only |
+| `red-team-operator` | Security | GPT/Codex | Plan, coordinate, and execute authorized end-to-end adversary-emulation engagements. Exercise realistic attack paths—including scoped lateral movement and detection-evasion testing—to validate security controls, response readiness, and business-impact assumptions. Produce reproducible evidence and remediation-oriented reporting without exceeding the engagement's written authorization. | routable |
+| `reverse-engineer` | Security | Claude | Analyze binaries, malware, packed or obfuscated artifacts, and firmware to explain structure, behavior, provenance indicators, vulnerabilities, and defensive implications. Support authorized vulnerability research and bug-bounty work, incident response, detection engineering, and remediation without turning analysis into unauthorized deployment or operational abuse. | routable |
 | `scout` | Security | Claude | Recon, subdomain enumeration, attack-surface mapping, program scope. Bounty Mode Phase 2 (Program Scope) and Phase 3 (active recon). | routable |
 | `security-analyst` | Security | Claude | SAST scans, supply-chain audits, OSINT, agentic-safety analysis. Bounty Mode Phase 3/4, also on-demand for any security-sensitive code review. | routable |
 | `threat-modeler` | Security | Claude | Repository-grounded threat modeling — trust boundaries, abuse cases, threat-model loops. Bounty Mode Phase 4, Project Mode Phase 2 (when security-touching), on-demand. | routable |
@@ -257,7 +255,7 @@ packet validation ──▶ department inbox ──▶ lane + specialist adapter
 1. **Ask once.** Chrono turns a plain-language goal into a typed Markdown task packet.
 2. **Route by capability.** The specialist registry selects a primary model lane; the mailbox folder is only an organizational namespace.
 3. **Execute visibly.** A persistent lane reads the packet and its specialist instructions. An optional panel can collect multiple same-family specialist views under a deadline.
-4. **Return durable work.** The lane writes a response envelope or requested artifact, and the completion path brings it back to Chrono.
+4. **Return durable work.** The lane writes its response envelope and requested artifact; the live outbox watcher reconciles that envelope and brings completion back to Chrono.
 5. **Review when needed.** Chrono can dispatch a separate reviewer, including a different model family, before synthesis.
 
 Current dispatch deliberately leaves git untouched. Repository history still contains more than 100 task-checkpoint commits from an earlier workflow:
@@ -277,6 +275,7 @@ The mailbox is the control plane. Chrono writes a packet to a department inbox, 
 ### Parallel panels and independent review
 
 - **Panels** gather 2–3 specialist perspectives concurrently inside one Claude or Codex lane. They are bounded by quorum and deadlines, and the coordinator is the only writer of the final artifact.
+- **Fan-out** is a distinct, opt-in panel mode that runs the same specialist 2–3 times on different assignments; the coordinator remains the sole writer. It is enabled for Claude, gated for Codex, and excludes Gemini/Kimi because their subagents lose MCP access.
 - **Independent review** is a separate Chrono-coordinated dispatch. The registry carries reviewer metadata, but the runtime does not automatically launch every review or enforce reviewer-family separation as a completion gate.
 
 <p align="center">
@@ -319,7 +318,7 @@ See [`shared/modes/panel.md`](shared/modes/panel.md) and [`bin/panel-activity.sh
 - recalled snippets are quoted as untrusted evidence, not treated as instructions;
 - explicit usage feedback records whether a recalled note helped.
 
-The loop is explicit rather than magical: default outbox auto-capture is not currently wired by the launcher, and usage feedback does not automatically change ranking. Chrono Vault is lexical memory, not a vector database or knowledge graph.
+The loop is explicit rather than magical: the live watcher now reconciles lane completion envelopes and auto-captures responses, while usage feedback does not automatically change ranking. Chrono Vault is lexical memory, not a vector database or knowledge graph.
 
 ---
 
@@ -328,10 +327,10 @@ The loop is explicit rather than magical: default outbox auto-capture is not cur
 | Capability | Status | Important boundary |
 |---|---|---|
 | tmux + Markdown dispatch | **Wired** | Local provider CLIs are required. |
-| specialist registry and validator | **Wired** | Two adapter warnings and a `content-engineer` namespace mismatch remain; 69 is the catalog size, not a routable-role count. |
-| parallel panels and terminal status | **Wired, opt-in per task** | Claude/Codex only; panels are collection, not independent review. |
+| specialist registry and validator | **Wired** | All 69 catalog roles validate and dispatch through the standard path. |
+| parallel panels and terminal status | **Wired, opt-in per task** | Panels are collection, not independent review; fan-out is Claude-enabled, Codex-gated, and excludes Gemini/Kimi. |
 | cross-family review | **Coordinated protocol** | Separate dispatch; not an automatic completion gate. |
-| Chrono Vault | **Implemented** | Explicit recall/feedback loop; default watcher capture needs wiring. |
+| Chrono Vault | **Implemented** | Completion-envelope capture is wired; recall and usage feedback remain explicit. |
 | automatic failover controller | **Implemented, dormant/opt-in** | Requires explicit enablement and separate recurrent monitoring. |
 | Offensive-security research toolkit (`moat/`) | Implemented components | Real-target and isolated-runner integration are incomplete. |
 | FastAPI daemon | **Optional** | Auxiliary state and endpoints; not the dispatch spine. |
@@ -375,11 +374,11 @@ The repository includes MCP servers for private memory, research helpers, media 
 <details>
 <summary><b>Implementation boundaries worth knowing</b></summary>
 
-- The ordinary inbox writer currently uses a direct copy, not atomic rename publication.
+- Inbox publication uses a same-directory temporary file, file `fsync`, and atomic rename.
 - Declared write scopes are checked for overlap; they are not OS-level sandboxes.
 - Operator approval fields and reviewer relationships are policy metadata, not hardened authorization gates.
 - The public CI workflow runs targeted validation, not every test suite in the repository.
-- The generated `model-lanes/ROSTER.md` view is stale; the TSV is canonical.
+- The generated `model-lanes/ROSTER.md` view was regenerated from the TSV; the TSV remains canonical.
 
 </details>
 
