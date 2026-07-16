@@ -658,7 +658,27 @@ fi
 # ── copy to source namespace inbox ────────────────────────────────────────────
 
 DEST="${INBOX}/${TASK_ID}.md"
-if ! cp "$ACTUAL_TASK_FILE" "$DEST"; then
+INBOX_TEMP=""
+if ! INBOX_TEMP=$(mktemp "${INBOX}/.${TASK_ID}.tmp.XXXXXX") \
+    || ! cp "$ACTUAL_TASK_FILE" "$INBOX_TEMP" \
+    || ! python3 - "$INBOX_TEMP" <<'PYEOF'
+import os
+import sys
+
+with open(sys.argv[1], "rb") as inbox_temp:
+    os.fsync(inbox_temp.fileno())
+PYEOF
+then
+    if [[ "$CONTROL_ACTIVE" == "1" ]]; then
+        "${CONTROL_RUN[@]}" signal \
+            --task-id "$TASK_ID" \
+            --attempt-id "$CONTROL_ATTEMPT_ID" \
+            --signal dispatch_ack_failure >/dev/null \
+            || echo "WARNING: failed to record inbox delivery failure for ${TASK_ID}" >&2
+    fi
+    die "failed to deliver ${TASK_ID} to ${INBOX}"
+fi
+if ! mv -f "$INBOX_TEMP" "$DEST"; then
     if [[ "$CONTROL_ACTIVE" == "1" ]]; then
         "${CONTROL_RUN[@]}" signal \
             --task-id "$TASK_ID" \
