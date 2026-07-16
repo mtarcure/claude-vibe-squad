@@ -6,7 +6,7 @@
 
 <p align="center"><b>One coordinator. Four AI model families. Specialists that swarm — and review each other's work.</b></p>
 
-You talk to **Chrono** in plain language; it routes your request to the best-fit specialist across four persistent model lanes, can fan the work out to a **parallel panel of specialists**, and sends the risky parts to a **different model family** for review — with every step left as an inspectable file.
+You talk to **Chrono** in plain language; it routes your request to the best-fit specialist across four persistent model lanes, can fan the work out to a **parallel panel of specialists**, and sends review-required work to a **different model family** — with every step left as an inspectable file.
 
 <p align="center">
   <img src="assets/media/swarm-demo.gif" alt="Two specialists run as a bounded panel and return evidence for one synthesis" width="820">
@@ -14,7 +14,7 @@ You talk to **Chrono** in plain language; it routes your request to the best-fit
 
 <p align="center"><sub>A “swarm”/panel runs 2–3 specialists inside one model family (Claude or Codex). The multi-model story is cross-lane routing plus a different-family reviewer — not four families debating in one panel.</sub></p>
 
-<p align="center"><i>One front door for four model families, a validated registry of 69 specialist roles, opt-in parallel swarms, an independent second opinion on anything risky, and a paper trail made of files.</i></p>
+<p align="center"><i>One front door for four model families, a validated registry of 69 specialist roles, opt-in parallel swarms, an independent second opinion on review-required work, and a paper trail made of files.</i></p>
 
 <p align="center">
   <img alt="license AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-blue">
@@ -44,7 +44,7 @@ The example inputs and raw member returns live in [`examples/demo-run/`](example
 | 🎛️ | **One front door, four visible lanes** | A persistent tmux session keeps Chrono, GPT/Codex, Claude, Gemini, Kimi, and watcher/status processes separately observable. |
 | 🐝 | **Parallel analysis without an endless group chat** | Optional 2–3 member panels run inside Claude or Codex with quorum, deadlines, visible member states, and one accountable synthesis. |
 | 🧭 | **The task chooses the model** | A canonical registry maps specialist roles to primary, backup, escalation, review, safety, and policy metadata. |
-| 🔁 | **A second opinion can come from another model family** | Review assignments are explicit; Chrono coordinates the separate follow-up when required. Review is a protocol, not an automatic completion gate. |
+| 🔁 | **A second opinion can come from another model family** | Chrono coordinates the separate reviewer dispatch. Qualifying cross-family mandatory-review results are machine-held as `review-required` until Chrono explicitly settles them with a review response. |
 | 🗂️ | **Files are the interface** | Requests and results are readable Markdown artifacts, so routing and failure states stay inspectable without a proprietary dashboard. |
 | 🧠 | **Memory stays private and rebuildable** | Chrono Vault keeps Markdown notes outside the public worktree and builds a disposable lexical recall index from them. |
 
@@ -62,7 +62,7 @@ The offensive-security research toolkit (in [`moat/`](moat/README.md)) is a publ
 - a vulnerable/patched synthetic twin with property-state fuzzing, coverage, controls, and structured `PASS / FAIL / INCONCLUSIVE` results;
 - a hardened Docker runner with no network, a read-only root, a non-root user, resource limits, and negative egress canaries.
 
-These are real, tested components with explicit boundaries. The synthetic wave now runs **end-to-end inside the hardened Docker runner**: a mandatory pre-flight canary must confirm the loopback control reachable while every external class (IPv4/IPv6/DNS/proxy/host-gateway/TCP-TLS) is blocked, or the run aborts — no canary, no execution — and the data-free Tier-A boundary scanner is wired into both the pre-commit hook and CI. **By design it stays a synthetic impact engine, not a real-deployment exploit engine**: real targets remain Layer-2 private, so the toolkit proves or refutes impact against a known-vulnerable/patched twin. That scope is intentional, not a gap. (A clearly-labeled non-isolated in-process mode remains for fast local iteration.)
+These are real, tested components with explicit boundaries. The synthetic wave now runs **end-to-end inside the hardened Docker runner**: a mandatory pre-flight canary must confirm the loopback control reachable while every external class (IPv4/IPv6/DNS/proxy/host-gateway/TCP-TLS) is blocked, or the run aborts — no canary, no execution. The data-free Tier-A boundary scanner runs in CI and is present in the tracked, opt-in `.githooks/pre-commit` hook (activate it per clone with `git config core.hooksPath .githooks`). **By design it stays a synthetic impact engine, not a real-deployment exploit engine**: real targets remain Layer-2 private, so the toolkit proves or refutes impact against a known-vulnerable/patched twin. That scope is intentional, not a gap. (A clearly-labeled non-isolated in-process mode remains for fast local iteration.)
 
 ---
 
@@ -201,7 +201,7 @@ If the four provider CLIs are already installed and logged in:
 ```bash
 # from a clone of this repository
 cd claude-vibe-squad
-bin/vibe-squad up --safe
+bin/squad up --safe
 ```
 
 That opens a persistent tmux control room. Move to the `chrono` window and ask for work in plain language.
@@ -214,13 +214,13 @@ Ctrl-b d  detach — the lanes keep running
 ```
 
 ```bash
-bin/vibe-squad doctor   # check the local setup
-bin/vibe-squad status   # see what each lane is doing
-bin/vibe-squad stop     # stop the session
+bin/squad doctor   # check the local setup
+bin/squad status   # see what each lane is doing
+bin/squad stop     # stop the session
 ```
 
 > [!IMPORTANT]
-> Start with `--safe`. Running `bin/vibe-squad up` without it uses the autonomous daily-driver profile, which launches model CLIs with bypass/yolo-style permissions after a one-time warning and health check. Review the scopes and workflow before using that profile.
+> Start with `--safe`. Running `bin/squad up` without it uses the autonomous daily-driver profile, which launches model CLIs with bypass/yolo-style permissions after a one-time warning and health check. Review the scopes and workflow before using that profile.
 
 **Prerequisites:** macOS, tmux, `fswatch`, `jq`, `curl`, logged-in Claude Code, Codex, Gemini, and Kimi CLIs, and Python 3.13 for the vendored MCP servers and optional daemon.
 
@@ -256,7 +256,7 @@ packet validation ──▶ department inbox ──▶ lane + specialist adapter
 2. **Route by capability.** The specialist registry selects a primary model lane; the mailbox folder is only an organizational namespace.
 3. **Execute visibly.** A persistent lane reads the packet and its specialist instructions. An optional panel can collect multiple same-family specialist views under a deadline.
 4. **Return durable work.** The lane writes its response envelope and requested artifact; the live outbox watcher reconciles that envelope and brings completion back to Chrono.
-5. **Review when needed.** Chrono can dispatch a separate reviewer, including a different model family, before synthesis.
+5. **Review when needed.** Chrono dispatches the separate reviewer. Qualifying cross-family mandatory-review results remain held as `review-required` until Chrono explicitly settles them with a review response.
 
 Current dispatch deliberately leaves git untouched. Repository history still contains more than 100 task-checkpoint commits from an earlier workflow:
 
@@ -276,13 +276,13 @@ The mailbox is the control plane. Chrono writes a packet to a department inbox, 
 
 - **Panels** gather 2–3 specialist perspectives concurrently inside one Claude or Codex lane. They are bounded by quorum and deadlines, and the coordinator is the only writer of the final artifact.
 - **Fan-out** is a distinct, opt-in panel mode that runs the same specialist 2–3 times on different assignments; the coordinator remains the sole writer. It is enabled for Claude, gated for Codex, and excludes Gemini/Kimi because their subagents lose MCP access.
-- **Independent review** is a separate Chrono-coordinated dispatch. The registry carries reviewer metadata, but the runtime does not automatically launch every review or enforce reviewer-family separation as a completion gate.
+- **Independent review** is a separate Chrono-coordinated dispatch. For qualifying cross-family mandatory-review work, the runtime holds the original result as `review-required` until Chrono explicitly settles it with a review response. The runtime does not launch the reviewer or infer verdict authority.
 
 <p align="center">
   <img src="assets/hero/review-loop.svg" alt="A risky result can take a separate review path through another model family before Chrono synthesizes it" width="700">
 </p>
 
-> This diagram shows the intended review workflow. Today, high-safety dispatch requires reviewer metadata, but Chrono launches the review separately; the runtime does not enforce reviewer-family separation or automatically block result surfacing.
+> Chrono launches the review separately. For qualifying cross-family mandatory-review work, the runtime holds the original result as `review-required` until Chrono explicitly settles it with a review response; it does not auto-launch the reviewer or infer verdict authority.
 
 Safety refusals remain visible and are not rerouted to search for a more permissive answer. Operational failures such as timeouts are handled separately.
 
@@ -329,10 +329,10 @@ The loop is explicit rather than magical: the live watcher now reconciles lane c
 | tmux + Markdown dispatch | **Wired** | Local provider CLIs are required. |
 | specialist registry and validator | **Wired** | All 69 catalog roles validate and dispatch through the standard path. |
 | parallel panels and terminal status | **Wired, opt-in per task** | Panels are collection, not independent review; fan-out is Claude-enabled, Codex-gated, and excludes Gemini/Kimi. |
-| cross-family review | **Coordinated protocol** | Separate dispatch; not an automatic completion gate. |
+| cross-family review | **Machine-enforced hold** | Qualifying results wait as `review-required` for explicit Chrono settlement with a review response; reviewer dispatch is still separate. |
 | Chrono Vault | **Implemented** | Completion-envelope capture is wired; recall and usage feedback remain explicit. |
 | automatic failover controller | **Implemented, dormant/opt-in** | Requires explicit enablement and separate recurrent monitoring. |
-| Offensive-security research toolkit (`moat/`) | Implemented components | Real-target and isolated-runner integration are incomplete. |
+| Offensive-security research toolkit (`moat/`) | **Synthetic path wired** | The synthetic twin runs inside the hardened isolated runner; real targets intentionally remain private Layer 2. |
 | FastAPI daemon | **Optional** | Auxiliary state and endpoints; not the dispatch spine. |
 
 This vocabulary is intentional. Vibe Squad aims to show failures and boundaries instead of hiding them behind a polished demo.
@@ -358,7 +358,7 @@ The repository includes MCP servers for private memory, research helpers, media 
 
 | Path | Purpose |
 |---|---|
-| `bin/vibe-squad`, `bin/launch-squad.sh` | Lifecycle CLI and six-window tmux launcher |
+| `bin/squad`, `bin/launch-squad.sh` | Canonical lifecycle CLI and six-window tmux launcher (`bin/vibe-squad` remains a compatibility alias). |
 | `scripts/send-task.sh`, `bin/send-task.sh` | Packet generation, validation, registry checks, delivery, and lane nudge |
 | `shared/specialist-runtime-map.tsv` | Canonical specialist routing data |
 | `shared/routing.md`, `shared/protocol.md` | Routing, packet, lifecycle, and review contracts |
@@ -376,7 +376,7 @@ The repository includes MCP servers for private memory, research helpers, media 
 
 - Inbox publication uses a same-directory temporary file, file `fsync`, and atomic rename.
 - Declared write scopes are checked for overlap; they are not OS-level sandboxes.
-- Operator approval fields and reviewer relationships are policy metadata, not hardened authorization gates.
+- Operator approval fields remain policy metadata. Qualifying cross-family mandatory-review completions have a machine-enforced hold, but this is workflow enforcement rather than an OS-level authorization boundary.
 - The public CI workflow runs targeted validation, not every test suite in the repository.
 - The generated `model-lanes/ROSTER.md` view was regenerated from the TSV; the TSV remains canonical.
 

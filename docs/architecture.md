@@ -23,7 +23,7 @@ tmux session `squad`
         │  each CLI connects to its own MCP servers (no proxy)
         ▼
   MCP servers (per-CLI registration)
-        ├─ chrono-vault (+ chrono-kg / chrono-obsidian / chrono-catalog namespaces)
+        ├─ chrono-vault (+ chrono-kg / chrono-obsidian legacy namespace aliases)
         ├─ chrono-research-arsenal
         ├─ chrono-content-engineer
         └─ chrono-recon
@@ -72,10 +72,10 @@ Each CLI registers its own MCP servers directly — there is no proxy layer:
 | kimi | `~/.kimi/mcp.json` |
 | gemini | `~/.gemini/settings.json` |
 
-Servers: `chrono-vault` (knowledge graph, memory, vault search — also exposes `chrono-kg`, `chrono-obsidian`, `chrono-catalog` namespaces), `chrono-research-arsenal` (arxiv, xai, perplexity), `chrono-content-engineer` (image/video/audio generation), and `chrono-recon` (OSINT). Availability differs per lane; `shared/api-catalog.md` records the verified state each specialist binds to.
+Servers: `chrono-vault` (private, off-repo **markdown source of truth** with a disposable FTS5/BM25 recall index — record/recall/usage plus an Obsidian read/write bridge; it retains `chrono-kg` and `chrono-obsidian` legacy namespace aliases over the same binary for archive-role compatibility. The retired `chrono-catalog` alias and the old in-repo SQLite knowledge graph are gone), `chrono-research-arsenal` (arxiv, xai, perplexity), `chrono-content-engineer` (image/video/audio generation), and `chrono-recon` (OSINT). Availability differs per lane; `shared/api-catalog.md` records the verified state each specialist binds to.
 
 ### Optional daemon (secondary)
-`daemon/main.py` is an optional FastAPI service ("vibe-squad daemon", v0.1.0) exposing routers for health, task, mcp, events, summarize, project, and catalog, plus a file watcher and bearer-token auth. It is **not** started by `bin/launch-squad.sh` and is **not** on the dispatch path. Auxiliary tooling uses it when it is running: status readouts poll `GET /tasks` (`bin/vs-lane-status.sh`), the weekly review runner posts to `/summarize` (`scripts/python/weekly_review_runner.py`), and remote/scheduled submission uses its trigger endpoints. The markdown mailbox — not the daemon — is the dispatch spine.
+`daemon/main.py` is an optional observability API with bearer auth except for its public health check: health, read-only task status, summarize, and event-stream routes, plus MCP/catalog support. Its file watcher runs only when this optional daemon runs; the separate failover control plane remains opt-in and dormant. The daemon is **not** started by `bin/launch-squad.sh`, does not expose task/project submission routes, and is **not a dispatch path**. When it is running, status readouts poll `GET /tasks` (`bin/vs-lane-status.sh`) and the weekly review runner posts to `/summarize` (`scripts/python/weekly_review_runner.py`). Markdown packets under `departments/<namespace>/inbox/` remain the only live dispatch spine.
 
 ### Persistent Chrome
 A long-lived Chrome instance is kept alive outside the squad lifecycle (`bin/chrome-bootstrap.sh`, `bin/browser-keep-alive.sh`) and exposed over the Chrome DevTools Protocol on `:9222`. Lanes that need a browser attach over CDP to this authenticated session rather than spawning a fresh profile, preserving signed-in cookies/tabs across restarts. See `shared/lifecycle.md` for browser attach rules.
@@ -136,7 +136,7 @@ The redesign specifies a full resilience layer: per-specialist **cross-family ba
 | `shared/lifecycle.md`, `shared/memory-discipline.md` | Persistent panes, sessions, browser attach, memory hygiene |
 | `departments/*/specialists/`, `shared/specialists/` | Specialist markdown briefs |
 | `departments/*/inbox/`, `departments/*/outbox/` | Dispatch board (packets + responses) |
-| `daemon/` | Optional FastAPI service (status, summarize, triggers) — not on the dispatch path |
+| `daemon/` | Optional observability API (health/status/summarize/events), support routes, and dormant failover — never a dispatch path |
 
 ## Curated design history
 
@@ -147,3 +147,7 @@ Two portfolio design narratives are retained under `docs/design/`: the [2026-07-
 - Routing: `shared/specialist-runtime-map.tsv` (canonical) + `model-lanes/ROSTER.md`
 - Adding a specialist: `docs/adding-a-specialist.md`
 - Lifecycle: `shared/lifecycle.md` (persistent panes, browser attach, memory discipline)
+
+## Planned (not built)
+
+The historical redesign proposed an Ink/React TUI backed by a FastAPI daemon that would supervise PTYs and dispatch work. That application and daemon dispatch spine were not built as the live system. Current dispatch remains the markdown mailbox workflow described above; the optional daemon is limited to observability and support endpoints.

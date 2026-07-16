@@ -15,7 +15,7 @@ Vibe Squad is intentionally small and markdown-first. Contributions should make 
 
 - Add cross-cutting specialists under `shared/specialists/`.
 - Add namespace-specific specialist markdown under `departments/<source_namespace>/specialists/`.
-- Add the specialist to `shared/specialist-runtime-map.tsv` with `best_model_lane`, `review_model`, `source_namespace`, tools, safety level, and notes.
+- Add the specialist to `shared/specialist-runtime-map.tsv` with `primary_lane`, `review_lane`, `source_namespace`, tools, safety level, and notes.
 - Add or update mode workflows in `shared/modes/` only when the operator-facing workflow changes.
 - Keep prompts short and non-conflicting; avoid duplicating the same role contract in several files.
 

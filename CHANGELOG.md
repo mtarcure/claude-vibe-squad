@@ -7,6 +7,11 @@
 - Made `to_model` the runtime selector and `source_namespace` the mailbox/specialist storage selector.
 - Removed generated adapter trees and duplicate capability manifests from the public source of truth.
 - Simplified public docs around the current v1 model-lane architecture.
+- Wired completion detection: model leads write their own `<id>-response.md` outbox envelope; the reconciler + `outbox-watcher` auto-reconcile and best-effort capture to the durable vault.
+- Added fan-out mode (`--fanout`): the same specialist runs ×N on distinct sub-tasks in parallel (panels still dedup review members).
+- Made inbox publication atomic (temp + fsync + rename).
+- Closed routing gaps so all 69 specialists are routable, including the `content-engineer` namespace.
+- Added tracked git hooks (`.githooks/`, opt-in via `core.hooksPath`) with a moat Tier-A boundary self-check.
 
 ## v1.0.0
 
