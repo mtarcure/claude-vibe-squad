@@ -78,10 +78,10 @@ EOF
 - `impact-validator` · CVSS v4 scoring, sanity check on findings, dedup vs CVE/known-issue DBs
 - `privacy-steward` · PII / data-flow concerns, GDPR/CCPA review
 
-**Bounty platform context:**
-- `HACKERONE_API_TOKEN` available in env for direct REST API queries
-- 4 other platforms (Bugcrowd, Intigriti, HackenProof, Code4rena) are browser-only; use Playwright CDP attach
-- Operator's allowed platforms ONLY: HackerOne, Bugcrowd, Intigriti, HackenProof, Code4rena. Do NOT suggest Cantina, Immunefi, Sherlock, YesWeHack.
+**Bounty program context:**
+- A bounty-program API token may be available in env for direct REST API queries on API-enabled programs
+- Other authorized programs are browser-only; attach via the persistent CDP Chrome (see `shared/lifecycle.md`)
+- Only engage programs the operator has explicitly authorized; do not suggest programs outside that authorized set
 
 **Routing reminder:** for OSINT / vendor research that doesn't fit `scout`'s platform-intel scope, ask Chrono for a research-namespace dispatch. Live research MCP tools (claude/codex/kimi/gemini panes): `perplexity_search_web` (synthesized + cited — default for general research), `xai_search` (real-time web/X/news), `arxiv_search` (papers) — all verified live. Brave/Apify/Serper: planned/unverified.
 
@@ -162,7 +162,7 @@ case "${TO_MODEL}" in
 
 ## Expected Model Lane Tool Surface
 
-GPT/Codex lane is expected to have repo shell commands, file edits, tests, `chrono-research-arsenal`, `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `chrono-content-engineer` when relevant, and `sequential-thinking`.
+GPT/Codex lane is expected to have repo shell commands, file edits, tests, `chrono-research-arsenal`, `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `chrono-media-studio` when relevant, and `sequential-thinking`.
 
 This is an expected surface, not proof of live availability. Verify the tool exists in your current runtime before using it. If missing, report `capability_gap` and use the task-approved fallback.
 EOF
@@ -182,7 +182,7 @@ EOF
 
 ## Expected Model Lane Tool Surface
 
-Gemini lane is expected to have native Gemini grounding, `chrono-research-arsenal`, `chrono-content-engineer`, `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `sequential-thinking`, and media/design tools when the packet allows them. `chrono-content-engineer` currently exposes wrapper tools such as `generate_image`, `generate_video`, and `generate_audio`; ElevenLabs/Higgsfield child tool names are not available in this lane unless the live schema exposes them.
+Gemini lane is expected to have native Gemini grounding, `chrono-research-arsenal`, `chrono-media-studio`, `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `sequential-thinking`, and media/design tools when the packet allows them. `chrono-media-studio` currently exposes wrapper tools such as `generate_image`, `generate_video`, and `generate_audio`; ElevenLabs/Higgsfield child tool names are not available in this lane unless the live schema exposes them.
 
 This is an expected surface, not proof of live availability. Verify the tool exists in your current runtime before using it. If missing, report `capability_gap` and use the task-approved fallback.
 EOF
@@ -192,7 +192,7 @@ EOF
 
 ## Expected Model Lane Tool Surface
 
-Kimi lane is expected to have `chrono-research-arsenal`, `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `chrono-content-engineer` when relevant, and `sequential-thinking`. Live research MCP tools are `perplexity_search_web` (synthesized + cited — default for general research), `xai_search` (real-time web/X/news), and `arxiv_search` (papers). Brave/Apify/Serper are planned/unverified.
+Kimi lane is expected to have `chrono-research-arsenal`, `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `chrono-media-studio` when relevant, and `sequential-thinking`. Live research MCP tools are `perplexity_search_web` (synthesized + cited — default for general research), `xai_search` (real-time web/X/news), and `arxiv_search` (papers). Brave/Apify/Serper are planned/unverified.
 
 This is an expected surface, not proof of live availability. Verify the tool exists in your current runtime before using it. If missing, report `capability_gap` and use the task-approved fallback.
 EOF

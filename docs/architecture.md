@@ -25,7 +25,7 @@ tmux session `squad`
   MCP servers (per-CLI registration)
         ├─ chrono-vault (+ chrono-kg / chrono-obsidian legacy namespace aliases)
         ├─ chrono-research-arsenal
-        ├─ chrono-content-engineer
+        ├─ chrono-media-studio
         └─ chrono-recon
   Persistent Chrome (CDP :9222) — kept alive outside the squad lifecycle
 ```
@@ -72,13 +72,13 @@ Each CLI registers its own MCP servers directly — there is no proxy layer:
 | kimi | `~/.kimi/mcp.json` |
 | gemini | `~/.gemini/settings.json` |
 
-Servers: `chrono-vault` (private, off-repo **markdown source of truth** with a disposable FTS5/BM25 recall index — record/recall/usage plus an Obsidian read/write bridge; it retains `chrono-kg` and `chrono-obsidian` legacy namespace aliases over the same binary for archive-role compatibility. The retired `chrono-catalog` alias and the old in-repo SQLite knowledge graph are gone), `chrono-research-arsenal` (arxiv, xai, perplexity), `chrono-content-engineer` (image/video/audio generation), and `chrono-recon` (OSINT). Availability differs per lane; `shared/api-catalog.md` records the verified state each specialist binds to.
+Servers: `chrono-vault` (private, off-repo **markdown source of truth** with a disposable FTS5/BM25 recall index — record/recall/usage plus an Obsidian read/write bridge; it retains `chrono-kg` and `chrono-obsidian` legacy namespace aliases over the same binary for archive-role compatibility. The retired `chrono-catalog` alias and the old in-repo SQLite knowledge graph are gone), `chrono-research-arsenal` (arxiv, xai, perplexity), `chrono-media-studio` (image/video/audio generation), and `chrono-recon` (OSINT). Availability differs per lane; `shared/api-catalog.md` records the verified state each specialist binds to.
 
 ### Optional daemon (secondary)
 `daemon/main.py` is an optional observability API with bearer auth except for its public health check: health, read-only task status, summarize, and event-stream routes, plus MCP/catalog support. Its file watcher runs only when this optional daemon runs; the separate failover control plane remains opt-in and dormant. The daemon is **not** started by `bin/launch-squad.sh`, does not expose task/project submission routes, and is **not a dispatch path**. When it is running, status readouts poll `GET /tasks` (`bin/vs-lane-status.sh`) and the weekly review runner posts to `/summarize` (`scripts/python/weekly_review_runner.py`). Markdown packets under `departments/<namespace>/inbox/` remain the only live dispatch spine.
 
 ### Persistent Chrome
-A long-lived Chrome instance is kept alive outside the squad lifecycle (`bin/chrome-bootstrap.sh`, `bin/browser-keep-alive.sh`) and exposed over the Chrome DevTools Protocol on `:9222`. Lanes that need a browser attach over CDP to this authenticated session rather than spawning a fresh profile, preserving signed-in cookies/tabs across restarts. See `shared/lifecycle.md` for browser attach rules.
+A long-lived Chrome instance is kept alive outside the squad lifecycle (`bin/chrome-bootstrap.sh`, `bin/browser-keep-alive.sh`) and exposed over the Chrome DevTools Protocol on `:9222`. Lanes that need a browser attach over CDP to this persistent Chrome rather than spawning a fresh profile, reusing your signed-in working browser session rather than losing state. See `shared/lifecycle.md` for browser attach rules.
 
 ### Watchers / status
 Window 5 hosts lane watchers and status readouts. On dispatch, `bin/send-task.sh` nudges the target lane's tmux window with the absolute packet path (`--nudge-pane squad:<window>`); watchers surface inbox/outbox activity and per-lane status.

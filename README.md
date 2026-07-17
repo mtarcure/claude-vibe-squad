@@ -4,207 +4,282 @@
 
 <h1 align="center">Vibe Squad</h1>
 
-<p align="center"><b>One coordinator. Four AI model families. Specialists that swarm — and review each other's work.</b></p>
+<p align="center"><b>Route each job to the model family that fits it. Hold risky results for a different family to review.</b></p>
 
-You talk to **Chrono** in plain language; it routes your request to the best-fit specialist across four persistent model lanes, can fan the work out to a **parallel panel of specialists**, and sends review-required work to a **different model family** — with every step left as an inspectable file.
+Vibe Squad is a local, inspectable control plane for Claude, Codex, Gemini, and Kimi. One coordinator turns a plain-language goal into scoped Markdown work, routes each specialist by capability instead of round-robin, and keeps the result visible as files.
 
-<p align="center">
-  <img src="assets/media/swarm-demo.gif" alt="Two specialists run as a bounded panel and return evidence for one synthesis" width="820">
-</p>
-
-<p align="center"><sub>A “swarm”/panel runs 2–3 specialists inside one model family (Claude or Codex). The multi-model story is cross-lane routing plus a different-family reviewer — not four families debating in one panel.</sub></p>
-
-<p align="center"><i>One front door for four model families, a validated registry of 69 specialist roles, opt-in parallel swarms, an independent second opinion on review-required work, and a paper trail made of files.</i></p>
+For qualifying work, the authoring lane cannot declare itself finished: the runtime holds the result at `review-required` until Chrono receives a separate cross-family review and explicitly settles it.
 
 <p align="center">
+  <a href="https://github.com/mtarcure/claude-vibe-squad/actions/workflows/squad-validate.yml"><img alt="validation workflow" src="https://github.com/mtarcure/claude-vibe-squad/actions/workflows/squad-validate.yml/badge.svg"></a>
   <img alt="license AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-blue">
   <img alt="python 3.13" src="https://img.shields.io/badge/python-3.13-blue">
-  <img alt="targeted CI checks" src="https://img.shields.io/badge/CI-targeted_checks-blue">
-  <img alt="four provider lanes" src="https://img.shields.io/badge/provider_lanes-4-8a2be2">
-  <img alt="69 specialist definitions" src="https://img.shields.io/badge/specialist_definitions-69-brightgreen">
+  <img alt="27 validated capabilities" src="https://img.shields.io/badge/validated_capabilities-27-brightgreen">
+  <img alt="69 validated specialist routes" src="https://img.shields.io/badge/validated_role_routes-69-8a2be2">
   <img alt="markdown-first control plane" src="https://img.shields.io/badge/control_plane-markdown--first-orange">
 </p>
 
-Vibe Squad is a local, inspectable control plane for coordinating multiple AI coding CLIs as one team. It is designed for work that should be **bounded, observable, reviewable, and recoverable** — not for making more agents talk to one another forever.
+> **The short version:** Codex builds. Claude reasons and reviews. Gemini handles design and content work. Kimi is a gated throughput lane for approved low-risk bulk passes. Chrono coordinates the handoffs, and the repository keeps the receipts.
 
 ---
 
-## Watch it work
+## What stops the authoring model from grading its own homework?
 
-The demo above shows an optional panel run: two specialists start inside one Claude or Codex lane, their states remain visible, and the coordinator produces one evidence-weighted artifact. Dissent, timeouts, refusals, and missing coverage are preserved instead of being averaged away.
+Vibe Squad separates **execution**, **review**, and **settlement**.
 
-The example inputs and raw member returns live in [`examples/demo-run/`](examples/demo-run/). The activity ledger records panel lifecycle and batch closure; it should not be read as proof of a specific wall-clock speedup.
+```text
+operator request
+  → scoped task packet + declared write scope
+  → best-fit specialist and provider lane
+  → result artifact + completion envelope
+  → mandatory-review result held at review-required
+  → Chrono dispatches a different-family reviewer
+  → review response lands
+  → Chrono explicitly settles the result
+```
+
+<p align="center">
+  <img src="assets/media/dispatch-demo.gif" alt="A request becomes a typed task packet, routes to a specialist lane, and returns as an inspectable result" width="820">
+</p>
+
+The runtime enforces the hold and settlement state. It does **not** silently auto-launch a reviewer or infer who has verdict authority; Chrono coordinates that separate dispatch. Refusals, timeouts, missing tools, dissent, and incomplete reviews stay visible instead of being rewritten as success.
+
+<p align="center">
+  <img src="assets/hero/review-loop.svg" alt="A result takes a separate cross-family review path before explicit settlement" width="720">
+</p>
+
+That is the central systems claim: **the model that produced a risky artifact does not get the last word.**
 
 ---
 
-## Why Vibe Squad feels different
+## Route by fit, not round-robin
 
-| | Benefit | What is real today |
+The canonical registry assigns every specialist a primary lane, backup, escalation path, reviewer, safety floor, tool requirements, and policy metadata. The mailbox folder never chooses the model.
+
+<p align="center">
+  <img src="assets/hero/architecture-lanes.svg" alt="Chrono routes scoped work to four persistent provider lanes and coordinates a separate review path" width="820">
+</p>
+
+| Provider lane | Best-fit work in the registry | Honest boundary |
 |---|---|---|
-| 🎛️ | **One front door, four visible lanes** | A persistent tmux session keeps Chrono, GPT/Codex, Claude, Gemini, Kimi, and watcher/status processes separately observable. |
-| 🐝 | **Parallel analysis without an endless group chat** | Optional 2–3 member panels run inside Claude or Codex with quorum, deadlines, visible member states, and one accountable synthesis. |
-| 🧭 | **The task chooses the model** | A canonical registry maps specialist roles to primary, backup, escalation, review, safety, and policy metadata. |
-| 🔁 | **A second opinion can come from another model family** | Chrono coordinates the separate reviewer dispatch. Qualifying cross-family mandatory-review results are machine-held as `review-required` until Chrono explicitly settles them with a review response. |
-| 🗂️ | **Files are the interface** | Requests and results are readable Markdown artifacts, so routing and failure states stay inspectable without a proprietary dashboard. |
-| 🧠 | **Memory stays private and rebuildable** | Chrono Vault keeps Markdown notes outside the public worktree and builds a disposable lexical recall index from them. |
+| **GPT/Codex** | Implementation, tests, refactors, PoC mechanics, runtime and graphics engineering | Builds and verifies code; higher-risk results still require independent review and operator gates. |
+| **Claude** | Architecture, planning, judgment, security reasoning, research synthesis, editorial review | The primary reasoning and review family; reviewer dispatch remains coordinator-triggered. |
+| **Gemini** | Design, content, visual and media direction, accessibility, search-oriented work | Routes the creative workflow; the actual generator or connector is credited separately. |
+| **Kimi** | Approved low-risk bulk and mechanical throughput | Throughput-only, with zero primary specialist roles; not a judgment or long-context research primary. |
 
-The guiding idea is simple: **use model diversity deliberately, then keep the evidence visible.**
+Four persistent lanes are visible in one tmux control room, but they are not treated as interchangeable. Capability fit, lane-specific tools, safety metadata, and review independence determine the route.
 
----
-
-## Flagship capability: an offensive-security research toolkit
-
-The offensive-security research toolkit (in [`moat/`](moat/README.md)) is a public-safe set of building blocks for making JavaScript/TypeScript security research more repeatable:
-
-- prior-work classification backed by restricted vault recall;
-- JavaScript/TypeScript AST boundary scanning and a private exact-denylist scanner;
-- patch/diff ingestion with human-reviewed invariant annotations;
-- a vulnerable/patched synthetic twin with property-state fuzzing, coverage, controls, and structured `PASS / FAIL / INCONCLUSIVE` results;
-- a hardened Docker runner with no network, a read-only root, a non-root user, resource limits, and negative egress canaries.
-
-These are real, tested components with explicit boundaries. The synthetic wave now runs **end-to-end inside the hardened Docker runner**: a mandatory pre-flight canary must confirm the loopback control reachable while every external class (IPv4/IPv6/DNS/proxy/host-gateway/TCP-TLS) is blocked, or the run aborts — no canary, no execution. The data-free Tier-A boundary scanner runs in CI and is present in the tracked, opt-in `.githooks/pre-commit` hook (activate it per clone with `git config core.hooksPath .githooks`). **By design it stays a synthetic impact engine, not a real-deployment exploit engine**: real targets remain Layer-2 private, so the toolkit proves or refutes impact against a known-vulnerable/patched twin. That scope is intentional, not a gap. (A clearly-labeled non-isolated in-process mode remains for fast local iteration.)
+Browse the generated [routing map](docs/routing-map.html) or inspect the canonical [specialist runtime map](shared/specialist-runtime-map.tsv).
 
 ---
 
-## 69 specialist definitions, one routing source of truth
+## Mode → Capability → Protocol is shipped
 
-The canonical map in [`shared/specialist-runtime-map.tsv`](shared/specialist-runtime-map.tsv) describes every role's primary lane and its routing, review, safety, and policy metadata. Browse the interactive view in [`docs/routing-map.html`](docs/routing-map.html).
+Vibe Squad does not stop at a role catalog. A mode names the operator-approved workflow, a capability card describes a recognizable outcome inside that workflow, and a shared protocol makes the execution contract inspectable.
 
-| Domain (namespace) | Roles | Primary lanes used | Routable today |
-|---|---:|---|---:|
-| Coding | 19 | Claude, Codex | all 19 |
-| Content | 11 | Claude, Gemini | all 11 |
-| Media production (`content-engineer`) | 10 | Gemini, Codex, Claude | all 10 |
-| Security | 10 | Claude, Codex | all 10 |
-| System management | 8 | Claude | all 8 |
-| Shared / planning | 6 | Claude | all 6 |
-| Research | 5 | Claude, Codex | all 5 |
-| **Total** | **69** | **Claude 38 · Codex 20 · Gemini 11 · Kimi 0** | **69 routable, 0 catalog-only** |
+```text
+operator intent
+  → mode
+    → capability card
+      → S0–S7 protocol
+        → specialists + lane-qualified tools + evidence + gates
+```
 
-**69 role definitions in one validated registry, and all 69 are dispatchable through the standard path. Kimi is a throughput-only lane and holds no primary roles.**
+The repository ships **27 capability cards across six families**. Every card is a Markdown registry file under [`shared/capabilities/`](shared/capabilities/), every mode file has a `## Capabilities` index, and every card instantiates the same S0–S7 skeleton.
+
+| Family | Cards | Current state mix | Examples |
+|---|---:|---|---|
+| **Project** | 8 | 6 `live` · 2 `needs_tool` | Web apps, APIs, data pipelines, AI apps, platforms, systems, smart contracts, self-extension |
+| **Bounty** | 4 | 3 `live` · 1 `needs_tool` | Web/API, AI systems, smart contracts, binaries and firmware |
+| **Content** | 6 | 3 `live` · 3 `degraded-blueprint` | Editorial, campaigns, search, images, video, audio |
+| **Research** | 3 | 3 `live` | Investigation, extraction, learning plans |
+| **Outreach** | 1 | 1 `live` | Prospecting and draft outreach |
+| **Maintenance** | 5 | 5 `live` | Repo health, releases, harnesses, memory, personal operations |
+| **Total** | **27** | **21 `live` · 3 `needs_tool` · 3 `degraded-blueprint`** | **27/27 pass the validator** |
+
+Incident and triage remain mode-level workflows with zero cards. **Operations** is a display family spanning incident, maintenance, and triage—not a hidden seventh mode.
+
+### One shared execution spine
+
+| Stage | Contract |
+|---|---|
+| **S0 — Intake** | Capture the requested outcome, scope, authority, and constraints. |
+| **S1 — Frame** | Identify evidence needs, unknowns, costs, and tool availability. |
+| **S2 — Design** | Choose specialists, lanes, overlays, and acceptance checks. |
+| **S3 — Produce** | Create the bounded implementation, analysis, draft, or blueprint. |
+| **S4 — Verify** | Run the card's deterministic checks and preserve the evidence. |
+| **S5 — Review / Gate** | Apply independent review, authorization, privacy, or release gates. |
+| **S6 — Ship** | Deliver the artifact through the declared, approved boundary. |
+| **S7 — Capture** | Preserve durable results, gaps, provenance, and follow-up state. |
+
+Cards specialize this spine without inventing a new workflow language each time. Panels and loop operators remain execution mechanisms, not capabilities.
+
+### The complete capability catalog
 
 <details>
-<summary><b>Browse all 69 specialist roles</b></summary>
+<summary><b>Browse all 27 cards and their machine-checked state</b></summary>
 
-### Coding
+#### Project — 8
 
-| Specialist | Domain | Primary lane | Role | Status |
-|---|---|---|---|---|
-| `ai-engineer` | Coding | GPT/Codex | LLM-application development — RAG pipelines, evals, agent tool design, prompt-cache strategy, multi-model routing. | routable |
-| `architect` | Coding | Claude | System design, C4 models, service boundaries, interface contracts. | routable |
-| `backend-engineer` | Coding | GPT/Codex | API design, async pipelines, databases, server-side implementation. Includes scraping/extraction work as bundled skills. | routable |
-| `code-reviewer` | Coding | Claude | Diff-aware review with severity ladder. Spec compliance, security touchpoint check, refactor opportunity surface. | routable |
-| `database-engineer` | Coding | GPT/Codex | Database architecture and operations: schema evolution, query planning, indexing, concurrency, backup/restore, replication, and zero-downtime migration. Optimizes for correctness and recoverability before benchmark speed. | routable |
-| `devops-engineer` | Coding | GPT/Codex | CI/CD, Docker, deployments, cloud cost management. K8s only when target requires it. | routable |
-| `frontend-engineer` | Coding | GPT/Codex | React / Vue / Svelte component work, Tailwind, build/bundling, web performance. | routable |
-| `game-engineer` | Coding | GPT/Codex | Game-engine runtime implementation, gameplay state, input, physics, save systems, netcode, asset integration, builds, profiling, platform packaging, and audio-event wiring. Owns the executable runtime half of the staged game-production pipeline; does not replace game design, technical art, or asset generation. | routable |
-| `performance-optimizer` | Coding | GPT/Codex | Profiling, flamegraph triage, benchmark validation, hyperfine-measured regression investigation. | routable |
-| `product-manager` | Coding | Claude | Convert vague operator intent into PRDs, acceptance criteria, issue scope, roadmap tradeoffs, and "done" definitions. Used in Project Mode Phase 1 (Intake / Definition) and on-demand for scope work. | routable |
-| `refactor-cleaner` | Coding | GPT/Codex | Mechanical structural cleanup — AST rewrites, dead-code elimination, import reorganization, semantic patches via Comby. Sister specialist to code-reviewer (which surfaces issues; this one applies fixes). | routable |
-| `scraping-engineer` | Coding | GPT/Codex | Browser-based extraction (Playwright + browser-use), HTTP scraping, anti-bot considerations, state persistence across long scrapes. Sister to backend-engineer; lives separately because scraping has unique infrastructure needs. | routable |
-| `site-reliability-engineer` | Coding | GPT/Codex | Production reliability engineering: SLOs, telemetry, capacity, incident mitigation, disaster recovery, and feedback loops that turn observed failure into tested system improvement. Distinct from `devops-engineer`, which primarily provisions infrastructure and delivery automation. | routable |
-| `smart-contract-engineer` | Coding | GPT/Codex | EVM (Solidity / Vyper) and Solana (Rust / Anchor) smart contract work — audit, invariant fuzzing, symbolic execution. On-demand specialist; activates when bounty mode targets contracts or operator does crypto work. | routable |
-| `software-supply-chain-engineer` | Coding | GPT/Codex | Software supply-chain integrity: dependency provenance, SBOMs, signing and verification, reproducible builds, package publication, vulnerability policy, and release integrity. Produces verifiable release evidence without taking custody of production signing secrets. | routable |
-| `systems-engineer` | Coding | GPT/Codex | Low-level C/C++/Rust work, cross-architecture builds, NUMA-aware threading, SIMD porting, hardware-specific optimization. Optional specialist — most operator work doesn't reach this level. | routable |
-| `technical-artist` | Coding | GPT/Codex | Real-time graphics and asset-pipeline engineering: shaders, materials, rigs, GLTF/USD interchange, LODs, WebGL/GPU performance, engine asset import, and conversion of generated art into runtime-safe assets. Bridges visual intent to measurable runtime constraints. | routable |
-| `test-engineer` | Coding | GPT/Codex | Unit + property + e2e + flake-triage. Merged from chrono's qa-tester + e2e-runner — one specialist owns the whole testing surface. | routable |
-| `ui-engineer` | Coding | GPT/Codex | Technical UI work — figma-to-code fidelity, design tokens, accessibility audits, visual regression. Lives next to frontend-engineer; the split is "frontend builds the framework code, UI engineer ensures the design implementation is correct." | routable |
+| Capability | State |
+|---|---|
+| [Web application](shared/capabilities/project/web-app.md) | `needs_tool` |
+| [Backend service / API](shared/capabilities/project/backend-service-api.md) | `live` |
+| [Data pipeline](shared/capabilities/project/data-pipeline.md) | `live` |
+| [AI / LLM application](shared/capabilities/project/ai-llm-application.md) | `live` |
+| [Platform / release](shared/capabilities/project/platform-release.md) | `live` |
+| [Systems / low-level](shared/capabilities/project/systems-low-level.md) | `needs_tool` |
+| [Smart-contract / web3 build](shared/capabilities/project/smart-contract-web3.md) | `live` |
+| [Self-extension — agents and tooling](shared/capabilities/project/self-extension-agent-tooling.md) | `live` |
 
-### Content
+#### Bounty — 4
 
-| Specialist | Domain | Primary lane | Role | Status |
-|---|---|---|---|---|
-| `accessibility-engineer` | Content | Gemini | WCAG/ARIA conformance, keyboard navigation, contrast, and accessible-media production (captions, transcripts, alt-text). A cross-cutting acceptance gate over shipped UI and generated media. | routable |
-| `asset-provenance-and-rights-auditor` | Content | Claude | Pre-publication rights gate (Hard Rule 6): license, consent, provenance, watermark, trademark, voice/face-likeness, and usage-terms fit for generated or third-party media before it is published or sold. Surfaces legal uncertainty; does not give legal advice. | routable |
-| `brand-voice` | Content | Claude | Brand strategy, tone consistency, content principles. The "what would this brand say?" specialist. | routable |
-| `content-verifier` | Content | Claude | Pre-publication truth gate (Hard Rule 8): verifies facts, statistics, and citations; flags hallucinated sources and unverifiable provider claims. Verifies and adjudicates evidence — does not rewrite. | routable |
-| `editor` | Content | Claude | Long-form editing, copywriting, structure/flow review. Bundled: brand-voice consistency check (when invoked with that mode flag), copywriting (marketing/social/email). | routable |
-| `growth-and-search-analyst` | Content | Gemini | Technical SEO and search growth: keyword research/clustering, JSON-LD/structured-data schema, meta/metadata, and Search Console/analytics interpretation. Gemini-primary for native Google Search grounding. | routable |
-| `interactive-audio-designer` | Content | Claude | The interactive layer over generated audio assets: adaptive music, dynamic SFX systems, spatial audio, mix/ducking, audio state machines, event-wiring, loop-point authoring, and memory/format budgets. Design authority in the staged game-production pipeline; does not render assets or write engine code. | routable |
-| `level-narrative-designer` | Content | Claude | Level design, narrative and quest/story structure, and level-specific pacing for the staged game-production pipeline. Turns the game-designer's mechanics/experience contract into playable structure and story. | routable |
-| `localization-specialist` | Content | Claude | Dialect/idiom translation and cultural adaptation, locale QA, regional-compliance flagging, and terminology-memory maintenance. Adapts meaning and tone for a market — not word-for-word translation. | routable |
-| `social-strategist` | Content | Gemini | Social media planning, posting cadence, platform-specific tactics, engagement strategies. | routable |
-| `technical-writer` | Content | Claude | Changelogs, ADRs (architecture decision records), post-spec handoffs, documentation. The technical-content equivalent of editor. | routable |
+| Capability | State |
+|---|---|
+| [Web API / HTTP-surface research](shared/capabilities/bounty/web-api-saas.md) | `live` |
+| [LLM / AI-system research](shared/capabilities/bounty/ai-llm-system.md) | `live` |
+| [Smart-contract / web3 research](shared/capabilities/bounty/smart-contract-web3.md) | `live` |
+| [Binary / malware / firmware research](shared/capabilities/bounty/binary-firmware.md) | `needs_tool` |
 
-### Media production
+#### Content — 6
 
-| Specialist | Domain | Primary lane | Role | Status |
-|---|---|---|---|---|
-| `copywriter` | Media production | Gemini | Write short-form and long-form text content: marketing copy, landing pages, email campaigns, ad copy, blog articles, product descriptions, case studies. Match the operator's voice (direct, vibecoded, honest). Research references and brand context before drafting. When writing marketing copy for a project, read the project brief and any handoffs first. | routable |
-| `game-designer` | Media production | Claude | Pipeline director for browser-based games: owns mechanics, player experience, and economy/progression design, and orchestrates the staged production pipeline. Produces the design contract the rest of the pipeline builds from; does not implement, render, or deploy. | routable |
-| `image-designer` | Media production | Gemini | Generate original images for marketing, product, editorial, and design use. Write detailed visual briefs with composition, mood, style, and technical requirements. Upscale to required resolutions (2K, 4K, print). Edit and composite multiple images. Expand/uncrop frames for layout needs. Iterate on color, lighting, and visual hierarchy. | routable |
-| `music-composer` | Media production | Gemini | Create original background music, theme tracks, and video accompaniment. Transform video narratives into matching musical scores. Write brief on mood, tempo, instrumentation preferences before generating. Iterate on pacing and emotional arc. | routable |
-| `sound-designer` | Media production | Gemini | Create sound effects, ambient soundscapes, and audio branding elements. Generate SFX for interface interactions, motion sequences, and atmospheric audio layers. Layer multiple SFX sources for rich, dimensional sound design. Coordinate timing with video-director on visual sync points. | routable |
-| `video-director` | Media production | Gemini | Generate video sequences and orchestrate motion across scenes. Write video briefs with scene descriptions, timing, motion requirements, and creative direction. Use virality predictor to validate hook strength and engagement risk. Coordinate narration timing with voice-narrator. Iterate on pacing, visual effects, and emotional arc. | routable |
-| `video-editor` | Media production | Gemini | Post-production on video sequences: reframe for different aspect ratios (TikTok, YouTube Shorts, 16:9, square), upscale to 2K/4K, expand/uncrop frames for platform requirements. Polish visual composition and technical quality. Iterate on colors, timing, and output formats for multiple platforms. | routable |
-| `voice-agent-builder` | Media production | Gemini | Create conversational AI agents using ElevenLabs: customer service bots, sales assistants, educational tutors, content narrators with interactivity. Write agent briefs (personality, knowledge domain, conversation flows). Integrate knowledge bases from docs or KGs. Configure voice, tone, and response patterns. Test conversation loops and edge cases. Deploy and monitor live agents. | routable |
-| `voice-narrator` | Media production | Gemini | Convert written content to professional voiceover narration. Select or clone voices to match tone and audience. Produce clean, well-paced TTS output for explainer videos, podcasts, audiobooks, and narrated tutorials. Coordinate with video-director on pacing and timing. | routable |
-| `web-builder` | Media production | GPT/Codex | Generate and deploy websites, landing pages, and web applications. Compose pages from copywriter and image-designer assets. Integrate Figma design systems and Firebase backend. Manage deployment configs, DNS, and hosting. Write clean, accessible HTML/CSS with performance optimization. Iterate on responsive design and user experience across devices. | routable |
+| Capability | State |
+|---|---|
+| [Editorial / technical longform](shared/capabilities/content/editorial-longform.md) | `live` |
+| [Marketing campaign](shared/capabilities/content/marketing-campaign.md) | `live` |
+| [Search / discoverability](shared/capabilities/content/search-discoverability.md) | `live` |
+| [Image asset generation](shared/capabilities/content/image.md) | `degraded-blueprint` |
+| [Video / motion asset generation](shared/capabilities/content/video.md) | `degraded-blueprint` |
+| [Audio assets](shared/capabilities/content/audio-assets.md) | `degraded-blueprint` |
 
-### Security
+#### Research — 3
 
-| Specialist | Domain | Primary lane | Role | Status |
-|---|---|---|---|---|
-| `detection-engineer` | Security | Claude | Detection-as-code: SIEM rules, signatures, analytics, and threat-detection content, plus coverage-gap analysis against a known TTP set (e.g. ATT&CK). Defensive product; models attacker behavior only to detect it. | routable |
-| `exploit-developer` | Security | GPT/Codex | PoC development, binary RE, fuzzing, symbolic execution. Bounty Mode Phase 6/7/8. Multi-model is the central pattern: Codex AND Claude attempt independently. | routable |
-| `impact-validator` | Security | Claude | CVSS v4.0 scoring, CWE policy check, NVD/OSV calibration, duplicate detection, self-inflicted detector, and — first and foremost — the **mandatory G1–G4 pre-submit gate**, the terminal go/no-go I run before greenlighting any bounty submission (see the very next section). Bounty Mode Phase 10. | routable |
-| `incident-responder` | Security | Claude | Defensive incident handling: detection triage, containment, forensics, eradication, recovery, and post-incident review. Leads once compromise is suspected; plans and recommends live actions, which the operator authorizes. | routable |
-| `privacy-steward` | Security | Claude | Tool permissions, data-retention paths, mailbox/vault leakage prevention, PII handling, secret exposure, OAuth scopes, "should this agent be allowed to act?" policies. | routable |
-| `red-team-operator` | Security | GPT/Codex | Plan, coordinate, and execute authorized end-to-end adversary-emulation engagements. Exercise realistic attack paths—including scoped lateral movement and detection-evasion testing—to validate security controls, response readiness, and business-impact assumptions. Produce reproducible evidence and remediation-oriented reporting without exceeding the engagement's written authorization. | routable |
-| `reverse-engineer` | Security | Claude | Analyze binaries, malware, packed or obfuscated artifacts, and firmware to explain structure, behavior, provenance indicators, vulnerabilities, and defensive implications. Support authorized vulnerability research and bug-bounty work, incident response, detection engineering, and remediation without turning analysis into unauthorized deployment or operational abuse. | routable |
-| `scout` | Security | Claude | Recon, subdomain enumeration, attack-surface mapping, program scope. Bounty Mode Phase 2 (Program Scope) and Phase 3 (active recon). | routable |
-| `security-analyst` | Security | Claude | SAST scans, supply-chain audits, OSINT, agentic-safety analysis. Bounty Mode Phase 3/4, also on-demand for any security-sensitive code review. | routable |
-| `threat-modeler` | Security | Claude | Repository-grounded threat modeling — trust boundaries, abuse cases, threat-model loops. Bounty Mode Phase 4, Project Mode Phase 2 (when security-touching), on-demand. | routable |
+| Capability | State |
+|---|---|
+| [Multi-source investigation and synthesis](shared/capabilities/research/investigation-synthesis.md) | `live` |
+| [Data extraction and dataset wrangling](shared/capabilities/research/data-extraction-dataset.md) | `live` |
+| [Learning and study](shared/capabilities/research/learning-study.md) | `live` |
 
-### System management
+#### Outreach — 1
 
-| Specialist | Domain | Primary lane | Role | Status |
-|---|---|---|---|---|
-| `agentops` | System management | Claude | Observability, tracing, cost monitoring for the assistant itself. Owns runtime, doctor, status, mailbox, and process-drift detection. | routable |
-| `finance-analyst` | System management | Claude | Subscriptions, invoices, budgets, tax-doc organization, spend summaries. Read-only by default — no transaction authority unless operator explicitly grants. | routable |
-| `harness-optimizer` | System management | Claude | Audit and improve the assistant's own harness configuration — hooks, evals, model routing, context discipline, safety gates. Owns prompt, generated-adapter, tool-catalog, validator, and script-drift detection. The mechanics arm of dreaming (paired with memory-curator's interpretation arm). | routable |
-| `knowledge-librarian` | System management | Claude | Operator's reading queue, bookmarks, PDFs, Obsidian curation, long-term knowledge organization. Distinct from memory-curator (which manages assistant's KG); this manages the operator's personal knowledge workspace. | routable |
-| `loop-operator` | System management | Claude | Run autonomous agent loops with explicit stop conditions, checkpoint progress, detect stalls, intervene safely when a loop fails to advance. | routable |
-| `mac-ops` | System management | Claude | Brew/npm/pip update checks, disk/memory/network monitoring, Hammerspoon, launchd, fswatch, osascript — local Mac automation and machine health. | routable |
-| `memory-curator` | System management | Claude | Owns the assistant's KG vault health, brain-map hygiene, memory/vault source-of-truth clarity, dreaming system, instinct pruning, and stale knowledge purge. The interpretation arm of nightly self-review (paired with harness-optimizer for mechanics). | routable |
-| `personal-ops` | System management | Claude | Calendar, reminders, todos, daily logistics, weekly review, email triage, lifestyle-concierge work. The "operations assistant for your life" specialist. | routable |
+| Capability | State |
+|---|---|
+| [Prospecting / outreach](shared/capabilities/outreach/prospecting-outreach.md) | `live` |
 
-### Shared / planning
+#### Maintenance — 5
 
-| Specialist | Domain | Primary lane | Role | Status |
-|---|---|---|---|---|
-| `planner` | Shared / planning | Claude | Goal decomposition: turn a multi-week / multi-component goal into ordered phases, milestones, and explicit dependencies. Used in any mode that needs upfront planning beyond a single-task request. | routable |
-| `prompt-engineer` | Shared / planning | Claude | Prompt linting, few-shot curation, regression suites, system-prompt compression. Used by any model lead when their specialists' prompts need tuning. | routable |
-| `skeptic` | Shared / planning | Claude | Epistemic audit + cross-model verification + council-consensus (the absorbed challenger functionality). Used by every model lead. | routable |
-| `summarizer` | Shared / planning | Claude | Compresses old context into compact summaries so long-running model lead sessions don't bloat their context windows. | routable |
-| `triage` | Shared / planning | Claude | Classify incoming work, route to right mode and model lead, surface routing decision to Coordinator. Used inside Triage Mode and on-demand when Coordinator is uncertain where to send a task. | routable |
-| `vibecoding-check` | Shared / planning | Claude | Mode-exit contract verifier. Mechanically verifies that promises a mode made were satisfied before it can declare itself "done." | routable |
-
-### Research
-
-| Specialist | Domain | Primary lane | Role | Status |
-|---|---|---|---|---|
-| `data-extraction-engineer` | Research | GPT/Codex | PDF parsing, dataset wrangling, table extraction, structured-data normalization. Sister to scraping-engineer (Coding) — that one is web-focused; this one is document-focused. | routable |
-| `large-context-analyst` | Research | Claude | 1M-2M context full-codebase / multi-doc / multi-repo synthesis. Kimi K2's 2M context shines here. | routable |
-| `learning-coach` | Research | Claude | Study plans, drills, spaced repetition, reading ladders, progress checks. For when operator wants to learn something new (a framework, a topic, a skill). | routable |
-| `research` | Research | Claude | Source discovery, multi-source synthesis, claim validation, citation. The primary research specialist (sister to large-context-analyst for synthesis and skeptic for verification). | routable |
-| `synthesizer` | Research | Claude | Aggregate parallel-fan-out trajectories from multiple specialists/models into a unified report. Preserves outliers — minority findings don't disappear. | routable |
+| Capability | State |
+|---|---|
+| [Environment / repo health](shared/capabilities/maintenance/environment-repo-health.md) | `live` |
+| [Dependency / release integrity](shared/capabilities/maintenance/dependency-release-integrity.md) | `live` |
+| [Harness audit / compatibility](shared/capabilities/maintenance/harness-audit-compatibility.md) | `live` |
+| [Memory / vault hygiene](shared/capabilities/maintenance/memory-vault-hygiene.md) | `live` |
+| [Personal operations](shared/capabilities/maintenance/personal-operations.md) | `live` |
 
 </details>
 
 ---
 
-## Try it in about a minute
+## Honesty is infrastructure, not a disclaimer
 
-If the four provider CLIs are already installed and logged in:
+Capability claims are mechanically constrained by [`bin/validate-capabilities.sh`](bin/validate-capabilities.sh) and the typed [`skill-tool-registry.tsv`](shared/registries/skill-tool-registry.tsv).
+
+The validator checks card structure, specialists, skills, tools, lanes, costs, gates, and state. It derives the strongest state the verified toolchain can support and rejects a card that claims something more generous. A card may remain more conservative—for example, media cards stay `degraded-blueprint` until their paid, credentialed render routes are safe to promise from the selected lane.
+
+The state vocabulary is deliberately small:
+
+| State | Meaning |
+|---|---|
+| `live` | The declared core path is supported by verified tools on an eligible lane. |
+| `needs_tool` | A load-bearing tool is missing, unverified, or unavailable on the required lane. |
+| `degraded-blueprint` | The workflow can produce a complete specification or blueprint, but cannot honestly promise the final provider-backed artifact on that route. |
+
+The current registry passes **27/27**. That number is not a hand-maintained badge; it comes from the validator joining every card to the typed registry.
+
+### Why validation still needs independent review
+
+Every capability family was authored by one model family and reviewed by another. That cross-family pass caught real over-claims—including a card whose prose depended on a tool that was absent from its typed tool declarations—and exposed a false-pass hole in the validator itself.
+
+The lesson became part of the design:
+
+```text
+mechanical validation catches schema and registry drift
+  +
+independent review catches semantic and prose-level over-claims
+  =
+capability states worth trusting
+```
+
+Neither check is presented as sufficient alone.
+
+### Media claims name the real route
+
+Media production uses the [`chrono-media-studio`](plugins/chrono-media-studio/) wrappers:
+
+- images use `generate_image` — its xAI/Grok image route is verified working in the reference deployment, while the public `content/image` capability stays `degraded-blueprint` pending the Higgsfield wrapper reconciliation;
+- video uses the `generate_video` wrapper;
+- audio uses `generate_audio`, with ElevenLabs child tooling on the Claude host lane.
+
+Raw `higgsfield__*` tools are not claimed as live. Paid or credentialed generation requires budget, rate-limit, and operator gates. When the selected lane cannot render, the result is a typed blueprint or `needs_tool`—not fabricated success.
+
+### Built now; provider gap closure is roadmap
+
+The card registry, mode indexes, shared protocol, typed tool registry, state derivation, and validator are shipped. Wiring additional browser, design, deployment, binary-analysis, and provider-specific tools is future gap-closure work. The roadmap may turn more cards live; the README does not pre-announce those routes as working.
+
+---
+
+## Engineering you can inspect
+
+### Files are the interface
+
+The control plane is Markdown-first: a task packet declares the specialist, lane, write scope, review requirement, and terminal artifact. The result returns through an outbox envelope with a canonical status.
+
+<p align="center">
+  <img src="assets/hero/mailbox-flow.svg" alt="A Markdown task packet moves through an inbox to a model lane and returns through an outbox" width="760">
+</p>
+
+That interface supports concrete failure and coordination semantics:
+
+- same-directory temporary publication, file `fsync`, and atomic rename;
+- lock-serialized reconciliation and a canonical terminal-state vocabulary;
+- overlap detection for declared write scopes;
+- single-writer panel synthesis;
+- explicit capability gaps, refusals, timeouts, and review holds;
+- durable artifacts that can be diffed, archived, audited, or replayed.
+
+Declared write scopes are workflow boundaries, not OS sandboxes. Operator approvals remain explicit policy gates.
+
+### Memory-backed, private, and rebuildable
+
+[Chrono Vault](plugins/chrono-vault/README.md) keeps private Markdown notes outside the public worktree. A disposable FTS5/BM25 index can be rebuilt from those notes; content hashes, provenance, lifecycle state, and sensitivity clearance travel with recall. Recalled text is quoted as untrusted evidence, not treated as instructions.
+
+Completion capture and usage feedback make the system memory-backed. Feedback does not silently retrain models or automatically change ranking.
+
+### A system that can extend itself
+
+Vibe Squad includes four narrow `chrono-*` plugin implementations:
+
+- [`chrono-vault`](plugins/chrono-vault/) — private Markdown memory and lexical recall;
+- [`chrono-research-arsenal`](plugins/chrono-research-arsenal/) — research-provider wrappers;
+- [`chrono-media-studio`](plugins/chrono-media-studio/) — image, video, and audio entry points;
+- [`chrono-recon`](plugins/chrono-recon/) — passive DNS, WHOIS, certificate, archive, and repository-search helpers.
+
+The Project capability for [self-extension](shared/capabilities/project/self-extension-agent-tooling.md) applies the same S0–S7 contract to MCP servers, plugins, skills, agents, and adapters. Four repository implementations prove the pattern; they do not imply every external provider is live on every lane.
+
+---
+
+## Quick start after prerequisites
+
+You need macOS, tmux, `fswatch`, `jq`, `curl`, Python 3.13, and logged-in Claude Code, Codex, Gemini, and Kimi CLIs.
 
 ```bash
-# from a clone of this repository
+git clone https://github.com/mtarcure/claude-vibe-squad.git
 cd claude-vibe-squad
+bin/squad doctor
 bin/squad up --safe
 ```
 
-That opens a persistent tmux control room. Move to the `chrono` window and ask for work in plain language.
+That opens a persistent control room:
 
 ```text
 Ctrl-b 0  chrono       Ctrl-b 3  gemini
@@ -213,186 +288,134 @@ Ctrl-b 2  claude       Ctrl-b 5  watchers/status
 Ctrl-b d  detach — the lanes keep running
 ```
 
+Ask Chrono for work in plain language. Use the lifecycle commands when needed:
+
 ```bash
-bin/squad doctor   # check the local setup
-bin/squad status   # see what each lane is doing
-bin/squad stop     # stop the session
+bin/squad status
+bin/squad doctor
+bin/squad stop
 ```
 
 > [!IMPORTANT]
-> Start with `--safe`. Running `bin/squad up` without it uses the autonomous daily-driver profile, which launches model CLIs with bypass/yolo-style permissions after a one-time warning and health check. Review the scopes and workflow before using that profile.
-
-**Prerequisites:** macOS, tmux, `fswatch`, `jq`, `curl`, logged-in Claude Code, Codex, Gemini, and Kimi CLIs, and Python 3.13 for the vendored MCP servers and optional daemon.
+> Start with `--safe`. The autonomous daily-driver profile launches provider CLIs with broader bypass/yolo-style permissions after a warning and health check. Review scopes, credentials, and the workflow before using it.
 
 ---
 
-## How it works
+## Case study: a differential impact-verification lab
 
 <p align="center">
-  <img src="assets/media/dispatch-demo.gif" alt="One plain-language request becomes a typed task packet, routes to a lane by capability, and returns as an inspectable file inside a declared write scope" width="820">
+  <img src="assets/media/moat-toolkit-demo.gif" alt="The moat toolkit compares a vulnerable workload with its patched twin and emits an evidence-referenced impact result" width="820">
 </p>
 
-<p align="center">
-  <img src="assets/hero/architecture-lanes.svg" alt="Chrono routes task packets to four persistent provider lanes and coordinates a separate review path" width="820">
-</p>
+[`moat/`](moat/README.md) is a **differential impact-verification lab, not an exploit launcher**. It turns a human-reviewed invariant into a reproducible JavaScript/TypeScript vulnerable-vs-patched experiment and emits an evidence-referenced `PASS`, `FAIL`, or `INCONCLUSIVE` result.
 
-```text
-request
-  │
-  ▼
-Chrono
-  │  choose role · lane · scope · review metadata
-  ▼
-packet validation ──▶ department inbox ──▶ lane + specialist adapter
-                                                │
-                                                ▼
-                                      result artifact / outbox
-                                                │
-                                                ▼
-                                      completion queue ──▶ Chrono
-```
+The public toolkit includes:
 
-1. **Ask once.** Chrono turns a plain-language goal into a typed Markdown task packet.
-2. **Route by capability.** The specialist registry selects a primary model lane; the mailbox folder is only an organizational namespace.
-3. **Execute visibly.** A persistent lane reads the packet and its specialist instructions. An optional panel can collect multiple same-family specialist views under a deadline.
-4. **Return durable work.** The lane writes its response envelope and requested artifact; the live outbox watcher reconciles that envelope and brings completion back to Chrono.
-5. **Review when needed.** Chrono dispatches the separate reviewer. Qualifying cross-family mandatory-review results remain held as `review-required` until Chrono explicitly settles them with a review response.
+- JavaScript/TypeScript AST boundary scanning;
+- patch and diff ingestion with human-reviewed invariant annotations;
+- a vulnerable/patched synthetic twin with property-state fuzzing, coverage, and controls;
+- a hardened Docker runner with no network, a read-only root, a non-root user, resource limits, and negative egress canaries.
 
-Current dispatch deliberately leaves git untouched. Repository history still contains more than 100 task-checkpoint commits from an earlier workflow:
+The isolated runner fails closed at its execution boundary: a mandatory preflight must prove the loopback control reachable while external IPv4, IPv6, DNS, proxy, host-gateway, and TCP/TLS paths are blocked, or the experiment aborts. The tracked Tier-A pre-commit scanner is an opt-in developer convenience and fails open if Node or its scanner is unavailable; CI remains the shared validation boundary.
 
-```bash
-git log --oneline --grep='auto-snapshot: before TASK-'
-```
-
-### The Markdown mailbox
-
-<p align="center">
-  <img src="assets/hero/mailbox-flow.svg" alt="A Markdown task packet moves from Chrono through an inbox to a model lane and returns through an outbox" width="760">
-</p>
-
-The mailbox is the control plane. Chrono writes a packet to a department inbox, the selected lane receives a terminal nudge, and the result returns as an artifact. The files remain easy to inspect, diff, archive, and debug. The FastAPI service in [`daemon/`](daemon/) is optional supporting infrastructure, not the primary dispatch path.
-
-### Parallel panels and independent review
-
-- **Panels** gather 2–3 specialist perspectives concurrently inside one Claude or Codex lane. They are bounded by quorum and deadlines, and the coordinator is the only writer of the final artifact.
-- **Fan-out** is a distinct, opt-in panel mode that runs the same specialist 2–3 times on different assignments; the coordinator remains the sole writer. It is enabled for Claude, gated for Codex, and excludes Gemini/Kimi because their subagents lose MCP access.
-- **Independent review** is a separate Chrono-coordinated dispatch. For qualifying cross-family mandatory-review work, the runtime holds the original result as `review-required` until Chrono explicitly settles it with a review response. The runtime does not launch the reviewer or infer verdict authority.
-
-<p align="center">
-  <img src="assets/hero/review-loop.svg" alt="A risky result can take a separate review path through another model family before Chrono synthesizes it" width="700">
-</p>
-
-> Chrono launches the review separately. For qualifying cross-family mandatory-review work, the runtime holds the original result as `review-required` until Chrono explicitly settles it with a review response; it does not auto-launch the reviewer or infer verdict authority.
-
-Safety refusals remain visible and are not rerouted to search for a more permissive answer. Operational failures such as timeouts are handled separately.
-
-<details>
-<summary><b>Panel contract</b></summary>
-
-```bash
-bin/send-task.sh <task-file> \
-  --panel code-reviewer,security-analyst \
-  --panel-quorum all \
-  --panel-timeout 900
-```
-
-- Supported lanes: `claude` and `gpt-codex`.
-- Panel size: 2–3 members; nested panels are prohibited.
-- Collection uses monotonic and wall-clock deadlines.
-- Late, failed, refused, and timed-out members remain explicit coverage gaps.
-- Synthesis is evidence-weighted, not a majority vote.
-
-See [`shared/modes/panel.md`](shared/modes/panel.md) and [`bin/panel-activity.sh`](bin/panel-activity.sh).
-
-</details>
+Real targets, corpora, findings, and payloads stay in private operational state. The public repository ships the generic JS/TS engine and synthetic reference workload. It does not claim smart-contract adapters, cryptographically signed results, or universal fail-closed behavior.
 
 ---
 
-## Private-by-construction memory
+## Six workflow families, eight mode contracts
 
-[`chrono-vault`](plugins/chrono-vault/README.md) gives the coordinator durable recall without placing private notes in the public repository:
+Project work is the broadest path: define the result, design it, split implementation by specialist, test it, review it, package it, and hand it off. Bounty is one workflow family—not the product identity.
 
-- private Markdown notes remain the source of truth;
-- a locked FTS5/BM25 index can be rebuilt from those notes;
-- content hashes, lifecycle revisions, provenance, and sensitivity clearance travel with recall;
-- recalled snippets are quoted as untrusted evidence, not treated as instructions;
-- explicit usage feedback records whether a recalled note helped.
+| Family | Mode contracts | Capability cards | What it coordinates |
+|---|---|---:|---|
+| **Project** | [`project`](shared/modes/project.md) | 8 | End-to-end software, platforms, AI applications, systems, smart contracts, and self-extension |
+| **Bounty** | [`bounty`](shared/modes/bounty.md) | 4 | Authorized recon, analysis, PoCs, impact validation, reporting, and submission holds |
+| **Content** | [`content`](shared/modes/content.md) | 6 | Editorial, campaigns, search, images, video, and audio |
+| **Research** | [`research`](shared/modes/research.md) | 3 | Investigation, synthesis, data extraction, datasets, and learning plans |
+| **Outreach** | [`outreach`](shared/modes/outreach.md) | 1 | Prospect discovery, qualification, privacy review, offers, drafts, and digests |
+| **Operations** | [`incident`](shared/modes/incident.md) · [`maintenance`](shared/modes/maintenance.md) · [`triage`](shared/modes/triage.md) | 5 | Reliability, security incidents, repository health, release integrity, memory, harnesses, and local personal operations |
 
-The loop is explicit rather than magical: the live watcher now reconciles lane completion envelopes and auto-captures responses, while usage feedback does not automatically change ranking. Chrono Vault is lexical memory, not a vector database or knowledge graph.
+Triage is the Operations front door: its result includes the selected mode, capability, capability state, cost exposure, and uncertainty. Incident and triage have no capability cards of their own; maintenance owns the five Operations cards.
+
+Every mode index links to its cards and prints validator-derived state so operators can see the current route before dispatch.
 
 ---
 
-## What is shipped, opt-in, and still policy-level
+## 69 validated specialist routes
 
-| Capability | Status | Important boundary |
+The canonical registry contains 69 specialist routes across implementation, product, content, media, security, operations, review, QA, and research. “Validated route” means the role, adapter, lane, policy, and packet path resolve; it does not promise that every external provider tool is live on every lane.
+
+| Area | Representative specialists |
+|---|---|
+| End-to-end software | `product-manager`, `architect`, `frontend-engineer`, `backend-engineer`, `database-engineer`, `devops-engineer` |
+| Quality and review | `test-engineer`, `code-reviewer`, `performance-optimizer`, `accessibility-engineer`, `skeptic` |
+| AI and self-extension | `ai-engineer`, `prompt-engineer`, `harness-optimizer`, `agentops` |
+| Content and media | `editor`, `copywriter`, `image-designer`, `video-director`, `sound-designer`, `voice-narrator` |
+| Security | `threat-modeler`, `security-analyst`, `smart-contract-engineer`, `reverse-engineer`, `impact-validator` |
+| Operations and research | `site-reliability-engineer`, `incident-responder`, `memory-curator`, `research`, `data-extraction-engineer` |
+
+See the [interactive routing map](docs/routing-map.html), the [canonical TSV](shared/specialist-runtime-map.tsv), and the specialist briefs under [`departments/`](departments/).
+
+---
+
+## Optional bounded panels
+
+<p align="center">
+  <img src="assets/media/swarm-demo.gif" alt="Two specialists run as a bounded same-family panel and return evidence for one synthesis" width="820">
+</p>
+
+Panels collect 2–3 specialist perspectives concurrently inside Claude or Codex. They use quorum, deadlines, visible member states, and one accountable coordinator who owns the final artifact. Fan-out is Claude-enabled and Codex-gated; Gemini and Kimi are excluded because their subagents do not retain the required MCP surface.
+
+Panels are not proof of four-family debate, and they are not independent review. Cross-family review is the separate held-and-settled path described at the top.
+
+---
+
+## Reviewed public distribution, private operational state
+
+This repository is the complete runnable public distribution, not a mock. The maintainer operates from a private superset containing live mailboxes, operator configuration, memory, credentials, and target-specific data.
+
+A deterministic export projects the public-safe tree and applies layered path, secret, private-identifier, and content gates before publication. The public history is intentionally retained; this process governs reviewed exports going forward rather than claiming a history rewrite.
+
+Forkers can clone and operate this repository normally. Keep generated state, mailbox traffic, credentials, target data, and memory private. A second publication repository is optional; it is useful only if you also want a separately reviewed public projection.
+
+See [`tools/export/`](tools/export/) for the projector, [`docs/private-config.md`](docs/private-config.md) for private configuration, and [`CONTRIBUTING.md`](CONTRIBUTING.md) for contribution mechanics.
+
+---
+
+## Shipped, gated, and next
+
+| Surface | State | Boundary |
 |---|---|---|
-| tmux + Markdown dispatch | **Wired** | Local provider CLIs are required. |
-| specialist registry and validator | **Wired** | All 69 catalog roles validate and dispatch through the standard path. |
-| parallel panels and terminal status | **Wired, opt-in per task** | Panels are collection, not independent review; fan-out is Claude-enabled, Codex-gated, and excludes Gemini/Kimi. |
-| cross-family review | **Machine-enforced hold** | Qualifying results wait as `review-required` for explicit Chrono settlement with a review response; reviewer dispatch is still separate. |
-| Chrono Vault | **Implemented** | Completion-envelope capture is wired; recall and usage feedback remain explicit. |
-| automatic failover controller | **Implemented, dormant/opt-in** | Requires explicit enablement and separate recurrent monitoring. |
-| Offensive-security research toolkit (`moat/`) | **Synthetic path wired** | The synthetic twin runs inside the hardened isolated runner; real targets intentionally remain private Layer 2. |
-| FastAPI daemon | **Optional** | Auxiliary state and endpoints; not the dispatch spine. |
-
-This vocabulary is intentional. Vibe Squad aims to show failures and boundaries instead of hiding them behind a polished demo.
+| tmux + Markdown dispatch | **Shipped** | Requires local authenticated provider CLIs. |
+| 69-role registry and routing validation | **Shipped** | Route validation is distinct from live external-tool availability. |
+| 27-card capability system | **Shipped** | Card state is registry-validated and can conservatively degrade. |
+| capability validator + typed tool registry | **Shipped** | Mechanical validation complements, rather than replaces, cross-family review. |
+| cross-family review | **Shipped hold + explicit settlement** | Chrono separately dispatches the reviewer; the runtime does not auto-launch one. |
+| bounded panels | **Shipped, opt-in** | Claude and Codex only; collection is not review. |
+| Chrono Vault | **Shipped** | Live notes and the vault root are intentionally off-repo. |
+| four `chrono-*` plugins | **Shipped implementations** | Exact tools remain lane- and credential-aware. |
+| moat differential lab | **Shipped JS/TS synthetic path** | Real targets remain private; no smart-contract or signing claim. |
+| more provider and local-tool routes | **Roadmap** | Gap closure must update the registry and re-derive affected card states. |
+| automatic failover | **Implemented, dormant** | Not a default user-facing capability. |
 
 ---
 
-## Tools and repository tour
-
-<details>
-<summary><b>Vendored tools</b></summary>
-
-The repository includes MCP servers for private memory, research helpers, media generation, and reconnaissance. Availability varies by credentials and lane; [`shared/api-catalog.md`](shared/api-catalog.md) records verified and unverified capabilities.
-
-- [`plugins/chrono-vault/`](plugins/chrono-vault/) — private Markdown memory and lexical recall;
-- [`plugins/chrono-research-arsenal/`](plugins/chrono-research-arsenal/) — research-provider wrappers;
-- [`plugins/chrono-content-engineer/`](plugins/chrono-content-engineer/) — image, video, and audio entry points;
-- [`plugins/chrono-recon/`](plugins/chrono-recon/) — DNS, WHOIS, certificate-transparency, Wayback, and repository-search helpers.
-
-</details>
-
-<details>
-<summary><b>Repository map</b></summary>
+## Repository map
 
 | Path | Purpose |
 |---|---|
-| `bin/squad`, `bin/launch-squad.sh` | Canonical lifecycle CLI and six-window tmux launcher (`bin/vibe-squad` remains a compatibility alias). |
-| `scripts/send-task.sh`, `bin/send-task.sh` | Packet generation, validation, registry checks, delivery, and lane nudge |
+| `bin/squad`, `bin/launch-squad.sh` | Lifecycle CLI and six-window tmux launcher |
+| `scripts/send-task.sh`, `bin/send-task.sh` | Packet generation, validation, delivery, and lane nudge |
 | `shared/specialist-runtime-map.tsv` | Canonical specialist routing data |
+| `shared/registries/skill-tool-registry.tsv` | Typed skill and tool availability registry |
 | `shared/routing.md`, `shared/protocol.md` | Routing, packet, lifecycle, and review contracts |
+| `shared/modes/` | Eight mode contracts and their capability indexes |
+| `shared/capabilities/` | Twenty-seven S0–S7 capability cards |
 | `departments/*/specialists/` | Canonical specialist briefs |
-| `departments/*/inbox/`, `departments/*/outbox/` | Local Markdown dispatch board |
-| `plugins/chrono-vault/` | Private memory and lexical recall |
-| `moat/` | Synthetic offensive-security research components |
-| `daemon/` | Optional FastAPI support service |
+| `plugins/` | Memory, research, media, and recon implementations |
+| `moat/` | Differential impact-verification lab |
+| `daemon/` | Optional FastAPI support service; not the dispatch spine |
 | `docs/` | Architecture, runtime, specialist, and operating guides |
-
-</details>
-
-<details>
-<summary><b>Implementation boundaries worth knowing</b></summary>
-
-- Inbox publication uses a same-directory temporary file, file `fsync`, and atomic rename.
-- Declared write scopes are checked for overlap; they are not OS-level sandboxes.
-- Operator approval fields remain policy metadata. Qualifying cross-family mandatory-review completions have a machine-enforced hold, but this is workflow enforcement rather than an OS-level authorization boundary.
-- The public CI workflow runs targeted validation, not every test suite in the repository.
-- The generated `model-lanes/ROSTER.md` view was regenerated from the TSV; the TSV remains canonical.
-
-</details>
-
----
-
-## Built through its own workflow
-
-Vibe Squad has been used to design and review Vibe Squad. Natural-language goals became scoped task packets, different lanes handled implementation and judgment work, and the resulting artifacts fed the next iteration.
-
-The repository preserves more than 100 historical `auto-snapshot: before TASK-…` checkpoint commits from an earlier workflow. Current dispatch intentionally does **not** auto-commit, so the honest receipt is the history itself — not a promise about today's runtime.
-
-> **A multi-model control plane developed through the same multi-model workflow it exposes.**
-
----
 
 ## Contributing
 

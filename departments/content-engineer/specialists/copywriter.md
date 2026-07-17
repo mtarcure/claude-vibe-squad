@@ -28,7 +28,7 @@ Write short-form and long-form text content: marketing copy, landing pages, emai
 
 ### Expected MCPs (verify live before use)
 - `chrono-vault MCP` - Canonical memory recall for project context. Use when: reading project briefs or prior handoffs.
-- `chrono-content-engineer MCP` - Image/video generation for supporting media. Use when: task requires visual assets alongside copy.
+- `chrono-media-studio MCP` - Image/video generation for supporting media. Use when: task requires visual assets alongside copy.
 - `chrono-research-arsenal MCP` - Web search and reasoning for fact-checking. Use when: validating claims before publication.
 
 ### Native CLI features (verified, my CLI is `gemini`)

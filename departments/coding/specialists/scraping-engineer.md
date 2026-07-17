@@ -26,7 +26,7 @@ Browser-based extraction (Playwright + browser-use), HTTP scraping, anti-bot con
 - `chrono-vault MCP` - Canonical private-memory record/recall across model leads. Use when: this MCP's purpose matches the task shape.
 - `chrono-obsidian MCP` - Obsidian REST-API bridge for vault read/write. Use when: this MCP's purpose matches the task shape.
 - `chrono-research-arsenal MCP` - Research MCP wrapper; current live tools are arxiv_search and xai_search only. Perplexity, Brave, Serper, and Apify are not wired until shared/api-catalog.md verifies them. Use when: this MCP's purpose matches the task shape.
-- `chrono-content-engineer MCP` - Content/media MCP wrapper; current live tools are generate_image, generate_video, and generate_audio only. ElevenLabs and Higgsfield are separate child routes and not available unless shared/api-catalog.md verifies them. Use when: this MCP's purpose matches the task shape.
+- `chrono-media-studio MCP` - Content/media MCP wrapper; current live tools are generate_image, generate_video, and generate_audio only. ElevenLabs and Higgsfield are separate child routes and not available unless shared/api-catalog.md verifies them. Use when: this MCP's purpose matches the task shape.
 - `sequential-thinking MCP` - Multi-step structured reasoning tool (`sequential-thinking`). Use when: this MCP's purpose matches the task shape.
 
 ### Native CLI features (verified, my CLI is `codex`)
@@ -81,7 +81,7 @@ coding namespace starts this specialist as a prompt-driven Codex custom agent na
 - Long-running extraction (pagination across thousands of pages)
 - Bot evasion when target has detection (use ethically — check scope rules first)
 - Bounty Mode recon / OSINT phase
-- Persistent browser session work (the bounty platforms session)
+- Persistent browser session work (the persistent CDP Chrome session)
 
 ## Input
 
@@ -113,12 +113,12 @@ coding namespace starts this specialist as a prompt-driven Codex custom agent na
 - Use realistic User-Agents and session patterns
 - For bug bounty Recon, defer to Security/scout and Security/security-analyst before any automated probing
 
-## Persistent session for bounty platforms
+## Persistent CDP browser session
 
-You own setup + maintenance of `~/.claude-vibe-squad/browser-sessions/bounty-platforms/`:
-- Operator logs in once with 2FA
-- Your job: keep session alive (nightly browser-keep-alive routine), refresh tokens
-- Bounty Mode Phase 2 + Phase 11 attach via raw CDP
+You own setup + maintenance of the persistent, CDP-enabled Chrome that lanes attach to (port 9222):
+- The operator signs in once to the working browser session
+- Your job: keep the session alive (nightly browser-keep-alive routine), refresh as needed
+- Browser-approved recon attaches via raw CDP rather than spawning a fresh profile
 
 ## When you don't know
 

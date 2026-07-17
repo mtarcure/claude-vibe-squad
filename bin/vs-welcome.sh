@@ -6,7 +6,7 @@
 #
 # Auth policy (matches launch-squad.sh MEDIA_AUTH_PREFIX): unset the Anthropic /
 # Gemini / Google API keys so Claude falls back to the Max-plan OAuth session,
-# but KEEP OPENAI_API_KEY — the chrono pane hosts the chrono-content-engineer
+# but KEEP OPENAI_API_KEY — the chrono pane hosts the chrono-media-studio
 # plugin, and Sora needs that key. Do NOT unset all four here (the handoff
 # shorthand did; it would silently break media generation in this pane).
 set -u

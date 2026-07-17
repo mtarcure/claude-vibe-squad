@@ -50,7 +50,7 @@ Before assembling the fan-out brief, verify ALL of:
 - [ ] `_blind/stage-N-*.md` files DO contain: scope manifest, codebase map (architectural only), program rules, in-scope vuln class taxonomy
 - [ ] Brief explicitly tells voices to read ONLY `_blind/` paths
 - [ ] Brief explicitly forbids reading `_curated/` paths (use exact `Do NOT read /path/to/_curated/` framing)
-- [ ] Brief forbids web search for prior art on the target (HackenProof prior submissions, GitHub issues, etc.)
+- [ ] Brief forbids web search for prior art on the target (prior submissions on the target platform, GitHub issues, etc.)
 
 ## Post-fan-out synthesis (where contamination is allowed)
 

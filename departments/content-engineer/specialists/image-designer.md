@@ -5,11 +5,11 @@ department: content-engineer
 lane: gemini
 model_key: image
 required_tools:
-  - chrono-content-engineer:higgsfield__generate_image
-  - chrono-content-engineer:higgsfield__upscale_image
+  - chrono-media-studio:higgsfield__generate_image
+  - chrono-media-studio:higgsfield__upscale_image
 preferred_tools:
-  - chrono-content-engineer:higgsfield__outpaint_image
-  - chrono-content-engineer:higgsfield__remove_background
+  - chrono-media-studio:higgsfield__outpaint_image
+  - chrono-media-studio:higgsfield__remove_background
   - chrono-vault:recall
 safety_level: low
 requires_approval:
@@ -27,7 +27,7 @@ Generate original images for marketing, product, editorial, and design use. Writ
 ## Tools available to me
 
 ### Expected MCPs (verify live before use)
-- `chrono-content-engineer:higgsfield` - Image generation, upscaling, outpainting (image model). Use when: creating or enhancing visual assets.
+- `chrono-media-studio:higgsfield` - Image generation, upscaling, outpainting (image model). Use when: creating or enhancing visual assets.
 - `chrono-vault MCP` - Canonical memory recall for brand visual guidelines. Use when: checking brand asset standards or narrative context.
 - `figma MCP` - Design system reference. Use when: coordinating with web-builder on component specifications.
 

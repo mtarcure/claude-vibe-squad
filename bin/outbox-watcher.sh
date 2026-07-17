@@ -145,7 +145,7 @@ response_context() {
 response_ready_for_status() {
     local file="$1" mtime now age
     [[ -f "$file" ]] || return 1
-    mtime="$(stat -f %m "$file" 2>/dev/null || stat -c %Y "$file" 2>/dev/null || echo 0)"
+    mtime="$(stat -c %Y "$file" 2>/dev/null || stat -f %m "$file" 2>/dev/null || echo 0)"
     now="$(date +%s)"
     age=$((now - mtime))
     # Keep this gate synchronized with registry_reconciler.py so the watcher
@@ -263,7 +263,7 @@ append_chrono_queue() {
             rmdir "$lockdir" 2>/dev/null || true
             continue
         fi
-        mtime="$(stat -f %m "$lockdir" 2>/dev/null || stat -c %Y "$lockdir" 2>/dev/null || echo 0)"
+        mtime="$(stat -c %Y "$lockdir" 2>/dev/null || stat -f %m "$lockdir" 2>/dev/null || echo 0)"
         now="$(date +%s)"
         age=$((now - mtime))
         if [[ "$age" -gt 300 ]]; then

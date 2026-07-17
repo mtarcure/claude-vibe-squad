@@ -10,7 +10,7 @@ For traditional web bounties — XSS, SQLi, IDOR, SSRF, auth bypass, business lo
 
 ## Auto-detection signals
 
-- URL on hackerone.com / bugcrowd.com / intigriti.com / hackenproof.com (general programs)
+- URL on an authorized bug-bounty program (general web/API programs)
 - Target is a web app (URL with login flow, API endpoints)
 - File types: not directly applicable
 
@@ -42,7 +42,7 @@ For traditional web bounties — XSS, SQLi, IDOR, SSRF, auth bypass, business lo
 - Check NVD/OSV for similar CWE class historical scoring
 
 ### Phase 11 Report
-- Submission format: HackerOne / Bugcrowd / Intigriti markdown templates
+- Submission format: the target program's markdown template
 - Attach: HTTP request/response, video PoC if needed
 - Persistent session for form-fill submission
 

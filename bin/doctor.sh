@@ -221,15 +221,15 @@ if [[ -f "${BROWSER_SUMMARY}" ]] && command -v jq >/dev/null 2>&1; then
         open=$(jq -r '.platforms_open // 0' "${BROWSER_SUMMARY}")
         expired=$(jq -r '.platforms_expired // [] | length' "${BROWSER_SUMMARY}")
         missing=$(jq -r '.platforms_missing // [] | length' "${BROWSER_SUMMARY}")
-        echo "- ✓ Chrome CDP reachable: ${open}/5 bounty platforms open" >> "${DOCTOR_LOG}"
+        echo "- ✓ Chrome CDP reachable: ${open} session tab(s) open" >> "${DOCTOR_LOG}"
         if [[ ${expired} -gt 0 ]]; then
             expired_names=$(jq -r '.platforms_expired // [] | join(", ")' "${BROWSER_SUMMARY}")
-            echo "- ⚠️ ${expired} platform(s) at sign-in (re-auth needed): ${expired_names}" >> "${DOCTOR_LOG}"
+            echo "- ⚠️ ${expired} session tab(s) need refresh: ${expired_names}" >> "${DOCTOR_LOG}"
             WARNINGS+=("browser sessions expired: ${expired_names}")
         fi
         if [[ ${missing} -gt 0 ]]; then
             missing_names=$(jq -r '.platforms_missing // [] | join(", ")' "${BROWSER_SUMMARY}")
-            echo "- ○ ${missing} platform(s) with no open tab: ${missing_names}" >> "${DOCTOR_LOG}"
+            echo "- ○ ${missing} expected tab(s) missing: ${missing_names}" >> "${DOCTOR_LOG}"
         fi
         HEALTHY+=("browser CDP reachable")
     else

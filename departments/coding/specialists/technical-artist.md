@@ -36,7 +36,7 @@ Real-time graphics and asset-pipeline engineering: shaders, materials, rigs, GLT
 ## Tools available to me
 
 ### Expected MCPs (verify live before use)
-- `chrono-content-engineer MCP` - Optional source-asset generation or regeneration handoff. Generated media must enter through a typed asset manifest and retain provenance.
+- `chrono-media-studio MCP` - Optional source-asset generation or regeneration handoff. Generated media must enter through a typed asset manifest and retain provenance.
 - `sequential-thinking MCP` - Multi-stage reasoning for coordinate systems, material translation, LOD strategy, memory budgets, and cross-renderer compatibility.
 
 ### Native CLI features (verified, my CLI is `codex`)

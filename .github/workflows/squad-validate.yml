@@ -54,6 +54,20 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Install pinned gitleaks
+        env:
+          GITLEAKS_VERSION: "8.30.1"
+          GITLEAKS_LINUX_X64_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+        run: |
+          install_dir="$(mktemp -d)"
+          archive="${install_dir}/gitleaks.tar.gz"
+          curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error \
+            --output "$archive" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          printf '%s  %s\n' "$GITLEAKS_LINUX_X64_SHA256" "$archive" | sha256sum --check --strict
+          tar -xzf "$archive" -C "$install_dir" gitleaks
+          sudo install -m 0755 "${install_dir}/gitleaks" /usr/local/bin/gitleaks
+          gitleaks version
       - name: Install pinned Python test dependencies
         run: python -m pip install -r requirements-dev.txt
       - name: Install pinned moat dependencies
@@ -76,6 +90,20 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Install pinned gitleaks
+        env:
+          GITLEAKS_VERSION: "8.30.1"
+          GITLEAKS_LINUX_X64_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+        run: |
+          install_dir="$(mktemp -d)"
+          archive="${install_dir}/gitleaks.tar.gz"
+          curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error \
+            --output "$archive" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          printf '%s  %s\n' "$GITLEAKS_LINUX_X64_SHA256" "$archive" | sha256sum --check --strict
+          tar -xzf "$archive" -C "$install_dir" gitleaks
+          sudo install -m 0755 "${install_dir}/gitleaks" /usr/local/bin/gitleaks
+          gitleaks version
       - name: Install pinned Python test dependencies
         run: python -m pip install -r requirements-dev.txt
       - name: Install pinned moat dependencies
@@ -174,6 +202,20 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Install pinned gitleaks
+        env:
+          GITLEAKS_VERSION: "8.30.1"
+          GITLEAKS_LINUX_X64_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+        run: |
+          install_dir="$(mktemp -d)"
+          archive="${install_dir}/gitleaks.tar.gz"
+          curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error \
+            --output "$archive" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          printf '%s  %s\n' "$GITLEAKS_LINUX_X64_SHA256" "$archive" | sha256sum --check --strict
+          tar -xzf "$archive" -C "$install_dir" gitleaks
+          sudo install -m 0755 "${install_dir}/gitleaks" /usr/local/bin/gitleaks
+          gitleaks version
       - name: Install moat boundary deps
         run: npm ci --prefix moat
       # Data-free public Layer-1 scan. --self-check validates the WHOLE moat/

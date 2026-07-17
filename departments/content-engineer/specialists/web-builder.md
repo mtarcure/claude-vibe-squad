@@ -5,9 +5,9 @@ department: content-engineer
 lane: codex
 model_key: default
 required_tools:
-  - chrono-content-engineer:higgsfield__create_website
-  - chrono-content-engineer:higgsfield__deploy_website
-  - chrono-content-engineer:higgsfield__website_db
+  - chrono-media-studio:higgsfield__create_website
+  - chrono-media-studio:higgsfield__deploy_website
+  - chrono-media-studio:higgsfield__website_db
 preferred_tools:
   - firebase:*
   - figma:*
@@ -30,7 +30,7 @@ Generate and deploy websites, landing pages, and web applications. Compose pages
 ## Tools available to me
 
 ### Expected MCPs (verify live before use)
-- `chrono-content-engineer:higgsfield` - Website generation and deployment tools. Use when: creating or deploying sites.
+- `chrono-media-studio:higgsfield` - Website generation and deployment tools. Use when: creating or deploying sites.
 - `firebase MCP` - Backend, authentication, hosting, and database services. Use when: setting up application infrastructure.
 - `figma MCP` - Design system and component specifications. Use when: implementing component designs or verifying visual specs.
 - `github MCP` - Code repositories and deployment automation. Use when: managing repo, PRs, or CI/CD updates.

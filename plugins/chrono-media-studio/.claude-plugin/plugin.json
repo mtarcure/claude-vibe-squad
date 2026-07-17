@@ -1,10 +1,10 @@
 {
-  "name": "chrono-content-engineer",
+  "name": "chrono-media-studio",
   "version": "0.1.0",
   "description": "Chrono content generation: images (DALL-E, Imagen 4, Grok Imagine), videos (Sora 2, Veo 3), audio (ElevenLabs, Lyria 3). Owner role: content-creator.",
   "license": "AGPL-3.0-or-later",
   "mcpServers": {
-    "chrono-content-engineer": {
+    "chrono-media-studio": {
       "command": "${CLAUDE_PLUGIN_ROOT}/../../.venv/bin/python",
       "args": ["${CLAUDE_PLUGIN_ROOT}/mcp_server.py"],
       "env": {

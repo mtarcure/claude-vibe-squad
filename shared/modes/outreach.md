@@ -10,6 +10,14 @@ phases: 6
 
 For finding prospects, qualifying fit, drafting outreach, and preparing an approval-gated digest. Live sends are never automatic.
 
+## Capabilities
+
+`capability_state` is **derived** and machine-checked by `bin/validate-capabilities.sh` (not hand-set), so this index stays honest by construction. Cards live in `shared/capabilities/outreach/`.
+
+| Capability | State | When |
+|---|---|---|
+| [Prospecting / outreach](../capabilities/outreach/prospecting-outreach.md) | `live` | client-acquisition / job-search / prospecting — draft live, send is `needs_tool` + `live_outreach` |
+
 ## Flow
 
 | Phase | Work | Likely specialists |
@@ -17,7 +25,7 @@ For finding prospects, qualifying fit, drafting outreach, and preparing an appro
 | 0 | Scope and send policy | Chrono direct |
 | 1 | Candidate discovery | `research`, `data-extraction-engineer` |
 | 2 | Qualification and privacy | `privacy-steward`, `personal-ops` when private state is involved |
-| 3 | Offer and drafts | `content-creator`, `brand-voice`, `editor` |
+| 3 | Offer and drafts | `copywriter`, `brand-voice`, `editor` |
 | 4 | Digest package | `technical-writer`, `knowledge-librarian` |
 | 5 | Approval and hold/send prep | Chrono direct, `personal-ops`, `vibecoding-check` |
 

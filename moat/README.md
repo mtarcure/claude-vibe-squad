@@ -1,4 +1,4 @@
-# The moat — a self-improving, leak-safe security-research engine
+# The moat — a memory-backed, leak-safe security-research engine
 
 **AI that runs scanners is a commodity. The edge is accumulated, executable target-memory** — invariants, corpora, and impact oracles that make each engagement start ahead of the last. `moat/` is the reusable, public-safe **"harness bones"** for exactly that: a research engine whose value compounds instead of resetting to zero every time.
 
@@ -10,7 +10,7 @@ It does three honest things well:
 
 > **What it is not.** This is not a "critical-producing machine," and it doesn't claim to be. It raises the quality of variant discovery, it *measures* impact instead of asserting it, and it remembers. A clean, coverage-complete **FAIL** is a first-class, honest outcome — the point is a trustworthy verdict, not a guaranteed finding. That honesty is the feature.
 
-Everything in this directory is **Layer 1**: generic, framework-agnostic, and safe to publish. It contains **no** engagement findings, target identifiers, payloads, or private corpora — by construction and by an enforced, fail-closed boundary (below). The engine works on **JavaScript/TypeScript and smart-contract codebases**; nothing here is specific to any target or program.
+Everything in this directory is **Layer 1**: generic, framework-agnostic, and safe to publish. It contains **no** engagement findings, target identifiers, payloads, or private corpora — by construction and by an enforced, fail-closed boundary (below). The engine works on **JavaScript/TypeScript** codebases; nothing here is specific to any target or program. (Smart-contract support is not implemented — there is no Solidity/EVM adapter, invariant model, or fixture in this repo.)
 
 ---
 
@@ -31,11 +31,11 @@ Keeping private target data out of a public repo is the whole ballgame, so it's 
 
 1. **Presence guard** *(shipped repo-wide leak guard)* — blocks restricted files and private paths from being committed at all.
 2. **Tier-A — capability & provenance** *(public, data-free)* — parses JS/TS/TSX with the TypeScript compiler API, folds bounded constant expressions, and flags private-capability imports, values that flow into network/process/filesystem **sinks**, schema/path/content-class violations, and credential-shaped material (via `gitleaks`, fail-closed). It **fails closed** when a sink receives a value the evaluator can't prove constant, and emits `MOAT_BOUNDARY_TOOL_UNAVAILABLE` rather than crashing if its parser or scanner is missing.
-3. **Tier-B — exact private targets** *(private pre-push + mandatory CI)* — loads a restricted denylist through the external-input adapter (never committed) and matches exact hostnames, repositories, advisory IDs, and paths against Layer-1 file text, AST-evaluated strings, and base64/base64url-decoded strings. It reports only class, file, and line — **never** the matched token — and **fails closed** when its denylist is unavailable or malformed.
+3. **Tier-B — exact private targets** *(private exact-target scanner; pre-push + CI wiring proposed, not yet applied — see `boundary/README.md`)* — loads a restricted denylist through the external-input adapter (never committed) and matches exact hostnames, repositories, advisory IDs, and paths against Layer-1 file text, AST-evaluated strings, and base64/base64url-decoded strings. It reports only class, file, and line — **never** the matched token — and **fails closed** when its denylist is unavailable or malformed.
 
 The public pre-commit path stays data-free; exact-target matching is deliberately private. Tier-A is present in the tracked `.githooks/pre-commit` hook and becomes active per clone only after the operator runs `git config core.hooksPath .githooks`; Tier-A also runs in public CI.
 
-### The self-improving ledger
+### The memory-backed ledger
 
 Before any deep-dive, the ledger asks: *have we already seen this?* It queries the squad's private markdown memory through a bridge to the real vault recall implementation (FTS5/BM25) and returns a conservative classification:
 
@@ -86,7 +86,7 @@ ledger.check ──(net_new?)──▶ patch-graph ──▶ reviewed invariant 
                                                                           │
                                              isolated, canary-gated wave ─┘
                                                                           ▼
-                                                     signed WaveResult (PASS / FAIL / INCONCLUSIVE)
+                                                            WaveResult (PASS / FAIL / INCONCLUSIVE)
 ```
 
 1. **Ask memory first.** `ledger.check` decides whether the surface is already known, needs review, or is genuinely new.
@@ -98,7 +98,7 @@ ledger.check ──(net_new?)──▶ patch-graph ──▶ reviewed invariant 
 
 ## Security & safety posture
 
-- **Fail-closed everywhere.** Unresolvable sink flows, unavailable tools, missing clearance, and unavailable/malformed denylists all block rather than pass silently.
+- **Fail-closed controls; best-effort local hook.** Each boundary control fails closed on what it checks *when it runs*: Tier-A blocks (non-zero exit) on unresolvable sink flows, a missing TypeScript parser, missing `gitleaks`, or malformed config; the clearance-gated ledger resolves every failure mode to a non-clean state (never silently `net_new`); Tier-B blocks on an unavailable or malformed denylist. The **local** opt-in `.githooks/pre-commit` Tier-A step is deliberately defense-in-depth — if a clone lacks Node or the scanner it **skips with a note (fails open), not blocking the commit** — so Tier-A also runs unconditionally in **public CI**. Tier-B (the private exact-target scanner) fails closed when invoked and is **intended** for private pre-push/CI, but that wiring is **proposed, not yet applied** (`boundary/README.md`).
 - **Least privilege for memory.** Recall runs only at explicit `restricted` clearance; a clearance-blind empty result can never be read as "nothing known."
 - **Isolation is proven, not assumed.** Every impact run is gated on a passing egress canary; hostile doubles refuse to run outside it.
 - **Untrusted data stays quoted.** Vault snippets and external content are handled as untrusted throughout; no matched private token is ever echoed into output.

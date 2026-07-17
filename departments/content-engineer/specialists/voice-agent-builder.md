@@ -5,8 +5,8 @@ department: content-engineer
 lane: claude
 model_key: default
 required_tools:
-  - chrono-content-engineer:elevenlabs__create_agent
-  - chrono-content-engineer:elevenlabs__add_knowledge_base_to_agent
+  - chrono-media-studio:elevenlabs__create_agent
+  - chrono-media-studio:elevenlabs__add_knowledge_base_to_agent
 preferred_tools:
   - chrono-vault:recall
   - sequential-thinking
@@ -27,7 +27,7 @@ Create conversational AI agents using ElevenLabs: customer service bots, sales a
 ## Tools available to me
 
 ### Expected MCPs (verify live before use)
-- `chrono-content-engineer:elevenlabs` - Agent creation and management. Use when: building or configuring agents.
+- `chrono-media-studio:elevenlabs` - Agent creation and management. Use when: building or configuring agents.
 - `chrono-vault MCP` - Canonical memory recall/record for knowledge-base context. Use when: pulling agent knowledge or storing reusable learnings.
 - `sequential-thinking MCP` - Multi-step reasoning for complex conversation flows. Use when: planning agent conversation trees.
 

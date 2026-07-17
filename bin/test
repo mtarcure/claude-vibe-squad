@@ -131,7 +131,7 @@ else
             "$PYTHON_BIN" -m unittest discover -s plugins/chrono-vault/tests -p 'test_*.py'
         run_suite \
             "content-engineer" \
-            "$PYTHON_BIN" -m unittest discover -s plugins/chrono-content-engineer/tests -p 'test_*.py'
+            "$PYTHON_BIN" -m unittest discover -s plugins/chrono-media-studio/tests -p 'test_*.py'
     else
         skip_suite "chrono-vault" "Python test deps are missing; install requirements-dev.txt"
         skip_suite "content-engineer" "Python test deps are missing; install requirements-dev.txt"

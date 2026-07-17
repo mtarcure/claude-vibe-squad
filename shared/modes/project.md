@@ -10,6 +10,21 @@ phases: 8
 
 For building, refactoring, or shipping software. Chrono controls the workflow, then dispatches the best specialist to the mapped model lead.
 
+## Capabilities
+
+`capability_state` is **derived** and machine-checked by `bin/validate-capabilities.sh` (not hand-set), so this index stays honest by construction. Cards live in `shared/capabilities/project/`.
+
+| Capability | State | When |
+|---|---|---|
+| [Backend service / API (server, persistence, data flows)](../capabilities/project/backend-service-api.md) | `live` | headless server / API / data-flow — protocol, persistence, concurrency |
+| [Data pipeline (ETL / analytics / ML-wiring)](../capabilities/project/data-pipeline.md) | `live` | ETL / analytics plumbing, or wire data into an ML/serving system |
+| [AI / LLM application (agents · RAG · tool-use · evals)](../capabilities/project/ai-llm-application.md) | `live` | ship an AI-enabled product — agents, RAG, tool-use, eval harnesses |
+| [Smart-contract / web3 BUILD — EVM/Solidity](../capabilities/project/smart-contract-web3.md) | `live` | author/test/deploy EVM/Solidity contracts (non-bounty) |
+| [Platform / release (CI · IaC · release rails)](../capabilities/project/platform-release.md) | `live` | CI/CD, IaC, release rails, production reliability |
+| [Self-extension — MCP servers · plugins · skills · agents](../capabilities/project/self-extension-agent-tooling.md) | `live` | build or change the agent/tool platform itself |
+| [Web application (browser UI / SaaS)](../capabilities/project/web-app.md) | `needs_tool` | browser-facing app / SaaS UI — browser/design/deploy MCPs catalog-absent |
+| [Systems / low-level (cross-arch · SIMD · runtime)](../capabilities/project/systems-low-level.md) | `needs_tool` | cross-arch / SIMD / runtime — build+emulation toolchain not cataloged |
+
 ## Flow
 
 | Phase | Work | Likely specialists |

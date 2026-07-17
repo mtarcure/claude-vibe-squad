@@ -10,6 +10,12 @@ phases: 4
 
 For urgent reactive triage when something is broken. Chrono keeps the work scoped and evidence-preserving.
 
+## Capabilities
+
+Part of the **Operations** nav-family (incident · maintenance · triage) — a display grouping over three canonical modes, **not** a 7th `ops` mode; incident keeps `mode: incident`.
+
+`incident` has **0 capability cards** — it is a mode-level reactive workflow (see Flow below), not a set of registry capabilities. `capability_state` is derived + machine-checked by `bin/validate-capabilities.sh` for the cards that exist; incident has none to index.
+
 ## Flow
 
 | Phase | Work | Likely specialists |

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Browser keep-alive — verify CDP-attached Chrome has live bounty-platform tabs.
+# Browser keep-alive — verify the CDP-attached Chrome session is alive with its working tabs.
 # Wraps Python implementation. Read-only — never opens or modifies tabs.
 
 set -uo pipefail

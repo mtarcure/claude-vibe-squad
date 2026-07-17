@@ -18,7 +18,7 @@ def plugin_command(plugin_name: str, *args: str) -> list[str]:
 MCP_REGISTRY = {
     "chrono-vault": plugin_command("chrono-vault"),
     "chrono-research-arsenal": plugin_command("chrono-research-arsenal"),
-    "chrono-content-engineer": plugin_command("chrono-content-engineer"),
+    "chrono-media-studio": plugin_command("chrono-media-studio"),
     "chrono-recon": plugin_command("chrono-recon"),
 }
 

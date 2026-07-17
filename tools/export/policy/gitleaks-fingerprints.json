@@ -24,6 +24,12 @@
       "path": "plugins/chrono-vault/tests/test_index.py",
       "sha256": "8739cbe2db6b2e15b5a351142e3294f3947e107ad54d901c8f661083203c49a1",
       "reason": "Test lookup of SQLite configuration row key bm25_weights, not a credential."
+    },
+    {
+      "rule_id": "generic-api-key",
+      "path": "shared/registries/skill-tool-registry.tsv",
+      "sha256": "215eb6236136fd478019ddec990dd37e993f612106e2206d43e8a8bc54e828a9",
+      "reason": "Registry evidence count fragment 1350=477-historical, not a credential."
     }
   ]
 }

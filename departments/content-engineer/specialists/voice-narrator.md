@@ -5,10 +5,10 @@ department: content-engineer
 lane: gemini
 model_key: default
 required_tools:
-  - chrono-content-engineer:elevenlabs__text_to_speech
-  - chrono-content-engineer:elevenlabs__voice_clone
+  - chrono-media-studio:elevenlabs__text_to_speech
+  - chrono-media-studio:elevenlabs__voice_clone
 preferred_tools:
-  - chrono-content-engineer:elevenlabs__speech_to_speech
+  - chrono-media-studio:elevenlabs__speech_to_speech
   - chrono-vault:recall
 safety_level: low
 requires_approval:
@@ -26,7 +26,7 @@ Convert written content to professional voiceover narration. Select or clone voi
 ## Tools available to me
 
 ### Expected MCPs (verify live before use)
-- `chrono-content-engineer:elevenlabs` - TTS and voice cloning. Use when: generating narration or custom voices.
+- `chrono-media-studio:elevenlabs` - TTS and voice cloning. Use when: generating narration or custom voices.
 - `chrono-vault MCP` - Canonical memory recall for script context. Use when: understanding narrative arc or timing requirements.
 
 ### Native CLI features (verified, my CLI is `gemini`)

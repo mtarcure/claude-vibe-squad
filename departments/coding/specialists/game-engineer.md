@@ -36,7 +36,7 @@ Game-engine runtime implementation, gameplay state, input, physics, save systems
 ## Tools available to me
 
 ### Expected MCPs (verify live before use)
-- `chrono-content-engineer MCP` - Optional asset-generation handoff only. Use when the task explicitly authorizes media generation; otherwise consume typed assets from media specialists.
+- `chrono-media-studio MCP` - Optional asset-generation handoff only. Use when the task explicitly authorizes media generation; otherwise consume typed assets from media specialists.
 - `sequential-thinking MCP` - Multi-stage reasoning for state architecture, cross-platform constraints, rollback, and integration planning.
 
 ### Native CLI features (verified, my CLI is `codex`)

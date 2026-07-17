@@ -53,32 +53,32 @@ Reference for specialist `required_tools` / `preferred_tools`. Organized by capa
 
 ## Content generation: image/video/audio
 
-- `chrono-content-engineer:higgsfield__generate_image` — AI image generation
-- `chrono-content-engineer:higgsfield__generate_video` — AI video generation
-- `chrono-content-engineer:higgsfield__generate_audio` — AI audio/voiceover
-- `chrono-content-engineer:higgsfield__generate_3d` — 3D model generation
-- `chrono-content-engineer:higgsfield__upscale_image` — image enhancement/upscaling
-- `chrono-content-engineer:higgsfield__upscale_video` — video enhancement/upscaling
-- `chrono-content-engineer:higgsfield__outpaint_image` — image expansion/uncrop
-- `chrono-content-engineer:higgsfield__reframe` — video aspect ratio change
-- `chrono-content-engineer:higgsfield__remove_background` — image cutout/transparency
-- `chrono-content-engineer:higgsfield__motion_control` — motion transfer/puppeteer
-- `chrono-content-engineer:higgsfield__virality_predictor` — video engagement/virality analysis
-- `chrono-content-engineer:higgsfield__create_website` — website generation
-- `chrono-content-engineer:higgsfield__deploy_website` — website deployment
-- `chrono-content-engineer:higgsfield__website_db` — website content management
-- `chrono-content-engineer:higgsfield__deploy_game` — game deployment
-- `chrono-content-engineer:higgsfield__publish_game` — game publication
+- `chrono-media-studio:higgsfield__generate_image` — AI image generation
+- `chrono-media-studio:higgsfield__generate_video` — AI video generation
+- `chrono-media-studio:higgsfield__generate_audio` — AI audio/voiceover
+- `chrono-media-studio:higgsfield__generate_3d` — 3D model generation
+- `chrono-media-studio:higgsfield__upscale_image` — image enhancement/upscaling
+- `chrono-media-studio:higgsfield__upscale_video` — video enhancement/upscaling
+- `chrono-media-studio:higgsfield__outpaint_image` — image expansion/uncrop
+- `chrono-media-studio:higgsfield__reframe` — video aspect ratio change
+- `chrono-media-studio:higgsfield__remove_background` — image cutout/transparency
+- `chrono-media-studio:higgsfield__motion_control` — motion transfer/puppeteer
+- `chrono-media-studio:higgsfield__virality_predictor` — video engagement/virality analysis
+- `chrono-media-studio:higgsfield__create_website` — website generation
+- `chrono-media-studio:higgsfield__deploy_website` — website deployment
+- `chrono-media-studio:higgsfield__website_db` — website content management
+- `chrono-media-studio:higgsfield__deploy_game` — game deployment
+- `chrono-media-studio:higgsfield__publish_game` — game publication
 
 ## Voice + audio
 
-- `chrono-content-engineer:elevenlabs__text_to_speech` — TTS narration
-- `chrono-content-engineer:elevenlabs__voice_clone` — voice cloning
-- `chrono-content-engineer:elevenlabs__compose_music` — AI music composition
-- `chrono-content-engineer:elevenlabs__video_to_music` — music from video
-- `chrono-content-engineer:elevenlabs__text_to_sound_effects` — SFX generation
-- `chrono-content-engineer:elevenlabs__create_agent` — conversational agent creation
-- `chrono-content-engineer:elevenlabs__add_knowledge_base_to_agent` — agent knowledge base
+- `chrono-media-studio:elevenlabs__text_to_speech` — TTS narration
+- `chrono-media-studio:elevenlabs__voice_clone` — voice cloning
+- `chrono-media-studio:elevenlabs__compose_music` — AI music composition
+- `chrono-media-studio:elevenlabs__video_to_music` — music from video
+- `chrono-media-studio:elevenlabs__text_to_sound_effects` — SFX generation
+- `chrono-media-studio:elevenlabs__create_agent` — conversational agent creation
+- `chrono-media-studio:elevenlabs__add_knowledge_base_to_agent` — agent knowledge base
 
 ## Knowledge & memory
 

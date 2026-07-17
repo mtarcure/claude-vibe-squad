@@ -18,7 +18,7 @@ Specialists organized by media type and production function. Each owns one deliv
 ## Integration Points
 
 Content-engineer specialists primarily use:
-- `chrono-content-engineer` MCP suite (Higgsfield, ElevenLabs, etc.)
+- `chrono-media-studio` MCP suite (Higgsfield, ElevenLabs, etc.)
 - `figma` plugin for design systems
 - `firebase` for backend/hosting
 - `chrono-vault` for knowledge and project context

@@ -70,7 +70,7 @@ LANE_BUDGETS = {
 
 OPERATOR_ANGLES = {
     "agent-infra": ("agent", "runtime", "skill", "specialist", "mcp", "multi-agent", "tool", "routing", "orchestration"),
-    "bounty": ("bounty", "hackerone", "hackenproof", "bug bounty", "vulnerability report"),
+    "bounty": ("bounty", "bug bounty", "vulnerability report", "responsible disclosure", "cve"),
     "freelance": ("freelance", "client", "proposal", "consulting", "sales"),
     "model-runtime": ("model", "inference", "context", "eval", "benchmark", "runtime"),
     "security-research": ("security", "vulnerability", "exploit", "trust", "policy", "verification", "sandbox"),

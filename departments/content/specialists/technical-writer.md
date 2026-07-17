@@ -25,7 +25,7 @@ Changelogs, ADRs (architecture decision records), post-spec handoffs, documentat
 ### Expected MCPs (verify live before use)
 - `chrono-vault MCP` - Canonical private-memory record/recall across model leads. Use when: this MCP's purpose matches the task shape.
 - `chrono-obsidian MCP` - Obsidian REST-API bridge for vault read/write. Use when: this MCP's purpose matches the task shape.
-- `chrono-content-engineer MCP` - Content/media MCP wrapper; current live tools are generate_image, generate_video, and generate_audio only. ElevenLabs and Higgsfield are separate child routes and not available unless shared/api-catalog.md verifies them. Use when: this MCP's purpose matches the task shape.
+- `chrono-media-studio MCP` - Content/media MCP wrapper; current live tools are generate_image, generate_video, and generate_audio only. ElevenLabs and Higgsfield are separate child routes and not available unless shared/api-catalog.md verifies them. Use when: this MCP's purpose matches the task shape.
 - `sequential-thinking MCP` - Multi-step structured reasoning tool (`sequential-thinking`). Use when: this MCP's purpose matches the task shape.
 
 ### Native CLI features (verified, my CLI is `gemini`)
@@ -93,7 +93,7 @@ For changelogs: per-entry format = "[type] short description" where type ∈ {Ad
 
 For ADRs: Context → Decision → Consequences → Status.
 
-For bounty submissions: per-platform format (Code4rena: severity/scenario/impact/PoC; HackerOne: structured report).
+For bounty submissions: follow the target program's submission format (e.g. severity/scenario/impact/PoC, or a structured report).
 
 ## What you do NOT do
 

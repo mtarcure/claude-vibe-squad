@@ -59,7 +59,7 @@ __pycache__/
 
 # Private operator-fact overlays — companions to genericized public docs; never public.
 # (e.g. chrono/operator-setup.local.md holds the operator's real CDP endpoint + enabled
-# bounty-platform set that operator-setup.md genericizes away.)
+# platform set that operator-setup.md genericizes away.)
 **/*.local.md
 
 # Obsidian local UI state

@@ -20,6 +20,7 @@
     "**/memory.md",
     "_archive/**",
     "projects/**",
+    "docs/design/**",
     "docs/handoffs/**",
     "docs/plans/**",
     "docs/specs/**",

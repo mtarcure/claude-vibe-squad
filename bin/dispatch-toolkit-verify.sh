@@ -30,7 +30,7 @@ CLIS=(codex     claude gemini kimi)
 # (chrono pane is the Coordinator and doesn't receive a toolkit injection.)
 
 # Recognized MCP token regex (extend as the squad adds tools)
-MCP_REGEX='chrono-vault|chrono-kg|chrono-obsidian|chrono-catalog|chrono-research-arsenal|chrono-content-engineer|playwright|chrome-devtools|context7|sequential-thinking|perplexity|elevenlabs|figma|firebase|sentry|linear|stitch'
+MCP_REGEX='chrono-vault|chrono-kg|chrono-obsidian|chrono-catalog|chrono-research-arsenal|chrono-media-studio|playwright|chrome-devtools|context7|sequential-thinking|perplexity|elevenlabs|figma|firebase|sentry|linear|stitch'
 
 mcp_list_for_cli() {
     local cli="$1"

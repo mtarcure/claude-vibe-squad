@@ -836,7 +836,7 @@ Kimi CLI flags — verified live via `kimi --help` capture on 2026-05-02. Subscr
 - verified: needs-research
 - last_checked: 2026-05-02
 - research_task: API setup + verify endpoint access; trace `chrono-research-arsenal` MCP code to confirm Grok routing surface
-- notes: XAI_API_KEY is plumbed into chrono-research-arsenal and chrono-content-engineer MCPs (per `codex mcp list`). End-to-end invocation path unverified.
+- notes: XAI_API_KEY is plumbed into chrono-research-arsenal and chrono-media-studio MCPs (per `codex mcp list`). End-to-end invocation path unverified.
 
 ### Grok-X integration
 - url: https://x.ai
@@ -862,20 +862,20 @@ Kimi CLI flags — verified live via `kimi --help` capture on 2026-05-02. Subscr
 
 ---
 
-## 7. ElevenLabs (chrono-content-engineer)
+## 7. ElevenLabs (chrono-media-studio)
 
 ### ElevenLabs MCP — Scribe transcription, TTS, sound effects, music composition, voice cloning
 - url: https://elevenlabs.io
 - access: API (ELEVENLABS_API_KEY)
 - specialists: voice-narrator, music-composer, sound-designer
-- verified: yes for Claude child MCP; not exposed through the current Gemini `chrono-content-engineer` wrapper
+- verified: yes for Claude child MCP; not exposed through the current Gemini `chrono-media-studio` wrapper
 - last_checked: 2026-05-02
-- test_reference: `claude mcp list` shows `plugin:chrono-content-engineer:elevenlabs` ✓ Connected via `uvx elevenlabs-mcp` (Capability Inventory)
+- test_reference: `claude mcp list` shows `plugin:chrono-media-studio:elevenlabs` ✓ Connected via `uvx elevenlabs-mcp` (Capability Inventory)
 - notes: Full Claude child surface includes speech-to-text, text-to-speech, sound effects, music composition, voice cloning, voice library search, and conversational agents. Do not ask Gemini for `elevenlabs__*` tools unless a live lane schema proves they exist.
 
 ---
 
-## 8. Higgsfield (chrono-content-engineer)
+## 8. Higgsfield (chrono-media-studio)
 
 ### Higgsfield MCP — image/video generation
 - url: https://higgsfield.ai
@@ -883,7 +883,7 @@ Kimi CLI flags — verified live via `kimi --help` capture on 2026-05-02. Subscr
 - specialists: image-designer, video-director (image/video)
 - verified: no
 - last_checked: 2026-05-02
-- test_reference: `claude mcp list` shows `plugin:chrono-content-engineer:higgsfield` ⚠ Needs authentication
+- test_reference: `claude mcp list` shows `plugin:chrono-media-studio:higgsfield` ⚠ Needs authentication
 - notes: HTTP MCP. Auth not yet completed. Specialists must NOT cite this until auth resolved. Tracked as separate operational task.
 
 ---
@@ -944,7 +944,7 @@ Per-pane verification matrix for each chrono-* family MCP. Claude pane verificat
   - research pane (kimi): registered; same wrapper; `xai_search` endpoint fixed tool-wide via the 2026-07-12 Responses API patch. Re-smoke in-lane before relying on Kimi-specific tool availability.
 - last_checked: 2026-07-12 for `xai_search` endpoint fix + arxiv/perplexity sibling smoke tests
 
-### chrono-content-engineer MCP
+### chrono-media-studio MCP
 - purpose: Current live content/media wrapper exposing `generate_image`, `generate_video`, and `generate_audio`. Provider-specific child routes such as ElevenLabs and Higgsfield are separate surfaces unless the active lane schema exposes them.
 - specialists: image-designer, video-director, video-editor, music-composer, sound-designer, voice-narrator
 - verified per pane:
@@ -1079,7 +1079,7 @@ All `--version` output below was reproduced live on 2026-07-12 (root CLAUDE.md r
 - verified: yes
 - last_checked: 2026-07-12
 - test_reference: `forge --version` → `forge Version: 1.5.1-Homebrew` (/opt/homebrew/bin/forge)
-- notes: Use when writing Foundry PoC tests / fork-testing a fund-loss finding before submission (the profile that actually pays — see `_state/bounty-retro-2026-07-12/SUMMARY.md`).
+- notes: Use when writing Foundry PoC tests / fork-testing a fund-loss finding before submission.
 
 #### cast (Foundry)
 - url: https://getfoundry.sh
@@ -1376,6 +1376,6 @@ Backlog (8 categories):
 5. **Anthropic /ultrareview command behavior** (verify in-session slash-command + cloud-hosted review runtime via live test)
 6. **Codex Cloud Agents async access** (operator ChatGPT Plus tier verification)
 7. **Codex native macOS computer use** (verify access path — CLI vs API-only)
-8. **Higgsfield auth setup** (currently fails Needs authentication — chrono-content-engineer HTTP MCP)
+8. **Higgsfield auth setup** (currently fails Needs authentication — chrono-media-studio HTTP MCP)
 
 Each produces `_state/research-{topic}-2026-05-02.md` sub-report. Catalog entries flip `needs-research` → `yes`/`no` based on findings.

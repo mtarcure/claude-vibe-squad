@@ -63,24 +63,24 @@ Before any scout / research / discovery work, query the knowledge layer for prio
 
 This rule applies to: Bounty discovery, Research scouting, Security target selection, any "find me something new" work. It does NOT apply to: implementation work where the target is already chosen, content generation, mechanical specialist tasks.
 
-Violation symptom (today's bounty work): Research and Security specialist invocations both scouted the 5 platforms from scratch instead of consulting the vault for what was already known about each target's KYC, reputation, and prior attempts. Repeated effort, missed context.
+Violation symptom: Research and Security specialist invocations both scouted targets from scratch instead of consulting the vault for what was already known about each target's reputation and prior attempts. Repeated effort, missed context.
 
 ## 11. Browser attach — never spawn fresh
 
 Every browser-touching specialist task attaches to a persistent, CDP-accessible Chrome (default port 9222) rather than spawning fresh. Chrono does not run browser discovery directly; Chrono dispatches the appropriate specialist and includes this browser rule in the task packet. Never spawn a new Chrome / Playwright / chrome-devtools instance with its own profile.
 
-**Why**: the persistent Chrome holds 2FA'd, signed-in tabs for the bounty platforms in use (e.g. HackerOne, Bugcrowd, Intigriti, HackenProof, Code4rena) plus other working state. Spawning fresh = fresh profile = no auth = useless. Worse, fresh-spawn collides with already-running profiles and produces confusing "profile lock" errors that masquerade as transient failures.
+**Why**: the persistent Chrome holds your signed-in working browser session plus other working state. Spawning fresh = fresh profile = lost session state = useless. Worse, fresh-spawn collides with already-running profiles and produces confusing "profile lock" errors that masquerade as transient failures.
 
 **Primary raw-CDP discovery flow** (specialists during browser-approved work):
 1. Run `httpx http://localhost:9222/json/list` or `curl http://localhost:9222/json/list` to enumerate tabs and verify non-blank page titles.
 2. If empty / unreachable: stop, write a NOTIFY to chrono pane, surface "the persistent CDP Chrome is not running" — do NOT auto-spawn.
 3. To act on a tab: connect to the tab's raw CDP websocket from `/json/list`, then select and inspect only allowlisted tabs for the task.
-4. MCP tools such as chrome-devtools-mcp or Playwright are needs-research alternates, not the primary path, because their pane configuration may spawn fresh Chrome profiles instead of attaching to the authenticated session.
+4. MCP tools such as chrome-devtools-mcp or Playwright are needs-research alternates, not the primary path, because their pane configuration may spawn fresh Chrome profiles instead of attaching to the existing signed-in session.
 5. NEVER pass `--user-data-dir` pointing to a fresh profile, NEVER let an MCP launch its own Chrome, NEVER spawn `playwright launch --browser chromium` without `connect_over_cdp`.
 
-**Verification (read-only health check)**: `bin/browser-keep-alive.sh` runs nightly and surfaces missing platform tabs in the morning brief. Authenticated browser work should use the same raw-CDP `/json/list` check.
+**Verification (read-only health check)**: `bin/browser-keep-alive.sh` runs nightly and surfaces missing session tabs in the morning brief. Browser work should use the same raw-CDP `/json/list` check.
 
-Violation symptom (today's bounty failure): Security tried to spawn fresh Playwright tabs while Chrome was already running, hit `chrome-profile` lock collision, lost ~15 minutes to Chrome profile path investigation that resolved nothing.
+Violation symptom: a lane tried to spawn fresh Playwright tabs while Chrome was already running, hit a `chrome-profile` lock collision, lost ~15 minutes to Chrome profile path investigation that resolved nothing.
 
 ## 12. Memory discipline
 
@@ -118,7 +118,7 @@ See `shared/mode-cleanup.md` for the per-mode ephemeral-vs-durable matrix. Unive
 Without cleanup, these accumulate across runs. The 53-Chrome-process / 5.88GB-RSS / 12.5GB-swap state we hit on 2026-05-03 was the symptom; this rule is the fix.
 
 **Always preserved (across all modes)**:
-- The persistent CDP Chrome at port 9222 + `--user-data-dir=~/.config/chrono/chrome-profile` (the persistent bounty platform tab session)
+- The persistent CDP Chrome at port 9222 + `--user-data-dir=~/.chrono/chrome-persistent-profile` (the persistent signed-in browser session)
 - Vault entries (`vault/security/findings/F-NN-*.md`, `vault/research/topics/*.md`, etc.)
 - Memory.md entries with durable learnings
 - Dispatch log entries (`_state/dispatch-log.jsonl`)

@@ -21,10 +21,10 @@
       "homepage": "https://github.com/mtarcure/claude-vibe-squad"
     },
     {
-      "name": "chrono-content-engineer",
+      "name": "chrono-media-studio",
       "description": "Image/video/audio generation. Wired today: OpenAI image+video, Gemini audio. Sibling MCPs declared: Higgsfield (HTTP), ElevenLabs (uvx). Owner role: content-creator.",
       "category": "content",
-      "source": "./plugins/chrono-content-engineer",
+      "source": "./plugins/chrono-media-studio",
       "homepage": "https://github.com/mtarcure/claude-vibe-squad"
     },
     {

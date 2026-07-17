@@ -10,6 +10,17 @@ phases: 12
 
 For bug bounty and vulnerability research. Chrono owns target selection, safety gates, dispatch, review, and operator-facing decisions.
 
+## Capabilities
+
+`capability_state` is **derived** and machine-checked by `bin/validate-capabilities.sh` (not hand-set), so this index stays honest by construction. Cards live in `shared/capabilities/bounty/`. All are heightened-risk and gated on operator target-engage + a per-report final-Submit "go".
+
+| Capability | State | When |
+|---|---|---|
+| [Web API / HTTP-surface vulnerability research](../capabilities/bounty/web-api-saas.md) | `live` | authorized research against an HTTP API / SAST-accessible web surface |
+| [Smart-contract / web3 vulnerability research](../capabilities/bounty/smart-contract-web3.md) | `live` | authorized research against EVM / Solana / Cosmos contracts |
+| [LLM / AI-system vulnerability research](../capabilities/bounty/ai-llm-system.md) | `live` | authorized LLM/AI research — attack design + offline analysis |
+| [Binary / malware / firmware vulnerability research](../capabilities/bounty/binary-firmware.md) | `needs_tool` | binary/malware/firmware — RE/emulation toolchain not cataloged; isolation required |
+
 ## Flow
 
 | Phase | Work | Likely specialists |

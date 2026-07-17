@@ -120,7 +120,7 @@ Check: Storage reads/writes minimized — repeated reads in a function should be
 
 ## Severity rubric
 
-Calibrated to Solidity-specific patterns. When platform-specific (Code4rena / Immunefi / HackerOne) rubrics differ, they override this.
+Calibrated to Solidity-specific patterns. When a specific program's rubric differs, it overrides this.
 
 | Severity | Examples | Threshold |
 |----------|----------|-----------|

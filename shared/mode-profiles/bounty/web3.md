@@ -10,7 +10,7 @@ For DeFi protocols where contracts AND frontend are in scope. Combines smart-con
 
 ## Auto-detection signals
 
-- URL on Immunefi.com (DeFi-focused)
+- URL on an authorized DeFi bug-bounty program
 - Mention of "DeFi protocol", "DEX", "lending", "MEV"
 - Repository contains both contracts/ AND frontend code
 

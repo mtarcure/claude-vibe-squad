@@ -549,6 +549,80 @@ class Block3WatcherNoArchive(unittest.TestCase):
         finally:
             shutil.rmtree(root, ignore_errors=True)
 
+    def test_gnu_stat_mtime_probe_never_uses_filesystem_report_as_epoch(self):
+        root = Path(tempfile.mkdtemp(prefix="wave2-gnu-stat-"))
+        try:
+            vault, dept = self._vault(root)
+            # The real reconciler uses the same queue lock as the watcher's
+            # fallback. Stub it out so the deliberately stale lock below is
+            # consumed by append_chrono_queue rather than blocking upstream.
+            reconciler = vault / "bin" / "registry-reconciler.sh"
+            reconciler.write_text("#!/bin/bash\necho 'forced fallback' >&2\nexit 1\n",
+                                  encoding="utf-8")
+            t = "TASK-2026-07-16-2010-gnustatprobe"
+            entry = {"compatibility_namespace": "security", "specialist": "claude-spec",
+                     "to_model": "claude", "source_namespace": "security",
+                     "review_model": "none", "mandatory_review": "false",
+                     "status": "in-flight"}
+            (vault / "_state" / "active-tasks.json").write_text(json.dumps({t: entry}))
+            (dept / "active" / f"{t}.md").write_text(
+                f"---\nid: {t}\n---\nbody\n", encoding="utf-8")
+            resp = dept / "outbox" / f"{t}-response.md"
+            resp.write_text(envelope({"id": f"{t}-response", "in_response_to": t,
+                                      "from": "claude", "to": "chrono", "type": "RESULT",
+                                      "status": "compelted"}), encoding="utf-8")
+
+            # Force append_chrono_queue through its stale-lock mtime probe too,
+            # so both watcher call sites are covered by the GNU-stat simulation.
+            (vault / "_state" / "chrono-queue.md.lockdir").mkdir()
+            fakebin = root / "fakebin"
+            fakebin.mkdir()
+            fsw = fakebin / "fswatch"
+            fsw.write_text("#!/bin/bash\nprintf '%s\\0' \"$FAKE_FSWATCH_EMIT\"\n",
+                           encoding="utf-8")
+            fsw.chmod(0o755)
+            stat_log = root / "stat.log"
+            stat = fakebin / "stat"
+            stat.write_text(
+                "#!/bin/bash\n"
+                "printf '%s\\n' \"$*\" >> \"$STAT_LOG\"\n"
+                "if [[ \"$1\" == '-c' && \"$2\" == '%Y' ]]; then\n"
+                "    printf '1\\n'\n"
+                "    exit 0\n"
+                "fi\n"
+                "if [[ \"$1\" == '-f' && \"$2\" == '%m' ]]; then\n"
+                "    printf '  File: \\\"%s\\\"\\n' \"$3\"\n"
+                "    exit 0\n"
+                "fi\n"
+                "exit 64\n",
+                encoding="utf-8",
+            )
+            stat.chmod(0o755)
+            env = {**os.environ, "VAULT_ROOT": str(vault), "SQUAD_SESSION": "none",
+                   "RESPONSE_MIN_AGE_SECONDS": "0", "FAKE_FSWATCH_EMIT": str(resp),
+                   "STAT_LOG": str(stat_log), "PATH": f"{fakebin}:{os.environ['PATH']}"}
+            env.pop("CHRONO_VAULT_ROOT", None)
+
+            r = subprocess.run(["bash", str(vault / "bin" / "outbox-watcher.sh"), "security"],
+                               env=env, capture_output=True, text=True, timeout=10)
+            out = r.stdout + r.stderr
+            self.assertEqual(r.returncode, 0, msg=out)
+            self.assertNotIn("File:", out)
+            self.assertNotIn("unbound variable", out)
+            self.assertIn(f"unknown | security/{t}",
+                          (vault / "_state" / "chrono-queue.md").read_text(encoding="utf-8"))
+            calls = stat_log.read_text(encoding="utf-8").splitlines()
+            self.assertGreaterEqual(len(calls), 2, msg=calls)
+            self.assertTrue(all(call.startswith("-c %Y ") for call in calls), msg=calls)
+            self.assertFalse(any(call.startswith("-f %m ") for call in calls), msg=calls)
+
+            source = OUTBOX_WATCHER.read_text(encoding="utf-8")
+            self.assertEqual(source.count("stat -c %Y"), 2)
+            self.assertNotIn("stat -f %m \"$file\" 2>/dev/null || stat -c %Y", source)
+            self.assertNotIn("stat -f %m \"$lockdir\" 2>/dev/null || stat -c %Y", source)
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -10,6 +10,12 @@ phases: 3
 
 For ambiguous incoming work. Triage classifies and recommends; it does not auto-engage another mode.
 
+## Capabilities
+
+Part of the **Operations** nav-family (incident · maintenance · triage) — triage is the **front door**; a display grouping, **not** a 7th `ops` mode; keeps `mode: triage`.
+
+`triage` has **0 capability cards** — it classifies and routes, it does not execute a capability. Its recommendation output is **`mode` + `capability` + `capability_state` + cost exposure + uncertainty** (FINAL-PLAN §5), so the operator sees exactly where it routes and the target capability's honest state/cost before engaging. The `capability_state` it cites is the derived, machine-checked value from `bin/validate-capabilities.sh`, never hand-set.
+
 ## Flow
 
 | Phase | Work | Likely specialists |

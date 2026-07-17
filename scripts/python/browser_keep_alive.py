@@ -6,10 +6,10 @@
 # ]
 # ///
 """Browser keep-alive — verify a CDP-attached Chrome has live tabs for the
-supported bounty platforms.
+operator-configured working sessions.
 
-Browser-touching work attaches to a persistent, already-authenticated Chrome over
-CDP rather than fresh-launching (a fresh profile has no auth). This script just
+Browser-touching work attaches to a persistent, signed-in Chrome over CDP rather
+than fresh-launching (a fresh profile loses session state). This script just
 *checks* state; if a session has expired or a tab has been closed, it surfaces the
 gap in the morning brief so the tab can be re-opened manually.
 
@@ -38,13 +38,26 @@ CDP_HOST = os.environ.get("CHROME_CDP_HOST", "127.0.0.1")
 CDP_PORT = os.environ.get("CHROME_CDP_PORT", "9222")
 CDP_URL = os.environ.get("CHROME_CDP_URL", f"http://{CDP_HOST}:{CDP_PORT}")
 
-PLATFORMS = [
-    ("hackerone.com", "HackerOne"),
-    ("bugcrowd.com", "Bugcrowd"),
-    ("intigriti.com", "Intigriti"),
-    ("hackenproof.com", "HackenProof"),
-    ("code4rena.com", "Code4rena"),
-]
+# The set of browser tabs to monitor is operator-configured and never shipped in this
+# repo. Point CHRONO_BROWSER_TABS_FILE at a JSON file — a list of
+# {"match": "<url-substring>", "label": "<name>"} — or place one at
+# ~/.config/chrono/browser-tabs.json. The shipped default monitors nothing.
+# Example: [{"match": "example.com", "label": "Example"}]
+MONITORED_TABS_FILE = Path(os.environ.get(
+    "CHRONO_BROWSER_TABS_FILE",
+    str(Path.home() / ".config" / "chrono" / "browser-tabs.json"),
+))
+
+
+def load_monitored_tabs() -> list[tuple[str, str]]:
+    try:
+        data = json.loads(MONITORED_TABS_FILE.read_text())
+        return [(str(e["match"]), str(e.get("label", e["match"]))) for e in data]
+    except (OSError, json.JSONDecodeError, KeyError, TypeError):
+        return []
+
+
+MONITORED_TABS = load_monitored_tabs()
 
 
 SESSION_EXPIRED_MARKERS = (
@@ -93,14 +106,14 @@ def render_log(states: list[TabState], browser_version: str | None,
         lines.append("## Status")
         lines.append(f"✗ **{error}**")
         lines.append("")
-        lines.append("To use bounty platforms with attached tools, ensure Chrome is")
+        lines.append("To use the attached-browser tools, ensure Chrome is")
         lines.append(f"running with `--remote-debugging-port=9222` and reachable at `{CDP_URL}`.")
         return "\n".join(lines) + "\n"
 
     lines.append(f"**Browser:** {browser_version or 'unknown'}")
     lines.append(f"**Open tabs:** {total_tabs}")
     lines.append("")
-    lines.append("## Bounty platform sessions")
+    lines.append("## Monitored browser sessions")
     for s in states:
         if not s.found:
             marker = "○"
@@ -128,7 +141,7 @@ def render_log(states: list[TabState], browser_version: str | None,
                 lines.append(f"- {p}")
         if missing:
             lines.append("")
-            lines.append("These platforms have no open tab — operator may want to re-open + 2FA:")
+            lines.append("These monitored tabs are not open — the operator may want to re-open and sign in:")
             for p in missing:
                 lines.append(f"- {p}")
     return "\n".join(lines) + "\n"
@@ -148,9 +161,9 @@ def main() -> int:
         tabs = []
 
     states: list[TabState] = []
-    for domain, label in PLATFORMS:
+    for match_str, label in MONITORED_TABS:
         match = next(
-            (t for t in tabs if isinstance(t, dict) and domain in (t.get("url") or "")),
+            (t for t in tabs if isinstance(t, dict) and match_str in (t.get("url") or "")),
             None,
         )
         if match:
@@ -179,7 +192,7 @@ def main() -> int:
         "platforms_expired": [s.platform for s in states if s.found and s.expired],
     }))
     print(f"Browser keep-alive log: {LOG_PATH}")
-    print(f"Open: {sum(1 for s in states if s.found)}/{len(states)} platforms; "
+    print(f"Open: {sum(1 for s in states if s.found)}/{len(states)} monitored tabs; "
           f"{total} total tabs")
     return 0
 

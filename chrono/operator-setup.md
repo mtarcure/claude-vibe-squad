@@ -1,7 +1,7 @@
 # Operator Setup
 
 Status: setup guide for a Vibe Squad deployment. Operator-specific populated values (the exact
-CDP endpoint, the actual enabled bounty-platform set) live in the gitignored, never-public
+CDP endpoint, the actual enabled program set) live in the gitignored, never-public
 `chrono/operator-setup.local.md`.
 
 Chrono reads this file for environment setup structure; the private `operator-setup.local.md`
@@ -24,13 +24,14 @@ Launch rails unset API-key env vars for paid CLIs so subscription auth is prefer
 
 Run a CDP-accessible Chrome (Chrome's standard remote-debugging port is 9222) so all model lanes
 can attach for Playwright/browser work. Browser-touching work attaches to that existing CDP
-session; do not spawn a fresh browser profile. Keep the session signed-in and 2FA'd so attached
-tools inherit authentication.
+session; do not spawn a fresh browser profile. Keep the session signed-in so attached tools reuse
+your working browser session.
 
-The toolkit supports the major bounty programs — HackerOne, Bugcrowd, Intigriti, HackenProof,
-Code4rena, and others. Configure the platforms you actually use and keep their tabs open in the
-persistent Chrome. (Your specific endpoint and enabled-platform set are recorded privately in
-`chrono/operator-setup.local.md`, not here.)
+The toolkit supports bug-bounty / security-research platforms generally; the shipped setup does not name a
+platform set. The persistent-browser keep-alive (`scripts/python/browser_keep_alive.py`) monitors a tab list
+you configure via `CHRONO_BROWSER_TABS_FILE` (default `~/.config/chrono/browser-tabs.json`, an out-of-repo
+file) — the shipped default monitors nothing. Your specific CDP endpoint and enabled-platform set stay in the
+gitignored `chrono/operator-setup.local.md`.
 
 ## Tooling Rules
 

@@ -29,12 +29,12 @@ This system has three distinct persistence layers. Knowing which to use is rule 
 Every memory entry includes the date written and the source it was derived from (task ID, URL, file path, conversation ref). Memories without provenance are stripped on next purge.
 
 ```markdown
-- **2026-05-03**: HackenProof requires KYC for payouts (source: TASK-2026-05-03-1524)
+- **2026-05-03**: a target program requires KYC for payouts (source: engagement task record)
 ```
 
 Not:
 ```markdown
-- HackenProof needs KYC
+- The target program needs KYC
 ```
 
 ### 2. Verify before relying on memory > 2 weeks old
@@ -61,10 +61,10 @@ Every memory is one of four types. Apply the type label in the file structure (a
 
 | Type | What it is | Example |
 |------|-----------|---------|
-| **Fact** | An objective statement about the world or codebase | "HackenProof requires KYC" |
+| **Fact** | An objective statement about the world or codebase | "The target API rate-limits at 60 req/min" |
 | **Preference** | The operator's stated style, taste, or process choice | "Operator prefers terse responses, no trailing summaries" |
 | **Project state** | Active work, in-flight tasks, near-term goals | "Bounty target selection deferred until firsthand survey returns" |
-| **Reference** | Pointer to where authoritative information lives | "Bounty platform tabs in Chrome at port 9222" |
+| **Reference** | Pointer to where authoritative information lives | "Working tabs in the persistent Chrome at port 9222" |
 
 Project state decays fastest (days). Preference is durable until contradicted. Fact decays per #2. Reference rarely decays but verify before each use.
 

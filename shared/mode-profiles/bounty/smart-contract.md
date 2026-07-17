@@ -6,7 +6,7 @@ status: active
 
 # Bounty Profile: Smart Contract
 
-For Solidity / Vyper / Rust smart contract audits (Code4rena, Immunefi, etc.).
+For Solidity / Vyper / Rust smart contract audits on authorized audit / bounty programs.
 
 ## Mandatory skills (read on task start)
 - **`solana-anchor-audit-checklist`** — for Solana/Anchor/Rust programs (account/owner/signer validation, PDA seeds+bump, CPI, rent/close, vault-invariant + parity/fee math). Use this for Peg Stability Vaults, DEXes, lending.
@@ -16,7 +16,7 @@ Tools: `slither`, `myth`, Foundry (`forge`/`cast`/`anvil`), `echidna`, `halmos`,
 
 ## Auto-detection signals
 
-- URL on code4rena.com OR immunefi.com
+- URL on an authorized smart-contract audit / bounty program
 - Files ending in .sol, .vy, .rs (with Anchor / Solana / contract patterns)
 - Mention of "audit contest", "DeFi protocol", "EVM", "Solana"
 - Repository structure with `contracts/`, `programs/`, `src/lib.rs`
@@ -97,7 +97,7 @@ Tools:
 
 Output:
 - `financial-impact.md` — quantified attacker profit, victim loss
-- `severity-justification.md` — Code4rena severity (High/Medium/Low) per their rubric
+- `severity-justification.md` — program severity (High/Medium/Low) per the program's rubric
 
 ### Phase 11: Report (smart-contract additions)
 
@@ -106,8 +106,8 @@ Specialists:
 - smart-contract-engineer (final review)
 
 Submission format:
-- Code4rena: severity / attack scenario / impact / proof of concept / recommended mitigation
-- Immunefi: severity / vulnerability type / target / steps to reproduce / impact / proposed solution
+- Typical audit-program format: severity / attack scenario / impact / proof of concept / recommended mitigation
+- Typical bounty-program format: severity / vulnerability type / target / steps to reproduce / impact / proposed solution
 
 Output: per-platform submission package, populated via persistent browser session
 

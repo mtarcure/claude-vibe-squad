@@ -11,7 +11,7 @@ This file declares per mode what's ephemeral (cleaned at mode-close) vs. durable
 ## Universal — apply to every mode
 
 **Always preserved (across all modes)**:
-- Operator's main Chrome at port 9222 + `--user-data-dir=~/.config/chrono/chrome-profile`
+- Operator's main Chrome at port 9222 + `--user-data-dir=~/.chrono/chrome-persistent-profile`
 - Vault entries (`vault/security/findings/F-NN-*.md`, `vault/research/topics/*.md`, `vault/programs/*.md`, etc.)
 - Memory.md entries with durable learnings (per `shared/memory-discipline.md`)
 - Dispatch log entries (`_state/dispatch-log.jsonl`)
@@ -24,7 +24,7 @@ This file declares per mode what's ephemeral (cleaned at mode-close) vs. durable
 - Sandbox containers tagged with the mode's run ID
 - Temp directories under `/tmp/<mode-name>-<run-id>/`
 - Draft / scratch artifacts (`_state/runs/<run-id>/scratch/`)
-- Browser tabs spawned for testing (NOT the persistent bounty platform tabs at port 9222)
+- Browser tabs spawned for testing (NOT the persistent CDP Chrome session at port 9222)
 - Completed plans/specs/handoffs after durable decisions are folded into canonical docs
 
 ---

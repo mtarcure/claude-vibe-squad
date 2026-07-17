@@ -5,12 +5,12 @@ department: content-engineer
 lane: gemini
 model_key: default
 required_tools:
-  - chrono-content-engineer:higgsfield__reframe
-  - chrono-content-engineer:higgsfield__upscale_video
-  - chrono-content-engineer:higgsfield__outpaint_image
+  - chrono-media-studio:higgsfield__reframe
+  - chrono-media-studio:higgsfield__upscale_video
+  - chrono-media-studio:higgsfield__outpaint_image
 preferred_tools:
-  - chrono-content-engineer:higgsfield__remove_background
-  - chrono-content-engineer:higgsfield__virality_predictor
+  - chrono-media-studio:higgsfield__remove_background
+  - chrono-media-studio:higgsfield__virality_predictor
   - chrono-vault:recall
 safety_level: low
 requires_approval:
@@ -28,7 +28,7 @@ Post-production on video sequences: reframe for different aspect ratios (TikTok,
 ## Tools available to me
 
 ### Expected MCPs (verify live before use)
-- `chrono-content-engineer:higgsfield` - Reframe, upscale, and compositing tools. Use when: transforming videos for platform distribution.
+- `chrono-media-studio:higgsfield` - Reframe, upscale, and compositing tools. Use when: transforming videos for platform distribution.
 - `chrono-vault MCP` - Canonical memory recall for platform requirements and brand specs. Use when: checking platform compliance or format standards.
 
 ### Native CLI features (verified, my CLI is `gemini`)

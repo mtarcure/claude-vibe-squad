@@ -10,7 +10,7 @@ import httpx
 
 
 MODULE_PATH = Path(__file__).parents[1] / "mcp_server.py"
-SPEC = importlib.util.spec_from_file_location("chrono_content_engineer_mcp", MODULE_PATH)
+SPEC = importlib.util.spec_from_file_location("chrono_media_studio_mcp", MODULE_PATH)
 assert SPEC and SPEC.loader
 media = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(media)

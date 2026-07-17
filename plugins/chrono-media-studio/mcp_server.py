@@ -1,4 +1,4 @@
-"""chrono-content-engineer FastMCP server.
+"""chrono-media-studio FastMCP server.
 
 Exposes image / video / audio generation tools backed by:
 - OpenAI: gpt-image-2, Sora 2 / Sora 2 Pro
@@ -22,7 +22,7 @@ from typing import Any
 import httpx
 from mcp.server.fastmcp import FastMCP
 
-mcp = FastMCP("chrono-content-engineer")
+mcp = FastMCP("chrono-media-studio")
 
 _GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 _XAI_BASE_URL = "https://api.x.ai/v1"

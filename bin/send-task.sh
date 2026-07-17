@@ -107,7 +107,7 @@ blocked_names = {
     "brave_search": "live research tools are perplexity_search_web,xai_search,arxiv_search; Brave/Apify/Serper are planned/unverified",
     "apify_search": "live research tools are perplexity_search_web,xai_search,arxiv_search; Brave/Apify/Serper are planned/unverified",
     "serper_search": "live research tools are perplexity_search_web,xai_search,arxiv_search; Brave/Apify/Serper are planned/unverified",
-    "elevenlabs__check_subscription": "chrono-content-engineer currently exposes generate_audio,generate_image,generate_video only",
+    "elevenlabs__check_subscription": "chrono-media-studio currently exposes generate_audio,generate_image,generate_video only",
 }
 issues = []
 for name, reason in blocked_names.items():
@@ -203,6 +203,9 @@ fi
 # rejected (overwrite / identity ambiguity). A task packet must never contain a
 # NUL byte — validate the raw file bytes before parsing/trusting any frontmatter
 # field, because $(frontmatter_field ...) can no longer reveal an embedded NUL.
+# Both references are read-only: tr filters stdin and cmp compares that stream
+# with the original bytes. ShellCheck cannot infer that cmp never writes it.
+# shellcheck disable=SC2094
 if [[ -f "$TASK_FILE" ]] && ! LC_ALL=C tr -d '\000' < "$TASK_FILE" | cmp -s - "$TASK_FILE"; then
     die "invalid task file (contains a NUL byte): $TASK_FILE"
 fi

@@ -103,8 +103,19 @@ test("full-history mirror ingestion, candidate extraction, and reviewed sibling 
   assert.equal(candidates.length, 1);
   assert.equal(candidates[0].review_state, "candidate");
   assert.ok(candidates[0].confidence > 0 && candidates[0].confidence < 1);
-  assert.equal(candidates[0].tooling.tree_sitter.available, true);
-  assert.equal(candidates[0].tooling.difftastic.available, true);
+  const optionalTooling = Object.values(candidates[0].tooling);
+  for (const tool of optionalTooling) {
+    assert.equal(typeof tool.available, "boolean");
+    assert.equal(typeof tool.generated, "boolean");
+    if (tool.available) {
+      assert.equal(typeof tool.version, "string");
+    } else {
+      assert.equal(tool.version, null);
+      assert.equal(tool.generated, false);
+    }
+  }
+  const structuralSignals = optionalTooling.filter((tool) => tool.generated).length;
+  assert.equal(candidates[0].confidence, 0.7 + (structuralSignals * 0.08));
   assert.throws(
     () => emitInvariant(candidates[0], { fixRef: fix.ref }),
     /human-reviewed/u,

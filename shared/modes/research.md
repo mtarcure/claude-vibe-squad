@@ -10,6 +10,16 @@ phases: 5
 
 For deep investigation, comparison, source gathering, and synthesis. Research mode is source-first, citation-heavy, and operator-approved.
 
+## Capabilities
+
+`capability_state` is **derived** and machine-checked by `bin/validate-capabilities.sh` (not hand-set), so this index stays honest by construction. Cards live in `shared/capabilities/research/`. Load-bearing web claims route through the Rule-8 grounding path (unverifiable ⇒ `needs_tool`, not PASS).
+
+| Capability | State | When |
+|---|---|---|
+| [Multi-source investigation + synthesis](../capabilities/research/investigation-synthesis.md) | `live` | deep research / competitive / literature → cited synthesis |
+| [Data extraction + dataset wrangling](../capabilities/research/data-extraction-dataset.md) | `live` | machine-readable extraction/wrangling — PDF/OCR is `needs_tool` |
+| [Learning + study](../capabilities/research/learning-study.md) | `live` | study plans, drills, learning paths |
+
 ## Flow
 
 | Phase | Work | Likely specialists |

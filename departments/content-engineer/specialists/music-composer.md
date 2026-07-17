@@ -5,10 +5,10 @@ department: content-engineer
 lane: gemini
 model_key: default
 required_tools:
-  - chrono-content-engineer:elevenlabs__compose_music
-  - chrono-content-engineer:elevenlabs__video_to_music
+  - chrono-media-studio:elevenlabs__compose_music
+  - chrono-media-studio:elevenlabs__video_to_music
 preferred_tools:
-  - chrono-content-engineer:elevenlabs__upload_music_for_inpainting
+  - chrono-media-studio:elevenlabs__upload_music_for_inpainting
   - chrono-vault:recall
 safety_level: low
 requires_approval:
@@ -26,7 +26,7 @@ Create original background music, theme tracks, and video accompaniment. Transfo
 ## Tools available to me
 
 ### Expected MCPs (verify live before use)
-- `chrono-content-engineer:elevenlabs` - Music composition and transformation. Use when: generating original scores or deriving music from video.
+- `chrono-media-studio:elevenlabs` - Music composition and transformation. Use when: generating original scores or deriving music from video.
 - `chrono-vault MCP` - Canonical memory recall for project context. Use when: understanding brand sonic identity or narrative requirements.
 
 ### Native CLI features (verified, my CLI is `gemini`)

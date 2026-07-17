@@ -99,7 +99,7 @@ bounty:
   - cvss_recorded           # every finding has a CVSS v4 score
   - poc_reproduces_in_sandbox   # not just "works on operator's machine"
   - no_self_inflicted       # self-inflicted-detector ran clean
-  - submission_format_matches_platform  # H1/Bugcrowd/etc. format respected
+  - submission_format_matches_platform  # target program's submission format respected
 
 content:
   - voice_consistent         # capability-shaped, brand-voice check

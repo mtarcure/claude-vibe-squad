@@ -197,7 +197,7 @@ PATH_PREFIX='export PATH="$HOME/.local/bin:$HOME/go/bin:$PATH"'
 # Private knowledge-vault root — chrono-vault MCP fail-closes without this (P0-8 fix).
 AUTH_PREFIX='export CHRONO_VAULT_ROOT="$HOME/Obsidian-Chrono"; unset ANTHROPIC_API_KEY OPENAI_API_KEY GEMINI_API_KEY GOOGLE_API_KEY'
 
-# Claude panes host Claude plugins, including chrono-content-engineer. Keep the
+# Claude panes host Claude plugins, including chrono-media-studio. Keep the
 # OpenAI key only there so Sora can authenticate without exposing media creds to
 # non-media model lanes.
 MEDIA_AUTH_PREFIX='export CHRONO_VAULT_ROOT="$HOME/Obsidian-Chrono"; unset ANTHROPIC_API_KEY GEMINI_API_KEY GOOGLE_API_KEY'

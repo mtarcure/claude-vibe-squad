@@ -26,7 +26,7 @@ Recon, subdomain enumeration, attack-surface mapping, program scope. Bounty Mode
 - `chrono-vault MCP` - Canonical private-memory record/recall across model leads. Use when: this MCP's purpose matches the task shape.
 - `chrono-obsidian MCP` - Obsidian REST-API bridge for vault read/write. Use when: this MCP's purpose matches the task shape.
 - `chrono-research-arsenal MCP` - Research MCP wrapper; current live tools are arxiv_search and xai_search only. Perplexity, Brave, Serper, and Apify are not wired until shared/api-catalog.md verifies them. Use when: this MCP's purpose matches the task shape.
-- `chrono-content-engineer MCP` - Content/media MCP wrapper; current live tools are generate_image, generate_video, and generate_audio only. ElevenLabs and Higgsfield are separate child routes and not available unless shared/api-catalog.md verifies them. Use when: this MCP's purpose matches the task shape.
+- `chrono-media-studio MCP` - Content/media MCP wrapper; current live tools are generate_image, generate_video, and generate_audio only. ElevenLabs and Higgsfield are separate child routes and not available unless shared/api-catalog.md verifies them. Use when: this MCP's purpose matches the task shape.
 - `sequential-thinking MCP` - Multi-step structured reasoning tool (`sequential-thinking`). Use when: this MCP's purpose matches the task shape.
 
 ### Native CLI features (verified, my CLI is `claude`)
@@ -47,7 +47,7 @@ Recon, subdomain enumeration, attack-surface mapping, program scope. Bounty Mode
 
 ### APIs available (via env)
 - `OBSIDIAN_REST_API_KEY` -> chrono-obsidian MCP - for vault read/write when chrono-obsidian is verified for this pane.
-- Bounty platform session-state: persistent Playwright browser (H1/Bugcrowd/Intigriti/HackenProof/Code4rena) — operator keeps browser open with 2FA'd sessions; tools attach via CDP per `reference_bounty_browser_session_state.md`.
+- Persistent browser session-state: lanes attach via CDP to the persistent Chrome (port 9222) rather than spawning a fresh profile, reusing the operator's signed-in working browser session. See `shared/lifecycle.md` for the browser-attach rules.
 
 ## When to fan out
 

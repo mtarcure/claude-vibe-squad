@@ -27,7 +27,7 @@ MCPS=(
     "chrono-obsidian|required|${CHRONO_PLUGINS}/chrono-vault/mcp_server.py --namespace obsidian|OBSIDIAN_REST_API_KEY OBSIDIAN_VAULT_ROOT"
     "chrono-catalog|required|${CHRONO_PLUGINS}/chrono-vault/mcp_server.py --namespace catalog|"
     "chrono-research-arsenal|optional|${CHRONO_PLUGINS}/chrono-research-arsenal/mcp_server.py|APIFY_TOKEN BRAVE_API_KEY PERPLEXITY_API_KEY SERPER_API_KEY XAI_API_KEY"
-    "chrono-content-engineer|optional|${CHRONO_PLUGINS}/chrono-content-engineer/mcp_server.py|GEMINI_API_KEY OPENAI_API_KEY XAI_API_KEY"
+    "chrono-media-studio|optional|${CHRONO_PLUGINS}/chrono-media-studio/mcp_server.py|GEMINI_API_KEY OPENAI_API_KEY XAI_API_KEY"
     "chrono-recon|optional|${CHRONO_PLUGINS}/chrono-recon/mcp_server.py|GH_TOKEN"
 )
 

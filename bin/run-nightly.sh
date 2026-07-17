@@ -5,7 +5,7 @@
 # Phases:
 #   1. Doctor (CLI/MCP/browser/disk/usage health + bleed detection)
 #   2. Registry reconciler (close landed responses and log drift)
-#   3. Browser session keep-alive (refresh bounty platform sessions)
+#   3. Browser session keep-alive (refresh the persistent CDP browser session)
 #   4. System cleanup (light)
 #   5. Brain cleanup (KG contradiction sweep)
 #   6. Feed sweep with cadence audit (vendor/practitioner/research/podcasts)

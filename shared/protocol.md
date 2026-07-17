@@ -16,6 +16,7 @@ compatibility_namespace: coding | security | content | content-engineer | sysmgm
 review_model: gpt-codex | claude | gemini | kimi | none
 mandatory_review: true | false
 mode: bounty | project | content | maintenance | incident | research | triage | outreach | none
+capability: <card slug valid for the mode, e.g. web-app> | none
 phase: <phase or none>
 type: TASK
 priority: low | normal | high | urgent
@@ -36,6 +37,33 @@ parent_msg_id: none
 ```
 
 The dispatcher contains a temporary compatibility bridge for older local packets, but new markdown must use the fields above.
+
+### Optional `capability:` field
+
+`capability:` is **optional**. When set, its value is a capability-card slug valid for the packet's `mode` —
+for example `mode: project` with `capability: web-app`. Combined with `mode` it resolves to
+`shared/capabilities/<mode>/<card>.md` (`project` + `web-app` → `shared/capabilities/project/web-app.md`); the
+slug is the final segment of the card's canonical `id: <mode>/<card>`, and passing the full `<mode>/<card>` id
+is equivalent. Omit it (or set `none`) when a packet does not run under a specific card. The card defines the
+S0–S7 workflow, `gates`, and `overlays` for that kind of work (see `shared/capabilities/_skeleton.md` +
+`shared/capabilities/_format.md`; each mode file carries a `## Capabilities` index of its cards).
+
+**Selects the workflow, never the model lead.** `capability:` selects which validated protocol the work
+follows — the card's S0–S7 steps, gates, and overlays. It does **not** choose a model lead and does **not**
+override `to_model`. Routing stays per-specialist: `specialist` + `shared/routing.md` +
+`shared/specialist-runtime-map.tsv` decide the lane, exactly as without the field (FINAL-PLAN §1 — "optional
+`capability:` selects gates/workflow, **never a model lead**; routing stays per-specialist"). A packet may set
+`capability:` on any `to_model` lane; the field changes the *protocol*, not the *router*.
+
+**Enforcement level (advisory today — do not over-read it).** `capability:` is **advisory / selective
+metadata** that points at a validated card. What is machine-checked today is the **cards**, not the field:
+`bin/validate-capabilities.sh` validates every `shared/capabilities/<mode>/<card>.md` (specialist / tool /
+skill honesty and the derived `capability_state`), so a slug that names a real card points at validated
+content. What is **not** wired yet is **dispatcher-side field validation** — `bin/send-task.sh` does not
+currently reject a packet whose `capability:` is malformed or is not a real card for its `mode`, and it does
+not surface the card's `capability_state`. Treat the field as a pointer, not a gate. Rejecting an invalid
+`capability:` at dispatch (and optionally flagging a `needs_tool` / `degraded-blueprint` card's state) is a
+**documented future hardening**, not a live guarantee.
 
 ## Lifecycle
 

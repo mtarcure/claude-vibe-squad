@@ -10,6 +10,18 @@ phases: 5
 
 For environment health, dependency upgrades, repo cleanup, routine audits, and system sweeps.
 
+## Capabilities
+
+Part of the **Operations** nav-family (incident · maintenance · triage) — a display grouping over three canonical modes, **not** a 7th `ops` mode; maintenance keeps `mode: maintenance`. `capability_state` is **derived** and machine-checked by `bin/validate-capabilities.sh` (not hand-set). Cards live in `shared/capabilities/maintenance/`.
+
+| Capability | State | When |
+|---|---|---|
+| [Environment / repo health](../capabilities/maintenance/environment-repo-health.md) | `live` | repo/env hygiene, cleanup, upgrades, refactors |
+| [Dependency / release integrity](../capabilities/maintenance/dependency-release-integrity.md) | `live` | dep trust / supply-chain / advisory — signing/attestation is `needs_tool` |
+| [Memory / vault hygiene](../capabilities/maintenance/memory-vault-hygiene.md) | `live` | durable-knowledge curation — legacy `chrono-kg` retired |
+| [Harness audit / compatibility](../capabilities/maintenance/harness-audit-compatibility.md) | `live` | prompt/tool/script drift + MCP reachability (audit-only) |
+| [Personal operations](../capabilities/maintenance/personal-operations.md) | `live` | routines / reminders / draft — send + calendar-write are `needs_tool` |
+
 ## Flow
 
 | Phase | Work | Likely specialists |
