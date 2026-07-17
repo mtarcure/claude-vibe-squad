@@ -17,7 +17,7 @@ factual claims must be grounded (truth-rights / Rule-8); a model cutoff is never
 |---|---|---|---|---|
 | **S0** Intake/Admit | `Chrono`, `triage` | `chrono-vault` (all · yes · subscription) | — | memory overlay (recall); brief |
 | **S1** Frame (outline + audience) | `editor`, `technical-writer`, `brand-voice` | — | `terminology-memory` (authored), `scope-decomposition` (stub) | — |
-| **S3** Produce (draft) | `technical-writer`, `editor` | `chrono-research-arsenal` (all · lane-live · subscription), `chrono-obsidian` (all · yes · subscription) | `terminology-memory` (authored), `structured-data-authoring` (authored) | — |
+| **S3** Produce (draft) | `technical-writer`, `editor` | `chrono-research-arsenal` (all · lane-live · subscription), `chrono-obsidian` (all · yes · subscription), `codex --search` (codex · yes · subscription) | `terminology-memory` (authored), `structured-data-authoring` (authored) | — |
 | **S4** Verify (truth + edit) | `editor`, `skeptic`, `content-verifier` | `chrono-research-arsenal` (all · lane-live · subscription) | `claim-verification` (authored), `citation-audit` (authored) | truth-rights overlay — Rule-8 truth gate (load-bearing factual claims grounded; unverifiable ⇒ `needs_tool`, not PASS) |
 | **S5** Review/Gate | `skeptic`, `cross-family-reviewer`, `operator` | — | — | review overlay; `public_release` |
 | **S6** Ship/Deliver (publish) | `technical-writer` | `chrono-obsidian` (all · yes · subscription) | `citation-audit` (authored) | `public_release` |

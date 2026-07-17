@@ -17,7 +17,7 @@ claims route through the Rule-8 truth gate.
 | Step | Specialists | Tools `(lane · state · cost_tier)` | Skills `(type)` | Gate / Overlay |
 |---|---|---|---|---|
 | **S0** Intake/Admit | `Chrono`, `triage` | `chrono-vault` (all · yes · subscription) | — | memory overlay (recall); brief |
-| **S1** Frame (offer + channels + audience) | `copywriter`, `brand-voice`, `social-strategist` | `firecrawl` (claude · lane-live · metered), `chrono-research-arsenal` (all · lane-live · subscription) | `keyword-clustering` (authored), `technical-seo-audit` (authored) | — |
+| **S1** Frame (offer + channels + audience) | `copywriter`, `brand-voice`, `social-strategist` | `firecrawl` (claude · lane-live · metered), `chrono-research-arsenal` (all · lane-live · subscription), `codex --search` (codex · yes · subscription) | `keyword-clustering` (authored), `technical-seo-audit` (authored) | — |
 | **S3** Produce (copy + social variants) | `copywriter`, `brand-voice`, `growth-and-search-analyst` | `chrono-research-arsenal` (all · lane-live · subscription) | `keyword-clustering` (authored), `technical-seo-audit` (authored) | — |
 | **S4** Verify (truth + brand) | `brand-voice`, `skeptic`, `content-verifier` | `chrono-research-arsenal` (all · lane-live · subscription) | `claim-verification` (authored), `citation-audit` (authored) | truth-rights overlay — Rule-8 truth gate for product/efficacy claims |
 | **S5** Review/Gate | `skeptic`, `cross-family-reviewer`, `operator` | — | — | review overlay; `public_release`, `paid_media`, `live_outreach` (per-message send approval) |

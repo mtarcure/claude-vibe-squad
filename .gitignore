@@ -107,3 +107,6 @@ model-lanes/*/.gemini/settings.json
 **/*secret*.json
 **/*.key
 **/*.pem
+
+# Playwright MCP runtime snapshots (lane-local, never public)
+**/.playwright-mcp/

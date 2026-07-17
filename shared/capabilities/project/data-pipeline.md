@@ -20,7 +20,7 @@ cost_note: subscription only — coordination tools are lane-native. No metered 
 | **S2** Design (pipeline architecture) | `architect`, `backend-engineer`, `database-engineer` | `context7` (claude · lane-live · subscription) | `dependency-cycle-audit` (stub) | — |
 | **S3** Produce (build ETL / wiring) | `data-extraction-engineer`, `ai-engineer`, `backend-engineer` | `context7` (claude · lane-live · subscription) | `data-cleaning-pipeline` (stub), `structured-data-authoring` (authored) | — |
 | **S4** Verify | `test-engineer`, `performance-optimizer` | — | `eval-harness-pattern` (stub), `representative-workload-design` (stub) | — |
-| **S5** Review/Gate | `code-reviewer`, `skeptic`, `cross-family-reviewer` | — | — | review overlay; privacy if PII |
+| **S5** Review/Gate | `code-reviewer`, `skeptic`, `cross-family-reviewer` | `codex review` (codex · yes · subscription), `claude --from-pr` (claude · yes · subscription) | — | review overlay (review tools MECHANICS ONLY — never replace the independent cross-family reviewer); privacy if PII |
 | **S6** Ship/Deliver | `devops-engineer` | `plugin:github:github` (claude · lane-live · subscription) | `rollback-test-coverage` (stub) | `production_mutation`, `credential_change`, `delete` (destructive overwrite / retention cutoff) |
 | **S7** Capture | `Chrono`, `memory-curator` | `chrono-vault` (all · yes · subscription) | — | memory overlay (record) |
 

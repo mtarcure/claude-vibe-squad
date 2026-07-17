@@ -20,9 +20,9 @@ deletes are operator-gated.
 | **S0** Intake/Admit | `Chrono`, `triage` | `chrono-vault` (all · yes · subscription) | — | memory overlay (recall) |
 | **S1** Frame (trust scope + policy) | `product-manager`, `software-supply-chain-engineer` | — | `scope-decomposition` (stub) | — |
 | **S2** Design (dep graph + advisory plan) | `software-supply-chain-engineer`, `security-analyst` | — | `dependency-cycle-audit` (stub) | — |
-| **S3** Produce (SCA + secret + advisory audit) | `software-supply-chain-engineer`, `security-analyst` | `osv-scanner` (local · yes · —), `gitleaks` (local · yes · —), `trufflehog` (local · yes · —), `trivy` (local · yes · —) | `known-advisory-backport-check` (untyped), `secret-rotation-discipline` (stub) | `credential_change` (secret rotation) |
+| **S3** Produce (SCA + secret + advisory audit) | `software-supply-chain-engineer`, `security-analyst` | `osv-scanner` (local · yes · —), `gitleaks` (local · yes · —), `trufflehog` (local · yes · —), `trivy` (local · yes · —), `semgrep` (local · yes · —), `codex --search` (codex · yes · subscription) | `known-advisory-backport-check` (untyped), `secret-rotation-discipline` (stub) | `credential_change` (secret rotation) |
 | **S4** Verify (integrity + provenance) | `software-supply-chain-engineer`, `skeptic` | `plugin:github:github` (claude · lane-live · subscription) | — | signing / attestation / SBOM = `needs_tool` (no verified signing tool) |
-| **S5** Review/Gate (approval) | `code-reviewer`, `cross-family-reviewer`, `operator` | — | — | review overlay; `credential_change`, `public_release`, `delete` |
+| **S5** Review/Gate (approval) | `code-reviewer`, `cross-family-reviewer`, `operator` | `codex review` (codex · yes · subscription), `claude --from-pr` (claude · yes · subscription) | — | review overlay (review tools MECHANICS ONLY — never replace the independent cross-family reviewer); `credential_change`, `public_release`, `delete` |
 | **S6** Ship/Deliver (release evidence) | `software-supply-chain-engineer`, `technical-writer` | `plugin:github:github` (claude · lane-live · subscription) | — | `public_release` |
 | **S7** Capture | `Chrono`, `memory-curator` | `chrono-vault` (all · yes · subscription) | — | memory overlay (record) |
 

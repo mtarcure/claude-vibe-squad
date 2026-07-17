@@ -17,7 +17,7 @@ clustering, growth recommendations. Authoring is live; **measuring** ranking/tra
 | Step | Specialists | Tools `(lane · state · cost_tier)` | Skills `(type)` | Gate / Overlay |
 |---|---|---|---|---|
 | **S0** Intake/Admit | `Chrono`, `triage` | `chrono-vault` (all · yes · subscription) | — | memory overlay (recall) |
-| **S1** Frame (target pages + keywords) | `growth-and-search-analyst` | `firecrawl` (claude · lane-live · metered) | `keyword-clustering` (authored) | — |
+| **S1** Frame (target pages + keywords) | `growth-and-search-analyst` | `firecrawl` (claude · lane-live · metered), `codex --search` (codex · yes · subscription) | `keyword-clustering` (authored) | — |
 | **S3** Produce (on-page + schema) | `growth-and-search-analyst` | `firecrawl` (claude · lane-live · metered), `chrono-research-arsenal` (all · lane-live · subscription) | `technical-seo-audit` (authored), `structured-data-authoring` (authored), `keyword-clustering` (authored) | — |
 | **S4** Verify (audit conformance) | `growth-and-search-analyst`, `skeptic` | — | `technical-seo-audit` (authored) | measured ranking/traffic impact is `needs_tool` (no analytics connector) — verify on-page conformance only |
 | **S5** Review/Gate | `skeptic`, `cross-family-reviewer` | — | — | review overlay (if the change ships to a public property) |

@@ -21,7 +21,7 @@ vulnerability research against an existing target, use `bounty/smart-contract-we
 | **S2** Design (contract arch + invariants) | `architect`, `smart-contract-engineer` | `context7` (claude · lane-live · subscription) | `dependency-cycle-audit` (stub), `gas-optimization-pattern` (stub) | — |
 | **S3** Produce (EVM/Solidity implement + unit test) | `smart-contract-engineer` | `forge` (local · yes · —), `cast` (local · yes · —), `anvil` (local · yes · —), `chisel` (local · yes · —) | `known-advisory-backport-check` (untyped) | financial |
 | **S4** Verify (EVM/Solidity static + property/fuzz) | `test-engineer`, `security-analyst` | `slither` (local · yes · —), `myth` (local · yes · —), `echidna` (local · yes · —), `medusa` (local · yes · —), `halmos` (local · yes · —), `aderyn` (local · yes · —) | `behavior-preservation-test` (stub) | security review overlay (heightened-risk) |
-| **S5** Review/Gate | `code-reviewer`, `skeptic`, `cross-family-reviewer`, `operator` | — | — | review overlay (mandatory cross-family); mainnet deploy operator-gated |
+| **S5** Review/Gate | `code-reviewer`, `skeptic`, `cross-family-reviewer`, `operator` | `codex review` (codex · yes · subscription), `claude --from-pr` (claude · yes · subscription) | — | review overlay (mandatory cross-family; review tools MECHANICS ONLY — never replace the independent cross-family reviewer); mainnet deploy operator-gated |
 | **S6** Ship/Deliver (deploy) | `smart-contract-engineer`, `devops-engineer` | `plugin:github:github` (claude · lane-live · subscription) | — | `public_release`, `production_mutation` (deploy) |
 | **S7** Capture | `Chrono`, `memory-curator` | `chrono-vault` (all · yes · subscription) | — | memory overlay (record) |
 

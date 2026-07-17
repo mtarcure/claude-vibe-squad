@@ -204,12 +204,12 @@ Claude Code CLI flags — verified live via `claude --help` capture and targeted
 
 ### Claude Computer Use API
 - url: https://docs.anthropic.com/en/docs/build-with-claude/computer-use
-- access: API tier (uncertain via CLI)
+- access: API-only, metered
 - specialists: scraping-engineer (potentially)
-- verified: needs-research
-- last_checked: 2026-05-02
-- research_task: verify access path from claude CLI vs API-only — does `claude` CLI expose computer use, or is it Claude API SDK only?
-- notes: Operator already has computer-use MCP in this very session. Need to confirm CLI-side access for squad use.
+- verified: needs_tool
+- last_checked: 2026-07-17
+- test_reference: `TASK-2026-07-17-0300-probeclaude` found no Claude CLI flag and no live computer-use tool in the lane surface.
+- notes: API-only and metered. Browser MCP verification does not establish Computer Use API access; configure and authorize a distinct API route before use.
 
 ---
 
@@ -249,9 +249,9 @@ Codex CLI flags — verified live via `codex --help` capture and targeted live-f
 - access: Subscription
 - specialists: all codex-pane specialists doing file writes
 - verified: yes
-- last_checked: 2026-05-02
-- test_reference: `codex --help` enum capture
-- notes: REQUIRED `workspace-write` for outbox writes. Encoded in `bin/launch-squad.sh` and the GPT/Codex model-lane prompt.
+- last_checked: 2026-07-17
+- test_reference: `TASK-2026-07-17-0305-probecodex` verified all three enum values and a live `-s read-only` run; the sandbox denied cache creation while permitting scoped reads.
+- notes: This is the canonical Codex sandbox-policy flag entry (around this section); line 52 is a Claude MCP-config flag and is not a Codex sandbox reference. Mode selection does not waive task scope or approval gates.
 
 ### codex -a / --ask-for-approval <APPROVAL_POLICY> {untrusted,on-request,never}
 - url: N/A (CLI flag)
@@ -276,9 +276,9 @@ Codex CLI flags — verified live via `codex --help` capture and targeted live-f
 - access: Subscription
 - specialists: research, large-context-analyst (when codex is the runner)
 - verified: yes
-- last_checked: 2026-05-02
-- test_reference: `codex --help` text "Enables native Responses web_search tool"
-- notes: Native web search via OpenAI Responses API.
+- last_checked: 2026-07-17
+- test_reference: `TASK-2026-07-17-0305-probecodex` ran a read-only official-source query, emitted a real `web_search` action, and returned the matching Python.org release URL.
+- notes: Native web search via OpenAI Responses API; verified for the scoped read route.
 
 ### codex --enable <FEATURE> / --disable <FEATURE>
 - url: N/A (CLI flag)
@@ -303,9 +303,9 @@ Codex CLI flags — verified live via `codex --help` capture and targeted live-f
 - access: Subscription
 - specialists: code-reviewer
 - verified: yes-as-subcommand
-- last_checked: 2026-05-02
-- test_reference: `codex --help` Commands block "Run a code review non-interactively"
-- notes: Native code-review subcommand. Used in multi-model code-review fanout.
+- last_checked: 2026-07-17
+- test_reference: `TASK-2026-07-17-0305-probecodex` ran a live read-only commit review and returned structured inspection events with no findings.
+- notes: Native code-review subcommand. It is a mechanics overlay, not a substitute for an independent reviewer. Current parser caveat: `--commit SHA` plus a custom prompt is rejected, so commit-target review must omit custom instructions.
 
 ### codex mcp / codex mcp-server
 - url: N/A (subcommands)
@@ -338,10 +338,10 @@ Codex CLI flags — verified live via `codex --help` capture and targeted live-f
 - url: N/A (subcommand)
 - access: Subscription
 - specialists: bounty-sandbox-provision workflows
-- verified: yes-as-subcommand
-- last_checked: 2026-05-02
-- test_reference: `codex --help` Commands block "Run commands within a Codex-provided sandbox"
-- notes: Wraps a command in codex's sandbox without entering a chat.
+- verified: partial
+- last_checked: 2026-07-17
+- test_reference: `TASK-2026-07-17-0305-probecodex` verified the wrapper schema, but a smoke test failed closed because the active configuration has no required permissions profile.
+- notes: Wrapper existence is verified; enforcement is not. Configure a named permissions profile and run a denial smoke before relying on this route. The top-level `codex -s/--sandbox` runner control is independently verified above.
 
 ### codex --oss / --local-provider {lmstudio,ollama}
 - url: N/A (CLI flag)
@@ -829,14 +829,14 @@ Kimi CLI flags — verified live via `kimi --help` capture on 2026-05-02. Subscr
 
 ## 5. xAI / Grok
 
-### Grok-4-fast (2M context)
-- url: https://x.ai/api
+### xAI direct chat/reasoning (requested `grok-4-fast` alias)
+- url: https://api.x.ai/v1/chat/completions
 - access: API (XAI_API_KEY)
 - specialists: large-context-analyst, long-context fan-out
-- verified: needs-research
-- last_checked: 2026-05-02
-- research_task: API setup + verify endpoint access; trace `chrono-research-arsenal` MCP code to confirm Grok routing surface
-- notes: XAI_API_KEY is plumbed into chrono-research-arsenal and chrono-media-studio MCPs (per `codex mcp list`). End-to-end invocation path unverified.
+- verified: yes for direct text/reasoning transport; partial for vision and exact-model pinning
+- last_checked: 2026-07-17
+- test_reference: `TASK-2026-07-17-0310-probemetered` made one bounded direct chat-completions call: HTTP 200, requested `grok-4-fast`, returned `grok-4.3`, with visible text plus reasoning-token telemetry.
+- notes: Direct chat/reasoning is verified only under the registry metered guard. Vision was not probed, and this call used zero sources, so it does not verify or replace the separate grounded `xai_search` route. The requested alias remapped and must not be treated as exact-model pinning.
 
 ### Grok-X integration
 - url: https://x.ai
@@ -851,14 +851,14 @@ Kimi CLI flags — verified live via `kimi --help` capture on 2026-05-02. Subscr
 
 ## 6. DeepSeek
 
-### DeepSeek V4-Pro / V4-Flash
-- url: https://api.deepseek.com
-- access: API (key not yet plumbed)
+### DeepSeek direct chat (`deepseek-chat` returned `deepseek-v4-flash`)
+- url: https://api.deepseek.com/chat/completions
+- access: Direct API (`DEEPSEEK_API_KEY` present on the probed Codex lane)
 - specialists: cost-sensitive fan-out, contrarian model voice
-- verified: needs-research
-- last_checked: 2026-05-02
-- research_task: API setup; verify API key plumbing into a chrono MCP; addition to T1/T2 fanout pool
-- notes: No DEEPSEEK_API_KEY visible in any MCP env block. Currently unplumbed.
+- verified: yes for direct text-completion transport; partial for coding/reasoning quality
+- last_checked: 2026-07-17
+- test_reference: `TASK-2026-07-17-0310-probemetered` made one bounded direct chat-completions call: HTTP 200, requested `deepseek-chat`, returned `deepseek-v4-flash`, one completion token and nine total tokens.
+- notes: The direct API text route works under the registry metered guard. A Chrono MCP wrapper remains absent, and representative coding/reasoning quality and price are unbenchmarked; do not infer either from the transport smoke.
 
 ---
 

@@ -20,9 +20,9 @@ operator-gated.
 | **S0** Intake/Admit | `Chrono`, `triage` | `chrono-vault` (all · yes · subscription) | — | memory overlay (recall); inventory precheck |
 | **S1** Frame (audit scope + cost) | `product-manager`, `mac-ops`, `finance-analyst` | — | `scope-decomposition` (stub) | — |
 | **S2** Design (risk grouping + plan) | `architect`, `refactor-cleaner`, `agentops` | — | `refactor-scope-bounding` (stub), `dependency-cycle-audit` (stub) | — |
-| **S3** Produce (upgrade / cleanup / refactor) | `refactor-cleaner`, `software-supply-chain-engineer`, `mac-ops` | `plugin:github:github` (claude · lane-live · subscription), `osv-scanner` (local · yes · —), `gitleaks` (local · yes · —) | `refactor-scope-bounding` (stub), `known-advisory-backport-check` (untyped) | `credential_change`; `cleanup`; `delete` |
+| **S3** Produce (upgrade / cleanup / refactor) | `refactor-cleaner`, `software-supply-chain-engineer`, `mac-ops` | `plugin:github:github` (claude · lane-live · subscription), `osv-scanner` (local · yes · —), `gitleaks` (local · yes · —), `trufflehog` (local · yes · —), `trivy` (local · yes · —), `semgrep` (local · yes · —) | `refactor-scope-bounding` (stub), `known-advisory-backport-check` (untyped) | `credential_change`; `cleanup`; `delete` |
 | **S4** Verify (regression + changelog) | `test-engineer`, `skeptic` | — | `rollback-test-coverage` (stub), `regression-bisect-flow` (stub) | — |
-| **S5** Review/Gate (approval) | `code-reviewer`, `cross-family-reviewer`, `operator` | — | — | review overlay; `production_mutation`, `delete`, `cleanup`, `credential_change`, `public_release` |
+| **S5** Review/Gate (approval) | `code-reviewer`, `cross-family-reviewer`, `operator` | `codex review` (codex · yes · subscription), `claude --from-pr` (claude · yes · subscription) | — | review overlay (review tools MECHANICS ONLY — never replace the independent cross-family reviewer); `production_mutation`, `delete`, `cleanup`, `credential_change`, `public_release` |
 | **S6** Ship/Deliver (batch execute + changelog) | `mac-ops`, `agentops`, `technical-writer` | `plugin:github:github` (claude · lane-live · subscription) | — | `production_mutation` (live-system mutation); `public_release` |
 | **S7** Capture | `Chrono`, `memory-curator` | `chrono-vault` (all · yes · subscription) | — | memory overlay (record) |
 

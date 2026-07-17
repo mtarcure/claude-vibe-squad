@@ -20,9 +20,9 @@ admit only once the probe-target tools below are registry-verified.
 | **S0** Intake/Admit | `Chrono`, `triage` | `chrono-vault` (all · yes · subscription) | — | memory overlay (recall) |
 | **S1** Frame (target / arch spec) | `product-manager`, `systems-engineer` | — | `requirements-elicitation` (stub), `scope-decomposition` (stub) | — |
 | **S2** Design (arch / ABI / SIMD plan) | `architect`, `systems-engineer` | `context7` (claude · lane-live · subscription) | `dependency-cycle-audit` (stub) | — |
-| **S3** Produce (implement) | `systems-engineer`, `performance-optimizer` | `cross-compiler-toolchain` (unknown · catalog-absent · unknown), `qemu` (unknown · catalog-absent · unknown) | `cross-arch-test-discipline` (stub) | — |
+| **S3** Produce (implement) | `systems-engineer`, `performance-optimizer` | `cross-compiler-toolchain` (unknown · catalog-absent · unknown), `qemu` (unknown · catalog-absent · unknown), `codex --sandbox` (codex · yes · subscription), `claude --worktree` (claude · yes · subscription) | `cross-arch-test-discipline` (stub) | — |
 | **S4** Verify (cross-arch + SIMD correctness) | `test-engineer`, `performance-optimizer` | `perf` (unknown · catalog-absent · unknown), `valgrind` (unknown · catalog-absent · unknown) | `simd-correctness-validation` (stub), `cross-arch-test-discipline` (stub), `behavior-preservation-test` (stub) | — |
-| **S5** Review/Gate | `code-reviewer`, `skeptic`, `cross-family-reviewer` | — | — | review overlay |
+| **S5** Review/Gate | `code-reviewer`, `skeptic`, `cross-family-reviewer` | `codex review` (codex · yes · subscription), `claude --from-pr` (claude · yes · subscription) | — | review overlay (review tools MECHANICS ONLY — never replace the independent cross-family reviewer) |
 | **S6** Ship/Deliver | `devops-engineer`, `technical-writer` | `plugin:github:github` (claude · lane-live · subscription) | `regression-bisect-flow` (stub) | `production_mutation` |
 | **S7** Capture | `Chrono`, `memory-curator` | `chrono-vault` (all · yes · subscription) | — | memory overlay (record) |
 

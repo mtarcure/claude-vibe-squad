@@ -18,7 +18,7 @@ cost_note: S3 generation uses the `metered` `generate_image` wrapper (provider-b
 | **S0** Intake/Admit | `Chrono` | `chrono-vault` (all · yes · subscription) | — | memory overlay (recall); brief |
 | **S1** Frame (concept) | `image-designer`, `brand-voice` | — | `terminology-memory` (authored) | — |
 | **S3** Produce (generate) | `image-designer` | `generate_image` (all · lane-live · metered) | — | — |
-| **S4** Verify (+ rights) | `skeptic`, `brand-voice`, `asset-provenance-and-rights-auditor` | — | `rights-and-provenance-gate` (authored), `consent-and-likeness-check` (authored) | truth-rights overlay — Rule-6 rights gate (machine record; non-PASS/stale subject-hash blocks); privacy overlay if a real person's likeness |
+| **S4** Verify (+ rights) | `skeptic`, `brand-voice`, `asset-provenance-and-rights-auditor` | `view_image` (codex · yes · subscription) | `rights-and-provenance-gate` (authored), `consent-and-likeness-check` (authored) | truth-rights overlay — Rule-6 rights gate (machine record; non-PASS/stale subject-hash blocks); privacy overlay if a real person's likeness |
 | **S5** Review/Gate | `skeptic`, `operator` | — | — | review overlay; `paid_media`, `public_release` |
 | **S6** Ship/Deliver (package) | `image-designer` | — | — | — |
 | **S7** Capture | `Chrono`, `memory-curator` | `chrono-vault` (all · yes · subscription) | — | memory overlay (record) |

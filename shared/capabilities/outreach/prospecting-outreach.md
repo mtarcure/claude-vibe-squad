@@ -18,7 +18,7 @@ is operator-gated `needs_tool`** — every message needs per-message operator ap
 |---|---|---|---|---|
 | **S0** Intake/Admit | `Chrono`, `triage` | `chrono-vault` (all · yes · subscription) | — | memory overlay (recall) |
 | **S1** Frame (ICP + targets + goals) | `research`, `growth-and-search-analyst`, `finance-analyst` | `chrono-research-arsenal` (all · lane-live · subscription) | `scope-decomposition` (stub) | privacy overlay (prospect PII) |
-| **S2** Design (qualify + enrich list) | `research`, `data-extraction-engineer`, `privacy-steward` | `firecrawl` (claude · lane-live · metered), `chrono-research-arsenal` (all · lane-live · subscription) | `technical-seo-audit` (authored), `citation-audit` (authored) | privacy overlay (PII minimization) |
+| **S2** Design (qualify + enrich list) | `research`, `data-extraction-engineer`, `privacy-steward` | `firecrawl` (claude · lane-live · metered), `chrono-research-arsenal` (all · lane-live · subscription), `codex --search` (codex · yes · subscription) | `technical-seo-audit` (authored), `citation-audit` (authored) | privacy overlay (PII minimization) |
 | **S3** Produce (draft messages + follow-ups) | `copywriter`, `brand-voice`, `editor` | `chrono-research-arsenal` (all · lane-live · subscription) | `citation-audit` (authored) | — |
 | **S4** Verify (personalization + accuracy) | `editor`, `skeptic` | — | `citation-audit` (authored) | privacy overlay; no fabricated claims about the prospect |
 | **S5** Review/Gate (send approval) | `skeptic`, `operator`, `personal-ops` | — | — | review overlay; **`live_outreach` — per-message operator "go"** (send is `needs_tool`/operator-gated) |

@@ -21,7 +21,7 @@ Merges DevOps and SRE ownership (they stay distinct: `devops-engineer` owns prov
 | **S2** Design (pipeline / IaC architecture) | `architect`, `devops-engineer`, `site-reliability-engineer` | `context7` (claude · lane-live · subscription) | `dependency-cycle-audit` (stub), `secret-rotation-discipline` (stub) | `credential_change` (secrets design) |
 | **S3** Produce (CI / IaC / rails) | `devops-engineer` | `context7` (claude · lane-live · subscription) | `rollback-test-coverage` (stub) | — |
 | **S4** Verify | `test-engineer`, `site-reliability-engineer` | — | `rollback-test-coverage` (stub), `representative-workload-design` (stub) | — |
-| **S5** Review/Gate | `code-reviewer`, `skeptic`, `cross-family-reviewer`, `operator` | — | — | review overlay (mandatory cross-family — high-safety infra); `production_mutation`, `credential_change`, `delete` |
+| **S5** Review/Gate | `code-reviewer`, `skeptic`, `cross-family-reviewer`, `operator` | `codex review` (codex · yes · subscription), `claude --from-pr` (claude · yes · subscription) | — | review overlay (mandatory cross-family — high-safety infra; review tools MECHANICS ONLY — never replace the independent cross-family reviewer); `production_mutation`, `credential_change`, `delete` |
 | **S6** Ship/Deliver | `devops-engineer`, `technical-writer` | `plugin:github:github` (claude · lane-live · subscription) | `secret-rotation-discipline` (stub) | `public_release`, `production_mutation` |
 | **S7** Capture | `Chrono`, `memory-curator` | `chrono-vault` (all · yes · subscription) | — | memory overlay (record) |
 

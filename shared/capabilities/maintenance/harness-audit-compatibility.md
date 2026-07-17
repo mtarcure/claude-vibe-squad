@@ -18,9 +18,9 @@ handed off; remediation (mutating the harness) routes to the owning implementer,
 |---|---|---|---|---|
 | **S0** Intake/Admit | `Chrono`, `triage` | `chrono-vault` (all · yes · subscription) | — | memory overlay (recall) |
 | **S1** Frame (audit scope) | `harness-optimizer`, `prompt-engineer` | — | `scope-decomposition` (stub) | — |
-| **S3** Produce (drift + reachability audit) | `harness-optimizer`, `prompt-engineer` | `chrono-vault` (all · yes · subscription) | `mcp-reachability-audit` (stub), `prompt-cache-discipline` (stub), `prompt-cache-hit-monitoring` (stub) | — |
+| **S3** Produce (drift + reachability audit) | `harness-optimizer`, `prompt-engineer` | `chrono-vault` (all · yes · subscription), `codex --sandbox` (codex · yes · subscription), `claude --worktree` (claude · yes · subscription) | `mcp-reachability-audit` (stub), `prompt-cache-discipline` (stub), `prompt-cache-hit-monitoring` (stub) | — |
 | **S4** Verify (findings triage) | `harness-optimizer`, `skeptic` | — | — | — |
-| **S5** Review/Gate | `skeptic`, `cross-family-reviewer` | — | — | review overlay |
+| **S5** Review/Gate | `skeptic`, `cross-family-reviewer` | `codex review` (codex · yes · subscription), `claude --from-pr` (claude · yes · subscription) | — | review overlay (review tools MECHANICS ONLY — never replace the independent cross-family reviewer) |
 | **S6** Ship/Deliver (audit report + handoff) | `harness-optimizer`, `technical-writer` | `chrono-obsidian` (all · yes · subscription) | — | audit-only — remediation routes to the owning implementer |
 | **S7** Capture | `Chrono`, `memory-curator` | `chrono-vault` (all · yes · subscription) | — | memory overlay (record) |
 

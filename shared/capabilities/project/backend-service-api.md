@@ -21,7 +21,7 @@ concurrency, observability. Any browser UI belongs to `project/web-app`; the two
 | **S2** Design (API + schema contract) | `architect`, `backend-engineer`, `database-engineer` | `context7` (claude · lane-live · subscription) | `dependency-cycle-audit` (stub) | privacy overlay if PII |
 | **S3** Produce (build) | `backend-engineer`, `database-engineer` | `context7` (claude · lane-live · subscription) | `structured-data-authoring` (authored) | — |
 | **S4** Verify | `test-engineer`, `performance-optimizer` | — | `behavior-preservation-test` (stub), `representative-workload-design` (stub) | — |
-| **S5** Review/Gate | `code-reviewer`, `skeptic`, `cross-family-reviewer` | — | — | review overlay (mandatory cross-family — persistence/high-safety); +privacy if PII |
+| **S5** Review/Gate | `code-reviewer`, `skeptic`, `cross-family-reviewer` | `codex review` (codex · yes · subscription), `claude --from-pr` (claude · yes · subscription) | — | review overlay (mandatory cross-family — persistence/high-safety; review tools MECHANICS ONLY — never replace the independent cross-family reviewer); +privacy if PII |
 | **S6** Ship/Deliver | `devops-engineer`, `site-reliability-engineer`, `technical-writer` | `plugin:github:github` (claude · lane-live · subscription) | `rollback-test-coverage` (stub) | `production_mutation` (deploy), `credential_change`, `delete` (migration) |
 | **S7** Capture | `Chrono`, `memory-curator` | `chrono-vault` (all · yes · subscription) | — | memory overlay (record) |
 
