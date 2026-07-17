@@ -5,15 +5,16 @@
 #     "httpx>=0.28",
 # ]
 # ///
-"""Browser keep-alive — verify operator's persistent Chrome (CDP-attached)
-has live tabs for the 5 bounty platforms.
+"""Browser keep-alive — verify a CDP-attached Chrome has live tabs for the
+supported bounty platforms.
 
-Per chrono memory: operator keeps Chrome open with 2FA'd sessions and tools
-attach via CDP — never fresh-launch. This script just *checks* state; if a
-session has expired or a tab has been closed, surface in morning brief so the
-operator can re-open it manually.
+Browser-touching work attaches to a persistent, already-authenticated Chrome over
+CDP rather than fresh-launching (a fresh profile has no auth). This script just
+*checks* state; if a session has expired or a tab has been closed, it surfaces the
+gap in the morning brief so the tab can be re-opened manually.
 
-Default debug port: 9222 (Chrome's standard `--remote-debugging-port=9222`).
+Default debug port: 9222 (Chrome's standard `--remote-debugging-port=9222`),
+overridable via CHROME_CDP_URL / CHROME_CDP_HOST / CHROME_CDP_PORT.
 """
 
 from __future__ import annotations
@@ -33,7 +34,9 @@ DATE = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 LOG_PATH = VAULT_ROOT / "_state" / "cleanup-logs" / f"{DATE}-browser.md"
 SUMMARY_PATH = VAULT_ROOT / "_state" / "cleanup-logs" / f"{DATE}-browser-summary.json"
 
-CDP_URL = os.environ.get("CHROME_CDP_URL", "http://127.0.0.1:9222")
+CDP_HOST = os.environ.get("CHROME_CDP_HOST", "127.0.0.1")
+CDP_PORT = os.environ.get("CHROME_CDP_PORT", "9222")
+CDP_URL = os.environ.get("CHROME_CDP_URL", f"http://{CDP_HOST}:{CDP_PORT}")
 
 PLATFORMS = [
     ("hackerone.com", "HackerOne"),

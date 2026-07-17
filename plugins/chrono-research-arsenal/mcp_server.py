@@ -5,7 +5,7 @@ Phase 3 adds: brave_search, serper_search, perplexity_query, hn_search, youtube_
               github_query, reddit_top, grok_x_search, apify_twitter, rt_markitdown_convert.
 
 Used by all chrono roles needing external data (research, scout, scraping, etc).
-Rebuilt from old claude-chrono's chrono-research-tools using FastMCP for consistency.
+Rebuilt from a predecessor project's research tools using FastMCP for consistency.
 Sync `def` for blocking ops (FastMCP runs them in a background thread).
 Per Rule 17.1 (TOOLS.md): never str(httpx_exc) — only status_code + reason_phrase.
 """

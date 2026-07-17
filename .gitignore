@@ -1,29 +1,24 @@
 # Runtime state — regenerated daily by nightly automation.
-# Config YAMLs at the top of _state/ ship with the repo; everything else is
-# operator-specific runtime data.
+# Only the generic dream default and the directory placeholder ship with the
+# repo. Feed configuration, host inventories, reports, and incidents are
+# operator-specific runtime data even when they are authored rather than
+# regenerated.
 #
-# Rule: runtime state is excluded; authored/curated config and product snapshots
-# in _state/ are explicitly unignored below.
+# Rule: runtime state is excluded. Curated product documentation belongs under
+# a public product-doc path, not in this runtime namespace.
 
 _state/**
 
 # ── preserved from original ──────────────────────────────────────────────────
 !_state/
-!_state/feed-config.yaml
 !_state/dream-config.yaml
 !_state/.gitkeep
 
 # Active-task registry is operator-local runtime truth.
 # Public repos should ship examples/active-tasks.sample.json instead.
 
-# Capability inventory snapshots (authored; not regenerated)
-!_state/capability-inventory-*.md
-!_state/mcp-graduation-candidates.md
-!_state/token-budget-*.md
-!_state/upgrade-specialists-report-*.md
-
-# Incident records (authored; permanent audit trail)
-!_state/incident-*.md
+# Capability inventories, MCP graduation candidates, token budgets, upgrade
+# reports, and incident records stay private under the blanket rule above.
 
 # Per-Lead mailbox state — operator-local, regenerated at runtime.
 departments/*/inbox/*.md
@@ -62,6 +57,11 @@ __pycache__/
 # Claude Code per-project local settings (path allowlists, etc — operator-specific)
 **/.claude/settings.local.json
 
+# Private operator-fact overlays — companions to genericized public docs; never public.
+# (e.g. chrono/operator-setup.local.md holds the operator's real CDP endpoint + enabled
+# bounty-platform set that operator-setup.md genericizes away.)
+**/*.local.md
+
 # Obsidian local UI state
 .obsidian/workspace*
 .obsidian/cache
@@ -87,6 +87,7 @@ chrono/memory.md
 /_archive/
 /projects/
 /docs/handoffs/
+/docs/lineage.md
 
 # phantom KG dirs from unexpanded CHRONO_VAULT_ROOT (P0-8) — never track
 **/${CHRONO_VAULT_ROOT}/

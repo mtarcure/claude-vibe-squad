@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "allowed": [
+    {
+      "kind": "high-entropy-token",
+      "path": "moat/fixtures/purity/deny/credential.mjs",
+      "sha256": "c936e88efa6abe9cb2926537ddd31ad5f1c75775a650c20bf2c8d003f862cbcf",
+      "reason": "Synthetic Stripe-shaped credential used by the moat denial fixture."
+    }
+  ]
+}

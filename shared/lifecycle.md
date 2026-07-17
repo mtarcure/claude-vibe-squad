@@ -67,13 +67,13 @@ Violation symptom (today's bounty work): Research and Security specialist invoca
 
 ## 11. Browser attach — never spawn fresh
 
-Every browser-touching specialist task attaches to the operator's running Chrome via CDP at `127.0.0.1:9222`. Chrono does not run browser discovery directly; Chrono dispatches the appropriate specialist and includes this browser rule in the task packet. Never spawn a new Chrome / Playwright / chrome-devtools instance with its own profile.
+Every browser-touching specialist task attaches to a persistent, CDP-accessible Chrome (default port 9222) rather than spawning fresh. Chrono does not run browser discovery directly; Chrono dispatches the appropriate specialist and includes this browser rule in the task packet. Never spawn a new Chrome / Playwright / chrome-devtools instance with its own profile.
 
-**Why**: the operator keeps Chrome open with 2FA'd, signed-in tabs for all 5 bounty platforms (HackerOne, Bugcrowd, Intigriti, HackenProof, Code4rena) plus other working state. Spawning fresh = fresh profile = no auth = useless. Worse, fresh-spawn collides with already-running profiles and produces confusing "profile lock" errors that masquerade as transient failures.
+**Why**: the persistent Chrome holds 2FA'd, signed-in tabs for the bounty platforms in use (e.g. HackerOne, Bugcrowd, Intigriti, HackenProof, Code4rena) plus other working state. Spawning fresh = fresh profile = no auth = useless. Worse, fresh-spawn collides with already-running profiles and produces confusing "profile lock" errors that masquerade as transient failures.
 
 **Primary raw-CDP discovery flow** (specialists during browser-approved work):
 1. Run `httpx http://localhost:9222/json/list` or `curl http://localhost:9222/json/list` to enumerate tabs and verify non-blank page titles.
-2. If empty / unreachable: stop, write a NOTIFY to chrono pane, surface "operator's Chrome is not running" — do NOT auto-spawn.
+2. If empty / unreachable: stop, write a NOTIFY to chrono pane, surface "the persistent CDP Chrome is not running" — do NOT auto-spawn.
 3. To act on a tab: connect to the tab's raw CDP websocket from `/json/list`, then select and inspect only allowlisted tabs for the task.
 4. MCP tools such as chrome-devtools-mcp or Playwright are needs-research alternates, not the primary path, because their pane configuration may spawn fresh Chrome profiles instead of attaching to the authenticated session.
 5. NEVER pass `--user-data-dir` pointing to a fresh profile, NEVER let an MCP launch its own Chrome, NEVER spawn `playwright launch --browser chromium` without `connect_over_cdp`.
@@ -102,7 +102,7 @@ See `shared/mode-cleanup.md` for the per-mode ephemeral-vs-durable matrix. Unive
 **At mode-close (after vibecoding-check passes)**:
 - Verify all `durable_artifacts` exist + are committed to vault
 - Delete all `ephemeral_artifacts`
-- Kill / close all `external_resources_spawned` (NOT the operator's persistent Chrome at port 9222 — that's durable infrastructure, not mode-spawned)
+- Kill / close all `external_resources_spawned` (NOT the persistent CDP Chrome at port 9222 — that's durable infrastructure, not mode-spawned)
 - Update relevant `current.md` files to clear active tasks for this mode
 - Update memory.md with durable learnings (per `shared/memory-discipline.md`)
 
@@ -118,7 +118,7 @@ See `shared/mode-cleanup.md` for the per-mode ephemeral-vs-durable matrix. Unive
 Without cleanup, these accumulate across runs. The 53-Chrome-process / 5.88GB-RSS / 12.5GB-swap state we hit on 2026-05-03 was the symptom; this rule is the fix.
 
 **Always preserved (across all modes)**:
-- Operator's main Chrome at port 9222 + `--user-data-dir=~/.config/chrono/chrome-profile` (the persistent bounty platform tab session)
+- The persistent CDP Chrome at port 9222 + `--user-data-dir=~/.config/chrono/chrome-profile` (the persistent bounty platform tab session)
 - Vault entries (`vault/security/findings/F-NN-*.md`, `vault/research/topics/*.md`, etc.)
 - Memory.md entries with durable learnings
 - Dispatch log entries (`_state/dispatch-log.jsonl`)

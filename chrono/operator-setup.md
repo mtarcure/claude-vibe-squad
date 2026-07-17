@@ -1,8 +1,12 @@
 # Operator Setup
 
-Status: current operating facts for Chrono.
+Status: setup guide for a Vibe Squad deployment. Operator-specific populated values (the exact
+CDP endpoint, the actual enabled bounty-platform set) live in the gitignored, never-public
+`chrono/operator-setup.local.md`.
 
-Chrono reads this for operator environment facts only. Chrono's coordinator identity and dispatch behavior live in `chrono/CLAUDE.md`, `chrono/SOUL.md`, `shared/routing.md`, and `shared/protocol.md`.
+Chrono reads this file for environment setup structure; the private `operator-setup.local.md`
+overlay supplies the real populated values. Chrono's coordinator identity and dispatch behavior
+live in `chrono/CLAUDE.md`, `chrono/SOUL.md`, `shared/routing.md`, and `shared/protocol.md`.
 
 ## Model Leads
 
@@ -18,17 +22,15 @@ Launch rails unset API-key env vars for paid CLIs so subscription auth is prefer
 
 ## Bounty Browser
 
-The operator keeps Chrome available at `127.0.0.1:9222` for authenticated bounty/platform work. Browser-touching work must attach to that existing CDP session; do not spawn a fresh browser profile.
+Run a CDP-accessible Chrome (Chrome's standard remote-debugging port is 9222) so all model lanes
+can attach for Playwright/browser work. Browser-touching work attaches to that existing CDP
+session; do not spawn a fresh browser profile. Keep the session signed-in and 2FA'd so attached
+tools inherit authentication.
 
-Configured bounty surfaces:
-
-- HackerOne
-- Bugcrowd
-- Intigriti
-- HackenProof
-- Code4rena
-
-Do not assume other platforms are configured unless the operator says so.
+The toolkit supports the major bounty programs — HackerOne, Bugcrowd, Intigriti, HackenProof,
+Code4rena, and others. Configure the platforms you actually use and keep their tabs open in the
+persistent Chrome. (Your specific endpoint and enabled-platform set are recorded privately in
+`chrono/operator-setup.local.md`, not here.)
 
 ## Tooling Rules
 

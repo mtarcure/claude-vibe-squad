@@ -13,7 +13,7 @@ This skill operationalizes the `_blind/` vs `_curated/` split codified in `CLAUD
 ## When to use
 
 - Running Stage 3 hypothesis exploration on a target with EXISTING saved findings
-- Validating a v1.3 system pass against legacy claude-chrono daemon work
+- Validating a v1.3 system pass against legacy daemon work from a predecessor project
 - Any case where "did the voices arrive at this independently?" is the core question
 
 ## When NOT to use

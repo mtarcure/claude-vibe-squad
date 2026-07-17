@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "allowed": [
+    {
+      "rule_id": "stripe-access-token",
+      "path": "moat/fixtures/purity/deny/credential.mjs",
+      "sha256": "6601806e836d5629086175d7211a2237cd20d9d91d447497729f41c1b0c961db",
+      "reason": "Synthetic Stripe-shaped credential in the moat secret-denial fixture."
+    },
+    {
+      "rule_id": "jwt",
+      "path": "moat/fixtures/purity/allow/real-world-vectors.json",
+      "sha256": "aaed2e556be0b2e55a7bf812749e93fe2bd33867b909b429dfb702e8ea385bf2",
+      "reason": "Synthetic alg-none JWT fixture with subject synthetic-test and synthetic signature."
+    },
+    {
+      "rule_id": "generic-api-key",
+      "path": "plugins/chrono-vault/recall.py",
+      "sha256": "8739cbe2db6b2e15b5a351142e3294f3947e107ad54d901c8f661083203c49a1",
+      "reason": "SQLite configuration row key bm25_weights, not a credential."
+    },
+    {
+      "rule_id": "generic-api-key",
+      "path": "plugins/chrono-vault/tests/test_index.py",
+      "sha256": "8739cbe2db6b2e15b5a351142e3294f3947e107ad54d901c8f661083203c49a1",
+      "reason": "Test lookup of SQLite configuration row key bm25_weights, not a credential."
+    }
+  ]
+}
