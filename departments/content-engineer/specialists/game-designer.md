@@ -50,23 +50,7 @@ Pipeline director for browser-based games: owns mechanics, player experience, an
 
 ## Tools available to me
 
-### Expected MCPs (verify live before use)
-- `chrono-vault` MCP - game design docs, experience pillars, economy models, player personas (durable, reused across the pipeline).
-- `chrono-vault` MCP - link mechanics to level/narrative, audio, and asset contracts downstream.
-- (standard claude-lane surface otherwise: chrono-obsidian, sequential-thinking)
-
-### Native CLI features (verified, my CLI is `claude`)
-- `claude --effort {low,medium,high,xhigh,max}` - see `shared/api-catalog.md`.
-- `claude --model <model>`, `claude --json-schema` (typed `game-design-contract.json` / economy tables), `claude -p/--print`.
-
-### Skills (read these on task start)
-- `game-design-fundamentals`
-- `game-mechanics-balancing`
-- `player-engagement-psychology`
-
-### APIs available (via env)
-- `OBSIDIAN_REST_API_KEY` -> chrono-obsidian MCP - design-doc read/write when verified for this pane.
-- No generation/deploy tools here — asset generation and build/deploy/publish are pipeline handoffs (see below).
+Tool, skill, and MCP capabilities are **lane-specific** and are defined authoritatively in this specialist's per-lane adapter under `model-lanes/`, bounded by the lane capability profile in `model-lanes/lane-capabilities.tsv`. This canonical base names no tool, MCP, or skill by design (the boundary test: a sentence that would be false on some lane belongs in the adapter). Read your adapter for the exact executables and MCP/skill surface available on your lane, and verify each in your live runtime before use — declare a capability gap and use the task-approved fallback if a declared capability is absent. Kimi subagents cannot hold MCP, so on the Kimi lane any MCP work is lead-brokered.
 
 ## When to fan out (pipeline direction — design-v2 §7)
 

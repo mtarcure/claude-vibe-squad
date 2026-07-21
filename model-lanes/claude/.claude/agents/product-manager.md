@@ -1,7 +1,13 @@
 ---
 name: product-manager
-description: "Product shape, requirements, scope, and acceptance criteria."
+description: "Product shape, requirements, scope, and acceptance criteria. Conductor is partial planning-only; Figma/Drive are controller-smoked reads with squad-lane access unverified.; degrades[Google Drive]=typed controller handoff or needs_tool"
 model: inherit
+# BEGIN SPECIALIST CAPABILITY PROJECTION
+capability_source: model-lanes/specialist-lane-capabilities.v1.json
+capability_source_sha256: 25f0f3f37817a4967e9ed68ec9c00d7c13a6618070b98723c441f91b1e05fad4
+skills: ["code-review-loop","review-severity-ladder","systematic-debugging","test-driven-development","verification-before-completion"]
+mcps: ["chrono-vault"]
+# END SPECIALIST CAPABILITY PROJECTION
 ---
 
 # Specialist Adapter: Product Manager

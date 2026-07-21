@@ -7,9 +7,13 @@
 #   git config core.hooksPath .githooks
 #
 # See docs/git-hooks.md. It runs, in order:
-#   1. specialist validation (only when specialist files are staged)
-#   2. fast format checks (warnings only, non-blocking)
-#   3. moat Tier-A boundary check (only when moat/ files are staged; blocking)
+#   1. capability validation + self-test (only for capability/registry changes)
+#   2. specialist validation (only when specialist files are staged)
+#   3. fast format checks (warnings only, non-blocking)
+#   4. moat Tier-A boundary check (only when moat/ files are staged; blocking)
+#
+# Break glass: `git commit --no-verify` bypasses all local hooks. Reserve that
+# escape hatch for an explicit emergency; required CI gates still run remotely.
 #
 # The retired Spec-1.5 auto-snapshot check is intentionally NOT present here:
 # current dispatch deliberately leaves git untouched, so a hook that demanded an
@@ -21,6 +25,24 @@ export PATH="${HOME}/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:${PATH}"
 VAULT_ROOT="$(git rev-parse --show-toplevel)"
 cd "${VAULT_ROOT}" || exit 1
 CHANGED_FILES=$(git diff --cached --name-only)
+
+# Capability validation is deliberately the fast validator pair, not the slower
+# specialist validator. The latter remains independently path-scoped below.
+if ! git diff --cached --quiet -- shared/capabilities/ shared/registries/; then
+    echo "[pre-commit] Capability or registry files changed — running capability validator"
+    if ! bash "${VAULT_ROOT}/bin/validate-capabilities.sh"; then
+        echo "[pre-commit] BLOCKED: capability validation failed."
+        echo "  Run 'bash bin/validate-capabilities.sh' for details."
+        echo "  Break glass only: git commit --no-verify (required CI still runs)."
+        exit 1
+    fi
+    if ! bash "${VAULT_ROOT}/bin/validate-capabilities.sh" --self-test; then
+        echo "[pre-commit] BLOCKED: capability validator self-test failed."
+        echo "  Run 'bash bin/validate-capabilities.sh --self-test' for details."
+        echo "  Break glass only: git commit --no-verify (required CI still runs)."
+        exit 1
+    fi
+fi
 
 # ── specialist validation ─────────────────────────────────────────────────────
 # Only run if any specialist file changed. Fast — reads files, no network.

@@ -4,14 +4,8 @@ version: 2.0
 department: content-engineer
 lane: gemini
 model_key: default
-required_tools:
-  - chrono-media-studio:higgsfield__reframe
-  - chrono-media-studio:higgsfield__upscale_video
-  - chrono-media-studio:higgsfield__outpaint_image
-preferred_tools:
-  - chrono-media-studio:higgsfield__remove_background
-  - chrono-media-studio:higgsfield__virality_predictor
-  - chrono-vault:recall
+required_tools: []
+preferred_tools: []
 safety_level: low
 requires_approval:
   - Write
@@ -27,18 +21,7 @@ Post-production on video sequences: reframe for different aspect ratios (TikTok,
 
 ## Tools available to me
 
-### Expected MCPs (verify live before use)
-- `chrono-media-studio:higgsfield` - Reframe, upscale, and compositing tools. Use when: transforming videos for platform distribution.
-- `chrono-vault MCP` - Canonical memory recall for platform requirements and brand specs. Use when: checking platform compliance or format standards.
-
-### Native CLI features (verified, my CLI is `gemini`)
-- `gemini -m / --model <model>` - Post-production direction and quality assessment.
-- `gemini --approval-mode {default,auto_edit,yolo,plan}` - See shared/api-catalog.md for verified usage notes.
-
-### Skills (read these on task start)
-- `video-post-production`
-- `platform-compliance`
-- `color-grading-basics`
+Tool, skill, and MCP capabilities are **lane-specific** and are defined authoritatively in this specialist's per-lane adapter under `model-lanes/`, bounded by the lane capability profile in `model-lanes/lane-capabilities.tsv`. This canonical base names no tool, MCP, or skill by design (the boundary test: a sentence that would be false on some lane belongs in the adapter). Read your adapter for the exact executables and MCP/skill surface available on your lane, and verify each in your live runtime before use — declare a capability gap and use the task-approved fallback if a declared capability is absent. Kimi subagents cannot hold MCP, so on the Kimi lane any MCP work is lead-brokered.
 
 ## When to fan out
 

@@ -4,12 +4,8 @@ version: 2.0
 department: content-engineer
 lane: gemini
 model_key: default
-required_tools:
-  - firecrawl:scrape
-  - chrono-vault:recall
-preferred_tools:
-  - chrono-research-arsenal:perplexity_search_web
-  - chrono-research-arsenal:grok_reason
+required_tools: []
+preferred_tools: []
 safety_level: low
 requires_approval:
   - Write
@@ -26,19 +22,7 @@ Write short-form and long-form text content: marketing copy, landing pages, emai
 
 ## Tools available to me
 
-### Expected MCPs (verify live before use)
-- `chrono-vault MCP` - Canonical memory recall for project context. Use when: reading project briefs or prior handoffs.
-- `chrono-media-studio MCP` - Image/video generation for supporting media. Use when: task requires visual assets alongside copy.
-- `chrono-research-arsenal MCP` - Web search and reasoning for fact-checking. Use when: validating claims before publication.
-
-### Native CLI features (verified, my CLI is `gemini`)
-- `gemini -m / --model <model>` - Content generation with vision support.
-- `gemini --approval-mode {default,auto_edit,yolo,plan}` - See shared/api-catalog.md for verified usage notes.
-
-### Skills (read these on task start)
-- `writing-skills`
-- `cite-properly`
-- `copy-refinement`
+Tool, skill, and MCP capabilities are **lane-specific** and are defined authoritatively in this specialist's per-lane adapter under `model-lanes/`, bounded by the lane capability profile in `model-lanes/lane-capabilities.tsv`. This canonical base names no tool, MCP, or skill by design (the boundary test: a sentence that would be false on some lane belongs in the adapter). Read your adapter for the exact executables and MCP/skill surface available on your lane, and verify each in your live runtime before use — declare a capability gap and use the task-approved fallback if a declared capability is absent. Kimi subagents cannot hold MCP, so on the Kimi lane any MCP work is lead-brokered.
 
 ## When to fan out
 

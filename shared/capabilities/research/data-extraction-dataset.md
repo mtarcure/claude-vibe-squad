@@ -4,10 +4,10 @@ mode: research
 title: Data extraction + dataset wrangling (machine-readable formats)
 capability_state: live
 state_reason: The live scope is the machine-readable formats a standard stdlib runtime genuinely handles — CSV/JSON/HTML/tabular/plain-text data — parsed and shaped by local shell/script code (no catalog-absent tool), with `firecrawl` (claude·lane-live) for live web-source extraction and `chrono-vault` (all·yes). ALL PDF inputs (text-layer AND scanned/image) and format-specific documents are `needs_tool` — no PDF parser or OCR runtime is registry-verified (Bash+stdlib has none; see Profiles).
-state_evidence: registry rows — firecrawl = `claude·lane-live·metered`, chrono-vault/chrono-obsidian = `all·yes·subscription`. Local parsing of machine-readable files (CSV/JSON/HTML/tabular/plain-text) runs via the lane shell (no catalog-absent tool). No PDF parser, OCR (e.g. tesseract), or document-parser runtime is cataloged (→ ALL PDF + format-specific docs are `needs_tool`).
+state_evidence: registry rows — firecrawl = `claude·lane-live·metered`, Apify/Brave Search/Serper = `codex·yes·metered`, chrono-vault/chrono-obsidian = `all·yes·subscription`. Local parsing of machine-readable files (CSV/JSON/HTML/tabular/plain-text) runs via the lane shell (no catalog-absent tool). No PDF parser, OCR (e.g. tesseract), or document-parser runtime is cataloged (→ ALL PDF + format-specific docs are `needs_tool`).
 overlays: [review, privacy, memory]
 gates: []
-cost_note: Local file parsing/wrangling is subscription lane-native (shell). `firecrawl` web extraction is `metered` (API-key billed) and needs a budget/rate-limit guard; chrono-* MCPs are subscription.
+cost_note: Local file parsing/wrangling is subscription lane-native (shell). `firecrawl` web extraction, `Apify` scraping, and `Brave Search`/`Serper` source-finding are `metered` (API-key billed) and need a budget/rate-limit guard; `Apify` scraping additionally requires a target-authorization gate. chrono-* MCPs are subscription.
 ---
 
 **When to use:** extract and wrangle structured data from machine-readable sources — CSV/JSON/HTML/tabular/
@@ -21,7 +21,7 @@ overlay **and** the sensitive-topic durable-note operator approval.
 | **S0** Intake/Admit | `Chrono`, `triage` | `chrono-vault` (all · yes · subscription) | — | memory overlay (recall) |
 | **S1** Frame (data contract + schema) | `product-manager`, `data-extraction-engineer` | — | `schema-inference` (stub), `scope-decomposition` (stub) | privacy overlay if PII |
 | **S2** Design (extraction plan) | `data-extraction-engineer` | — | `schema-inference` (stub) | — |
-| **S3** Produce (parse machine-readable + clean + shape) | `data-extraction-engineer` | `firecrawl` (claude · lane-live · metered) | `data-cleaning-pipeline` (stub), `structured-data-authoring` (authored) | local-code branch (shell/script) for CSV/JSON/HTML/tabular/plain-text; ALL PDF + OCR = `needs_tool` |
+| **S3** Produce (parse machine-readable + clean + shape) | `data-extraction-engineer` | `firecrawl` (claude · lane-live · metered), `Apify` (codex · yes · metered), `Brave Search` (codex · yes · metered), `Serper` (codex · yes · metered) | `data-cleaning-pipeline` (stub), `structured-data-authoring` (authored) | local-code branch (shell/script) for CSV/JSON/HTML/tabular/plain-text; ALL PDF + OCR = `needs_tool`; `Apify` scraping requires a target-authorization + spend gate |
 | **S4** Verify (schema + integrity check) | `data-extraction-engineer`, `skeptic` | — | `structured-data-authoring` (authored) | privacy overlay if PII |
 | **S5** Review/Gate | `code-reviewer`, `cross-family-reviewer` | — | — | review overlay (if the dataset feeds a downstream decision) |
 | **S6** Ship/Deliver (dataset) | `data-extraction-engineer` | `chrono-obsidian` (all · yes · subscription) | `structured-data-authoring` (authored) | — |

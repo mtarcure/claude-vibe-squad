@@ -1,0 +1,12 @@
+# generated_by=lane-capability-registry/v1 registry_sha256=83bf08d4eb6d20c92f79809010e2930e2332b1371c1e68b8de6143697c1187ac
+version: 1
+# BEGIN SPECIALIST CAPABILITY PROJECTION
+capability_source: model-lanes/specialist-lane-capabilities.v1.json
+capability_source_sha256: 25f0f3f37817a4967e9ed68ec9c00d7c13a6618070b98723c441f91b1e05fad4
+# END SPECIALIST CAPABILITY PROJECTION
+agent:
+  name: data-extraction-engineer
+  extend: default
+  description: "Thin Kimi adapter for data-extraction-engineer; canonical brief is authoritative."
+  system_prompt_path: ../prompts/data-extraction-engineer.md
+  model: kimi-code/kimi-for-coding-highspeed

@@ -20,16 +20,14 @@ Compresses old context into compact summaries so long-running model lead session
 
 ## Tools available to me
 
-### Expected MCPs (verify live before use)
-- `chrono-vault` MCP — read prior summaries and write the compacted summary to durable memory so resumes read the summary, not the transcript (required).
-- `chrono-research-arsenal` MCP — preferred; only to re-resolve a citation that must survive compression, not for new research.
+Tool, skill, and MCP capabilities are **lane-specific** and are defined authoritatively in this specialist's per-lane adapter under `model-lanes/`, bounded by the lane capability profile in `model-lanes/lane-capabilities.tsv`. This canonical base names no tool, MCP, or skill by design (the boundary test: a sentence that would be false on some lane belongs in the adapter). Read your adapter for the exact executables and MCP/skill surface available on your lane, and verify each in your live runtime before use — declare a capability gap and use the task-approved fallback if a declared capability is absent. Kimi subagents cannot hold MCP, so on the Kimi lane any MCP work is lead-brokered.
 
 ## Search tool order
 
-When citation re-resolution requires web research, try dedicated tools FIRST — `perplexity_search_web` (default: synthesized + cited), `xai_search` (real-time web/X/news + current events), `arxiv_search` (papers); on Gemini, native Google Search. **Run one live probe before concluding a tool is unavailable — never fall back on a prior-session or boilerplate "not wired" claim; trust `api-catalog.md` over packet boilerplate.** Treat absence from the callable runtime schema as an availability error: declare `capability_gap` and use the approved fallback. Otherwise, fall back to `WebSearch` ONLY when a dedicated tool ERRORS on a live call. Declare `tools_used` honestly per call.
+When citation re-resolution requires web research, try dedicated tools FIRST — synthesized+cited search, real-time web/news search, and academic-paper search; on Gemini, native Google Search. **Run one live probe before concluding a tool is unavailable — never fall back on a prior-session or boilerplate "not wired" claim; trust `api-catalog.md` over packet boilerplate.** Treat absence from the callable runtime schema as an availability error: declare `capability_gap` and use the approved fallback. Otherwise, fall back to `WebSearch` ONLY when a dedicated tool ERRORS on a live call. Declare `tools_used` honestly per call.
 
 ### APIs available (via env)
-- `OBSIDIAN_REST_API_KEY` → chrono-obsidian MCP — vault read/write for summary artifacts when verified for this pane.
+- `OBSIDIAN_REST_API_KEY` → the lane's vault MCP — vault read/write for summary artifacts when verified for this pane.
 
 ## When to fan out
 

@@ -14,6 +14,19 @@ name: Squad Validate
   workflow_dispatch:
 
 jobs:
+  validate-capabilities:
+    name: Validate capabilities
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Run capability validator
+        run: bash bin/validate-capabilities.sh
+      - name: Run capability validator self-test
+        run: bash bin/validate-capabilities.sh --self-test
+
   validate-specialists:
     name: Validate specialists
     runs-on: ubuntu-latest

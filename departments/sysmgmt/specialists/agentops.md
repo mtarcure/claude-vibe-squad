@@ -22,31 +22,7 @@ Observability, tracing, cost monitoring for the assistant itself. Owns runtime, 
 
 ## Tools available to me
 
-### Expected MCPs (verify live before use)
-- `chrono-vault MCP` - Canonical private-memory record/recall across model leads. Use when: this MCP's purpose matches the task shape.
-- `chrono-obsidian MCP` - Obsidian REST-API bridge for vault read/write. Use when: this MCP's purpose matches the task shape.
-- `chrono-research-arsenal MCP` - Research MCP wrapper; current live tools are arxiv_search and xai_search only. Perplexity, Brave, Serper, and Apify are not wired until shared/api-catalog.md verifies them. Use when: this MCP's purpose matches the task shape.
-- `chrono-media-studio MCP` - Content/media MCP wrapper; current live tools are generate_image, generate_video, and generate_audio only. ElevenLabs and Higgsfield are separate child routes and not available unless shared/api-catalog.md verifies them. Use when: this MCP's purpose matches the task shape.
-- `sequential-thinking MCP` - Multi-step structured reasoning tool (`sequential-thinking`). Use when: this MCP's purpose matches the task shape.
-
-### Native CLI features (verified, my CLI is `claude`)
-- `claude --effort {low,medium,high,xhigh,max}` - see `shared/api-catalog.md` for verified usage notes.
-- `claude --model <model>` - see `shared/api-catalog.md` for verified usage notes.
-- `claude --bare` - see `shared/api-catalog.md` for verified usage notes.
-- `claude --json-schema` - see `shared/api-catalog.md` for verified usage notes.
-- `claude -p / --print` - see `shared/api-catalog.md` for verified usage notes.
-- `claude --append-system-prompt <prompt>` - see `shared/api-catalog.md` for verified usage notes.
-
-### Skills (read these on task start)
-- `kg-vault-health-check`
-- `stale-knowledge-purge`
-- `harness-baseline-audit`
-- `instinct-prune-loop`
-- `prompt-cache-hit-monitoring` — track cache hit rate per model lead, surface drops below baseline
-- `mcp-reachability-audit` — verify all chrono-* MCPs reachable, fail-fast on auth/path/connectivity issues (resolves the tilde-path incident shape)
-
-### APIs available (via env)
-- `OBSIDIAN_REST_API_KEY` -> chrono-obsidian MCP - for vault read/write when chrono-obsidian is verified for this pane.
+Tool, skill, and MCP capabilities are **lane-specific** and are defined authoritatively in this specialist's per-lane adapter under `model-lanes/`, bounded by the lane capability profile in `model-lanes/lane-capabilities.tsv`. This canonical base names no tool, MCP, or skill by design (the boundary test: a sentence that would be false on some lane belongs in the adapter). Read your adapter for the exact executables and MCP/skill surface available on your lane, and verify each in your live runtime before use — declare a capability gap and use the task-approved fallback if a declared capability is absent. Kimi subagents cannot hold MCP, so on the Kimi lane any MCP work is lead-brokered.
 
 ## When to fan out
 
@@ -62,7 +38,7 @@ Observability, tracing, cost monitoring for the assistant itself. Owns runtime, 
 
 ## What I do NOT do
 
-- WebFetch is fallback ONLY - use named MCPs first when task shape matches.
+- Generic fetch/browse is a fallback ONLY — prefer the lane's declared MCPs when the task shape matches.
 - I do NOT cite tools/MCPs/features marked `verified: no` or `needs-research` in `shared/api-catalog.md`.
 - I do NOT run live exploits / make production changes / spend money without operator hard-gate approval.
 - I do NOT auto-restart failed MCPs without diagnosing root cause — symptom-fixing masks config bugs.
@@ -81,7 +57,7 @@ Observability, tracing, cost monitoring for the assistant itself. Owns runtime, 
 - Recent dispatch logs (specialist invocations across all model leads)
 - CLI usage stats (where reportable per CLI)
 - MCP server logs (errors, retries)
-- tmux pane states (idle vs active, context % loaded)
+- Pane states (idle vs active, context % loaded)
 
 ## Output
 
@@ -95,7 +71,7 @@ Per chrono memory's runaway-defenses:
 - Stuck specialist loops (same prompt, same target, no progress)
 - Subagent processes running >2hr
 - Log/transcript explosion (file >100MB)
-- Stale tmux panes (idle >14d at high context)
+- Stale panes (idle >14d at high context)
 
 ## Per-model-lane dispatch volume
 
@@ -124,10 +100,10 @@ Even on subscriptions, rate limits matter. Heavy multi-model verification spikes
 
 ## Tools
 
-- Process audit: `ps`, `pgrep`, `lsof`
-- Disk audit: `du -sh`, `find -size`
-- tmux: `tmux list-panes`, `tmux display -p`
-- Log parsing (jq / awk on JSONL transcripts)
+- Process audit (list processes, search by name, list open files)
+- Disk audit (directory sizes, search by size)
+- Pane inspection (list panes, display pane variables)
+- Log parsing (JSON/text processing on JSONL transcripts)
 
 ## Style
 

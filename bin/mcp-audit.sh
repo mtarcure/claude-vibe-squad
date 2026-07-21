@@ -6,8 +6,8 @@ set -uo pipefail
 export PATH="${HOME}/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:${PATH}"
 
 VAULT_ROOT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
-CHRONO_PY="${CHRONO_PY:-${HOME}/chrono/.venv/bin/python}"
-CHRONO_PLUGINS="${CHRONO_PLUGINS:-${HOME}/chrono/plugins}"
+CHRONO_PY="${CHRONO_PY:-${VAULT_ROOT}/.venv/bin/python}"
+CHRONO_PLUGINS="${CHRONO_PLUGINS:-${VAULT_ROOT}/plugins}"
 PROBE="${VAULT_ROOT}/scripts/python/mcp_probe.py"
 DATE="$(date -u +%Y-%m-%d)"
 LOG="${VAULT_ROOT}/_state/audit-logs/${DATE}-mcp-audit.md"
@@ -23,9 +23,7 @@ fi
 
 MCPS=(
     "chrono-vault|required|${CHRONO_PLUGINS}/chrono-vault/mcp_server.py|CHRONO_VAULT_ROOT OBSIDIAN_REST_API_KEY OBSIDIAN_VAULT_ROOT"
-    "chrono-kg|required|${CHRONO_PLUGINS}/chrono-vault/mcp_server.py --namespace kg|CHRONO_VAULT_ROOT OBSIDIAN_REST_API_KEY OBSIDIAN_VAULT_ROOT"
     "chrono-obsidian|required|${CHRONO_PLUGINS}/chrono-vault/mcp_server.py --namespace obsidian|OBSIDIAN_REST_API_KEY OBSIDIAN_VAULT_ROOT"
-    "chrono-catalog|required|${CHRONO_PLUGINS}/chrono-vault/mcp_server.py --namespace catalog|"
     "chrono-research-arsenal|optional|${CHRONO_PLUGINS}/chrono-research-arsenal/mcp_server.py|APIFY_TOKEN BRAVE_API_KEY PERPLEXITY_API_KEY SERPER_API_KEY XAI_API_KEY"
     "chrono-media-studio|optional|${CHRONO_PLUGINS}/chrono-media-studio/mcp_server.py|GEMINI_API_KEY OPENAI_API_KEY XAI_API_KEY"
     "chrono-recon|optional|${CHRONO_PLUGINS}/chrono-recon/mcp_server.py|GH_TOKEN"

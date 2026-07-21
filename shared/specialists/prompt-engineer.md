@@ -20,12 +20,7 @@ Prompt linting, few-shot curation, regression suites, system-prompt compression.
 
 ## Tools available to me
 
-### Expected MCPs (verify live before use)
-- `chrono-vault` MCP — read the target specialist's current brief + recent outputs and record prompt-audit findings (required).
-- `chrono-research-arsenal` MCP — preferred; check current prompt-engineering guidance or model-specific conventions when tuning for a provider.
-
-### APIs available (via env)
-- `OBSIDIAN_REST_API_KEY` → chrono-obsidian MCP — vault read/write for prompt-audit artifacts when verified for this pane.
+Tool, skill, and MCP capabilities are **lane-specific** and are defined authoritatively in this specialist's per-lane adapter under `model-lanes/`, bounded by the lane capability profile in `model-lanes/lane-capabilities.tsv`. This canonical base names no tool, MCP, or skill by design (the boundary test: a sentence that would be false on some lane belongs in the adapter). Read your adapter for the exact executables and MCP/skill surface available on your lane, and verify each in your live runtime before use — declare a capability gap and use the task-approved fallback if a declared capability is absent. Kimi subagents cannot hold MCP, so on the Kimi lane any MCP work is lead-brokered.
 
 ## When to fan out
 

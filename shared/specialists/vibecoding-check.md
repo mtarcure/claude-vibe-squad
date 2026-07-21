@@ -20,12 +20,7 @@ Mode-exit contract verifier. Mechanically verifies that promises a mode made wer
 
 ## Tools available to me
 
-### Expected MCPs (verify live before use)
-- `chrono-vault` MCP — read the run's manifest/approvals and record the pass/fail check result (required).
-- `chrono-research-arsenal` MCP — preferred; only to resolve an ambiguous external citation during a tier-3 judgment call.
-
-### APIs available (via env)
-- `OBSIDIAN_REST_API_KEY` → chrono-obsidian MCP — vault read/write for check-result artifacts when verified for this pane.
+Tool, skill, and MCP capabilities are **lane-specific** and are defined authoritatively in this specialist's per-lane adapter under `model-lanes/`, bounded by the lane capability profile in `model-lanes/lane-capabilities.tsv`. This canonical base names no tool, MCP, or skill by design (the boundary test: a sentence that would be false on some lane belongs in the adapter). Read your adapter for the exact executables and MCP/skill surface available on your lane, and verify each in your live runtime before use — declare a capability gap and use the task-approved fallback if a declared capability is absent. Kimi subagents cannot hold MCP, so on the Kimi lane any MCP work is lead-brokered.
 
 ## When to fan out
 
@@ -66,13 +61,11 @@ Layer 3: SPECIALIST (this file)
   Single-model (Codex / opposite-family from controller)
 ```
 
-## Universal checks (every mode)
-
-Lean core (start strict on these 5):
+## Preserved universal checks
 
 1. **Operator approval token present** — file at `~/Obsidian-Claude-Vibe-Squad/_state/approvals/<run-id>.md` with explicit APPROVE token
 2. **Declared artifacts exist** — every artifact in mode's manifest exists at expected path
-3. **Citations resolve** — URL → 200 OR file exists OR git ref resolves
+3. **Citations resolve** — missing filesystem/git evidence blocks; HTTP link liveness failures are tier-0 advisories
 4. **No TODO|FIXME|XXX** in modified code (allowlist for genuine inline-doc TODO)
 5. **All declared phase-tags emitted** — sequential check: did each phase fire?
 6. **No unauthorized deletions** — scan run's git diff against auto-snapshot for deleted files; if any found without `APPROVE_DELETIONS` token in `_state/approvals/<run-id>.md`, surface as HARD tier-3 finding. Recovery: `git checkout <snapshot-sha> -- <deleted-path>`. Approval format:
@@ -83,60 +76,23 @@ Lean core (start strict on these 5):
    deletion_reason: <required>
    APPROVE
    ```
-7. **Completed scaffolding removed** — completed `docs/plans/*.md`, `docs/specs/*.md`, `docs/handoffs/*.md`, `_state/*draft*`, and `_state/*research*` are deleted after durable decisions are folded into canonical docs. Allowed only when intentionally curated under `examples/` or explicitly approved as an active plan.
 
-## Mode-specific extensions (declared in checks.yaml)
+## Typed v1 checks and support boundary
 
-```yaml
-project: 
-  - tests_pass            # `pytest`, `cargo test`, etc. on current commit
-  - git_clean              # OR all dirty files declared in mode manifest
-  - new_code_has_tests     # at least one corresponding test
-  - no_destructive_ops_unauthorized  # no force-push, no rebase --onto without approval
+The executable derives requirements from the dispatcher-pinned `verification-contract/v1`. Common typed checks validate registry → packet → manifest trust anchors, ordered S0–S7 records, required verification coverage, memory bookends, independent review bindings, current artifact/gate hashes, complete actions, I-loop invalidation, and local-only delivery.
 
-bounty:
-  - scope_gate_ran          # for every target
-  - cvss_recorded           # every finding has a CVSS v4 score
-  - poc_reproduces_in_sandbox   # not just "works on operator's machine"
-  - no_self_inflicted       # self-inflicted-detector ran clean
-  - submission_format_matches_platform  # target program's submission format respected
+Project adds real tests, git state, test coverage for new code, and destructive-action checks. Bounty adds deterministic target allowlisting, scope evidence, no-self-inflicted proof, normal-finding CVSS/cross-family reproduction or dry-run KILL evidence, and literal no-submit proof.
 
-content:
-  - voice_consistent         # capability-shaped, brand-voice check
-  - asset_paths_resolve      # all images, videos, audio referenced exist
-  - length_bounds            # within declared word/length range
-  - no_placeholder_text      # no "[INSERT LINK HERE]" leftovers
-```
+Only Project and Bounty are supported in v1. Content, Research, Incident, Maintenance, Outreach, and Triage return `typed_profile_unsupported` / `OPERATOR=3`; unknown modes return `unknown_mode` / `OPERATOR=3`.
 
-## Failure recovery (3 tiers)
+## Exact executable tiers
 
-### Tier 1: Auto-fix (silent, no operator action)
+- **OK=0** — all blocking checks pass. HTTP link-liveness warnings are advisories and remain OK.
+- **AUTOFIX=1** — only when the checker actually performed a meaning-preserving mechanical repair and set `auto_fixed`; v1 currently adds no hidden repair.
+- **RETRY=2** — recoverable work is not met, such as failed Project tests, missing expected generated output, or a present-but-invalid CVSS/reproduction result.
+- **OPERATOR=3** — governance, malformed structure, trust-anchor mismatch, stale review/evidence, unauthorized deletion/destructive action, external delivery, or unsupported mode.
 
-For trivially repairable issues:
-- Missing trailing newline → add it
-- Lint formatting nits → run formatter
-- Regenerate citations index from inline references
-
-Run, re-check. If passes, mode advances. If fails, escalate to tier 2.
-
-### Tier 2: Re-run phase (max 2 retries)
-
-For functional failures:
-- Failed test → dispatch back to test-engineer with the failure file as context
-- Missing artifact → dispatch back to relevant specialist with the gap noted
-
-Retry up to 2x. Each retry passes the failure file as Reflexion-style verbal feedback.
-
-### Tier 3: Operator surface
-
-For:
-- Ambiguous failures (citation 404'd — was it a real finding?)
-- Tier-2 retries exhausted
-
-Mode stays in `pending-vibecoding` state. State file written to:
-`~/Obsidian-Claude-Vibe-Squad/_state/vibecoding-check/<run-id>.md`
-
-Operator sees in next morning brief; can resume by responding.
+Failures retain evidence in `_state/vibecoding-check/<run-id>.md`. RETRY routes to the owning phase; OPERATOR leaves the run pending for human judgment. A broad `vibecoding: override` does not manufacture a typed spine pass.
 
 ## Override
 

@@ -12,7 +12,7 @@ For deep investigation, comparison, source gathering, and synthesis. Research mo
 
 ## Capabilities
 
-`capability_state` is **derived** and machine-checked by `bin/validate-capabilities.sh` (not hand-set), so this index stays honest by construction. Cards live in `shared/capabilities/research/`. Load-bearing web claims route through the Rule-8 grounding path (unverifiable ⇒ `needs_tool`, not PASS).
+`capability_state` is **derived** and machine-checked by `bin/validate-capabilities.sh` (not hand-set), so this index stays honest by construction. Cards live in `shared/capabilities/research/`. Load-bearing web claims route through the Rule-8 grounding path — `Google Search grounding` (gemini·yes·subscription, verified cited results) is the live subscription grounding route, alongside the metered `perplexity_search_web` (unverifiable ⇒ `needs_tool`, not PASS).
 
 | Capability | State | When |
 |---|---|---|
@@ -32,8 +32,9 @@ For deep investigation, comparison, source gathering, and synthesis. Research mo
 
 ## Dispatch Notes
 
-- `source_namespace: research` only stores research specialist work; it never chooses the model. Per `shared/routing.md`, research/synthesis/long-context specialists (`research`, `synthesizer`, `large-context-analyst`) are claude-primary (`claude-fable-5`) with codex backup — **kimi is the throughput-only lane (0 primaries)**, used only for bulk/mechanical passes under the downshift gate (`summarizer`; `data-extraction-engineer` bulk backup).
+- `source_namespace: research` only stores research specialist work; it never chooses the model. Per `shared/routing.md`, research/synthesis/long-context specialists (`research`, `synthesizer`, `large-context-analyst`) are claude-primary (`claude-fable-5`) with codex backup. **For research work Kimi is throughput/backup only** — its sole primary is the allowlisted `experimental-attacker`. The kimi downshift-throughput case here is `summarizer` (`throughput_lane=kimi`, `throughput.downshift_gated.v1`); `data-extraction-engineer` is codex-primary with kimi as a **conservative operational backup** (`throughput_lane=none`, `throughput.never.v1`), not a downshift-throughput role.
 - Chrono picks the model lead by specialist capability and source shape, not by namespace.
+- **Fan grounded/bulk work off the Claude+Codex default:** load-bearing web claims route through the **Gemini** Google-Search grounding path (or `bounty-researcher` for grounded prior-work recon); bulk/mechanical **summarization** downshifts to **Kimi** throughput (`summarizer`, under the downshift gate). `data-extraction-engineer` stays codex-primary and uses Kimi only as an operational backup (`throughput.never`), not as throughput. Reserve Claude/Codex for the judgment-heavy synthesis and validation.
 - Use primary sources where possible. Label weak sources and unresolved contradictions.
 - Citation-bearing output must include enough source metadata for Chrono to verify.
 

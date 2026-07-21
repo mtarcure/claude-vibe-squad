@@ -1,10 +1,15 @@
 ---
 name: voice-agent-builder
-description: "Tool-gated voice-agent construction; Claude backup produces a specification-only TBASF handoff."
+description: "Tool-gated voice-agent construction; operations[chrono-media-studio]=elevenlabs__create_agent|elevenlabs__add_knowledge_base_to_agent; operations[chrono-vault]=recall; Claude backup produces a specification-only TBASF handoff."
 kind: local
 tools: ["read_file", "replace", "write_file", "run_shell_command", "glob", "grep_search"]
 model: inherit
 max_turns: 30
+# BEGIN SPECIALIST CAPABILITY PROJECTION
+capability_source: model-lanes/specialist-lane-capabilities.v1.json
+capability_source_sha256: 25f0f3f37817a4967e9ed68ec9c00d7c13a6618070b98723c441f91b1e05fad4
+capability_mcps: ["chrono-media-studio"]
+# END SPECIALIST CAPABILITY PROJECTION
 ---
 
 # Specialist Adapter: Voice Agent Builder

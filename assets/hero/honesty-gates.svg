@@ -1,0 +1,101 @@
+<svg width="1400" height="640" viewBox="0 0 1400 640" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Vibe Squad honesty-validator gates</title>
+  <desc id="desc">Seven gates in the active honesty-validator suite; six pass and the capability-card gate fails at 24 of 28.</desc>
+  <rect width="1400" height="640" fill="#0b1020"/>
+  <text x="80" y="82" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="42" font-weight="800">Honesty-Validator Gates</text>
+  <text x="80" y="120" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="22">Six gates pass. The capability-card gate fails, and says so.</text>
+
+  <!-- Gate 1: Base boundary -->
+  <g>
+    <rect x="45" y="190" width="170" height="280" rx="16" fill="#052e1f" stroke="#34d399" stroke-width="2"/>
+    <circle cx="130" cy="230" r="24" fill="#34d399"/>
+    <text x="130" y="238" text-anchor="middle" fill="#052e1f" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="900">&#10003;</text>
+    <text x="130" y="292" text-anchor="middle" fill="#f1f5f9" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700">Base</text>
+    <text x="130" y="314" text-anchor="middle" fill="#f1f5f9" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700">boundary</text>
+    <text x="130" y="342" text-anchor="middle" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="12.5">no lane tools in</text>
+    <text x="130" y="358" text-anchor="middle" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="12.5">canonical briefs</text>
+    <rect x="70" y="410" width="120" height="34" rx="17" fill="#34d399"/>
+    <text x="130" y="433" text-anchor="middle" fill="#052e1f" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="800">PASS</text>
+  </g>
+
+  <!-- Gate 2: Migration parity -->
+  <g>
+    <rect x="235" y="190" width="170" height="280" rx="16" fill="#052e1f" stroke="#34d399" stroke-width="2"/>
+    <circle cx="320" cy="230" r="24" fill="#34d399"/>
+    <text x="320" y="238" text-anchor="middle" fill="#052e1f" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="900">&#10003;</text>
+    <text x="320" y="292" text-anchor="middle" fill="#f1f5f9" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700">Migration</text>
+    <text x="320" y="314" text-anchor="middle" fill="#f1f5f9" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700">parity</text>
+    <text x="320" y="342" text-anchor="middle" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="12.5">baseline held across</text>
+    <text x="320" y="358" text-anchor="middle" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="12.5">every routed lane</text>
+    <rect x="260" y="410" width="120" height="34" rx="17" fill="#34d399"/>
+    <text x="320" y="433" text-anchor="middle" fill="#052e1f" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="800">PASS</text>
+  </g>
+
+  <!-- Gate 3: Source / adapter sync -->
+  <g>
+    <rect x="425" y="190" width="170" height="280" rx="16" fill="#052e1f" stroke="#34d399" stroke-width="2"/>
+    <circle cx="510" cy="230" r="24" fill="#34d399"/>
+    <text x="510" y="238" text-anchor="middle" fill="#052e1f" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="900">&#10003;</text>
+    <text x="510" y="292" text-anchor="middle" fill="#f1f5f9" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700">Source / adapter</text>
+    <text x="510" y="314" text-anchor="middle" fill="#f1f5f9" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700">sync</text>
+    <text x="510" y="342" text-anchor="middle" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="12.5">156 entries =</text>
+    <text x="510" y="358" text-anchor="middle" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="12.5">156 adapters</text>
+    <rect x="450" y="410" width="120" height="34" rx="17" fill="#34d399"/>
+    <text x="510" y="433" text-anchor="middle" fill="#052e1f" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="800">PASS</text>
+  </g>
+
+  <!-- Gate 4: Tool / source existence -->
+  <g>
+    <rect x="615" y="190" width="170" height="280" rx="16" fill="#052e1f" stroke="#34d399" stroke-width="2"/>
+    <circle cx="700" cy="230" r="24" fill="#34d399"/>
+    <text x="700" y="238" text-anchor="middle" fill="#052e1f" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="900">&#10003;</text>
+    <text x="700" y="292" text-anchor="middle" fill="#f1f5f9" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700">Tool / source</text>
+    <text x="700" y="314" text-anchor="middle" fill="#f1f5f9" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700">existence</text>
+    <text x="700" y="342" text-anchor="middle" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="12.5">MCPs resolve in</text>
+    <text x="700" y="358" text-anchor="middle" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="12.5">lane inventory</text>
+    <rect x="640" y="410" width="120" height="34" rx="17" fill="#34d399"/>
+    <text x="700" y="433" text-anchor="middle" fill="#052e1f" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="800">PASS</text>
+  </g>
+
+  <!-- Gate 5: Index freshness -->
+  <g>
+    <rect x="805" y="190" width="170" height="280" rx="16" fill="#052e1f" stroke="#34d399" stroke-width="2"/>
+    <circle cx="890" cy="230" r="24" fill="#34d399"/>
+    <text x="890" y="238" text-anchor="middle" fill="#052e1f" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="900">&#10003;</text>
+    <text x="890" y="292" text-anchor="middle" fill="#f1f5f9" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700">Index</text>
+    <text x="890" y="314" text-anchor="middle" fill="#f1f5f9" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700">freshness</text>
+    <text x="890" y="342" text-anchor="middle" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="12.5">generated index</text>
+    <text x="890" y="358" text-anchor="middle" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="12.5">byte-exact vs source</text>
+    <rect x="830" y="410" width="120" height="34" rx="17" fill="#34d399"/>
+    <text x="890" y="433" text-anchor="middle" fill="#052e1f" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="800">PASS</text>
+  </g>
+
+  <!-- Gate 6: Reconciler verdict -->
+  <g>
+    <rect x="995" y="190" width="170" height="280" rx="16" fill="#052e1f" stroke="#34d399" stroke-width="2"/>
+    <circle cx="1080" cy="230" r="24" fill="#34d399"/>
+    <text x="1080" y="238" text-anchor="middle" fill="#052e1f" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="900">&#10003;</text>
+    <text x="1080" y="292" text-anchor="middle" fill="#f1f5f9" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700">Reconciler</text>
+    <text x="1080" y="314" text-anchor="middle" fill="#f1f5f9" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700">verdict gate</text>
+    <text x="1080" y="342" text-anchor="middle" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="12.5">exact APPROVE</text>
+    <text x="1080" y="358" text-anchor="middle" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="12.5">32 tests passed</text>
+    <rect x="1020" y="410" width="120" height="34" rx="17" fill="#34d399"/>
+    <text x="1080" y="433" text-anchor="middle" fill="#052e1f" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="800">PASS</text>
+  </g>
+
+  <!-- Gate 7: Capability-card validator (FAIL) -->
+  <g>
+    <rect x="1185" y="190" width="170" height="280" rx="16" fill="#2a0e0e" stroke="#ef4444" stroke-width="2"/>
+    <circle cx="1270" cy="230" r="24" fill="#ef4444"/>
+    <text x="1270" y="238" text-anchor="middle" fill="#2a0e0e" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="900">&#10007;</text>
+    <text x="1270" y="292" text-anchor="middle" fill="#f1f5f9" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700">Capability</text>
+    <text x="1270" y="314" text-anchor="middle" fill="#f1f5f9" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700">card</text>
+    <text x="1270" y="342" text-anchor="middle" fill="#fca5a5" font-family="Inter, Arial, sans-serif" font-size="12.5">4 Bounty cards fail</text>
+    <text x="1270" y="358" text-anchor="middle" fill="#fca5a5" font-family="Inter, Arial, sans-serif" font-size="12.5">stub vs authored</text>
+    <rect x="1210" y="410" width="120" height="34" rx="17" fill="#ef4444"/>
+    <text x="1270" y="433" text-anchor="middle" fill="#2a0e0e" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="800">FAIL 24/28</text>
+  </g>
+
+  <rect x="45" y="510" width="1310" height="64" rx="12" fill="#111827" stroke="#334155"/>
+  <text x="700" y="548" text-anchor="middle" fill="#cbd5e1" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="16">validate-specialists.sh 71/71 &#183; validate_capability_homes.py 156/156 &#183; validate-capabilities.sh 24/28</text>
+</svg>

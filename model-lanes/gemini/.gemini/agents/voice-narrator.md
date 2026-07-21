@@ -1,10 +1,15 @@
 ---
 name: voice-narrator
-description: "Tool-gated narration and voice production; Claude backup produces SSML and pronunciation blueprints."
+description: "Tool-gated narration and voice production; operations[chrono-media-studio]=elevenlabs__text_to_speech|elevenlabs__voice_clone|elevenlabs__speech_to_speech; Claude backup produces SSML and pronunciation blueprints."
 kind: local
 tools: ["read_file", "replace", "write_file", "run_shell_command", "glob", "grep_search"]
 model: inherit
 max_turns: 30
+# BEGIN SPECIALIST CAPABILITY PROJECTION
+capability_source: model-lanes/specialist-lane-capabilities.v1.json
+capability_source_sha256: 25f0f3f37817a4967e9ed68ec9c00d7c13a6618070b98723c441f91b1e05fad4
+capability_mcps: ["chrono-media-studio"]
+# END SPECIALIST CAPABILITY PROJECTION
 ---
 
 # Specialist Adapter: Voice Narrator

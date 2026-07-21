@@ -98,6 +98,40 @@ def test_generation_fencing_prevents_late_primary_clobber(tmp_path):
     assert b"backup winner" in canonical.read_bytes()
 
 
+def test_only_current_lane_claim_sets_accepted_at(tmp_path):
+    task_id = "TASK-claim-receipt"
+    control, _canonical, primary = initialized(tmp_path, task_id)
+    control.record_runtime_event(
+        task_id=task_id,
+        attempt_id=primary["attempt_id"],
+        event="pane_delivery_attempted",
+    )
+    assert control.read(task_id)["attempts"][0]["accepted_at"] is None
+    with pytest.raises(ControlPlaneError, match="lane-authored claim"):
+        control.record_runtime_event(
+            task_id=task_id,
+            attempt_id=primary["attempt_id"],
+            event="accepted",
+        )
+
+    receipt = control.claim_attempt(task_id=task_id, attempt_id=primary["attempt_id"])
+    duplicate = control.claim_attempt(task_id=task_id, attempt_id=primary["attempt_id"])
+    assert receipt["idempotent"] is False
+    assert duplicate["idempotent"] is True
+    assert duplicate["accepted_at"] == receipt["accepted_at"]
+
+    control.record_terminal_signal(
+        task_id=task_id,
+        attempt_id=primary["attempt_id"],
+        signal="dispatch_ack_failure",
+    )
+    backup = control.begin_failover(task_id=task_id, lease_owner="backup")
+    with pytest.raises(ControlPlaneError, match="generation fence"):
+        control.claim_attempt(task_id=task_id, attempt_id=primary["attempt_id"])
+    assert control.claim_attempt(task_id=task_id, attempt_id=backup["attempt_id"])[
+        "idempotent"
+    ] is False
+
 @pytest.mark.parametrize("signal", ["slow", "silent", "missed_heartbeat", "soft_deadline", "hard_deadline", "unknown"])
 def test_ambiguous_signals_surface_and_never_fail_over(tmp_path, signal):
     task_id = f"TASK-{signal}"

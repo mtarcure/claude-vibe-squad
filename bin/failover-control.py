@@ -71,6 +71,42 @@ def _json_file(path: str | None) -> dict | None:
     return value
 
 
+def _advance_active_delivery(attempt: dict) -> bool:
+    """Fence the active registry before a generation-2 packet is submitted."""
+    vault_root = Path(os.environ.get("VAULT_ROOT", REPO)).expanduser().resolve()
+    state_dir = Path(os.environ.get("STATE_DIR", vault_root / "_state"))
+    registry_path = state_dir / "active-tasks.json"
+    try:
+        registry = json.loads(registry_path.read_text())
+    except FileNotFoundError:
+        return False
+    if not isinstance(registry, dict) or attempt["task_id"] not in registry:
+        return False
+    completed = subprocess.run(
+        [
+            str(vault_root / "bin" / "registry-reconciler.sh"),
+            "--advance-delivery",
+            attempt["task_id"],
+            "--attempt-id",
+            attempt["attempt_id"],
+            "--generation",
+            str(attempt["generation"]),
+            "--lane",
+            attempt["lane"],
+        ],
+        cwd=vault_root,
+        env={**os.environ, "VAULT_ROOT": str(vault_root)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise ControlPlaneError(
+            f"active delivery generation advance failed: {completed.stderr.strip()}"
+        )
+    return True
+
+
 def command_init(args: argparse.Namespace, control: DispatchControlPlane) -> dict:
     task_file = Path(args.task_file).expanduser().resolve()
     packet_template = task_file.read_bytes()
@@ -141,6 +177,7 @@ def command_signal(args: argparse.Namespace, control: DispatchControlPlane) -> d
                 lease_seconds=args.lease_seconds,
                 effective_model=args.effective_model,
             )
+            _advance_active_delivery(backup)
             result["failover_attempt"] = backup
             if args.redispatch:
                 packet = control.prepare_backup_redispatch(
@@ -154,12 +191,13 @@ def command_signal(args: argparse.Namespace, control: DispatchControlPlane) -> d
                         env={**os.environ, "VAULT_ROOT": str(REPO)},
                         check=False,
                     )
-                    result["dispatch_accepted"] = completed.returncode == 0
+                    result["pane_delivery_attempted"] = completed.returncode == 0
                     if completed.returncode == 0:
                         control.record_runtime_event(
                             task_id=args.task_id,
                             attempt_id=backup["attempt_id"],
-                            event="accepted",
+                            event="pane_delivery_attempted",
+                            detail="failover-control-nudge",
                         )
                     else:
                         control.record_terminal_signal(
@@ -183,42 +221,53 @@ def command_event(args: argparse.Namespace, control: DispatchControlPlane) -> di
     )
 
 
-def command_pickup(args: argparse.Namespace, control: DispatchControlPlane) -> dict:
+def command_pane_delivery(args: argparse.Namespace, control: DispatchControlPlane) -> dict:
     task_file = Path(args.task_file).expanduser().resolve()
     metadata = _frontmatter(task_file)
     task_id = str(metadata.get("id") or "")
     packet_attempt_id = str(metadata.get("failover_attempt_id") or "")
     if not task_id or not packet_attempt_id:
-        raise ControlPlaneError("pickup packet requires id and failover_attempt_id")
+        raise ControlPlaneError("pane-delivery packet requires id and failover_attempt_id")
     ledger = control.read(task_id)
     if packet_attempt_id != ledger.get("current_attempt_id"):
         return {
             "task_id": task_id,
             "attempt_id": packet_attempt_id,
             "status": "ignored",
-            "reason": "stale-generation-pickup",
+            "reason": "stale-generation-pane-delivery",
         }
     attempt = next(
         item for item in ledger["attempts"] if item["attempt_id"] == packet_attempt_id
     )
     if str(metadata.get("return_artifact") or "") != attempt["artifact_path"]:
-        raise ControlPlaneError("pickup packet artifact path does not match its attempt")
+        raise ControlPlaneError("pane-delivery packet artifact path does not match its attempt")
     event = control.record_runtime_event(
         task_id=task_id,
         attempt_id=packet_attempt_id,
-        event="accepted",
-        detail="inbox-watcher-pickup",
+        event="pane_delivery_attempted",
+        detail="inbox-watcher-pane-delivery",
     )
-    return {"task_id": task_id, "attempt_id": packet_attempt_id, "status": "accepted", **event}
+    return {
+        "task_id": task_id,
+        "attempt_id": packet_attempt_id,
+        "status": "pane_delivery_attempted",
+        **event,
+    }
+
+
+def command_claim(args: argparse.Namespace, control: DispatchControlPlane) -> dict:
+    return control.claim_attempt(task_id=args.task_id, attempt_id=args.attempt_id)
 
 
 def command_failover(args: argparse.Namespace, control: DispatchControlPlane) -> dict:
-    return control.begin_failover(
+    attempt = control.begin_failover(
         task_id=args.task_id,
         lease_owner=args.lease_owner,
         lease_seconds=args.lease_seconds,
         effective_model=args.effective_model,
     )
+    _advance_active_delivery(attempt)
+    return attempt
 
 
 def _ids_from_staging(path: Path) -> tuple[str, str]:
@@ -313,9 +362,23 @@ def build_parser() -> argparse.ArgumentParser:
     event.add_argument("--detail")
     event.set_defaults(handler=command_event)
 
-    pickup = sub.add_parser("accept-pickup", help="accept the attempt bound to a delivered inbox packet")
+    pane = sub.add_parser(
+        "pane-delivery-attempted",
+        help="record tmux pane submission without claiming model acceptance",
+    )
+    pane.add_argument("--task-file", required=True)
+    pane.set_defaults(handler=command_pane_delivery)
+
+    # Compatibility spelling: retained for old callers, but it no longer sets
+    # accepted_at and returns the honest pane-delivery vocabulary.
+    pickup = sub.add_parser("accept-pickup", help=argparse.SUPPRESS)
     pickup.add_argument("--task-file", required=True)
-    pickup.set_defaults(handler=command_pickup)
+    pickup.set_defaults(handler=command_pane_delivery)
+
+    claim = sub.add_parser("claim", help="record a lane-authored claim receipt")
+    claim.add_argument("--task-id", required=True)
+    claim.add_argument("--attempt-id", required=True)
+    claim.set_defaults(handler=command_claim)
 
     failover = sub.add_parser("failover", help="CAS-advance to the backup after a hard terminal signal")
     failover.add_argument("--task-id", required=True)

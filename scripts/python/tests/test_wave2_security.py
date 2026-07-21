@@ -549,6 +549,43 @@ class Block3WatcherNoArchive(unittest.TestCase):
         finally:
             shutil.rmtree(root, ignore_errors=True)
 
+    def test_preexisting_response_is_replayed_before_fswatch_events(self):
+        root = Path(tempfile.mkdtemp(prefix="wave2-startup-replay-"))
+        try:
+            vault, dept = self._vault(root)
+            t = "TASK-2026-07-16-0245-startup-replay"
+            entry = {"compatibility_namespace": "security", "specialist": "claude-spec",
+                     "to_model": "claude", "source_namespace": "security",
+                     "review_model": "none", "mandatory_review": "false",
+                     "status": "in-flight"}
+            (vault / "_state" / "active-tasks.json").write_text(json.dumps({t: entry}))
+            packet = dept / "active" / f"{t}.md"
+            packet.write_text(f"---\nid: {t}\n---\nbody\n", encoding="utf-8")
+            resp = dept / "outbox" / f"{t}-response.md"
+            resp.write_text(envelope({"id": f"{t}-response", "in_response_to": t,
+                                      "from": "claude", "to": "chrono", "type": "RESULT",
+                                      "status": "complete"}), encoding="utf-8")
+            fakebin = root / "fakebin"
+            fakebin.mkdir()
+            fsw = fakebin / "fswatch"
+            fsw.write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
+            fsw.chmod(0o755)
+            env = {**os.environ, "VAULT_ROOT": str(vault), "SQUAD_SESSION": "none",
+                   "RESPONSE_MIN_AGE_SECONDS": "0",
+                   "PATH": f"{fakebin}:{os.environ['PATH']}"}
+            env.pop("CHRONO_VAULT_ROOT", None)
+
+            r = subprocess.run(["bash", str(vault / "bin" / "outbox-watcher.sh"), "security"],
+                               env=env, capture_output=True, text=True, timeout=60)
+            out = r.stdout + r.stderr
+            final = json.loads((vault / "_state" / "active-tasks.json").read_text())[t]
+            self.assertEqual(r.returncode, 0, msg=out)
+            self.assertEqual(final["status"], "complete", msg=out)
+            self.assertFalse(packet.exists(), msg=out)
+            self.assertTrue((dept / "archive" / f"{t}.md").exists(), msg=out)
+            self.assertIn("shared reconciler handled registry entry", out)
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
     def test_gnu_stat_mtime_probe_never_uses_filesystem_report_as_epoch(self):
         root = Path(tempfile.mkdtemp(prefix="wave2-gnu-stat-"))
         try:
@@ -622,6 +659,19 @@ class Block3WatcherNoArchive(unittest.TestCase):
             self.assertNotIn("stat -f %m \"$lockdir\" 2>/dev/null || stat -c %Y", source)
         finally:
             shutil.rmtree(root, ignore_errors=True)
+
+
+class WatcherSupervisorWiring(unittest.TestCase):
+    def test_launch_restarts_each_watcher_kind_per_namespace(self):
+        source = (REPO / "bin" / "launch-squad.sh").read_text(encoding="utf-8")
+        command = next(
+            line for line in source.splitlines()
+            if "watcher supervisor restart: kind=inbox" in line
+        )
+        self.assertIn("while true; do bash ${VAULT_ROOT}/bin/inbox-watcher.sh", command)
+        self.assertIn("while true; do bash ${VAULT_ROOT}/bin/outbox-watcher.sh", command)
+        self.assertIn("kind=outbox namespace=\\$lead", command)
+        self.assertGreaterEqual(command.count("sleep 2; done) &"), 2)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,13 @@
 name = "scraping_engineer"
-description = "Authorized browser extraction implementation; heightened-risk stealth and live-target work never bypasses refusal or operator boundaries."
+description = "Authorized browser extraction implementation; heightened-risk stealth and live-target work never bypasses refusal or operator boundaries. Apify Actor runs require target authorization and explicit spend/compute ceilings."
 model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"
+# BEGIN SPECIALIST CAPABILITY PROJECTION
+capability_source = "model-lanes/specialist-lane-capabilities.v1.json"
+capability_source_sha256 = "25f0f3f37817a4967e9ed68ec9c00d7c13a6618070b98723c441f91b1e05fad4"
+tools = ["httpx","playwright"]
+mcps = ["chrome-devtools","chrono-vault","playwright"]
+# END SPECIALIST CAPABILITY PROJECTION
 developer_instructions = """
 You are the `scraping-engineer` specialist running inside the `gpt-codex` model lane.
 

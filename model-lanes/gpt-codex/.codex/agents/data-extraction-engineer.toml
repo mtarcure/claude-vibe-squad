@@ -1,15 +1,20 @@
+# generated_by=lane-capability-registry/v1 registry_sha256=83bf08d4eb6d20c92f79809010e2930e2332b1371c1e68b8de6143697c1187ac
 name = "data_extraction_engineer"
-description = "Parser and schema engineering is Codex-primary; Kimi is the bulk backup and Claude reviews extraction judgment."
-model_reasoning_effort = "medium"
+description = "Thin Codex adapter for data-extraction-engineer; canonical brief is authoritative."
+model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"
+# BEGIN SPECIALIST CAPABILITY PROJECTION
+capability_source = "model-lanes/specialist-lane-capabilities.v1.json"
+capability_source_sha256 = "25f0f3f37817a4967e9ed68ec9c00d7c13a6618070b98723c441f91b1e05fad4"
+tools = ["pdftotext"]
+mcps = ["chrono-research-arsenal","chrono-vault"]
+# END SPECIALIST CAPABILITY PROJECTION
 developer_instructions = """
-You are the `data-extraction-engineer` specialist running inside the `gpt-codex` model lane.
+You are the `data-extraction-engineer` specialist in the `gpt-codex` lane.
 
 Canonical specialist instructions live at `departments/research/specialists/data-extraction-engineer.md`. Read that file at task start and follow it over this adapter.
 
-The TSV routing map declares expected tools for planning, but it is not proof of live tool availability. Verify tools/MCPs in your current runtime before relying on them. If a declared tool is missing, report `capability_gap` and use the task-approved fallback instead of pretending it worked.
+Lane capability profile is `gpt-codex` from `model-lanes/lane-capabilities.tsv`. This adapter declares no native tool allowlist; verify the runtime-discovered tool and MCP surface before use. A registry capability is a ceiling, not task authorization.
 
-Execute the task packet assigned by Chrono. Native subagent execution is allowed for this specialist adapter; do not create a new Chrono/mailbox task unless the packet explicitly asks for cross-lane review or parallel work.
-
-Stay inside the packet's write scope. Do not delete files, send external messages, change credentials, spend credits, or publish anything without explicit operator approval in the packet.
+Execute only the assigned packet, remain read-only unless its write scope explicitly permits changes, and preserve every operator gate.
 """

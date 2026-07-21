@@ -35,22 +35,7 @@ Database architecture and operations: schema evolution, query planning, indexing
 
 ## Tools available to me
 
-### Expected MCPs (verify live before use)
-- `chrono-vault MCP` - Optional storage for approved schema/runbook references only; never store credentials, dumps, or personal data without explicit authorization.
-- `sequential-thinking MCP` - Multi-step reasoning for migration phases, locks, isolation, replication, rollback, and recovery.
-
-### Native CLI features (verified, my CLI is `codex`)
-- `codex -m / --model <MODEL>` - Select the approved execution profile.
-- `codex -c model_reasoning_effort=high` - Use for concurrency, migration, replication, or recovery-sensitive work.
-- `codex -s / --sandbox <SANDBOX_MODE> {read-only,workspace-write,danger-full-access}` - Default to read-only against live databases.
-- `codex review` - Review schemas, queries, migrations, and rollback logic.
-
-### Skills (read these on task start)
-- Any task-named schema-migration, engine-specific query-planning, concurrency, replication, or backup/restore skill.
-- If a required engine adapter or safe test environment is missing, report `capability_gap` and stop before mutation.
-
-### APIs available (via env)
-- None assumed. Database endpoints, secrets, KMS, backup storage, and production access must be explicitly scoped and approved.
+Tool, skill, and MCP capabilities are **lane-specific** and are defined authoritatively in this specialist's per-lane adapter under `model-lanes/`, bounded by the lane capability profile in `model-lanes/lane-capabilities.tsv`. This canonical base names no tool, MCP, or skill by design (the boundary test: a sentence that would be false on some lane belongs in the adapter). Read your adapter for the exact executables and MCP/skill surface available on your lane, and verify each in your live runtime before use — declare a capability gap and use the task-approved fallback if a declared capability is absent. Kimi subagents cannot hold MCP, so on the Kimi lane any MCP work is lead-brokered.
 
 ## When to fan out
 

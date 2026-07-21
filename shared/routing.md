@@ -36,10 +36,18 @@ Every specialist row carries a full chain, resolved from the profile registry:
 |------|--------------------------|----------|---------------------|
 | codex | `gpt-5.6-sol` (high) | `gpt-5.6-sol` Ultra/max | implementation · tests · PoC · code review mechanics · graphics/runtime |
 | claude | `claude-fable-5` (xhigh) | `claude-fable-5` max | judgment · planning · safety/security reasoning · security defense · research/synthesis/long-context · developmental content · game/level/audio design |
-| gemini | `gemini-3.5-flash` | `gemini-3.1-pro-preview` (deep) | content/text · design · media/multimodal · search grounding |
-| kimi | `kimi-code/kimi-for-coding` | cross-family (Fable/Sol) | **throughput-only lane — 0 primaries** |
+| gemini | `gemini-3.5-flash` | `gemini-3.1-pro-preview` (deep) | content/text · design · media/multimodal · **search grounding (live · subscription — Google Search grounding, first-class Rule-8 route)** |
+| kimi | `kimi-code/kimi-for-coding` | cross-family (Fable/Sol) | experimental mass-tool-use / high-volume probing; otherwise throughput-only |
 
-**Kimi is the throughput-only lane.** It holds no primary assignments. It is used solely as (a) a `throughput_lane` for genuine bulk/mechanical work under the downshift gate, and (b) the `data-extraction-engineer` bulk backup. K2.7-Code is a code specialist with no independent general benchmark and a 262K context (< Fable/Sol 1M); research, synthesis, long-context, judgment, and linguistic work never route to it. `summarizer` is its one legitimate low-safety bulk primary-equivalent use.
+**Kimi is denied as a primary by default.** The sole v1 exception is the explicitly allowlisted `experimental-attacker`, whose job is authorized mass-tool-use, broad hypothesis generation, and heavy probing. Its outputs are leads, never validated findings, and require Claude/Codex confirmation plus formal review. Outside that exception, Kimi remains a gated throughput lane and the data-extraction bulk backup. Kimi has no native dollar/effort ceiling, so every metered Kimi-mediated child call requires an external numeric budget ceiling; never route unbounded metered work to Kimi.
+
+**Gemini owns grounded bounty research.** `bounty-researcher` performs cited prior-audit, historical-exploit, incident, and taxonomy recon. Its outputs feed attack lanes but remain leads until heavy-hitter validation.
+
+**Deep six-round research is a typed Claude handoff, not a Gemini capability.** Gemini-primary `research` and `bounty-researcher` keep grounded live search local, while substantive six-round investigations route to `large-context-analyst@claude`. The handoff may invoke `/ultra-research` only after a current slash-command discovery probe passes; a present-but-undiscoverable legacy plugin is `needs_tool`, never live availability.
+
+**Claude and Codex are the heavy hitters and finding authorities.** Claude is judgment/security-reasoning primary; Codex is implementation, tracing, PoC, and test primary. They back up and review one another under anti-affinity. Agreement from any models is corroboration, not formal review.
+
+The machine-enforced lane defaults, narrow primary exceptions, adapter templates, heightened-role set, and routing vocabulary live in `shared/lane-policy.tsv`. Markdown defines the policy; validators read that data and enforce it.
 
 ## 4. Tool-gated media axis
 
@@ -50,9 +58,9 @@ When a backup lane cannot invoke the required tools, it runs **specification-onl
 ## 5. Safety model
 
 - **`safety_level`** (`low | medium | high`) is a **quality floor, not a complexity detector.** `high` forces the strongest profile + stricter review + `throughput.never`. Complexity escalation is separate and signal-based.
-- **`heightened_risk`** (boolean) marks defense-in-depth roles: `security-analyst`, `exploit-developer`, `privacy-steward`, `threat-modeler`, `scout`, `impact-validator`, `smart-contract-engineer`, `scraping-engineer`, and the new `incident-responder`, `detection-engineer`, `software-supply-chain-engineer`, `asset-provenance-and-rights-auditor`.
+- **`heightened_risk`** (boolean) marks defense-in-depth roles. The complete machine-readable role set lives in `shared/lane-policy.tsv`; it includes the security, exploit, incident, privacy, provenance, reconnaissance, supply-chain, and experimental-attacker roles that require the high-safety floor.
 - **GLOBAL safety-refusal invariant.** A genuine safety refusal on **any** lane surfaces to the operator; the same request is **never cross-family re-dispatched in either direction** (Fable-refuses → do not shop to Sol; Sol-refuses → do not shop to Fable/Gemini/Kimi). Operational blocks (overload/down/timeout) may cross-family failover; safety refusals may not. Refusals are classified by (1) structured provider/wrapper policy event, (2) typed terminal status, then (3) content heuristic **only to downgrade certainty** to `possible_refusal` + surface. A schema-valid 200-style response is terminal; short output is never treated as an operational failure.
-- **`operator_gate`** — closed enum, aligned to Hard Rule 6: `delete · cleanup · credential_change · public_release · paid_media · live_outreach · production_mutation`. `production_mutation` (mutating a live production system that is not itself a public release) is **operator-ratified (2026-07-13)**. `requires_approval` in a brief is **harness tool names only** (`Write`, `Bash`, `WebFetch`, …) — domain gates live in `operator_gate`, never in `requires_approval`.
+- **`operator_gate`** — closed enum in `shared/lane-policy.tsv`: `delete · cleanup · credential_change · public_release · paid_media · live_outreach · production_mutation · offensive_execution · malware_detonation`. `production_mutation` (mutating a live production system that is not itself a public release) is **operator-ratified (2026-07-13)**. `requires_approval` in a brief is **harness tool names only** (`Write`, `Bash`, `WebFetch`, …) — domain gates live in `operator_gate`, never in `requires_approval`.
 - **Downshift conjunction gate.** `throughput.downshift_gated.v1` permits the kimi bulk tier ONLY when `safety_level == low` AND no security/privacy/financial content AND a per-task Chrono bulk flag. Never a per-specialist default; `throughput.never.v1` is mandatory when `safety_level != low`, `heightened_risk`, or any `dual_use|privacy|financial` tag applies.
 
 Policy IDs (versioned): `failover.conservative.v1` · `escalation.signal.v1` · `escalation.safety_floor.v1` (mandatory for high/heightened) · `throughput.never.v1` · `throughput.downshift_gated.v1`.
@@ -108,3 +116,21 @@ Explicit operator approval is required for every `operator_gate` action: deletes
 - Profile/policy registries + schema: `_state/roster-redesign-2026-07-13/schema-final.md`.
 - Full design rationale: `_state/roster-redesign-2026-07-13/design-v2.md` and `consult-synthesis.md`.
 - Mode workflows: `shared/modes/*.md`.
+
+## 9. Dispatch shapes
+
+- **Single:** one specialist, one lane, one task and artifact.
+- **Panel:** one lane coordinator asks multiple specialists to assess one objective; local members have no mailbox delivery identity.
+- **Fan-out:** one lane runs the same specialist over distinct assignments; it remains a panel variant and continues to coexist with swarm.
+- **Swarm:** the same specialist and objective are independently delivered to multiple model lanes. Each child has its own packet, claim, verification contract, artifact, sidecar, registry record, and response; a controller parent creates a deterministic agreement/divergence/lane-only diff.
+
+Swarm is system-wide but requires a same-name adapter on every selected lane. It is read-only in v1, cannot nest with panel/fan-out, never majority-votes, and always remains `needs_review` until an explicit review settles the frozen swarm bundle. See `shared/modes/swarm.md` and `shared/finding-taxonomy.md`.
+
+## 10. Selection discipline (which specialist, not just which lane)
+
+The dispatcher enforces the map; the recurring failure is *selecting* the wrong specialist. These rules are canonical (the full task-shape table lives in `shared/specialists/triage.md`):
+
+1. **Pick the most specific specialist for the task shape** — never a generalist by default. A generalist absorbing specific work starves the specific role and loads a weaker-fit prompt.
+2. **Never route review / audit / verify work to an implementer.** Review belongs to `code-reviewer`, `skeptic`, `impact-validator`, `vibecoding-check`, or `content-verifier` (or the packet's `review_model`). An implementer reviewing lacks the reviewer's adversarial + `anti_affinity: author_family` discipline.
+3. **`systems-engineer` is not the Codex-lane default.** Per its own brief it fires for genuine low-level / cross-arch / SIMD / runtime work only (~5% of coding work). Default general implementation to `backend-engineer`, infra/tool-wiring to `devops-engineer`, persistence to `database-engineer`, hot-paths to `performance-optimizer`, docs to `technical-writer`, review to `code-reviewer`/`skeptic`.
+4. **Deliberately fan across all four models.** Gemini owns grounded research (`bounty-researcher`, Google Search grounding), content/text, and tool-gated media; Kimi owns `experimental-attacker` breadth (leads only) and bulk throughput under the downshift gate; Claude and Codex are the heavy hitters and cross-review one another. Concentrating on two lanes wastes the roster and the cross-family independence that review depends on.

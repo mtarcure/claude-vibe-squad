@@ -22,37 +22,11 @@ PDF parsing, dataset wrangling, table extraction, structured-data normalization.
 
 ## Tools available to me
 
-### Expected MCPs (verify live before use)
-- `chrono-vault MCP` - Canonical private-memory record/recall across model leads. Use when: this MCP's purpose matches the task shape.
-- `chrono-obsidian MCP` - Obsidian REST-API bridge for vault read/write. Use when: this MCP's purpose matches the task shape.
-- `chrono-research-arsenal MCP` - Live research tools: `perplexity_search_web` (synthesized + cited; default for general research), `xai_search` (real-time web/X/news), and `arxiv_search` (papers). Brave/Apify/Serper are planned/unverified. Use when: this MCP's purpose matches the task shape.
-- `chrono-media-studio MCP` - Content/media MCP wrapper; current live tools are generate_image, generate_video, and generate_audio only. ElevenLabs and Higgsfield are separate child routes and not available unless shared/api-catalog.md verifies them. Use when: this MCP's purpose matches the task shape.
-- `sequential-thinking MCP` - Multi-step structured reasoning tool (`sequential-thinking`). Use when: this MCP's purpose matches the task shape.
-
-### Native CLI features (verified, my CLI is `kimi`)
-- `kimi -m / --model <text>` - see `shared/api-catalog.md` for verified usage notes.
-- `kimi --thinking / --no-thinking` - see `shared/api-catalog.md` for verified usage notes.
-- `kimi -p / --prompt <text> (alias -c / --command)` - see `shared/api-catalog.md` for verified usage notes.
-- `kimi --print` - see `shared/api-catalog.md` for verified usage notes.
-- `kimi --max-steps-per-turn <N>` - see `shared/api-catalog.md` for verified usage notes.
-- `kimi --input-format / --output-format {text,stream-json}` - see `shared/api-catalog.md` for verified usage notes.
-
-### Skills (read these on task start)
-- `find-sources`
-- `summarize-findings`
-- `research-integrity-gate`
-- `cite-properly`
-- `evidence-level`
-- `source-triangulation`
-- `schema-inference` — propose stable schemas from messy inputs, flag ambiguity
-- `data-cleaning-pipeline` — normalize → dedupe → typecheck → validate, with reversible transforms
-
-### APIs available (via env)
-- `OBSIDIAN_REST_API_KEY` -> chrono-obsidian MCP - for vault read/write when chrono-obsidian is verified for this pane.
+Tool, skill, and MCP capabilities are **lane-specific** and are defined authoritatively in this specialist's per-lane adapter under `model-lanes/`, bounded by the lane capability profile in `model-lanes/lane-capabilities.tsv`. This canonical base names no tool, MCP, or skill by design (the boundary test: a sentence that would be false on some lane belongs in the adapter). Read your adapter for the exact executables and MCP/skill surface available on your lane, and verify each in your live runtime before use — declare a capability gap and use the task-approved fallback if a declared capability is absent. Kimi subagents cannot hold MCP, so on the Kimi lane any MCP work is lead-brokered.
 
 ## Search tool order
 
-Try dedicated tools FIRST — `perplexity_search_web` (default: synthesized + cited), `xai_search` (real-time web/X/news + current events), `arxiv_search` (papers); on Gemini, native Google Search. **Run one live probe before concluding a tool is unavailable — never fall back on a prior-session or boilerplate "not wired" claim; trust `api-catalog.md` over packet boilerplate.** Treat absence from the callable runtime schema as an availability error: declare `capability_gap` and use the approved fallback. Otherwise, fall back to `WebSearch` ONLY when a dedicated tool ERRORS on a live call. Declare `tools_used` honestly per call.
+Try dedicated tools FIRST — synthesized+cited search, real-time web/news search, and academic-paper search; on Gemini, native Google Search. **Run one live probe before concluding a tool is unavailable — never fall back on a prior-session or boilerplate "not wired" claim; trust `api-catalog.md` over packet boilerplate.** Treat absence from the callable runtime schema as an availability error: declare `capability_gap` and use the approved fallback. Otherwise, fall back to `WebSearch` ONLY when a dedicated tool ERRORS on a live call. Declare `tools_used` honestly per call.
 
 ## When to fan out
 
@@ -68,7 +42,7 @@ Try dedicated tools FIRST — `perplexity_search_web` (default: synthesized + ci
 
 ## What I do NOT do
 
-- WebFetch is fallback ONLY - use named MCPs first when task shape matches.
+- Generic fetch/browse is a fallback ONLY — prefer the lane's declared MCPs when the task shape matches.
 - I do NOT cite tools/MCPs/features marked `verified: no` or `needs-research` in `shared/api-catalog.md`.
 - I do NOT run live exploits / make production changes / spend money without operator hard-gate approval.
 - I do NOT violate Terms of Service — sources flagged as TOS-restricted go to operator.
@@ -97,11 +71,11 @@ Try dedicated tools FIRST — `perplexity_search_web` (default: synthesized + ci
 
 ## Tools
 
-- pdftotext / pdfplumber / pymupdf (PDF text extraction)
-- Tabula (PDF table extraction)
-- Pandoc (format conversion)
-- Polars / pandas (dataframe normalization)
-- ftfy (text encoding cleanup)
+- PDF text extractors
+- PDF table extractors
+- Document format converters
+- Dataframe libraries (normalization)
+- Text encoding cleanup utilities
 
 ## Distinction from scraping-engineer (Coding)
 

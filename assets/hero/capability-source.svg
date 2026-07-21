@@ -1,0 +1,35 @@
+<svg width="1400" height="700" viewBox="0 0 1400 700" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Vibe Squad capability source</title>
+  <desc id="desc">One authored capability source; adapters and the generated index are derived and hash-checked against it.</desc>
+  <rect width="1400" height="700" fill="#0b1020"/>
+  <text x="80" y="82" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="42" font-weight="800">Capability Source</text>
+  <text x="80" y="120" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="22">One authored JSON. Adapters and the generated index are derived and hash-checked, not hand-edited.</text>
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M2 2 L10 6 L2 10 Z" fill="#64748b"/>
+    </marker>
+  </defs>
+
+  <rect x="460" y="190" width="480" height="140" rx="18" fill="#082f49" stroke="#22d3ee" stroke-width="2"/>
+  <text x="700" y="238" text-anchor="middle" fill="#e0f2fe" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="22" font-weight="800">specialist-lane-capabilities.v1.json</text>
+  <text x="700" y="270" text-anchor="middle" fill="#bae6fd" font-family="Inter, Arial, sans-serif" font-size="16">schema specialist-lane-capabilities/v1 &#183; version 1</text>
+  <text x="700" y="298" text-anchor="middle" fill="#bae6fd" font-family="Inter, Arial, sans-serif" font-size="16">156 authored entries &#8212; 71 full primary + 85 partial</text>
+
+  <line x1="700" y1="330" x2="382" y2="412" stroke="#64748b" stroke-width="4" marker-end="url(#arrow)"/>
+  <line x1="700" y1="330" x2="1018" y2="412" stroke="#64748b" stroke-width="4" marker-end="url(#arrow)"/>
+
+  <rect x="140" y="420" width="430" height="170" rx="16" fill="#052e1f" stroke="#34d399" stroke-width="2"/>
+  <text x="355" y="468" text-anchor="middle" fill="#6ee7b7" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="22" font-weight="800">156 specialist adapters</text>
+  <text x="355" y="500" text-anchor="middle" fill="#cbd5e1" font-family="Inter, Arial, sans-serif" font-size="16">physical capability-bearing files</text>
+  <text x="355" y="528" text-anchor="middle" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="16">156 source entries = 156 adapters</text>
+  <text x="355" y="556" text-anchor="middle" fill="#34d399" font-family="Inter, Arial, sans-serif" font-size="17" font-weight="700">zero diagnostics &#10003;</text>
+
+  <rect x="790" y="420" width="470" height="170" rx="16" fill="#052e1f" stroke="#34d399" stroke-width="2"/>
+  <text x="1025" y="462" text-anchor="middle" fill="#6ee7b7" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="18" font-weight="800">generated-specialist-capabilities.json</text>
+  <text x="1025" y="492" text-anchor="middle" fill="#bae6fd" font-family="Inter, Arial, sans-serif" font-size="15">schema specialist-adapter-capability-index/v2</text>
+  <text x="1025" y="518" text-anchor="middle" fill="#94a3b8" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="15">sha256 25f0f3f3&#8230;1e05fad4</text>
+  <text x="1025" y="550" text-anchor="middle" fill="#34d399" font-family="Inter, Arial, sans-serif" font-size="17" font-weight="700">byte-identical &#10003;</text>
+
+  <rect x="180" y="618" width="1040" height="62" rx="12" fill="#1f1608" stroke="#f59e0b" stroke-width="2"/>
+  <text x="700" y="656" text-anchor="middle" fill="#fbbf24" font-family="Inter, Arial, sans-serif" font-size="18">validate_capability_homes.py compares the index byte-for-byte against the source &#8212; drift fails closed</text>
+</svg>

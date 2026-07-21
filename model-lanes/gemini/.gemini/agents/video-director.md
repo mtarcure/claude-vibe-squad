@@ -1,10 +1,15 @@
 ---
 name: video-director
-description: "Tool-gated video direction; Claude backup produces a TBASF storyboard when tools are unavailable."
+description: "Governed wrapper generation is required. Raw direction/scoring utilities are actual Claude-child tools, remain partial, and every paid create/edit requires paid_media plus get_cost:true; Claude backup produces a TBASF storyboard when unavailable.; degrades[higgsfield__models_explore]=Claude-child handoff or TBASF blueprint; degrades[higgsfield__motion_control]=Claude-child handoff or TBASF blueprint; degrades[higgsfield__virality_predictor]=Claude-child handoff or TBASF blueprint"
 kind: local
 tools: ["read_file", "replace", "write_file", "run_shell_command", "glob", "grep_search"]
 model: inherit
 max_turns: 30
+# BEGIN SPECIALIST CAPABILITY PROJECTION
+capability_source: model-lanes/specialist-lane-capabilities.v1.json
+capability_source_sha256: 25f0f3f37817a4967e9ed68ec9c00d7c13a6618070b98723c441f91b1e05fad4
+capability_tools: ["generate_video"]
+# END SPECIALIST CAPABILITY PROJECTION
 ---
 
 # Specialist Adapter: Video Director

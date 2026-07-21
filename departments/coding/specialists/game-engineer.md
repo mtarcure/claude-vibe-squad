@@ -35,23 +35,7 @@ Game-engine runtime implementation, gameplay state, input, physics, save systems
 
 ## Tools available to me
 
-### Expected MCPs (verify live before use)
-- `chrono-media-studio MCP` - Optional asset-generation handoff only. Use when the task explicitly authorizes media generation; otherwise consume typed assets from media specialists.
-- `sequential-thinking MCP` - Multi-stage reasoning for state architecture, cross-platform constraints, rollback, and integration planning.
-
-### Native CLI features (verified, my CLI is `codex`)
-- `codex -m / --model <MODEL>` - Select the approved execution profile through the registry.
-- `codex -c model_reasoning_effort=high` - Use for complex engine, concurrency, netcode, or migration work.
-- `codex -s / --sandbox <SANDBOX_MODE> {read-only,workspace-write,danger-full-access}` - Use the least privilege compatible with the task.
-- `codex review` - Cross-check runtime changes and integration risk before handoff.
-
-### Skills (read these on task start)
-- `cross-arch-build-discipline`
-- `cross-arch-test-discipline`
-- Any task-named engine, networking, save-migration, or performance skill; if absent, report a capability gap rather than inventing its contract.
-
-### APIs available (via env)
-- None assumed. Engine services, platform SDKs, signing credentials, and deployment tokens must be task-supplied and explicitly approved.
+Tool, skill, and MCP capabilities are **lane-specific** and are defined authoritatively in this specialist's per-lane adapter under `model-lanes/`, bounded by the lane capability profile in `model-lanes/lane-capabilities.tsv`. This canonical base names no tool, MCP, or skill by design (the boundary test: a sentence that would be false on some lane belongs in the adapter). Read your adapter for the exact executables and MCP/skill surface available on your lane, and verify each in your live runtime before use — declare a capability gap and use the task-approved fallback if a declared capability is absent. Kimi subagents cannot hold MCP, so on the Kimi lane any MCP work is lead-brokered.
 
 ## When to fan out
 

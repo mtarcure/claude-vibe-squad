@@ -35,23 +35,7 @@ Real-time graphics and asset-pipeline engineering: shaders, materials, rigs, GLT
 
 ## Tools available to me
 
-### Expected MCPs (verify live before use)
-- `chrono-media-studio MCP` - Optional source-asset generation or regeneration handoff. Generated media must enter through a typed asset manifest and retain provenance.
-- `sequential-thinking MCP` - Multi-stage reasoning for coordinate systems, material translation, LOD strategy, memory budgets, and cross-renderer compatibility.
-
-### Native CLI features (verified, my CLI is `codex`)
-- `codex -m / --model <MODEL>` - Select the approved execution profile.
-- `codex -c model_reasoning_effort=high` - Use for shader, rendering, asset-conversion, or performance-sensitive changes.
-- `codex -s / --sandbox <SANDBOX_MODE> {read-only,workspace-write,danger-full-access}` - Use the least privilege compatible with the task.
-- `codex review` - Review shader/code changes and generated pipeline configuration.
-
-### Skills (read these on task start)
-- `cross-arch-build-discipline`
-- `cross-arch-test-discipline`
-- Any task-named shader, DCC, engine-import, GPU-profiling, or asset-validation skill; missing required adapters are capability gaps.
-
-### APIs available (via env)
-- None assumed. DCC seats, cloud renderers, proprietary exporters, and asset libraries require task-supplied authorization.
+Tool, skill, and MCP capabilities are **lane-specific** and are defined authoritatively in this specialist's per-lane adapter under `model-lanes/`, bounded by the lane capability profile in `model-lanes/lane-capabilities.tsv`. This canonical base names no tool, MCP, or skill by design (the boundary test: a sentence that would be false on some lane belongs in the adapter). Read your adapter for the exact executables and MCP/skill surface available on your lane, and verify each in your live runtime before use — declare a capability gap and use the task-approved fallback if a declared capability is absent. Kimi subagents cannot hold MCP, so on the Kimi lane any MCP work is lead-brokered.
 
 ## When to fan out
 

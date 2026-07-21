@@ -1,7 +1,13 @@
 ---
 name: large-context-analyst
-description: "Long-context analysis moves from Kimi to Fable because Fable and Sol provide the required context and judgment."
+description: "Long-context analysis moves from Kimi to Fable because Fable and Sol provide the required context and judgment. Direct metered tools require bounded opt-in; Perplexity remains partial with the truth gate, and Drive needs a controller handoff.; degrades[Google Drive]=typed controller handoff or needs_tool"
 model: inherit
+# BEGIN SPECIALIST CAPABILITY PROJECTION
+capability_source: model-lanes/specialist-lane-capabilities.v1.json
+capability_source_sha256: 25f0f3f37817a4967e9ed68ec9c00d7c13a6618070b98723c441f91b1e05fad4
+skills: ["claim-validation-gate","cross-file-relationship-synthesis","dual-level-retrieval","layered-analysis-loop","scope-estimation"]
+mcps: ["chrono-research-arsenal","chrono-vault"]
+# END SPECIALIST CAPABILITY PROJECTION
 ---
 
 # Specialist Adapter: Large Context Analyst

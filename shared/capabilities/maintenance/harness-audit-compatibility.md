@@ -29,3 +29,13 @@ split, so this card produces findings + a handoff, never a harness mutation (tha
 `self-extension`/implementation task under its own gates). MCP reachability uses the lane shell + the
 `mcp-reachability-audit` methodology; note that the `parity-probe` SKILL still references the retired
 `chrono-catalog` namespace and needs maintenance before it can be a hard acceptance gate.
+
+**Confirmed MCP breakages (open audit findings — route to the owning implementer; this card does not fix them):**
+1. **`chrono-content-engineer` disconnected.** The plugin directory was renamed `chrono-content-engineer` →
+   `chrono-media-studio`, so `~/.kimi/mcp.json` and `.gemini/settings.json` still point at a now-missing
+   `mcp_server.py`. Fix = repair the path in those lane configs (restart-unsafe even where a live pane still
+   holds the old tools).
+2. **`chrono-catalog` disconnected.** `unknown MCP namespace: catalog` — the vault `mcp_server.py` only handles
+   the `kg`/`obsidian` namespaces. Fix = implement the `catalog` namespace or re-register under a valid one.
+Both are config/implementation repairs (a `self-extension`/maintenance task), not harness mutations by this
+audit card.

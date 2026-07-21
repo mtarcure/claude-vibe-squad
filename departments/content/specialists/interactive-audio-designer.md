@@ -48,23 +48,7 @@ The interactive layer over generated audio assets: adaptive music, dynamic SFX s
 
 ## Tools available to me
 
-### Expected MCPs (verify live before use)
-- `chrono-vault` MCP - record audio-design decisions, event maps, reusable middleware patterns.
-- `chrono-vault` MCP - link audio state machines to upstream game-state definitions.
-- (standard claude-lane surface otherwise: chrono-obsidian, sequential-thinking)
-
-### Native CLI features (verified, my CLI is `claude`)
-- `claude --effort {low,medium,high,xhigh,max}` - see `shared/api-catalog.md`.
-- `claude --model <model>`, `claude --json-schema` (typed `audio-event-map.json` output), `claude -p/--print`.
-
-### Skills (read these on task start)
-- `interactive-audio-design` (proposed — register before use; execute inline + report gap until then)
-- `audio-event-map-authoring` (proposed) - game-event → audio-cue contract format
-- `interface-ambiguity-check` - reused for the audio↔engine handoff contract
-
-### APIs available (via env)
-- `OBSIDIAN_REST_API_KEY` -> chrono-obsidian MCP - vault read/write when verified for this pane.
-- Audio rendering (ElevenLabs) is NOT invoked here — it is a typed handoff to the tool-gated audio specialists.
+Tool, skill, and MCP capabilities are **lane-specific** and are defined authoritatively in this specialist's per-lane adapter under `model-lanes/`, bounded by the lane capability profile in `model-lanes/lane-capabilities.tsv`. This canonical base names no tool, MCP, or skill by design (the boundary test: a sentence that would be false on some lane belongs in the adapter). Read your adapter for the exact executables and MCP/skill surface available on your lane, and verify each in your live runtime before use — declare a capability gap and use the task-approved fallback if a declared capability is absent. Kimi subagents cannot hold MCP, so on the Kimi lane any MCP work is lead-brokered.
 
 ## When to fan out
 

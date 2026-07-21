@@ -20,9 +20,11 @@ A scripted check that asks each provider whether it can see + invoke chrono MCPs
 For each provider, the probe asks:
 
 1. Can you see `chrono-vault`? (Tests primary plugin reachability.)
-2. Can you call `mcp__chrono_vault__obsidian_health_check()`? (Tests MCP server startup + Obsidian REST liveness.)
-3. Can you see the namespace aliases (`chrono-kg`, `chrono-obsidian`, `chrono-catalog`)? (Tests Path B reach.)
-4. Can you see `chrono-research-arsenal` + perplexity sibling? (Tests research surface.)
+2. Can you call `health()`? (Tests MCP server startup and private-root resolution without mutation.)
+3. Can you `record` a uniquely-tokened synthetic learning and `recall` that token? (Tests the durable memory write/read loop.)
+4. Does the recalled note ID match the `record` result? (Tests that the provider reached the intended backing vault.)
+
+The record step is a durable mutation and each one-shot provider prompt may consume provider quota. Run the round trip only after the task/operator has authorized those gates. Static config inspection alone is never reported as a successful live round trip.
 
 Result captured to `~/Obsidian-Chrono/chrono/_state/parity-probe/<YYYY-MM-DD>.md` per the auto-capture pattern.
 
@@ -32,54 +34,58 @@ The probe is a sequence of one-shot dispatches. Brain (you, in Claude Code sessi
 
 ### Probe — Claude (brain main context)
 
-Just call the MCP directly:
+After the lane restart, call the MCP directly:
 
 ```
-mcp__chrono_vault__obsidian_health_check()
+health()
+record("learning", {"title":"provider parity <unique-token>","body":"Synthetic post-restart chrono-vault activation probe.","target":"chrono-vault","attack_class":"provider-parity","source_task":"<task-id>"})
+recall("<unique-token>", {"type":"learning"}, 3)
 ```
 
-If this returns `{ok: true, ...}`, Claude main context sees chrono-vault. If error, the chrono-vault plugin isn't loaded — check `~/.claude/settings.json` `enabledPlugins`.
+Pass only when `health` reports `root_valid: true`, `record` returns a note ID/path, and `recall` returns that same note ID. If the tools are absent, the running process has not loaded chrono-vault even if `claude mcp list` shows persisted configuration.
 
 ### Probe — Codex (`~/.codex/config.toml`)
 
 ```bash
-cat <<'EOF' | codex exec --skip-git-repo-check --model gpt-5.5 -
-List the MCP servers you have access to. Then call
-mcp__chrono_vault__obsidian_health_check and report the result verbatim.
+cat <<'EOF' | codex exec --skip-git-repo-check -
+Use chrono-vault to call health. Then record a learning with a unique token in
+the title and body, target "chrono-vault", attack_class "provider-parity", and
+the supplied task ID. Recall that exact token. Return only root_valid, the
+recorded note ID, the recalled note IDs, and any tool error; do not print env.
 EOF
 ```
 
-Expected output should mention `chrono-vault` plus namespace aliases. If codex reports no chrono MCPs, check `~/.codex/config.toml` `[mcp_servers.chrono-vault]` block.
+If Codex reports no chrono-vault tools, distinguish the already-running tool surface from `codex mcp list`: check the persisted block, restart the lane, and retry once rather than claiming a config-list pass as callable memory.
 
 ### Probe — Gemini (`~/.gemini/settings.json`)
 
 ```bash
-gemini -m gemini-3.1-pro-preview -p "List MCP servers available to you. Then call mcp__chrono_vault__obsidian_health_check and report the result."
+gemini -p "Use chrono-vault health, record a uniquely-tokened provider-parity learning, then recall the exact token. Return only root_valid, recorded note ID, recalled note IDs, and tool errors; do not print env."
 ```
 
-Expected: same shape as Codex. If missing, check `~/.gemini/settings.json` `mcpServers` block.
+Expected: the same three-part evidence as Claude. If missing, check the lane-local and home `mcpServers` blocks plus the inherited `CHRONO_VAULT_ROOT`; never copy credential values into probe output.
 
 ### Probe — Kimi (`~/.kimi/mcp.json`)
 
 ```bash
-kimi -m kimi-code/kimi-for-coding -p "List MCP servers available to you. Then call mcp__chrono_vault__obsidian_health_check and report the result." --quiet
+kimi -m kimi-code/kimi-for-coding -p "Use chrono-vault health, record a uniquely-tokened provider-parity learning, then recall the exact token. Return only root_valid, recorded note ID, recalled note IDs, and tool errors; do not print env." --quiet
 ```
 
 If kimi fails with `LLM not set`: run `kimi login` first (Moonshot subscription auth).
 
-If kimi sees chrono-vault but NOT chrono-kg / chrono-obsidian / chrono-catalog: those namespace aliases need adding (see README QuickStart §4 kimi block).
+Pass only when Kimi returns the recorded note through recall. Historical KG/catalog aliases are not parity requirements.
 
 ## Synthesis
 
 After all 4 probes return, brain composes a parity table and writes it to vault:
 
 ```markdown
-| Provider | chrono-vault | chrono-kg | chrono-obsidian | chrono-catalog | chrono-research-arsenal | obsidian-health-check |
+| Provider | persisted config | process callable | root valid | record note ID | recall matched | status |
 |---|---|---|---|---|---|---|
-| Claude (brain) | ✅ | (via vault) | (via vault) | (via vault) | ✅ | ok |
-| Codex | ✅ | ✅ | ✅ | ✅ | ✅ | ok |
-| Gemini | ✅ | ✅ | ✅ | ✅ | ✅ | ok |
-| Kimi | ✅ | ❌ missing | ❌ missing | ❌ missing | ✅ | ok |
+| Claude | yes/no | yes/no | yes/no | ID/error | yes/no | pass/fail |
+| Codex | yes/no | yes/no | yes/no | ID/error | yes/no | pass/fail |
+| Gemini | yes/no | yes/no | yes/no | ID/error | yes/no | pass/fail |
+| Kimi | yes/no | yes/no | yes/no | ID/error | yes/no | pass/fail |
 ```
 
 Capture path: `~/Obsidian-Chrono/chrono/_state/parity-probe/<YYYY-MM-DD>.md`
@@ -88,7 +94,8 @@ Capture path: `~/Obsidian-Chrono/chrono/_state/parity-probe/<YYYY-MM-DD>.md`
 
 - **Single-provider gap (e.g. kimi missing aliases):** drop that provider from fan-out for the current pass; queue config fix for after
 - **Cross-provider gap (multiple providers can't see chrono-vault):** suspect chrono-vault MCP server itself; run `.venv/bin/python plugins/chrono-vault/mcp_server.py --help` from the repo root to verify the server loads
-- **obsidian-health-check returns error:** Obsidian REST plugin isn't running, or `OBSIDIAN_REST_API_KEY` is wrong/missing — check `~/.config/shell/secrets.zsh`
+- **`health` reports an invalid root:** stop before writing; verify the inherited/configured absolute root and `.chrono-vault` sentinel without printing credentials.
+- **`record` errors or `recall` does not return the recorded ID:** fail activation for that provider and preserve the redacted tool error plus note IDs for review; do not treat server visibility as a pass.
 
 ## Cross-references
 

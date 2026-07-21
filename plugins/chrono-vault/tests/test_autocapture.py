@@ -157,6 +157,7 @@ class AutoCaptureTests(unittest.TestCase):
             "---\n"
             f"id: {task_id}\n"
             "specialist: site-reliability-engineer\n"
+            "mode: review\n"
             "status: done\n"
             "---\n\nbody\n",
             encoding="utf-8",
@@ -170,6 +171,32 @@ class AutoCaptureTests(unittest.TestCase):
         self.assertIn(
             "specialist-site-reliability-engineer", frontmatter["keywords"]
         )
+        self.assertEqual(frontmatter["source_task"], task_id)
+        self.assertEqual(frontmatter["target"], "review")
+        self.assertEqual(
+            frontmatter["attack_class"], "review-site-reliability-engineer"
+        )
+        self.assertEqual(frontmatter["sensitivity"], "internal")
+
+    def test_conflicting_canonical_and_legacy_task_ids_are_rejected(self) -> None:
+        namespace = "coding"
+        task_id = "TASK-2026-07-15-1854-73988d8c"
+        outbox = self.mailbox_root / "departments" / namespace / "outbox"
+        outbox.mkdir(parents=True)
+        path = outbox / f"{task_id}-response.md"
+        path.write_text(
+            "---\n"
+            f"in_response_to: {task_id}\n"
+            "in_reply_to: TASK-2026-07-15-1854-wrong\n"
+            "status: complete\n"
+            "---\n\nDone.\n",
+            encoding="utf-8",
+        )
+
+        result = autocapture.capture_response(str(path))
+
+        self.assertFalse(result["captured"])
+        self.assertEqual(result["reason"], "task_mismatch")
 
     def test_envelope_without_specialist_or_packet_defaults(self) -> None:
         namespace = "coding"
@@ -234,7 +261,7 @@ class AutoCaptureTests(unittest.TestCase):
         frontmatter, _ = parse_note(note_path)
         self.assertEqual(frontmatter["sensitivity"], "restricted")
 
-    def test_missing_mode_is_captured_with_restricted_fallback(self) -> None:
+    def test_missing_mode_uses_namespace_default(self) -> None:
         path, _ = self._response(
             "coding",
             "TASK-2026-07-14-9004-5678abcd",
@@ -250,8 +277,8 @@ class AutoCaptureTests(unittest.TestCase):
         self.assertTrue(result["captured"])
         note_path = next((self.vault_root / "notes" / "learning").glob("*.md"))
         frontmatter, _ = parse_note(note_path)
-        self.assertEqual(frontmatter["target"], "unknown")
-        self.assertEqual(frontmatter["sensitivity"], "restricted")
+        self.assertEqual(frontmatter["target"], "build")
+        self.assertEqual(frontmatter["sensitivity"], "internal")
 
     def test_malformed_and_non_response_files_are_skipped_without_writes(self) -> None:
         outbox = self.mailbox_root / "departments" / "coding" / "outbox"

@@ -143,6 +143,7 @@ class ProjectorTests(unittest.TestCase):
         self.assertTrue((candidate / "docs/superpowers/plans/public.md").is_file())
         self.assertTrue((candidate / "scripts/run-link").is_symlink())
         self.assertEqual(os.readlink(candidate / "scripts/run-link"), "run.sh")
+        self.assertFalse(any(candidate.rglob("__pycache__")))
 
         mode = self._git("ls-tree", first.candidate_tree, "scripts/run.sh").stdout.split()[0]
         self.assertEqual(mode, "100755")

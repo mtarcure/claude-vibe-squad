@@ -1,7 +1,12 @@
 name = "ai_engineer"
-description = "Agent apps, RAG, tool wiring, eval harnesses; routing changes require review."
+description = "Agent apps, RAG, tool wiring, eval harnesses; DeepSeek caching is preferred only for repeated stable-prefix evals, and Hugging Face controller access requires a typed handoff until squad-lane access is verified; routing changes require review."
 model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"
+# BEGIN SPECIALIST CAPABILITY PROJECTION
+capability_source = "model-lanes/specialist-lane-capabilities.v1.json"
+capability_source_sha256 = "25f0f3f37817a4967e9ed68ec9c00d7c13a6618070b98723c441f91b1e05fad4"
+mcps = ["chrono-vault"]
+# END SPECIALIST CAPABILITY PROJECTION
 developer_instructions = """
 You are the `ai-engineer` specialist running inside the `gpt-codex` model lane.
 

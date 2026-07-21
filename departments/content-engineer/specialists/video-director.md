@@ -4,14 +4,8 @@ version: 2.0
 department: content-engineer
 lane: gemini
 model_key: deep
-required_tools:
-  - chrono-media-studio:higgsfield__generate_video
-  - chrono-media-studio:higgsfield__motion_control
-  - chrono-media-studio:higgsfield__virality_predictor
-preferred_tools:
-  - chrono-media-studio:higgsfield__explainer_video
-  - chrono-media-studio:higgsfield__shorts_studio_create
-  - chrono-vault:recall
+required_tools: []
+preferred_tools: []
 safety_level: medium
 requires_approval:
   - Write
@@ -27,19 +21,7 @@ Generate video sequences and orchestrate motion across scenes. Write video brief
 
 ## Tools available to me
 
-### Expected MCPs (verify live before use)
-- `chrono-media-studio:higgsfield` - Video generation and motion control (deep model). Use when: orchestrating video sequences or complex motion effects.
-- `chrono-media-studio:elevenlabs` - TTS coordination for narration pacing. Use when: syncing narration to visual beats.
-- `chrono-vault MCP` - Canonical memory recall for project narrative context. Use when: understanding story arc and emotional requirements.
-
-### Native CLI features (verified, my CLI is `gemini`)
-- `gemini -m / --model <model>` - Deep model for complex video direction and creative orchestration.
-- `gemini --approval-mode {default,auto_edit,yolo,plan}` - See shared/api-catalog.md for verified usage notes.
-
-### Skills (read these on task start)
-- `video-production-principles`
-- `narrative-pacing`
-- `virality-analysis`
+Tool, skill, and MCP capabilities are **lane-specific** and are defined authoritatively in this specialist's per-lane adapter under `model-lanes/`, bounded by the lane capability profile in `model-lanes/lane-capabilities.tsv`. This canonical base names no tool, MCP, or skill by design (the boundary test: a sentence that would be false on some lane belongs in the adapter). Read your adapter for the exact executables and MCP/skill surface available on your lane, and verify each in your live runtime before use — declare a capability gap and use the task-approved fallback if a declared capability is absent. Kimi subagents cannot hold MCP, so on the Kimi lane any MCP work is lead-brokered.
 
 ## When to fan out
 

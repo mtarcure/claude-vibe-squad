@@ -4,12 +4,8 @@ version: 2.0
 department: content-engineer
 lane: gemini
 model_key: default
-required_tools:
-  - chrono-media-studio:elevenlabs__text_to_speech
-  - chrono-media-studio:elevenlabs__voice_clone
-preferred_tools:
-  - chrono-media-studio:elevenlabs__speech_to_speech
-  - chrono-vault:recall
+required_tools: []
+preferred_tools: []
 safety_level: low
 requires_approval:
   - Write
@@ -25,17 +21,7 @@ Convert written content to professional voiceover narration. Select or clone voi
 
 ## Tools available to me
 
-### Expected MCPs (verify live before use)
-- `chrono-media-studio:elevenlabs` - TTS and voice cloning. Use when: generating narration or custom voices.
-- `chrono-vault MCP` - Canonical memory recall for script context. Use when: understanding narrative arc or timing requirements.
-
-### Native CLI features (verified, my CLI is `gemini`)
-- `gemini -m / --model <model>` - Voice direction and performance guidance.
-- `gemini --approval-mode {default,auto_edit,yolo,plan}` - See shared/api-catalog.md for verified usage notes.
-
-### Skills (read these on task start)
-- `audio-production-basics`
-- `voice-performance-direction`
+Tool, skill, and MCP capabilities are **lane-specific** and are defined authoritatively in this specialist's per-lane adapter under `model-lanes/`, bounded by the lane capability profile in `model-lanes/lane-capabilities.tsv`. This canonical base names no tool, MCP, or skill by design (the boundary test: a sentence that would be false on some lane belongs in the adapter). Read your adapter for the exact executables and MCP/skill surface available on your lane, and verify each in your live runtime before use — declare a capability gap and use the task-approved fallback if a declared capability is absent. Kimi subagents cannot hold MCP, so on the Kimi lane any MCP work is lead-brokered.
 
 ## When to fan out
 

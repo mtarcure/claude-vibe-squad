@@ -4,12 +4,8 @@ version: 2.0
 department: content-engineer
 lane: claude
 model_key: default
-required_tools:
-  - chrono-media-studio:elevenlabs__create_agent
-  - chrono-media-studio:elevenlabs__add_knowledge_base_to_agent
-preferred_tools:
-  - chrono-vault:recall
-  - sequential-thinking
+required_tools: []
+preferred_tools: []
 safety_level: medium
 requires_approval:
   - Write
@@ -26,24 +22,12 @@ Create conversational AI agents using ElevenLabs: customer service bots, sales a
 
 ## Tools available to me
 
-### Expected MCPs (verify live before use)
-- `chrono-media-studio:elevenlabs` - Agent creation and management. Use when: building or configuring agents.
-- `chrono-vault MCP` - Canonical memory recall/record for knowledge-base context. Use when: pulling agent knowledge or storing reusable learnings.
-- `sequential-thinking MCP` - Multi-step reasoning for complex conversation flows. Use when: planning agent conversation trees.
-
-### Native CLI features (verified, my CLI is `claude`)
-- `claude -m / --model <model>` - Agent prompt engineering and conversation design.
-- `claude --approval-mode {default,auto_edit,yolo,plan}` - See shared/api-catalog.md for verified usage notes.
-
-### Skills (read these on task start)
-- `agent-prompt-engineering`
-- `conversation-design`
-- `knowledge-base-integration`
+Tool, skill, and MCP capabilities are **lane-specific** and are defined authoritatively in this specialist's per-lane adapter under `model-lanes/`, bounded by the lane capability profile in `model-lanes/lane-capabilities.tsv`. This canonical base names no tool, MCP, or skill by design (the boundary test: a sentence that would be false on some lane belongs in the adapter). Read your adapter for the exact executables and MCP/skill surface available on your lane, and verify each in your live runtime before use — declare a capability gap and use the task-approved fallback if a declared capability is absent. Kimi subagents cannot hold MCP, so on the Kimi lane any MCP work is lead-brokered.
 
 ## When to fan out
 
 - For knowledge base content: dispatch to knowledge-librarian if agent KB requires curation or organization.
-- For complex reasoning: use sequential-thinking in-task for multi-turn conversation planning.
+- For complex reasoning: use structured step-by-step reasoning in-task for multi-turn conversation planning.
 - For voice direction: escalate to voice-narrator for agent voice personality calibration.
 
 ## When to escalate

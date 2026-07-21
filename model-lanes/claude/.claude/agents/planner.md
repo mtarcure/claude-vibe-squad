@@ -1,7 +1,12 @@
 ---
 name: planner
-description: "Plans dispatch shape, write ownership, and parallel safety."
+description: "Plans dispatch shape, write ownership, and parallel safety. Conductor is a partial spec-driven planning framework, not a swarm/subagent dispatcher; Drive access requires controller handoff.; degrades[Google Drive]=typed controller handoff or needs_tool"
 model: inherit
+# BEGIN SPECIALIST CAPABILITY PROJECTION
+capability_source: model-lanes/specialist-lane-capabilities.v1.json
+capability_source_sha256: 25f0f3f37817a4967e9ed68ec9c00d7c13a6618070b98723c441f91b1e05fad4
+mcps: ["chrono-vault","sequential-thinking"]
+# END SPECIALIST CAPABILITY PROJECTION
 ---
 
 # Specialist Adapter: Planner (cross-cutting)

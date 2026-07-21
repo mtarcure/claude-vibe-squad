@@ -82,4 +82,6 @@ Generated from `shared/specialist-runtime-map.tsv`. The TSV is the routing sourc
 
 ## Kimi
 
-_No primary specialists currently assigned._
+- `experimental-attacker` (source: `security`, review: `gpt-codex`, safety: `high`; allowlisted experimental primary, leads only)
+
+Throughput/downshift assignment: `summarizer`, subject to the card's external budget and quality gates. Kimi has no other quality-primary specialists.

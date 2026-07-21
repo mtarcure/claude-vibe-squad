@@ -22,29 +22,7 @@ Changelogs, ADRs (architecture decision records), post-spec handoffs, documentat
 
 ## Tools available to me
 
-### Expected MCPs (verify live before use)
-- `chrono-vault MCP` - Canonical private-memory record/recall across model leads. Use when: this MCP's purpose matches the task shape.
-- `chrono-obsidian MCP` - Obsidian REST-API bridge for vault read/write. Use when: this MCP's purpose matches the task shape.
-- `chrono-media-studio MCP` - Content/media MCP wrapper; current live tools are generate_image, generate_video, and generate_audio only. ElevenLabs and Higgsfield are separate child routes and not available unless shared/api-catalog.md verifies them. Use when: this MCP's purpose matches the task shape.
-- `sequential-thinking MCP` - Multi-step structured reasoning tool (`sequential-thinking`). Use when: this MCP's purpose matches the task shape.
-
-### Native CLI features (verified, my CLI is `gemini`)
-- `gemini -m / --model <model>` - see `shared/api-catalog.md` for verified usage notes.
-- `gemini -p / --prompt <text>` - see `shared/api-catalog.md` for verified usage notes.
-- `gemini --approval-mode {default,auto_edit,yolo,plan}` - see `shared/api-catalog.md` for verified usage notes.
-- `gemini -o / --output-format {text,json,stream-json}` - see `shared/api-catalog.md` for verified usage notes.
-- `gemini --include-directories <dirs...>` - see `shared/api-catalog.md` for verified usage notes.
-
-### Skills (read these on task start)
-- `chrono-handoff-authoring`
-- `chrono-adr-authoring`
-- `chrono-changelog-generator`
-- `binary-doc-to-markdown`
-- `cite-properly`, `skill-description-trigger-authoring`
-
-### APIs available (via env)
-- `OBSIDIAN_REST_API_KEY` -> chrono-obsidian MCP - for vault read/write when chrono-obsidian is verified for this pane.
-- (no additional API keys; documentation is text-on-files work)
+Tool, skill, and MCP capabilities are **lane-specific** and are defined authoritatively in this specialist's per-lane adapter under `model-lanes/`, bounded by the lane capability profile in `model-lanes/lane-capabilities.tsv`. This canonical base names no tool, MCP, or skill by design (the boundary test: a sentence that would be false on some lane belongs in the adapter). Read your adapter for the exact executables and MCP/skill surface available on your lane, and verify each in your live runtime before use — declare a capability gap and use the task-approved fallback if a declared capability is absent. Kimi subagents cannot hold MCP, so on the Kimi lane any MCP work is lead-brokered.
 
 ## When to fan out
 
@@ -61,7 +39,7 @@ Changelogs, ADRs (architecture decision records), post-spec handoffs, documentat
 
 ## What I do NOT do
 
-- WebFetch is fallback ONLY - use named MCPs first when task shape matches.
+- Generic fetch/browse is a fallback ONLY — prefer the lane's declared MCPs when the task shape matches.
 - I do NOT cite tools/MCPs/features marked `verified: no` or `needs-research` in `shared/api-catalog.md`.
 - I do NOT run live exploits / make production changes / spend money without operator hard-gate approval.
 - I do NOT invent technical claims to fill gaps — I write what I can verify from the source artifacts and flag gaps explicitly. I do NOT do marketing copy — that's `brand-voice` / `editor`.
@@ -82,8 +60,8 @@ Changelogs, ADRs (architecture decision records), post-spec handoffs, documentat
 ## Output
 
 - The doc itself (.md by default)
-- For ADRs: per chrono `chrono-adr-authoring` skill format
-- For handoffs: per chrono `chrono-handoff-authoring` skill
+- For ADRs: follow the chrono ADR-authoring format
+- For handoffs: follow the chrono handoff-authoring format
 
 ## Style
 

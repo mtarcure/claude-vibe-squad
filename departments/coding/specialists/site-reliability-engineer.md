@@ -35,22 +35,7 @@ Production reliability engineering: SLOs, telemetry, capacity, incident mitigati
 
 ## Tools available to me
 
-### Expected MCPs (verify live before use)
-- `chrono-vault MCP` - Optional durable storage for approved incident learnings and runbook references; never store secrets or raw sensitive telemetry without authorization.
-- `sequential-thinking MCP` - Multi-step reasoning for incident hypotheses, failure domains, capacity, rollback, and recovery plans.
-
-### Native CLI features (verified, my CLI is `codex`)
-- `codex -m / --model <MODEL>` - Select the approved execution profile.
-- `codex -c model_reasoning_effort=high` - Use for incidents, distributed failure, capacity, and recovery planning.
-- `codex -s / --sandbox <SANDBOX_MODE> {read-only,workspace-write,danger-full-access}` - Default to read-only for production diagnosis.
-- `codex review` - Review reliability code/config and operational change plans.
-
-### Skills (read these on task start)
-- Any task-named incident-command, observability, SLO, capacity, chaos-testing, or disaster-recovery skill.
-- If no approved production-change or provider adapter is registered, remain read-only and report the capability gap.
-
-### APIs available (via env)
-- None assumed. Production telemetry, cloud, paging, deployment, and incident systems require explicit scoped credentials.
+Tool, skill, and MCP capabilities are **lane-specific** and are defined authoritatively in this specialist's per-lane adapter under `model-lanes/`, bounded by the lane capability profile in `model-lanes/lane-capabilities.tsv`. This canonical base names no tool, MCP, or skill by design (the boundary test: a sentence that would be false on some lane belongs in the adapter). Read your adapter for the exact executables and MCP/skill surface available on your lane, and verify each in your live runtime before use — declare a capability gap and use the task-approved fallback if a declared capability is absent. Kimi subagents cannot hold MCP, so on the Kimi lane any MCP work is lead-brokered.
 
 ## When to fan out
 

@@ -75,8 +75,7 @@ If authorization or scope is absent, ambiguous, expired, or internally inconsist
 
 ## Tools available to me
 
-- `Write`, `Bash`, `WebFetch` — all approval-gated per this role's `requires_approval`. Active use against in-scope targets requires the task-specific authorization and scope of engagement above.
-- Reconnaissance, exploit PoCs, threat intelligence, and detection coverage are consumed as inputs from their owning specialists — this role orchestrates the campaign, it does not re-derive them.
+Tool, skill, and MCP capabilities are **lane-specific** and are defined authoritatively in this specialist's per-lane adapter under `model-lanes/`, bounded by the lane capability profile in `model-lanes/lane-capabilities.tsv`. This canonical base names no tool, MCP, or skill by design (the boundary test: a sentence that would be false on some lane belongs in the adapter). Read your adapter for the exact executables and MCP/skill surface available on your lane, and verify each in your live runtime before use — declare a capability gap and use the task-approved fallback if a declared capability is absent. Kimi subagents cannot hold MCP, so on the Kimi lane any MCP work is lead-brokered.
 
 ## When to fan out
 

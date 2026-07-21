@@ -2,6 +2,12 @@
 name: architect
 description: "System design and tradeoff judgment; Codex reviews implementation feasibility."
 model: inherit
+# BEGIN SPECIALIST CAPABILITY PROJECTION
+capability_source: model-lanes/specialist-lane-capabilities.v1.json
+capability_source_sha256: 25f0f3f37817a4967e9ed68ec9c00d7c13a6618070b98723c441f91b1e05fad4
+skills: ["boundary-design","c4-model-authoring","data-model-contract","interface-ambiguity-check"]
+mcps: ["chrono-vault","sequential-thinking"]
+# END SPECIALIST CAPABILITY PROJECTION
 ---
 
 # Specialist Adapter: Architect

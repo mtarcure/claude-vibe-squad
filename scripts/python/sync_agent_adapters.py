@@ -5,7 +5,8 @@ from __future__ import annotations
 
 import csv
 import re
-import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 
@@ -98,10 +99,8 @@ Stay inside the packet's write scope. Do not delete files, send external message
 
 
 def clean_dir(path: Path, suffixes: tuple[str, ...]) -> None:
+    """Compatibility helper retained for callers; adapter sync is non-destructive."""
     path.mkdir(parents=True, exist_ok=True)
-    for child in path.iterdir():
-        if child.is_file() and child.suffix in suffixes:
-            child.unlink()
 
 
 def write_codex(rows: list[dict[str, str]]) -> None:
@@ -158,9 +157,6 @@ def write_claude(rows: list[dict[str, str]]) -> None:
 def write_gemini(rows: list[dict[str, str]]) -> None:
     out = LANE_DIRS["gemini"]
     clean_dir(out, (".md",))
-    root_gemini_agents = ROOT / ".gemini" / "agents"
-    if root_gemini_agents.exists():
-        shutil.rmtree(root_gemini_agents)
     for row in rows:
         if row["model"] != "gemini":
             continue
@@ -223,10 +219,13 @@ def write_kimi(rows: list[dict[str, str]]) -> None:
 
 def main() -> None:
     rows = read_rows()
-    write_codex(rows)
-    write_claude(rows)
-    write_gemini(rows)
-    write_kimi(rows)
+    generator = ROOT / "model-lanes" / "generate-specialist-adapters.py"
+    result = subprocess.run(
+        [sys.executable, str(generator), "--write", *[row["specialist"] for row in rows]],
+        cwd=ROOT,
+        check=False,
+    )
+    raise SystemExit(result.returncode)
 
 
 if __name__ == "__main__":

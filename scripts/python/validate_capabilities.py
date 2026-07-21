@@ -37,10 +37,41 @@ MODES = {
 }
 CAPABILITY_STATES = {"live", "lane-gated", "degraded-blueprint", "needs_tool"}
 LANES = {"claude", "codex", "gemini", "kimi", "all", "local", "none", "unknown"}
-TOOL_STATES = {"yes", "lane-live", "partial", "needs-research", "catalog-absent", "no"}
+TOOL_STATES = {
+    "yes",
+    "lane-live",
+    "partial",
+    "needs-research",
+    "catalog-absent",
+    "needs_tool",
+    "no",
+}
 COSTS = {"subscription", "metered", "unknown", "—"}
 SENTINELS = {"Chrono", "operator", "cross-family-reviewer"}
 LIVE_TOOL_STATES = {"yes", "lane-live"}
+UNAVAILABLE_TOOL_STATES = {"catalog-absent", "needs_tool", "no"}
+DEGRADED_TOOL_STATES = {"partial", "needs-research"}
+PERPLEXITY_STRUCTURED_TOOL = "Perplexity Sonar structured+recency"
+HIGGSFIELD_RAW_GENERATION_METHODS = {"generate_audio", "generate_image", "generate_video"}
+HIGGSFIELD_FREE_READ_HINTS = {
+    "balance",
+    "list",
+    "models_explore",
+    "show",
+    "show_plans",
+    "status",
+    "transactions",
+}
+EXTERNAL_BUDGET_RE = re.compile(
+    r"\bexternal-budget-ceiling=(?:[$€£]\d+(?:\.\d+)?|"
+    r"\d+(?:\.\d+)?(?:usd|eur|gbp|credits?|tokens?|requests?|calls?|provider-units?))\b",
+    re.IGNORECASE,
+)
+FRONTMATTER_EXTERNAL_BUDGET_RE = re.compile(
+    r"^external:max_(?:usd|eur|gbp|credits?|tokens?|requests?|calls?|provider_units?)="
+    r"\d+(?:\.\d+)?$",
+    re.IGNORECASE,
+)
 SKILL_LABELS = {
     "invokable": "SKILL.md",
     "authored-pattern-doc": "authored",
@@ -66,6 +97,24 @@ STEP_HEADER = [
     "Gate / Overlay",
 ]
 STEP_SEPARATOR = ["---", "---", "---", "---", "---"]
+FIX_HINTS = {
+    "capability-state-overclaim": (
+        "HINT: keep a partial tool in a prose needs_tool profile instead of a live tuple, "
+        "or lower the declared capability state."
+    ),
+    "tool-lane-invalid": (
+        "HINT: lane chrono is controller-only and is not card-citable; use a verified "
+        "model/local lane or describe the controller handoff in prose."
+    ),
+    "metered-cost-contradiction": (
+        "HINT: replace 'no metered' or 'subscription-only' with 'no paid' when metered "
+        "tuples are present, and retain the required budget control."
+    ),
+    "skill-promotion-needs-2nd-row": (
+        "HINT: keep the authored-pattern row and add a second invokable SKILL.md registry "
+        "row before citing the promoted skill as SKILL.md."
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -143,6 +192,49 @@ def lane_supported(lane: str, registered: set[str]) -> bool:
     if lane in registered:
         return True
     return "all" in registered and lane in {"claude", "codex", "gemini", "kimi", "all"}
+
+
+def add_once(items: list[ToolUse], use: ToolUse) -> None:
+    if use not in items:
+        items.append(use)
+
+
+def unavailable_reason(rows: Iterable[dict[str, str]]) -> str | None:
+    """Return a typed needs_tool reason when registry evidence names a provider failure."""
+    evidence = " ".join(
+        " ".join(
+            row.get(field, "")
+            for field in ("invocation", "evidence", "notes")
+        )
+        for row in rows
+    ).lower()
+    if re.search(r"(?:http\s*)?(?:401|403)\b|auth(?:entication)?[_ -]?failed|auth[- ]pending", evidence):
+        return "auth"
+    if re.search(r"(?:http\s*)?402\b|insufficient (?:credit|fund)|budget[- ]exhaust", evidence):
+        return "budget"
+    if re.search(r"(?:http\s*)?429\b|rate[- _]?limit", evidence):
+        return "rate_limited"
+    return None
+
+
+def higgsfield_method(use: ToolUse, rows: Iterable[dict[str, str]]) -> str | None:
+    lowered = use.name.lower()
+    if lowered == "higgsfield raw generation":
+        return "generate_image"
+    if lowered == "higgsfield non-generation surface":
+        return "non_generation_surface"
+    if not lowered.startswith("higgsfield__"):
+        return None
+    method = lowered.split("higgsfield__", 1)[-1]
+    return re.sub(r"[^a-z0-9]+", "_", method).strip("_")
+
+
+def guarded_replace(text: str, old: str, new: str, fixture_name: str) -> str:
+    """Mutate exactly one fixture token and fail loudly when the source drifted."""
+    mutated = text.replace(old, new, 1)
+    if mutated == text:
+        raise AssertionError(f"{fixture_name} fixture did not contain required token {old!r}")
+    return mutated
 
 
 def parse_tools(cell: str, step: str, line_number: int) -> tuple[list[ToolUse], list[Finding]]:
@@ -254,6 +346,7 @@ class Validator:
         tool_uses: list[ToolUse] = []
         skill_uses: list[tuple[str, str, int]] = []
         specialist_uses: list[tuple[str, int]] = []
+        gate_overlay_cells: list[str] = []
         body_lines = list(enumerate(lines[body_start:], body_start + 1))
         step_block_positions: set[int] = set()
         header_positions = [
@@ -340,6 +433,7 @@ class Validator:
             parsed_skills, skill_findings = parse_skills(cells[3], index)
             skill_uses.extend((name, label, index) for name, label in parsed_skills)
             findings.extend(skill_findings)
+            gate_overlay_cells.append(cells[4])
 
         if not steps:
             findings.append(Finding("steps-missing", "no S0-S7 step rows found"))
@@ -366,6 +460,8 @@ class Validator:
 
         forcing_tools: list[ToolUse] = []
         metered: list[ToolUse] = []
+        unavailable_reasons: set[str] = set()
+        higgsfield_paid_actions: list[ToolUse] = []
         derived_needs_tool = False
         derived_degraded = False
         for use in tool_uses:
@@ -380,7 +476,7 @@ class Validator:
             matching = [row for row in candidates if lane_supported(use.lane, registry_lanes(row["lanes"]))]
             if not matching:
                 derived_needs_tool = True
-                forcing_tools.append(use)
+                add_once(forcing_tools, use)
                 if "/" in use.name:
                     findings.append(
                         Finding(
@@ -399,9 +495,13 @@ class Validator:
                     )
             elif len(matching) > 1:
                 derived_states = {row["verified_state"] for row in matching}
-                derived_needs_tool |= "catalog-absent" in derived_states
-                derived_degraded |= bool(derived_states - LIVE_TOOL_STATES - {"catalog-absent"})
-                forcing_tools.append(use)
+                derived_needs_tool |= bool(derived_states & UNAVAILABLE_TOOL_STATES)
+                derived_degraded |= bool(derived_states & DEGRADED_TOOL_STATES)
+                if derived_states & UNAVAILABLE_TOOL_STATES:
+                    reason = unavailable_reason(matching)
+                    if reason:
+                        unavailable_reasons.add(reason)
+                add_once(forcing_tools, use)
                 findings.append(
                     Finding(
                         "tool-registry-ambiguous",
@@ -413,13 +513,15 @@ class Validator:
                 use.state == matching[0]["verified_state"] and use.cost == matching[0]["cost_tier"]
             ):
                 registered_state = matching[0]["verified_state"]
-                derived_needs_tool |= "catalog-absent" in {registered_state, use.state}
-                derived_degraded |= any(
-                    state not in LIVE_TOOL_STATES | {"catalog-absent"}
-                    for state in {registered_state, use.state}
-                )
+                compared_states = {registered_state, use.state} & TOOL_STATES
+                derived_needs_tool |= bool(compared_states & UNAVAILABLE_TOOL_STATES)
+                derived_degraded |= bool(compared_states & DEGRADED_TOOL_STATES)
+                if compared_states & UNAVAILABLE_TOOL_STATES:
+                    reason = unavailable_reason(matching)
+                    if reason:
+                        unavailable_reasons.add(reason)
                 if registered_state not in LIVE_TOOL_STATES or use.state not in LIVE_TOOL_STATES:
-                    forcing_tools.append(use)
+                    add_once(forcing_tools, use)
                 expected = sorted({f"{row['verified_state']} · {row['cost_tier']}" for row in matching})
                 findings.append(
                     Finding(
@@ -428,24 +530,30 @@ class Validator:
                         use.line,
                     )
                 )
-            elif use.state == "catalog-absent":
+            elif use.state in UNAVAILABLE_TOOL_STATES:
                 derived_needs_tool = True
-                forcing_tools.append(use)
-            elif use.state not in LIVE_TOOL_STATES:
+                reason = unavailable_reason(matching)
+                if reason:
+                    unavailable_reasons.add(reason)
+                add_once(forcing_tools, use)
+            elif use.state in DEGRADED_TOOL_STATES:
                 derived_degraded = True
-                forcing_tools.append(use)
+                add_once(forcing_tools, use)
 
-            if use.name.startswith("higgsfield__") and use.state != "no":
-                derived_degraded = True
-                if use not in forcing_tools:
-                    forcing_tools.append(use)
+            method = higgsfield_method(use, matching)
+            if method in HIGGSFIELD_RAW_GENERATION_METHODS:
+                derived_needs_tool = True
+                add_once(forcing_tools, use)
                 findings.append(
                     Finding(
-                        "raw-higgsfield-state",
-                        "raw higgsfield__ tools may only declare state no",
+                        "higgsfield-raw-generation-unavailable",
+                        "raw Higgsfield generation is unavailable; use the governed "
+                        "chrono-media-studio generate_image/generate_video/generate_audio wrapper",
                         use.line,
                     )
                 )
+            elif method and not any(hint in method for hint in HIGGSFIELD_FREE_READ_HINTS):
+                higgsfield_paid_actions.append(use)
             if use.cost == "metered" or any(row["cost_tier"] == "metered" for row in matching):
                 metered.append(use)
 
@@ -455,27 +563,99 @@ class Validator:
             expected_labels = {SKILL_LABELS.get(row["type"], "untyped") for row in rows} or {"untyped"}
             valid = (not rows and label == "untyped") or len(label_matches) == 1
             if not valid:
+                code = "skill-registry-mismatch"
+                if label == "SKILL.md" and rows and not any(
+                    row["type"] == "invokable" for row in rows
+                ):
+                    code = "skill-promotion-needs-2nd-row"
                 findings.append(
                     Finding(
-                        "skill-registry-mismatch",
+                        code,
                         f"{name!r} is labeled {label!r}; expected one of {sorted(expected_labels)}",
                         line_number,
                     )
                 )
 
         if derived_needs_tool:
-            derived = "needs_tool"
+            derived = (
+                f"needs_tool:{next(iter(unavailable_reasons))}"
+                if len(unavailable_reasons) == 1
+                else "needs_tool"
+            )
         elif derived_degraded:
             derived = "degraded-blueprint"
         else:
             derived = "live"
 
         generosity = {"needs_tool": 0, "degraded-blueprint": 1, "lane-gated": 2, "live": 3}
-        if declared in generosity and generosity[declared] > generosity[derived]:
+        derived_base = derived.split(":", 1)[0]
+        if declared in generosity and generosity[declared] > generosity[derived_base]:
             findings.append(
                 Finding(
                     "capability-state-overclaim",
                     f"declared {declared!r} is more generous than derived {derived!r}",
+                )
+            )
+
+        gate_overlay_text = "\n".join(
+            [frontmatter.get("gates", ""), frontmatter.get("overlays", ""), *gate_overlay_cells]
+        )
+        if any(use.name == PERPLEXITY_STRUCTURED_TOOL for use in tool_uses):
+            truth_gate_patterns = {
+                "claim_to_citation=true": r"\bclaim_to_citation=true\b",
+                "date_window=<explicit interval>": (
+                    r"\bdate_window=(?!(?:true|false)(?:\b|$)|<)[^\s,;\]|]+"
+                ),
+                "reject_unsupported=true": r"\breject_unsupported=true\b",
+            }
+            missing = [
+                token
+                for token, pattern in truth_gate_patterns.items()
+                if not re.search(pattern, gate_overlay_text, re.IGNORECASE)
+            ]
+            if missing:
+                findings.append(
+                    Finding(
+                        "perplexity-truth-gate-missing",
+                        "Perplexity structured+recency requires Gate / Overlay tokens: "
+                        + ", ".join(missing),
+                    )
+                )
+
+        if higgsfield_paid_actions:
+            if not re.search(r"\bpaid_media\b", gate_overlay_text):
+                findings.append(
+                    Finding(
+                        "higgsfield-paid-media-gate-missing",
+                        "paid Higgsfield utility actions require the paid_media gate",
+                    )
+                )
+            if not re.search(r"\bget_cost:true\b", gate_overlay_text, re.IGNORECASE):
+                findings.append(
+                    Finding(
+                        "higgsfield-cost-preflight-missing",
+                        "paid Higgsfield utility actions require get_cost:true before invocation",
+                    )
+                )
+
+        kimi_routed = any(use.lane == "kimi" for use in tool_uses)
+        frontmatter_budget = frontmatter.get("budget_control", "")
+        external_budget_present = bool(
+            EXTERNAL_BUDGET_RE.search(gate_overlay_text)
+            or FRONTMATTER_EXTERNAL_BUDGET_RE.fullmatch(frontmatter_budget)
+        )
+        if kimi_routed and metered and not external_budget_present:
+            findings.append(
+                Finding(
+                    "external-budget-ceiling-missing",
+                    "Kimi-mediated metered tools require a numeric external budget ceiling",
+                )
+            )
+        if kimi_routed and "--max-ralph-iterations=-1" in text:
+            findings.append(
+                Finding(
+                    "kimi-unbounded-iterations",
+                    "governed Kimi runs may not use --max-ralph-iterations=-1",
                 )
             )
 
@@ -551,9 +731,29 @@ def resolve_paths(root: Path, values: Iterable[str]) -> list[Path]:
     return paths
 
 
-def emit_results(results: list[dict[str, object]]) -> int:
+def add_fix_hints(result: dict[str, object]) -> dict[str, object]:
+    """Copy one result and add one-line remedies for explainable findings."""
+    explained = dict(result)
+    errors = result.get("errors")
+    if isinstance(errors, list):
+        explained_errors: list[object] = []
+        for error in errors:
+            if not isinstance(error, dict):
+                explained_errors.append(error)
+                continue
+            explained_error = dict(error)
+            hint = FIX_HINTS.get(str(error.get("code", "")))
+            if hint:
+                explained_error["hint"] = hint
+            explained_errors.append(explained_error)
+        explained["errors"] = explained_errors
+    return explained
+
+
+def emit_results(results: list[dict[str, object]], explain: bool = False) -> int:
     for result in results:
-        print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+        output = add_fix_hints(result) if explain else result
+        print(json.dumps(output, ensure_ascii=False, sort_keys=True))
     failed = sum(result["status"] == "fail" for result in results)
     summary = {
         "type": "summary",
@@ -646,6 +846,78 @@ cost_note: —
     out_of_block_unbolded_after = out_of_block_after.replace(
         "| **S3** Produce |", "| S3 Produce |", 1
     )
+
+    def policy_fixture(
+        fixture_id: str,
+        declared_state: str,
+        tool_tuple: str,
+        gate: str = "—",
+        cost_note: str = "subscription only",
+        budget_control: str | None = None,
+    ) -> str:
+        budget_line = f"budget_control: {budget_control}\n" if budget_control else ""
+        return f"""---
+id: project/{fixture_id}
+mode: project
+title: Policy fixture {fixture_id}
+capability_state: {declared_state}
+state_reason: Self-test policy fixture.
+state_evidence: Self-test registry evidence.
+overlays: []
+gates: []
+cost_note: {cost_note}
+{budget_line}---
+| Step | Specialists | Tools `(lane · state · cost_tier)` | Skills `(type)` | Gate / Overlay |
+|---|---|---|---|---|
+| **S0** Intake | `Chrono` | — | — | — |
+| **S3** Produce | `Chrono` | {tool_tuple} | — | {gate} |
+| **S7** Capture | `Chrono` | — | — | — |
+"""
+
+    dead_digitalocean_base = policy_fixture(
+        "dead-digitalocean",
+        "needs_tool",
+        "`DigitalOcean API` (none · no · unknown)",
+    )
+    state_overclaim_fixture = guarded_replace(
+        dead_digitalocean_base,
+        "capability_state: needs_tool",
+        "capability_state: live",
+        "state-overclaim",
+    )
+    mutation_guard_raised = False
+    try:
+        guarded_replace("no matching state token", "capability_state: needs_tool", "capability_state: live", "mutation-guard")
+    except AssertionError:
+        mutation_guard_raised = True
+
+    policy_positive_fixtures = {
+        "grounding-live-positive": policy_fixture(
+            "grounding-live-positive",
+            "live",
+            "`Google Search grounding` (gemini · yes · subscription)",
+            "claim_to_citation=true reject_unsupported=true",
+        ),
+        "perplexity-valid-truth-gate": policy_fixture(
+            "perplexity-valid-truth-gate",
+            "degraded-blueprint",
+            "`Perplexity Sonar structured+recency` (codex · partial · metered)",
+            "claim_to_citation=true date_window=24h reject_unsupported=true",
+            "metered with budget ceiling",
+        ),
+        "higgs-free-read-positive": policy_fixture(
+            "higgs-free-read-positive",
+            "degraded-blueprint",
+            "`higgsfield__models_explore` (claude · partial · —)",
+        ),
+        "kimi-metered-bounded": policy_fixture(
+            "kimi-metered-bounded",
+            "live",
+            "`xai_search` (kimi · lane-live · metered)",
+            "external-budget-ceiling=5calls",
+            "metered with budget ceiling",
+        ),
+    }
     negative_fixtures = {
         "composite": (
             broken,
@@ -666,9 +938,7 @@ cost_note: —
             {"tool-registry-mismatch"},
         ),
         "state-overclaim": (
-            golden_text["shared/capabilities/project/web-app.md"].replace(
-                "capability_state: needs_tool", "capability_state: live", 1
-            ),
+            state_overclaim_fixture,
             {"capability-state-overclaim"},
         ),
         "metered-without-guard": (
@@ -711,10 +981,72 @@ cost_note: —
             out_of_block_unbolded_after,
             {"step-row-out-of-block"},
         ),
+        "dead-digitalocean-negative": (
+            state_overclaim_fixture,
+            {"capability-state-overclaim"},
+        ),
+        "dead-twitter-negative": (
+            policy_fixture(
+                "dead-twitter-negative",
+                "live",
+                "`Twitter API v2` (none · no · unknown)",
+            ),
+            {"capability-state-overclaim"},
+        ),
+        "perplexity-missing-truth-gate": (
+            policy_fixture(
+                "perplexity-missing-truth-gate",
+                "degraded-blueprint",
+                "`Perplexity Sonar structured+recency` (codex · partial · metered)",
+                "paid research",
+                "metered with budget ceiling",
+            ),
+            {"perplexity-truth-gate-missing"},
+        ),
+        "higgs-raw-generation-negative": (
+            policy_fixture(
+                "higgs-raw-generation-negative",
+                "live",
+                "`Higgsfield raw generation` (none · no · metered)",
+                "paid_media get_cost:true",
+                "metered with budget ceiling",
+            ),
+            {"capability-state-overclaim", "higgsfield-raw-generation-unavailable"},
+        ),
+        "higgs-paid-without-cost-preflight": (
+            policy_fixture(
+                "higgs-paid-without-cost-preflight",
+                "degraded-blueprint",
+                "`higgsfield__upscale_image` (claude · partial · metered)",
+                "paid_media",
+                "metered with budget ceiling",
+            ),
+            {"higgsfield-cost-preflight-missing"},
+        ),
+        "kimi-metered-unbounded": (
+            policy_fixture(
+                "kimi-metered-unbounded",
+                "live",
+                "`xai_search` (kimi · lane-live · metered)",
+                "budget discussed in prose",
+                "metered with budget ceiling",
+            ),
+            {"external-budget-ceiling-missing"},
+        ),
+    }
+    policy_positive_results = {
+        name: validator.validate_text(text, f"<self-test-{name}>", None)
+        for name, text in policy_positive_fixtures.items()
     }
     negative_results = {
         name: validator.validate_text(text, f"<self-test-{name}>", None)
         for name, (text, _) in negative_fixtures.items()
+    }
+    typed_failure_checks = {
+        "401-auth": unavailable_reason([{"notes": "HTTP 401 Unauthorized"}]) == "auth",
+        "403-auth": unavailable_reason([{"notes": "HTTP 403 auth_failed"}]) == "auth",
+        "402-budget": unavailable_reason([{"notes": "HTTP 402 budget_exhausted"}]) == "budget",
+        "429-rate": unavailable_reason([{"notes": "HTTP 429 rate_limited"}]) == "rate_limited",
     }
     golden_ok = all(result["status"] == "pass" for result in golden_results)
     negatives_ok = all(
@@ -726,10 +1058,32 @@ cost_note: —
     negatives_ok = negatives_ok and "step-row-malformed" not in {
         error["code"] for error in negative_results["bold-step-control"]["errors"]
     }
+    dead_reasons_ok = all(
+        negative_results[name]["derived_state"] == "needs_tool:auth"
+        for name in ("dead-digitalocean-negative", "dead-twitter-negative")
+    )
+    positives_ok = all(item["status"] == "pass" for item in policy_positive_results.values())
+    typed_failures_ok = all(typed_failure_checks.values())
     result = {
         "type": "self-test",
-        "status": "pass" if golden_ok and negatives_ok else "fail",
+        "status": (
+            "pass"
+            if golden_ok
+            and negatives_ok
+            and positives_ok
+            and mutation_guard_raised
+            and dead_reasons_ok
+            and typed_failures_ok
+            else "fail"
+        ),
         "golden_statuses": {result["file"]: result["status"] for result in golden_results},
+        "positive_fixtures": {
+            name: {
+                "status": item["status"],
+                "error_codes": sorted(error["code"] for error in item["errors"]),
+            }
+            for name, item in policy_positive_results.items()
+        },
         "negative_fixtures": {
             name: {
                 "status": item["status"],
@@ -737,10 +1091,19 @@ cost_note: —
             }
             for name, item in negative_results.items()
         },
+        "mutation_guard": "pass" if mutation_guard_raised else "fail",
+        "dead_key_reason_checks": "pass" if dead_reasons_ok else "fail",
+        "typed_failure_checks": typed_failure_checks,
     }
     if not golden_ok:
         result["golden_failures"] = {
             item["file"]: item["errors"] for item in golden_results if item["status"] == "fail"
+        }
+    if not positives_ok:
+        result["positive_failures"] = {
+            name: item["errors"]
+            for name, item in policy_positive_results.items()
+            if item["status"] == "fail"
         }
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     return 0 if result["status"] == "pass" else 1
@@ -755,13 +1118,20 @@ def main() -> int:
         action="store_true",
         help="run current golden cards and deliberately broken fixtures",
     )
+    parser.add_argument(
+        "--explain",
+        action="store_true",
+        help="add one-line HINT fields for recurring validation failures",
+    )
     args = parser.parse_args()
     root = args.root.resolve()
     validator = Validator(root)
     if args.self_test:
         return self_test(validator)
     paths = resolve_paths(root, args.paths) if args.paths else discover(root)
-    return emit_results([validator.validate_path(path.resolve()) for path in paths])
+    return emit_results(
+        [validator.validate_path(path.resolve()) for path in paths], explain=args.explain
+    )
 
 
 if __name__ == "__main__":

@@ -1,0 +1,5302 @@
+{
+  "schema": "specialist-lane-capabilities/v1",
+  "version": 1,
+  "description": "Authoring source for specialist-by-lane role capabilities; adapters and the cross-lane index are derived.",
+  "coverage_policy": {
+    "primary": "full: required capabilities must resolve in the primary execution plan",
+    "non_primary": "partial: backup, escalation, review, and throughput lanes are best-effort and must state limitations"
+  },
+  "primary_requirement_policy": {
+    "default": {
+      "ids": [
+        "sequential-thinking"
+      ],
+      "prefixes": [
+        "chrono-"
+      ],
+      "kind": "mcps",
+      "provider_lane": "primary"
+    },
+    "kimi_mcp_prefix": "lead:",
+    "overrides": {
+      "Google Search grounding": {
+        "capability_id": "google_web_search",
+        "kind": "tools",
+        "provider_lane": "gemini"
+      },
+      "chrome-devtools": {
+        "capability_id": "chrome-devtools",
+        "kind": "mcps",
+        "provider_lane": "primary"
+      },
+      "firecrawl": {
+        "capability_id": "firecrawl_scrape",
+        "kind": "tools",
+        "provider_lane": "primary"
+      },
+      "generate_image": {
+        "capability_id": "generate_image",
+        "kind": "tools",
+        "provider_lane": "primary"
+      },
+      "generate_video": {
+        "capability_id": "generate_video",
+        "kind": "tools",
+        "provider_lane": "primary"
+      },
+      "playwright": {
+        "capability_id": "playwright",
+        "kind": "mcps",
+        "provider_lane": "primary"
+      }
+    }
+  },
+  "entries": [
+    {
+      "specialist": "accessibility-engineer",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [
+        {
+          "id": "chrome-devtools",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-or-shared-authored"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "accessibility-engineer",
+      "lane": "gemini",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "accessible-media-authoring",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "shared-registry:authored"
+        },
+        {
+          "id": "wcag-conformance-audit",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "shared-registry:authored"
+        }
+      ],
+      "tools": [
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "agentops",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "harness-baseline-audit",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "instinct-prune-loop",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "kg-vault-health-check",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "mcp-reachability-audit",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "prompt-cache-hit-monitoring",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "stale-knowledge-purge",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "awk",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "du",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "find",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "jq",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "lsof",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "pgrep",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "ps",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "tmux",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "agentops",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "ai-engineer",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [
+        {
+          "id": "agent-architecture-pattern",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "eval-harness-pattern",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "mcp-tool-design",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "multi-model-routing-discipline",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "prompt-cache-discipline",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "rag-eval-loop",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "ai-engineer",
+      "lane": "gpt-codex",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "architect",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "boundary-design",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "c4-model-authoring",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "data-model-contract",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "dependency-cycle-audit",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "interface-ambiguity-check",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "architect",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "asset-provenance-and-rights-auditor",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "consent-and-likeness-check",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "shared-registry:authored"
+        },
+        {
+          "id": "rights-and-provenance-gate",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "shared-registry:authored"
+        }
+      ],
+      "tools": [
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "asset-provenance-and-rights-auditor",
+      "lane": "gemini",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "backend-engineer",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [
+        {
+          "id": "async-scraper-pipeline",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "axum-tokio-pattern",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "fastapi-service-boot",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "mcp-server-cdp-pattern",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "n8n-workflow-orchestration",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "playwright-stealth-config",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "backend-engineer",
+      "lane": "gpt-codex",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "playwright",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "bounty-researcher",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "bounty-researcher",
+      "lane": "gemini",
+      "coverage": "full",
+      "limitations": [
+        "grounded live search stays on Gemini; deep six-round research hands off to large-context-analyst on Claude"
+      ],
+      "skills": [],
+      "tools": [
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "bounty-researcher",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "brand-voice",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "cite-properly",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "skill-description-trigger-authoring",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "writing-skills",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "brand-voice",
+      "lane": "gemini",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "code-reviewer",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "claim-validation-gate",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "code-review-loop",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "diff-aware-semgrep-scan",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "differential-review",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "dimensional-analysis-check",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "review-severity-ladder",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "code-reviewer",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "content-verifier",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "citation-audit",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "shared-registry:authored"
+        },
+        {
+          "id": "claim-verification",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "shared-registry:authored"
+        },
+        {
+          "id": "verification-before-completion",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "content-verifier",
+      "lane": "gemini",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "copywriter",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [
+        {
+          "id": "cite-properly",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "copy-refinement",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "writing-skills",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "copywriter",
+      "lane": "gemini",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [
+        {
+          "id": "perplexity_search_web",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "data-extraction-engineer",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [
+        {
+          "id": "cite-properly",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "data-cleaning-pipeline",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "evidence-level",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "find-sources",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "research-integrity-gate",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "schema-inference",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "source-triangulation",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "summarize-findings",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "data-extraction-engineer",
+      "lane": "gpt-codex",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "ftfy",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "pandas",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "pandoc",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "pdfplumber",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "pdftotext",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "perplexity_search_web",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "polars",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "pymupdf",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "tabula",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "data-extraction-engineer",
+      "lane": "kimi",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "database-engineer",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "database-engineer",
+      "lane": "gpt-codex",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "detection-engineer",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "attack-coverage-map",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "shared-registry:authored"
+        },
+        {
+          "id": "detection-as-code",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "shared-registry:authored"
+        },
+        {
+          "id": "detection-tuning",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "shared-registry:authored"
+        }
+      ],
+      "tools": [
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "detection-engineer",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "devops-engineer",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [
+        {
+          "id": "cc-hooks-ci-discipline",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "k8s-deploy-loop",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "rollback-test-coverage",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "secret-rotation-discipline",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "terraform-state-hygiene",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "devops-engineer",
+      "lane": "gpt-codex",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "sandbox-provision-discipline",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "editor",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "cite-properly",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "skill-description-trigger-authoring",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "voice-consistency-audit",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "writing-skills",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "editor",
+      "lane": "gemini",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "experimental-attacker",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "experimental-attacker",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "experimental-attacker",
+      "lane": "kimi",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "exploit-developer",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [
+        {
+          "id": "binary-re-pipeline",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "fuzzing-campaign-flow",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "pwntools-exploit-authoring",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "scope-gate",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "xbow-benchmark-runner",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [],
+      "mcps": [
+        {
+          "id": "chrono-research-arsenal",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        },
+        {
+          "id": "chrono-vault",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        },
+        {
+          "id": "guarded-semgrep",
+          "requirement": "preferred",
+          "availability": "pending-restart-activation",
+          "evidence": "staged-lane-config:validate-staged"
+        },
+        {
+          "id": "guarded-slither",
+          "requirement": "preferred",
+          "availability": "pending-restart-activation",
+          "evidence": "staged-lane-config:validate-staged"
+        },
+        {
+          "id": "guarded-solodit",
+          "requirement": "preferred",
+          "availability": "pending-restart-activation",
+          "evidence": "staged-lane-config:validate-staged"
+        }
+      ]
+    },
+    {
+      "specialist": "exploit-developer",
+      "lane": "gpt-codex",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "sandbox-provision-discipline",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [
+        {
+          "id": "aderyn",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "afl",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "angr",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "anvil",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "burp",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "cast",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "chisel",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "curl",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "echidna",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "forge",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "ghidra",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "halmos",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "hardhat",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "ida",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "libfuzzer",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "medusa",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "mitmproxy",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "myth",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "playwright",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "pwntools",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "radare2",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "semgrep",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "slither",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": [
+        {
+          "id": "chrono-research-arsenal",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        },
+        {
+          "id": "chrono-vault",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        },
+        {
+          "id": "guarded-semgrep",
+          "requirement": "preferred",
+          "availability": "pending-restart-activation",
+          "evidence": "staged-lane-config:validate-staged"
+        },
+        {
+          "id": "guarded-slither",
+          "requirement": "preferred",
+          "availability": "pending-restart-activation",
+          "evidence": "staged-lane-config:validate-staged"
+        },
+        {
+          "id": "guarded-solodit",
+          "requirement": "preferred",
+          "availability": "pending-restart-activation",
+          "evidence": "staged-lane-config:validate-staged"
+        }
+      ]
+    },
+    {
+      "specialist": "finance-analyst",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "harness-baseline-audit",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "instinct-prune-loop",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "kg-vault-health-check",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "stale-knowledge-purge",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "pandas",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "pdftotext",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "plaid",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "polars",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "finance-analyst",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "frontend-engineer",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "cross-family review route; browser execution uses fresh profiles unless explicitly authorized for Claude CDP :9222"
+      ],
+      "skills": [
+        {
+          "id": "collab-editor-stack",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "frontend-visual-discipline",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "playwright-session-recorder",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "react-performance-loop",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "tailwind-class-management",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "frontend-engineer",
+      "lane": "gemini",
+      "coverage": "partial",
+      "limitations": [
+        "fresh-browser backup only; authenticated CDP :9222 sessions remain Claude-specific"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": [
+        {
+          "id": "chrome-devtools",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        },
+        {
+          "id": "playwright",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        }
+      ]
+    },
+    {
+      "specialist": "frontend-engineer",
+      "lane": "gpt-codex",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": [
+        {
+          "id": "chrome-devtools",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        },
+        {
+          "id": "playwright",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        }
+      ]
+    },
+    {
+      "specialist": "game-designer",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "game-design-fundamentals",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "game-mechanics-balancing",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "player-engagement-psychology",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        }
+      ],
+      "tools": [
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "game-designer",
+      "lane": "gemini",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "game-designer",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "game-engineer",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [
+        {
+          "id": "cross-arch-build-discipline",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "cross-arch-test-discipline",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        }
+      ],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "game-engineer",
+      "lane": "gpt-codex",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "growth-and-search-analyst",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "growth-and-search-analyst",
+      "lane": "gemini",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "keyword-clustering",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "shared-registry:authored"
+        },
+        {
+          "id": "structured-data-authoring",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "shared-registry:authored"
+        },
+        {
+          "id": "technical-seo-audit",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "shared-registry:authored"
+        }
+      ],
+      "tools": [
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "growth-and-search-analyst",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "growth-and-search-analyst",
+      "lane": "kimi",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "harness-optimizer",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "harness-baseline-audit",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "leverage-area-identification",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "reversible-change-protocol",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "harness-optimizer",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "image-designer",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [
+        {
+          "id": "color-theory",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "composition-rules",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "visual-design-principles",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        }
+      ],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "image-designer",
+      "lane": "gemini",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "impact-validator",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "chain-impact-rescore",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-or-shared-authored"
+        },
+        {
+          "id": "cvss-v4-gate",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-or-shared-authored"
+        },
+        {
+          "id": "nvd-osv-calibration",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-or-shared-authored"
+        },
+        {
+          "id": "program-fit-check",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-or-shared-authored"
+        },
+        {
+          "id": "program-rubric-lookup",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-or-shared-authored"
+        },
+        {
+          "id": "self-inflicted-detector",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-or-shared-authored"
+        }
+      ],
+      "tools": [
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": [
+        {
+          "id": "chrono-research-arsenal",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        },
+        {
+          "id": "chrono-vault",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        }
+      ]
+    },
+    {
+      "specialist": "impact-validator",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "incident-responder",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "agentic-safety-audit",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "forensic-timeline-authoring",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "shared-registry:authored"
+        },
+        {
+          "id": "incident-response-runbook",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "shared-registry:authored"
+        }
+      ],
+      "tools": [
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        }
+      ],
+      "mcps": [
+        {
+          "id": "chrono-vault",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        }
+      ]
+    },
+    {
+      "specialist": "incident-responder",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "interactive-audio-designer",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [
+        {
+          "id": "interface-ambiguity-check",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "interactive-audio-designer",
+      "lane": "gemini",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "audio-event-map-authoring",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "shared-registry:authored"
+        },
+        {
+          "id": "interactive-audio-design",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "shared-registry:authored"
+        }
+      ],
+      "tools": [
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "interactive-audio-designer",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "knowledge-librarian",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "binary-doc-to-markdown",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "harness-baseline-audit",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "instinct-prune-loop",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "kg-vault-health-check",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "stale-knowledge-purge",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "pdftotext",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "zotero",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "knowledge-librarian",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "large-context-analyst",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "claim-validation-gate",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "cross-file-relationship-synthesis",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "dual-level-retrieval",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "evidence-chain-preservation",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "layered-analysis-loop",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "scope-estimation",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "ultra-research",
+          "requirement": "preferred",
+          "availability": "probe-failed",
+          "evidence": "claude-plugin:legacy-manifest"
+        }
+      ],
+      "tools": [
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "perplexity_search_web",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "large-context-analyst",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "learning-coach",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "cite-properly",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "evidence-level",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "find-sources",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "research-integrity-gate",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "source-triangulation",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "summarize-findings",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "learning-coach",
+      "lane": "gemini",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "learning-coach",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "level-narrative-designer",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "interface-ambiguity-check",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "level-design-patterns",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "shared-registry:authored"
+        },
+        {
+          "id": "narrative-structure",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "shared-registry:authored"
+        }
+      ],
+      "tools": [
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "level-narrative-designer",
+      "lane": "gemini",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "localization-specialist",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "locale-adaptation",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "shared-registry:authored"
+        },
+        {
+          "id": "regional-compliance-check",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "shared-registry:authored"
+        },
+        {
+          "id": "terminology-memory",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "shared-registry:authored"
+        }
+      ],
+      "tools": [
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "localization-specialist",
+      "lane": "gemini",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "loop-operator",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "loop-checkpoint-protocol",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "safe-intervention",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "stall-detection",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "loop-operator",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "mac-ops",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "harness-baseline-audit",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "instinct-prune-loop",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "kg-vault-health-check",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "stale-knowledge-purge",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "brew",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "df",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "diskutil",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "fswatch",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "hammerspoon",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "htop",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "iftop",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "iotop",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "launchctl",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "npm",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "osascript",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "pip",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "pipx",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "shortcuts",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "tmux",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "uv",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "mac-ops",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "memory-curator",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "brain-trio-amendment-authoring",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "instinct-prune-loop",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "kg-vault-health-check",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "stale-knowledge-purge",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "memory-curator",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "music-composer",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [
+        {
+          "id": "music-production-basics",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "sonic-branding",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        }
+      ],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "music-composer",
+      "lane": "gemini",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "performance-optimizer",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [
+        {
+          "id": "cross-arch-compute-routing",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "flamegraph-triage-flow",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "regression-bisect-flow",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "representative-workload-design",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "thread-sweet-spot-profiling",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [
+        {
+          "id": "chrome-devtools",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-or-shared-authored"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "performance-optimizer",
+      "lane": "gpt-codex",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "cargo-flamegraph",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "cprofile",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "dtrace",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "instruments",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "line_profiler",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "perf",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "pprof",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "py-spy",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "personal-ops",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "harness-baseline-audit",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "instinct-prune-loop",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "kg-vault-health-check",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "stale-knowledge-purge",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "personal-ops",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "planner",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "planner",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "privacy-steward",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "agentic-safety-audit",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "cvss-v4-gate",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "data-flow-trace",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "shared-registry:authored"
+        },
+        {
+          "id": "pre-audit-threat-model",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "scope-gate",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "supply-chain-audit",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": [
+        {
+          "id": "chrono-research-arsenal",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        },
+        {
+          "id": "chrono-vault",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        }
+      ]
+    },
+    {
+      "specialist": "privacy-steward",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "product-manager",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "code-review-loop",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "requirements-elicitation",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "review-severity-ladder",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "scope-decomposition",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "systematic-debugging",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "test-driven-development",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "verification-before-completion",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "product-manager",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "prompt-engineer",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "prompt-engineer",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "red-team-operator",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "red-team-operator",
+      "lane": "gpt-codex",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "refactor-cleaner",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [
+        {
+          "id": "ast-rewrite-loop",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "behavior-preservation-test",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "comby-semantic-patch",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "dead-code-elimination",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "import-reorg",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "refactor-scope-bounding",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        }
+      ],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "refactor-cleaner",
+      "lane": "gpt-codex",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "babel",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "clippy",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "comby",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "depcheck",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "knip",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "pylint",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "python-ast",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "ruff",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "rust-syn",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "ts-morph",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "research",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [
+        {
+          "id": "cite-properly",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "dual-level-retrieval",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "evidence-level",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "find-sources",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "research-integrity-gate",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "source-triangulation",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "summarize-findings",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [
+        {
+          "id": "firecrawl",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-or-shared-authored"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "research",
+      "lane": "gemini",
+      "coverage": "full",
+      "limitations": [
+        "grounded live search stays on Gemini; deep six-round research hands off to large-context-analyst on Claude"
+      ],
+      "skills": [],
+      "tools": [
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "context7",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "perplexity_search_web",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "research",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "reverse-engineer",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "reverse-engineer",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "scout",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "api-surface-mapper",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "github-recon",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "nuclei-scan",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "program-intel-query",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "recon-chain-orchestrator",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "scope-gate",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [
+        {
+          "id": "amass",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "aquatone",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "gowitness",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "httpx",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "linkfinder",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "nmap",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "nuclei",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "paramspider",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "subfinder",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "waybackmachine",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": [
+        {
+          "id": "chrome-devtools",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "verified-registry:claude-mcp"
+        },
+        {
+          "id": "chrono-recon",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        },
+        {
+          "id": "chrono-research-arsenal",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        },
+        {
+          "id": "chrono-vault",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        },
+        {
+          "id": "playwright",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "verified-registry:claude-mcp"
+        }
+      ]
+    },
+    {
+      "specialist": "scout",
+      "lane": "gemini",
+      "coverage": "partial",
+      "limitations": [
+        "fresh-browser and non-authenticated reconnaissance only; authenticated CDP :9222 work remains on Claude primary"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": [
+        {
+          "id": "chrome-devtools",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        },
+        {
+          "id": "chrono-recon",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        },
+        {
+          "id": "chrono-research-arsenal",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        },
+        {
+          "id": "playwright",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        }
+      ]
+    },
+    {
+      "specialist": "scout",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "review and CLI reconnaissance only; authenticated playwright/chrome-devtools browser work remains on Claude primary"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "scraping-engineer",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [
+        {
+          "id": "bot-evasion-loop",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "browser-scrape-pipeline",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "data-normalization",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "playwright-stealth-config",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "rate-limit-respect",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "scrape-state-persistence",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "tos-compliance-check",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        }
+      ],
+      "tools": [
+        {
+          "id": "chrome-devtools",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-or-shared-authored"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "scraping-engineer",
+      "lane": "gpt-codex",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "beautifulsoup",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "browser-use",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "httpx",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "lxml",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "pandas",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "playwright",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "polars",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "requests",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "security-analyst",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "agentic-safety-audit",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "dependency-health-triage",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "findings-filter",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "osint-platform-audit",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "review-severity-ladder",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "security-ownership-map",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "security-threat-model",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "semgrep-rule-author",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "supply-chain-audit",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "variant-analysis",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [
+        {
+          "id": "aderyn",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "anvil",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "bandit",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "brakeman",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "cast",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "echidna",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "eslint-security",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "forge",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "halmos",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "medusa",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "myth",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "nikto",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "nuclei",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "osv-scanner",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "semgrep",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "slither",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "snyk",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "trivy",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": [
+        {
+          "id": "chrono-recon",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        },
+        {
+          "id": "chrono-research-arsenal",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        },
+        {
+          "id": "chrono-vault",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        },
+        {
+          "id": "guarded-semgrep",
+          "requirement": "preferred",
+          "availability": "pending-restart-activation",
+          "evidence": "staged-lane-config:validate-staged"
+        },
+        {
+          "id": "guarded-slither",
+          "requirement": "preferred",
+          "availability": "pending-restart-activation",
+          "evidence": "staged-lane-config:validate-staged"
+        },
+        {
+          "id": "guarded-solodit",
+          "requirement": "preferred",
+          "availability": "pending-restart-activation",
+          "evidence": "staged-lane-config:validate-staged"
+        }
+      ]
+    },
+    {
+      "specialist": "security-analyst",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": [
+        {
+          "id": "guarded-semgrep",
+          "requirement": "preferred",
+          "availability": "pending-restart-activation",
+          "evidence": "staged-lane-config:validate-staged"
+        },
+        {
+          "id": "guarded-slither",
+          "requirement": "preferred",
+          "availability": "pending-restart-activation",
+          "evidence": "staged-lane-config:validate-staged"
+        },
+        {
+          "id": "guarded-solodit",
+          "requirement": "preferred",
+          "availability": "pending-restart-activation",
+          "evidence": "staged-lane-config:validate-staged"
+        }
+      ]
+    },
+    {
+      "specialist": "site-reliability-engineer",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "site-reliability-engineer",
+      "lane": "gpt-codex",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "skeptic",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "skeptic",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "smart-contract-engineer",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [
+        {
+          "id": "audit-context-prep",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "evm-audit-flow",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "gas-optimization-pattern",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "solana-audit-flow",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "vulnhunter-solana",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [],
+      "mcps": [
+        {
+          "id": "guarded-semgrep",
+          "requirement": "preferred",
+          "availability": "pending-restart-activation",
+          "evidence": "staged-lane-config:validate-staged"
+        },
+        {
+          "id": "guarded-slither",
+          "requirement": "preferred",
+          "availability": "pending-restart-activation",
+          "evidence": "staged-lane-config:validate-staged"
+        },
+        {
+          "id": "guarded-solodit",
+          "requirement": "preferred",
+          "availability": "pending-restart-activation",
+          "evidence": "staged-lane-config:validate-staged"
+        }
+      ]
+    },
+    {
+      "specialist": "smart-contract-engineer",
+      "lane": "gpt-codex",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [
+        {
+          "id": "aderyn",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "anchor",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "echidna",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "forge",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "halmos",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "hardhat",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "litesvm",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "medusa",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "myth",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "slither",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": [
+        {
+          "id": "guarded-semgrep",
+          "requirement": "preferred",
+          "availability": "pending-restart-activation",
+          "evidence": "staged-lane-config:validate-staged"
+        },
+        {
+          "id": "guarded-slither",
+          "requirement": "preferred",
+          "availability": "pending-restart-activation",
+          "evidence": "staged-lane-config:validate-staged"
+        },
+        {
+          "id": "guarded-solodit",
+          "requirement": "preferred",
+          "availability": "pending-restart-activation",
+          "evidence": "staged-lane-config:validate-staged"
+        }
+      ]
+    },
+    {
+      "specialist": "social-strategist",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [
+        {
+          "id": "cite-properly",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "skill-description-trigger-authoring",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "writing-skills",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "social-strategist",
+      "lane": "gemini",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "software-supply-chain-engineer",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [
+        {
+          "id": "compiler-bootstrap-flow",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "cross-arch-build-discipline",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "cross-arch-test-discipline",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        }
+      ],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "software-supply-chain-engineer",
+      "lane": "gpt-codex",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "sound-designer",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [
+        {
+          "id": "audio-layering-techniques",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "sound-design-principles",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        }
+      ],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "sound-designer",
+      "lane": "gemini",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "summarizer",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "summarizer",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "perplexity_search_web",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "summarizer",
+      "lane": "kimi",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "synthesizer",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "cite-properly",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "cross-file-relationship-synthesis",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "evidence-level",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "preserve-outliers",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "summarize-findings",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "perplexity_search_web",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "synthesizer",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "systems-engineer",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [
+        {
+          "id": "compiler-bootstrap-flow",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "cross-arch-build-discipline",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "cross-arch-test-discipline",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "hybrid-threading-tuning",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "simd-correctness-validation",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "simd-porting-layer",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "systems-engineer",
+      "lane": "gpt-codex",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "technical-artist",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [
+        {
+          "id": "cross-arch-build-discipline",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "cross-arch-test-discipline",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        }
+      ],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "technical-artist",
+      "lane": "gemini",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "technical-artist",
+      "lane": "gpt-codex",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "technical-writer",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "binary-doc-to-markdown",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "chrono-adr-authoring",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "chrono-changelog-generator",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "chrono-handoff-authoring",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "cite-properly",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "skill-description-trigger-authoring",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "technical-writer",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "test-engineer",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [
+        {
+          "id": "chrono-mutation-campaign",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "chrono-property-based-strategy",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "e2e-authoring-flow",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "flaky-e2e-hunt",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "playwright-page-object-model",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "property-based-fuzz-harness",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "staged-integrity-gate",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "test-shrinkage-loop",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "webapp-testing-local",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "test-engineer",
+      "lane": "gpt-codex",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "playwright",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "threat-modeler",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "agentic-safety-audit",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "interface-ambiguity-check",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "pre-audit-threat-model",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "security-ownership-map",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "security-threat-model",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "threat-model-loop",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "shared-registry:authored"
+        }
+      ],
+      "tools": [
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": [
+        {
+          "id": "chrono-research-arsenal",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        },
+        {
+          "id": "chrono-vault",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        }
+      ]
+    },
+    {
+      "specialist": "threat-modeler",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "triage",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "triage",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "ui-engineer",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "cross-family review route; browser execution uses fresh profiles unless explicitly authorized for Claude CDP :9222"
+      ],
+      "skills": [
+        {
+          "id": "a11y-audit",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "chrono-ui-aesthetic-framework",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "design-token-governance",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "figma-code-connect",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "figma-implement-design",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "frontend-design",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "ui-engineer",
+      "lane": "gemini",
+      "coverage": "partial",
+      "limitations": [
+        "fresh-browser backup only; authenticated CDP :9222 sessions remain Claude-specific"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": [
+        {
+          "id": "chrome-devtools",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        },
+        {
+          "id": "playwright",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        }
+      ]
+    },
+    {
+      "specialist": "ui-engineer",
+      "lane": "gpt-codex",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        },
+        {
+          "id": "playwright",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "host-PATH"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": [
+        {
+          "id": "chrome-devtools",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        },
+        {
+          "id": "playwright",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        }
+      ]
+    },
+    {
+      "specialist": "vibecoding-check",
+      "lane": "claude",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        }
+      ],
+      "mcps": []
+    },
+    {
+      "specialist": "vibecoding-check",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "video-director",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [
+        {
+          "id": "narrative-pacing",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "video-production-principles",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "virality-analysis",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        }
+      ],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "video-director",
+      "lane": "gemini",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "video-editor",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [
+        {
+          "id": "color-grading-basics",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "platform-compliance",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "video-post-production",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        }
+      ],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "video-editor",
+      "lane": "gemini",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "voice-agent-builder",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [
+        {
+          "id": "agent-prompt-engineering",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "conversation-design",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "knowledge-base-integration",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        }
+      ],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "voice-agent-builder",
+      "lane": "gemini",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "voice-narrator",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [
+        {
+          "id": "audio-production-basics",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "voice-performance-direction",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        }
+      ],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "voice-narrator",
+      "lane": "gemini",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "web-builder",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [
+        {
+          "id": "accessibility-wcag",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "responsive-design",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "seo-fundamentals",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        },
+        {
+          "id": "web-performance-optimization",
+          "requirement": "preferred",
+          "availability": "uninstalled",
+          "evidence": "host-PATH:absent"
+        }
+      ],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "web-builder",
+      "lane": "gpt-codex",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    }
+  ]
+}

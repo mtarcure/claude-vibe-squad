@@ -139,12 +139,27 @@ else
 fi
 
 if ! command -v python3 >/dev/null 2>&1; then
+    skip_suite "capability validation" "python3 is unavailable"
+    skip_suite "capability validator self-test" "python3 is unavailable"
     skip_suite "reconcile selftest" "python3 is unavailable"
 else
     run_suite \
+        "capability validation" \
+        bash bin/validate-capabilities.sh
+    run_suite \
+        "capability validator self-test" \
+        bash bin/validate-capabilities.sh --self-test
+    run_suite \
         "reconcile selftest" \
         env VAULT_ROOT_UNDER_TEST="$ROOT" bash bin/reconcile-selftest.sh
+    run_suite \
+        "review loop guard" \
+        "$PYTHON_BIN" bin/review-loop-guard-selftest.py
 fi
+
+run_suite \
+    "pre-commit capability gate" \
+    bash bin/pre-commit-selftest.sh
 
 run_suite \
     "specialist validation" \

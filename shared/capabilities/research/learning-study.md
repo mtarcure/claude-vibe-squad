@@ -23,5 +23,7 @@ research tools are an optional aid for sourcing material, not a core dependency.
 | **S7** Capture | `Chrono`, `memory-curator` | `chrono-vault` (all · yes · subscription) | — | memory overlay (record; progress tracking) |
 
 **Notes.** Steps collapse (no S2/S5) — this is light, judgment-driven work. The core needs no catalog-absent
-tool; `perplexity_search_web`/`arxiv_search` are optional live aids for sourcing reference material (metered
-tools are budget-guarded). Durable progress notes are recorded to the vault at S7.
+tool; `perplexity_search_web`/`arxiv_search` are optional live aids for sourcing reference material, and
+`Google Search grounding` (gemini·yes·subscription) is an optional subscription-tier aid for verifying facts in
+sourced study material (metered tools are budget-guarded). No repeated-eval workload applies here, so DeepSeek
+caching is not wired. Durable progress notes are recorded to the vault at S7.

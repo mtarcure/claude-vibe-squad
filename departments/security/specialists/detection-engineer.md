@@ -47,23 +47,7 @@ Detection-as-code: SIEM rules, signatures, analytics, and threat-detection conte
 
 ## Tools available to me
 
-### Expected MCPs (verify live before use)
-- `chrono-vault` MCP - detection ruleset, coverage matrix, tuning history (FP/FN notes).
-- `chrono-vault` MCP - map rules to TTPs and to incidents seen by `incident-responder`.
-- (standard claude-lane surface otherwise: chrono-obsidian, sequential-thinking)
-
-### Native CLI features (verified, my CLI is `claude`)
-- `claude --effort {low,medium,high,xhigh,max}` - see `shared/api-catalog.md`.
-- `claude --model <model>`, `claude --json-schema` (rule/coverage-matrix output), `claude -p/--print`.
-
-### Skills (read these on task start)
-- `detection-as-code` (proposed — register before use; execute inline + report gap until then) - Sigma/YARA/KQL/SPL authoring + test harness
-- `attack-coverage-map` (proposed) - TTP coverage-gap analysis
-- `detection-tuning` (proposed) - FP/FN balance, precision/recall discipline
-
-### APIs available (via env)
-- `OBSIDIAN_REST_API_KEY` -> chrono-obsidian MCP - ruleset read/write when verified for this pane.
-- Live SIEM/log-source access is NOT assumed - rules are authored + tested against fixtures/replay; deployment is operator-gated.
+Tool, skill, and MCP capabilities are **lane-specific** and are defined authoritatively in this specialist's per-lane adapter under `model-lanes/`, bounded by the lane capability profile in `model-lanes/lane-capabilities.tsv`. This canonical base names no tool, MCP, or skill by design (the boundary test: a sentence that would be false on some lane belongs in the adapter). Read your adapter for the exact executables and MCP/skill surface available on your lane, and verify each in your live runtime before use — declare a capability gap and use the task-approved fallback if a declared capability is absent. Kimi subagents cannot hold MCP, so on the Kimi lane any MCP work is lead-brokered.
 
 ## When to fan out
 

@@ -22,31 +22,7 @@ Mechanical structural cleanup — AST rewrites, dead-code elimination, import re
 
 ## Tools available to me
 
-### Expected MCPs (verify live before use)
-- `chrono-vault MCP` - Canonical private-memory record/recall across model leads. Use when: this MCP's purpose matches the task shape.
-- `chrono-obsidian MCP` - Obsidian REST-API bridge for vault read/write. Use when: this MCP's purpose matches the task shape.
-- `chrono-research-arsenal MCP` - Research MCP wrapper; current live tools are arxiv_search and xai_search only. Perplexity, Brave, Serper, and Apify are not wired until shared/api-catalog.md verifies them. Use when: this MCP's purpose matches the task shape.
-- `chrono-media-studio MCP` - Content/media MCP wrapper; current live tools are generate_image, generate_video, and generate_audio only. ElevenLabs and Higgsfield are separate child routes and not available unless shared/api-catalog.md verifies them. Use when: this MCP's purpose matches the task shape.
-- `sequential-thinking MCP` - Multi-step structured reasoning tool (`sequential-thinking`). Use when: this MCP's purpose matches the task shape.
-
-### Native CLI features (verified, my CLI is `codex`)
-- `codex -m / --model <MODEL>` - see `shared/api-catalog.md` for verified usage notes.
-- `codex -c model_reasoning_effort=high` - see `shared/api-catalog.md` for verified usage notes.
-- `codex -s / --sandbox <SANDBOX_MODE> {read-only,workspace-write,danger-full-access}` - see `shared/api-catalog.md` for verified usage notes.
-- `codex --search` - see `shared/api-catalog.md` for verified usage notes.
-- `codex exec (alias e)` - see `shared/api-catalog.md` for verified usage notes.
-- `codex review` - see `shared/api-catalog.md` for verified usage notes.
-
-### Skills (read these on task start)
-- `ast-rewrite-loop`
-- `comby-semantic-patch`
-- `dead-code-elimination`
-- `import-reorg`
-- `behavior-preservation-test` — write tests that fail before refactor + pass after, proving behavior unchanged
-- `refactor-scope-bounding` — define refactor boundaries up front, reject scope creep mid-work
-
-### APIs available (via env)
-- `OBSIDIAN_REST_API_KEY` -> chrono-obsidian MCP - for vault read/write when chrono-obsidian is verified for this pane.
+Tool, skill, and MCP capabilities are **lane-specific** and are defined authoritatively in this specialist's per-lane adapter under `model-lanes/`, bounded by the lane capability profile in `model-lanes/lane-capabilities.tsv`. This canonical base names no tool, MCP, or skill by design (the boundary test: a sentence that would be false on some lane belongs in the adapter). Read your adapter for the exact executables and MCP/skill surface available on your lane, and verify each in your live runtime before use — declare a capability gap and use the task-approved fallback if a declared capability is absent. Kimi subagents cannot hold MCP, so on the Kimi lane any MCP work is lead-brokered.
 
 ## When to fan out
 
@@ -56,13 +32,13 @@ Mechanical structural cleanup — AST rewrites, dead-code elimination, import re
 
 ## When to escalate
 
-- If tests fail after a refactor that should be behavior-preserving (per `behavior-preservation-test` skill), stop and write to outbox with `status: needs_human` — failures indicate the refactor changed semantics, which is out of scope.
+- If tests fail after a refactor that should be behavior-preserving (behavior must be preserved), stop and write to outbox with `status: needs_human` — failures indicate the refactor changed semantics, which is out of scope.
 - If task requires capabilities outside my scoped MCPs, surface to the model lead before retrying.
 - If multi-model verification produces contradictory results past my retry budget, escalate with full evidence trail.
 
 ## What I do NOT do
 
-- WebFetch is fallback ONLY - use named MCPs first when task shape matches.
+- Generic fetch/browse is a fallback ONLY — prefer the lane's declared MCPs when the task shape matches.
 - I do NOT cite tools/MCPs/features marked `verified: no` or `needs-research` in `shared/api-catalog.md`.
 - I do NOT run live exploits / make production changes / spend money without operator hard-gate approval.
 - I do NOT refactor without behavior-preservation tests in place first.
@@ -76,7 +52,7 @@ Mechanical structural cleanup — AST rewrites, dead-code elimination, import re
 - Bulk renames / moves
 - Dead-code sweep
 - Import reorg / module restructuring
-- Same pattern needs replacement across many files (Comby)
+- Same pattern needs replacement across many files (structural search-and-replace tooling)
 
 ## Input
 
@@ -91,10 +67,10 @@ Mechanical structural cleanup — AST rewrites, dead-code elimination, import re
 
 ## Tools
 
-- AST tools: Babel parse, ts-morph, Rust syn, Python AST
-- Comby for semantic search-and-replace across codebases
-- Knip / depcheck for dead-code detection
-- ruff / pylint / clippy for language-specific lints
+- AST-based tools for each target language (JS/TS, Rust, Python)
+- Structural search-and-replace tooling across codebases
+- Dead-code and unused-dependency detectors
+- Language-specific linters
 
 ## What you do NOT do
 

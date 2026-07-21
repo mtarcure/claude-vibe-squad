@@ -2,12 +2,12 @@
 id: content/audio-assets
 mode: content
 title: Audio assets (music · SFX · voice/narration · interactive-audio)
-capability_state: degraded-blueprint
-state_reason: Two routes exist — the `generate_audio` wrapper (`all·lane-live·metered`, Higgsfield-backed) inherits the SAME honest hold as `content/image` (raw `higgsfield__*` is `verified: no`, reconciliation pending), and `ElevenLabs API` (music/SFX/voice) is genuinely `lane-live` but **Claude-lane-only**. Because the all-lane route is held and the live route is lane-caveated, the conservative card default is `degraded-blueprint` until reconciliation confirms end-to-end.
-state_evidence: registry rows — generate_audio = `all·lane-live·metered` (wrapper `verified: yes`); ElevenLabs API = `claude·lane-live·metered`; Higgsfield API = `none·no` (raw prohibited, wrapper only). chrono-vault = `all·yes·subscription`.
+capability_state: live
+state_reason: The core audio generation pipeline is served by two live routes — the governed `generate_audio` wrapper (chrono-media-studio plugin) across all lanes, and the `ElevenLabs API` (music/SFX/voice) on the Claude lane. No unverified tool is load-bearing on the canonical path.
+state_evidence: registry rows — generate_audio = `all·lane-live·metered` (verified: yes); ElevenLabs API = `claude·lane-live·metered` (verified: yes).
 overlays: [truth-rights, review, privacy, memory]
 gates: [paid_media, public_release, credential_change, live_outreach]
-cost_note: S3 generation uses the `metered` `generate_audio` wrapper and the `metered` `ElevenLabs API` (both provider-billed) — each needs a budget/rate-limit guard; a hit limit is a typed `needs_tool`/degraded result. `chrono-vault` is subscription. Raw `higgsfield__*` is `verified: no` and is not used.
+cost_note: S3 generation uses the metered `generate_audio` wrapper and the metered `ElevenLabs API` (both provider-billed) — each needs a budget/rate-limit guard; a hit limit is a typed `needs_tool`/degraded result. `chrono-vault` is subscription. Raw `higgsfield__*` is `verified: no` and is not used.
 ---
 
 **When to use:** produce music, sound effects, voice/narration (TTS), or interactive-audio design as a content
@@ -24,14 +24,13 @@ deliverable. Media specialists are `tool_gated` to the lane hosting the content-
 | **S6** Ship/Deliver (package) | `sound-designer` | — | — | — |
 | **S7** Capture | `Chrono`, `memory-curator` | `chrono-vault` (all · yes · subscription) | — | memory overlay (record) |
 
-**Notes.** `generate_audio` (Higgsfield-backed) and `ElevenLabs API` are the honest routes; the raw
-`higgsfield__*` provider tools are `verified: no` and must never be cited as live. **ElevenLabs is
+**Notes.** `generate_audio` (Higgsfield-backed) and `ElevenLabs API` are the governed, live routes. Raw
+`higgsfield__generate_audio` remains `verified: no` and must never be used. **ElevenLabs is
 Claude-lane-only** — on a non-Claude lane the ElevenLabs route is unavailable and the all-lane `generate_audio`
-route remains under the reconciliation hold, hence the conservative `degraded-blueprint` default.
-Voice-likeness / real-person resemblance routes to `asset-provenance-and-rights-auditor` (never self-cleared).
-**Factual voice narration** carrying factual / product / efficacy claims additionally fires the **conditional
-Rule-8 truth gate** at S4 (`content-verifier` grounds the claims via `chrono-research-arsenal`; a load-bearing
-unverifiable claim ⇒ `needs_tool`/non-PASS before `public_release`) — additive to, not a replacement for, the
-independent Rule-6 rights + likeness/consent gates; purely musical / SFX / aesthetic assets skip it. A voice
-agent (`create_agent`, outbound calls) fires `credential_change` + `live_outreach`. Interactive-audio design is
-tool-free — rendering is a handoff to the music/sound/voice roles.
+route serves the core pipeline. Voice-likeness / real-person resemblance routes to `asset-provenance-and-rights-auditor`
+(never self-cleared). Factual voice narration carrying factual/product/efficacy claims additionally fires the S4
+conditional Rule-8 truth gate.
+
+**Optional Enhancement Profiles (prose-only `needs_tool`):**
+1. **Google Search Grounding:** Live on the Gemini lane as a first-class, subscription-tier truth-gate verifier for factual claims made in audio narration.
+2. **Higgsfield voice (`create_voice`/`dubbing`):** Non-generation Higgsfield voice utility actions are available via the `Higgsfield non-generation surface` (`partial` state, metered) as an optional prose-only profile. It requires the S4 voice-likeness/consent-likeness check (Rule-6 rights gate) and `get_cost:true` preflight.

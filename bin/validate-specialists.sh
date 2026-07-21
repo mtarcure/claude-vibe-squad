@@ -6,12 +6,36 @@
 # - Cited skills exist in local catalog
 # - Peer-specialist refs resolve
 
+# The maintained schema engine is a single cached Python parse. The capability-
+# home semantic gate runs immediately after it; the historical shell
+# implementation below remains inert provenance.
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+VALIDATION_ROOT="${VAULT_ROOT:-${REPO_ROOT}}"
+python3 "${REPO_ROOT}/scripts/python/validate_specialists.py" \
+    --root "${VALIDATION_ROOT}" "$@"
+specialist_status=$?
+
+if [[ "${SQUAD_SKIP_CAPABILITY_HOME_GATE:-0}" == "1" ]]; then
+    echo "SKIP capability-home gate: SQUAD_SKIP_CAPABILITY_HOME_GATE=1" >&2
+    exit "$specialist_status"
+fi
+
+python3 "${REPO_ROOT}/scripts/python/validate_capability_homes.py" \
+    --repo-root "${VALIDATION_ROOT}"
+capability_status=$?
+
+if (( specialist_status != 0 )); then
+    exit "$specialist_status"
+fi
+exit "$capability_status"
+
 set -uo pipefail
 VAULT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
 CATALOG="${VAULT}/shared/api-catalog.md"
 RUNTIME_MAP="${VAULT}/shared/specialist-runtime-map.tsv"
 PROFILE_REGISTRY="${VAULT}/shared/registries/profiles.tsv"
 POLICY_REGISTRY="${VAULT}/shared/registries/policies.tsv"
+TOOL_REGISTRY="${VAULT}/shared/registries/skill-tool-registry.tsv"
 EXPECTED_RUNTIME_ROWS=69
 STRICT_ADAPTERS="${STRICT_ADAPTERS:-0}"
 
@@ -80,6 +104,24 @@ policy_family() {
 
 is_bracket_list() {
     [[ "$1" =~ ^\[[^]]*\]$ ]]
+}
+
+bracket_list_items() {
+    local value="$1" item
+    is_bracket_list "$value" || return 0
+    value="${value#[}"
+    value="${value%]}"
+    [[ -n "$value" ]] || return 0
+    IFS=',' read -ra items <<<"$value"
+    for item in "${items[@]}"; do
+        item="${item# }"; item="${item% }"
+        [[ -n "$item" ]] && printf '%s\n' "$item"
+    done
+}
+
+tool_registry_has() {
+    [[ -f "$TOOL_REGISTRY" ]] || return 1
+    awk -F '\t' -v name="$1" 'NR > 1 && $1 == name { found=1; exit } END { exit(found ? 0 : 1) }' "$TOOL_REGISTRY"
 }
 
 list_has_only() {
@@ -219,6 +261,18 @@ else
         is_bracket_list "$requires_approval" || map_issues+=("invalid-requires-approval:${requires_approval}")
         is_bracket_list "$required_tools" || map_issues+=("invalid-required-tools:${required_tools}")
         is_bracket_list "$preferred_tools" || map_issues+=("invalid-preferred-tools:${preferred_tools}")
+        for tool_pair in "required:${required_tools}" "preferred:${preferred_tools}"; do
+            tool_kind="${tool_pair%%:*}"; tool_list="${tool_pair#*:}"
+            while IFS= read -r tool_ref; do
+                [[ -n "$tool_ref" ]] || continue
+                if [[ "$tool_ref" == "grok_reason" || "$tool_ref" == *":grok_reason" ]]; then
+                    map_issues+=("stale-tool-token:${tool_kind}:${tool_ref}")
+                elif ! tool_registry_has "$tool_ref"; then
+                    printf '{"file":"%s","status":"warn","issues":["unresolved-tool-reference:%s:%s:%s"]}\n' "$RUNTIME_MAP:$specialist" "$tool_kind" "$tool_ref" "warning-mode"
+                    warnings=$((warnings + 1))
+                fi
+            done < <(bracket_list_items "$tool_list")
+        done
         is_bracket_list "$tags" || map_issues+=("invalid-tags:${tags}")
         [[ -n "$notes" ]] || map_issues+=("missing-notes")
         [[ "$version" =~ ^[0-9]+\.[0-9]+$ ]] || map_issues+=("invalid-version:${version}")

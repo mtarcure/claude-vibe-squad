@@ -1,7 +1,11 @@
 name = "game_engineer"
-description = "Runtime owner in the staged game-production pipeline; engine and platform toolchains are task-specific prerequisites."
+description = "Runtime owner in the staged game-production pipeline; engine and platform toolchains are task-specific prerequisites. Raw Higgsfield tools are Claude-child handoffs, schema-observed partial, and 3D generation requires paid_media plus get_cost:true."
 model_reasoning_effort = "medium"
 sandbox_mode = "workspace-write"
+# BEGIN SPECIALIST CAPABILITY PROJECTION
+capability_source = "model-lanes/specialist-lane-capabilities.v1.json"
+capability_source_sha256 = "25f0f3f37817a4967e9ed68ec9c00d7c13a6618070b98723c441f91b1e05fad4"
+# END SPECIALIST CAPABILITY PROJECTION
 developer_instructions = """
 You are the `game-engineer` specialist running inside the `gpt-codex` model lane.
 

@@ -131,32 +131,25 @@ Without cleanup, these accumulate across runs. The 53-Chrome-process / 5.88GB-RS
 - Temp directories under `/tmp/<mode-name>-<run-id>/`
 - Draft/scratch artifacts (`_state/runs/<run-id>/scratch/`)
 
-## 14. Mode-end vibecoding-check is mandatory
+## 14. Mode-end verification spine v1
 
-Every Mode (bounty / project / content / outreach / maintenance / incident / research / triage) runs `scripts/python/vibecoding_check.py` as its final phase before the Mode can declare itself done. The check is the canonical "verify before done" gate.
+`scripts/python/vibecoding_check.py` is the canonical end-of-run gate for the typed v1 profiles. v1 supports **Project** and **Bounty** only. Content, Research, Incident, Maintenance, Outreach, and Triage are explicit `OPERATOR=3` unsupported-profile stops until v1.1; they must not receive a legacy or vacuous pass.
 
-**Universal checks** (apply to every Mode):
-1. Operator approval token present
-2. Declared artifacts exist on disk
-3. Citations resolve (URL 200 / file exists / git ref resolves)
-4. No TODO / FIXME / XXX in modified code
-5. All declared phase-tags emitted in run log
+Admission derives a dispatcher-pinned `verification-contract/v1`, rather than trusting author declarations. Every accepted `verification-run/v1` trace bundle contains ordered, evidenced S0–S7 proof records; nonempty admission-derived verification coverage; current artifact/action/gate hashes; literal local-only delivery; and the required mode evidence.
 
-**Mode-specific extensions** (declared in `checks.yaml` per Mode):
-- Project: tests pass, git clean, new code has tests, no destructive ops
-- Bounty: scope_gate ran, CVSS recorded, PoC reproduces, no self-inflicted
-- Content: voice consistent, asset paths resolve, length bounds, no placeholder text
-- (other modes per-spec — see each `shared/modes/<mode>.md`)
+- **S0** admits the task and pins its immutable contract.
+- **S1/S7** are mandatory memory bookends: canonical recall/usage evidence before work and record receipts bound to the final artifact bundle after work.
+- **S2/S5** require passing, different-family plan and deliverable reviews bound respectively to the current plan and artifact-bundle hashes.
+- The **I-loop** routes review/verification failures to S2 or S3. A plan or artifact change invalidates stale verification, reviews, gates, delivery, and S7 memory evidence; close uses only current-hash bindings.
+- **S6 is local-only in v1.** `delivery.external` must be literal `false`; Bounty submission must be literal `false`. External delivery remains a hard operator stop.
 
-**Failure tiers** (per `shared/specialists/vibecoding-check.md`):
-- Tier 1 (PASS=0): all checks green, mode can declare done
-- Tier 2 (AUTOFIX=1): minor issues fixable inline, fix and recheck
-- Tier 3 (RETRY=2): recoverable but needs phase re-run
-- Tier 3+ (OPERATOR=3): surface to operator, mode cannot self-declare done
+The executable retains six universal checks: operator approval; declared artifact presence; citation resolution; TODO/FIXME/XXX detection; phase proof; and unauthorized-deletion detection. Link liveness is advisory only, while missing filesystem or git citations remain blocking. Typed requirements are derived from the dispatcher-pinned verification contract and enforced in `vibecoding_check.py`.
 
-Each `shared/modes/*.md` file must name vibecoding-check as a pre-completion gate. If a mode does not declare its final check, `bin/validate-specialists.sh` and `bin/doctor.sh` treat that as instruction drift.
+The emitted tiers are exact: **OK=0**, **AUTOFIX=1** only when a meaning-preserving repair actually ran, **RETRY=2** for recoverable work-not-met, and **OPERATOR=3** for governance, structure, trust-anchor, or unsupported-profile failures. A broad override cannot satisfy the typed close contract.
 
-Violation: a Mode that declares itself "done" without running vibecoding-check is in violation of this rule. Coordinator (Chrono) refuses to surface such a Mode as completed to operator until the check has run.
+Known temporal limitation: v1 binds S2 review to the current plan hash and invalidates it after later plan changes, but cannot prove in wall-clock time that S2 completed before S3 production when the plan hash never changed. Strict temporal ordering is deferred to v1.1.
+
+Trust residual: within the trusted single-user filesystem boundary documented in `shared/protocol.md`, reviewer-family claims, memory receipts, and verification evidence receive shape, file-hash, identity, and subject-binding validation—not cryptographic provenance. Acceptance canaries must therefore use real independent reviewer and MCP receipts; fixture-shaped bytes are only for hermetic tests. Cryptographic attestation is deferred to v1.1.
 
 ## 15. Finished plans/specs/handoffs are cleanup debt
 

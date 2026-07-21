@@ -22,30 +22,7 @@ Repository-grounded threat modeling — trust boundaries, abuse cases, threat-mo
 
 ## Tools available to me
 
-### Expected MCPs (verify live before use)
-- `chrono-vault MCP` - Canonical private-memory record/recall across model leads. Use when: this MCP's purpose matches the task shape.
-- `chrono-obsidian MCP` - Obsidian REST-API bridge for vault read/write. Use when: this MCP's purpose matches the task shape.
-- `chrono-research-arsenal MCP` - Research MCP wrapper; current live tools are arxiv_search and xai_search only. Perplexity, Brave, Serper, and Apify are not wired until shared/api-catalog.md verifies them. Use when: this MCP's purpose matches the task shape.
-- `chrono-media-studio MCP` - Content/media MCP wrapper; current live tools are generate_image, generate_video, and generate_audio only. ElevenLabs and Higgsfield are separate child routes and not available unless shared/api-catalog.md verifies them. Use when: this MCP's purpose matches the task shape.
-- `sequential-thinking MCP` - Multi-step structured reasoning tool (`sequential-thinking`). Use when: this MCP's purpose matches the task shape.
-
-### Native CLI features (verified, my CLI is `claude`)
-- `claude --effort {low,medium,high,xhigh,max}` - see `shared/api-catalog.md` for verified usage notes.
-- `claude --model <model>` - see `shared/api-catalog.md` for verified usage notes.
-- `claude --bare` - see `shared/api-catalog.md` for verified usage notes.
-- `claude --json-schema` - see `shared/api-catalog.md` for verified usage notes.
-- `claude -p / --print` - see `shared/api-catalog.md` for verified usage notes.
-- `claude --append-system-prompt <prompt>` - see `shared/api-catalog.md` for verified usage notes.
-
-### Skills (read these on task start)
-- `security-threat-model`
-- `pre-audit-threat-model`
-- `agentic-safety-audit`
-- `interface-ambiguity-check`, `security-ownership-map`
-
-### APIs available (via env)
-- `OBSIDIAN_REST_API_KEY` -> chrono-obsidian MCP - for vault read/write when chrono-obsidian is verified for this pane.
-- (no additional API keys; threat modeling is repository-grounded reasoning + chrono-vault writes)
+Tool, skill, and MCP capabilities are **lane-specific** and are defined authoritatively in this specialist's per-lane adapter under `model-lanes/`, bounded by the lane capability profile in `model-lanes/lane-capabilities.tsv`. This canonical base names no tool, MCP, or skill by design (the boundary test: a sentence that would be false on some lane belongs in the adapter). Read your adapter for the exact executables and MCP/skill surface available on your lane, and verify each in your live runtime before use — declare a capability gap and use the task-approved fallback if a declared capability is absent. Kimi subagents cannot hold MCP, so on the Kimi lane any MCP work is lead-brokered.
 
 ## When to fan out
 
@@ -62,7 +39,7 @@ Repository-grounded threat modeling — trust boundaries, abuse cases, threat-mo
 
 ## What I do NOT do
 
-- WebFetch is fallback ONLY - use named MCPs first when task shape matches.
+- Prefer the lane's declared tools/MCPs for the task shape; treat generic fetch/browse as a last-resort fallback only.
 - I do NOT cite tools/MCPs/features marked `verified: no` or `needs-research` in `shared/api-catalog.md`.
 - I do NOT run live exploits / make production changes / spend money without operator hard-gate approval.
 - I do NOT confirm exploitability — I hypothesize and rank. Confirmation is security namespace invoking `security-analyst` and `exploit-developer` via the `Task` tool with the matching `subagent_type` values.
@@ -82,7 +59,7 @@ Repository-grounded threat modeling — trust boundaries, abuse cases, threat-mo
 
 ## Output
 
-- `threat-model.md` (per chrono `threat-model-loop` skill)
+- `threat-model.md` (per the threat-model loop)
   - Asset inventory
   - Trust boundary diagram
   - Attacker profiles (capabilities, motivations)
@@ -98,7 +75,7 @@ For high-stakes audits (Bounty Mode contests), can escalate to council-consensus
 
 ## chrono skill integration
 
-Uses chrono's `pre-audit-threat-model` (Solidity x-ray) and `security-threat-model` (general repo) skills.
+Applies the pre-audit threat model (Solidity x-ray) and the security threat model (general repo); the exact skill identifiers live in the per-lane adapter.
 
 ## Style
 

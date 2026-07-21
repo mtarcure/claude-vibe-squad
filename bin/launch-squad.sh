@@ -25,10 +25,12 @@ set -uo pipefail
 SESSION="${SQUAD_SESSION:-squad}"
 VAULT_ROOT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
 source "${VAULT_ROOT}/shared/lead-windows.sh"
+WATCHER_FLEET_CHILD=0
 for arg in "$@"; do
     case "$arg" in
         --safe) SQUAD_UNSAFE_AUTONOMY=0 ;;
         --autonomous|--unsafe) SQUAD_UNSAFE_AUTONOMY=1 ;;
+        --watcher-fleet-child) WATCHER_FLEET_CHILD=1 ;;
         --help|-h)
             sed -n '2,18p' "$0"
             exit 0
@@ -38,6 +40,39 @@ done
 
 SQUAD_UNSAFE_AUTONOMY="${SQUAD_UNSAFE_AUTONOMY:-1}"
 SQUAD_TRUST_CODEX_MCPS="${SQUAD_TRUST_CODEX_MCPS:-0}"
+
+# Internal short-command entry point for window 5. Keeping the tmux injection
+# tiny avoids terminal input-buffer truncation/garbling; this process owns and
+# reaps every named supervisor child.
+if [[ "$WATCHER_FLEET_CHILD" == 1 ]]; then
+    watcher_children=()
+    stop_watcher_children() {
+        local child
+        trap - EXIT HUP INT TERM
+        for child in "${watcher_children[@]}"; do
+            kill -TERM "$child" 2>/dev/null || true
+        done
+        wait 2>/dev/null || true
+    }
+    trap 'stop_watcher_children; exit 0' EXIT HUP INT TERM
+    export SQUAD_SESSION="$SESSION"
+    for namespace in "${COMPATIBILITY_NAMESPACES[@]}"; do
+        bash -c 'while true; do bash "$1" "$2"; rc=$?; echo "watcher supervisor restart: kind=inbox namespace=$2 rc=$rc" >&2; sleep 2; done' \
+            "watcher-supervisor:inbox:${namespace}" "${VAULT_ROOT}/bin/inbox-watcher.sh" "$namespace" &
+        watcher_children+=("$!")
+        bash -c 'while true; do bash "$1" "$2"; rc=$?; echo "watcher supervisor restart: kind=outbox namespace=$2 rc=$rc" >&2; sleep 2; done' \
+            "watcher-supervisor:outbox:${namespace}" "${VAULT_ROOT}/bin/outbox-watcher.sh" "$namespace" &
+        watcher_children+=("$!")
+    done
+    bash -c 'while true; do python3 "$1" reconcile-sweep; rc=$?; echo "watcher supervisor restart: kind=reconcile-sweep rc=$rc" >&2; sleep 2; done' \
+        'watcher-supervisor:reconcile-sweep' "${VAULT_ROOT}/scripts/python/swarm_runtime.py" &
+    watcher_children+=("$!")
+    bash -c 'while true; do python3 "$1" scan-consumer; rc=$?; echo "watcher supervisor restart: kind=scan-consumer rc=$rc" >&2; sleep 2; done' \
+        'watcher-supervisor:scan-consumer' "${VAULT_ROOT}/scripts/python/swarm_runtime.py" &
+    watcher_children+=("$!")
+    wait
+    exit 0
+fi
 
 FIRST_RUN_SENTINEL="${VAULT_ROOT}/_state/.autonomous-launch-ack"
 if [[ "${SQUAD_UNSAFE_AUTONOMY}" == "1" ]]; then
@@ -155,10 +190,304 @@ apply_squad_globals() {
     tmux set-option -g pane-border-format "#[fg=colour240] #{?pane_active,#[fg=colour74]▎,#[fg=colour238]│} #[fg=colour252,bold]#{window_name}#[fg=colour240] #(cat /tmp/vs-lane-#{window_name}.status 2>/dev/null) "
 }
 
+WATCHERS_WIN="$(lead_window_name watchers)"
+# Captured once from the sourced canonical namespace inventory; this array is
+# immutable for the lifetime of one launcher process.
+WATCHER_NAMESPACES="${COMPATIBILITY_NAMESPACES[*]}"
+WATCHER_FLEET_LOCK="${SESSION}-watcher-fleet-launch"
+WATCHER_FLEET_LOCK_HELD=0
+
+watcher_script_count() {
+    local kind="$1" script="$2" namespace="$3" marker
+    marker="watcher-supervisor:${kind}:${namespace}"
+    ps -axo pid=,ppid=,command= | awk -v script="$script" -v namespace="$namespace" -v marker="$marker" '
+        {
+            pid=$1
+            parent[pid]=$2
+            $1=""; $2=""
+            sub(/^[[:space:]]+/, "", $0)
+            command[pid]=$0
+        }
+        END {
+            for (pid in command) {
+                executable=command[pid]
+                sub(/[[:space:]].*$/, "", executable)
+                sub(/^.*\//, "", executable)
+                arguments=command[pid]
+                sub(/^[^[:space:]]+[[:space:]]+/, "", arguments)
+                if (executable == "bash" && arguments == script " " namespace \
+                    && index(command[parent[pid]], marker) > 0) count++
+            }
+            print count + 0
+        }
+    '
+}
+
+watcher_supervisor_count() {
+    local marker="$1"
+    ps -axo command= | python3 -c '
+import os
+import shlex
+import sys
+
+marker = sys.argv[1]
+count = 0
+for raw in sys.stdin:
+    try:
+        argv = shlex.split(raw.strip())
+    except ValueError:
+        continue
+    if len(argv) >= 4 and os.path.basename(argv[0]) == "bash" \
+            and argv[1] == "-c" and marker in argv[2:]:
+        count += 1
+print(count)
+' "$marker"
+}
+
+watcher_fleet_report() {
+    local namespace
+    for namespace in "${COMPATIBILITY_NAMESPACES[@]}"; do
+        printf 'inbox[%s]=%s/%s outbox[%s]=%s/%s (root/supervisor)\n' \
+            "$namespace" "$(watcher_script_count inbox "${VAULT_ROOT}/bin/inbox-watcher.sh" "$namespace")" \
+            "$(watcher_supervisor_count "watcher-supervisor:inbox:${namespace}")" \
+            "$namespace" "$(watcher_script_count outbox "${VAULT_ROOT}/bin/outbox-watcher.sh" "$namespace")" \
+            "$(watcher_supervisor_count "watcher-supervisor:outbox:${namespace}")"
+    done
+    printf 'reconcile-sweep=%s scan-consumer=%s\n' \
+        "$(watcher_supervisor_count watcher-supervisor:reconcile-sweep)" \
+        "$(watcher_supervisor_count watcher-supervisor:scan-consumer)"
+}
+
+watcher_fleet_healthy() {
+    local namespace index5_name
+    [[ "${#COMPATIBILITY_NAMESPACES[@]}" -gt 0 ]] || return 1
+    index5_name="$(tmux list-windows -t "$SESSION" -F '#{window_index}|#{window_name}' 2>/dev/null | awk -F'|' '$1 == 5 {print $2}')"
+    [[ "$index5_name" == "$WATCHERS_WIN" ]] || return 1
+    for namespace in "${COMPATIBILITY_NAMESPACES[@]}"; do
+        [[ "$(watcher_supervisor_count "watcher-supervisor:inbox:${namespace}")" == 1 ]] || return 1
+        [[ "$(watcher_supervisor_count "watcher-supervisor:outbox:${namespace}")" == 1 ]] || return 1
+        [[ "$(watcher_script_count inbox "${VAULT_ROOT}/bin/inbox-watcher.sh" "$namespace")" == 1 ]] || return 1
+        [[ "$(watcher_script_count outbox "${VAULT_ROOT}/bin/outbox-watcher.sh" "$namespace")" == 1 ]] || return 1
+    done
+    [[ "$(watcher_supervisor_count watcher-supervisor:reconcile-sweep)" == 1 ]] || return 1
+    [[ "$(watcher_supervisor_count watcher-supervisor:scan-consumer)" == 1 ]] || return 1
+}
+
+watcher_cleanup_pids() {
+    local protected_pids watcher_pane_pids
+    protected_pids="$(tmux list-panes -a -F '#{session_name}|#{window_index}|#{pane_pid}' 2>/dev/null \
+        | awk -F'|' -v session="$SESSION" '$1 == session && $2 >= 0 && $2 <= 4 {print $3}' \
+        | paste -sd, -)"
+    watcher_pane_pids="$(tmux list-panes -a -F '#{session_name}|#{window_name}|#{pane_pid}' 2>/dev/null \
+        | awk -F'|' -v session="$SESSION" -v window="$WATCHERS_WIN" '$1 == session && $2 == window {print $3}' \
+        | paste -sd, -)"
+    python3 - "$VAULT_ROOT" "$protected_pids" "$watcher_pane_pids" <<'PY'
+import os
+import shlex
+import subprocess
+import sys
+from collections import defaultdict
+
+root, protected_raw, watcher_roots_raw = sys.argv[1:]
+protected = {int(v) for v in protected_raw.split(",") if v.isdigit()}
+watcher_roots = {int(v) for v in watcher_roots_raw.split(",") if v.isdigit()}
+rows = subprocess.check_output(
+    ["ps", "-axo", "pid=,ppid=,command="], text=True
+).splitlines()
+processes = {}
+children = defaultdict(set)
+for row in rows:
+    parts = row.strip().split(None, 2)
+    if len(parts) < 3:
+        continue
+    pid, ppid = int(parts[0]), int(parts[1])
+    processes[pid] = (ppid, parts[2])
+    children[ppid].add(pid)
+
+# Protect this helper, launch-squad, and their complete ancestry.
+cursor = os.getpid()
+while cursor in processes and cursor > 1:
+    protected.add(cursor)
+    cursor = processes[cursor][0]
+
+def watcher_seed(command: str) -> bool:
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return False
+    if not tokens:
+        return False
+    executable = os.path.basename(tokens[0])
+    inbox_script = f"{root}/bin/inbox-watcher.sh"
+    outbox_script = f"{root}/bin/outbox-watcher.sh"
+    runtime_script = f"{root}/scripts/python/swarm_runtime.py"
+    mailbox_leaf = any(
+        token.startswith(f"{root}/departments/")
+        and (token.endswith("/inbox") or token.endswith("/outbox"))
+        for token in tokens
+    )
+    return (
+        any(token.startswith("watcher-supervisor:") for token in tokens)
+        or (executable in {"bash", "sh", "zsh"} and inbox_script in tokens)
+        or (executable in {"bash", "sh", "zsh"} and outbox_script in tokens)
+        or (
+            executable.startswith("python")
+            and runtime_script in tokens
+            and ("reconcile-sweep" in tokens or "scan-consumer" in tokens)
+        )
+        or (executable == "fswatch" and mailbox_leaf)
+    )
+
+targets = watcher_roots | {
+    pid for pid, (_ppid, command) in processes.items() if watcher_seed(command)
+}
+
+# A named seed owns all descendants. Ascend only through shell ancestors that
+# are not protected lane/coordinator roots; this catches bare historical loops.
+queue = list(targets)
+while queue:
+    pid = queue.pop()
+    for child in children.get(pid, ()):
+        if child not in targets:
+            targets.add(child)
+            queue.append(child)
+for seed in list(targets):
+    parent = processes.get(seed, (1, ""))[0]
+    while parent > 1 and parent in processes and parent not in protected:
+        command = processes[parent][1]
+        executable = os.path.basename(command.split(None, 1)[0])
+        if executable not in {"bash", "zsh", "sh"} and "watcher-supervisor:" not in command:
+            break
+        targets.add(parent)
+        parent = processes[parent][0]
+
+targets.difference_update(protected)
+targets.discard(1)
+
+def depth(pid: int) -> int:
+    seen = set()
+    value = 0
+    while pid in processes and pid not in seen and pid > 1:
+        seen.add(pid)
+        pid = processes[pid][0]
+        value += 1
+    return value
+
+for pid in sorted(targets, key=lambda value: (depth(value), value), reverse=True):
+    print(pid)
+PY
+}
+
+stop_watcher_fleet() {
+    local pids pid protected
+    pids="$(watcher_cleanup_pids)"
+    protected="$(tmux list-panes -a -F '#{session_name}|#{window_index}|#{pane_pid}' 2>/dev/null \
+        | awk -F'|' -v session="$SESSION" '$1 == session && $2 >= 0 && $2 <= 4 {print $3}')"
+    for pid in $pids; do
+        if grep -qx "$pid" <<<"$protected"; then
+            echo "ERROR: watcher cleanup selected protected squad:0..4 pane PID $pid" >&2
+            return 75
+        fi
+    done
+    if [[ -n "$pids" ]]; then
+        echo "Stopping watcher process tree: $(tr '\n' ' ' <<<"$pids")"
+        kill -TERM $pids 2>/dev/null || true
+        for _ in 1 2 3 4 5 6 7 8 9 10; do
+            local alive=""
+            for pid in $pids; do
+                kill -0 "$pid" 2>/dev/null && alive="${alive} ${pid}"
+            done
+            [[ -z "$alive" ]] && break
+            sleep 0.2
+        done
+        for pid in $pids; do
+            kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null || true
+        done
+    fi
+    if tmux list-windows -t "$SESSION" -F '#{window_name}' 2>/dev/null | grep -qx "$WATCHERS_WIN"; then
+        tmux kill-window -t "${SESSION}:${WATCHERS_WIN}"
+    fi
+}
+
+start_watcher_fleet() {
+    local index5_name child_command
+    [[ "${#COMPATIBILITY_NAMESPACES[@]}" -gt 0 ]] || {
+        echo "ERROR: compatibility namespace inventory is empty; watcher repair refused" >&2
+        return 76
+    }
+    index5_name="$(tmux list-windows -t "$SESSION" -F '#{window_index}|#{window_name}' 2>/dev/null | awk -F'|' '$1 == 5 {print $2}')"
+    if [[ -n "$index5_name" && "$index5_name" != "$WATCHERS_WIN" ]]; then
+        echo "ERROR: squad:5 is occupied by non-watcher window '$index5_name'; repair refused" >&2
+        return 77
+    fi
+    tmux new-window -d -t "${SESSION}:5" -n "$WATCHERS_WIN" -c "$VAULT_ROOT"
+    mkdir -p "${VAULT_ROOT}/_state/tmux-logs"
+    tmux pipe-pane -t "${SESSION}:${WATCHERS_WIN}" -o "cat >> ${VAULT_ROOT}/_state/tmux-logs/watchers-status.log"
+    child_command="exec env SQUAD_SESSION=${SESSION} bash ${VAULT_ROOT}/bin/launch-squad.sh --watcher-fleet-child"
+    tmux send-keys -l -t "${SESSION}:${WATCHERS_WIN}" "$child_command"
+    tmux send-keys -t "${SESSION}:${WATCHERS_WIN}" Enter
+    for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+        watcher_fleet_healthy && return 0
+        sleep 0.25
+    done
+    echo "ERROR: watcher fleet failed health convergence" >&2
+    watcher_fleet_report >&2
+    return 78
+}
+
+ensure_watcher_fleet() (
+    local rc=0 index5_name
+    tmux wait-for -L "$WATCHER_FLEET_LOCK"
+    WATCHER_FLEET_LOCK_HELD=1
+    trap 'if [[ "$WATCHER_FLEET_LOCK_HELD" == 1 ]]; then tmux wait-for -U "$WATCHER_FLEET_LOCK" 2>/dev/null || true; WATCHER_FLEET_LOCK_HELD=0; fi' EXIT
+    trap 'if [[ "$WATCHER_FLEET_LOCK_HELD" == 1 ]]; then tmux wait-for -U "$WATCHER_FLEET_LOCK" 2>/dev/null || true; WATCHER_FLEET_LOCK_HELD=0; fi; exit 130' HUP INT TERM
+    if [[ "${#COMPATIBILITY_NAMESPACES[@]}" -eq 0 ]]; then
+        echo "ERROR: compatibility namespace inventory is empty; watcher cleanup refused" >&2
+        rc=76
+    fi
+    index5_name="$(tmux list-windows -t "$SESSION" -F '#{window_index}|#{window_name}' 2>/dev/null | awk -F'|' '$1 == 5 {print $2}')"
+    if [[ "$rc" -eq 0 && -n "$index5_name" && "$index5_name" != "$WATCHERS_WIN" ]]; then
+        echo "ERROR: squad:5 is occupied by non-watcher window '$index5_name'; watcher cleanup refused" >&2
+        rc=77
+    fi
+    if [[ "$rc" -ne 0 ]]; then
+        tmux wait-for -U "$WATCHER_FLEET_LOCK"
+        WATCHER_FLEET_LOCK_HELD=0
+        trap - EXIT HUP INT TERM
+        return "$rc"
+    fi
+    if watcher_fleet_healthy; then
+        echo "Watcher fleet already healthy; no restart needed."
+        watcher_fleet_report
+    else
+        echo "Watcher fleet unhealthy; performing deterministic watcher-only repair."
+        stop_watcher_fleet || rc=$?
+        if [[ "$rc" -eq 0 ]]; then
+            start_watcher_fleet || rc=$?
+        fi
+        if [[ "$rc" -eq 0 ]]; then
+            watcher_fleet_report
+        else
+            echo "ERROR: watcher fleet repair stopped with status ${rc}" >&2
+            # Convergence is all-or-nothing. Remove a partial watcher-only set
+            # so the next idempotent launch starts from a known empty state.
+            stop_watcher_fleet || true
+        fi
+    fi
+    tmux wait-for -U "$WATCHER_FLEET_LOCK"
+    WATCHER_FLEET_LOCK_HELD=0
+    trap - EXIT HUP INT TERM
+    return "$rc"
+)
+
 # If the session already exists, re-assert globals (the server is up) and attach.
 # Only attach when we actually have a terminal — otherwise `tmux attach` hangs
 # forever with no tty, which is exactly what breaks automated restarts.
 if tmux has-session -t "${SESSION}" 2>/dev/null; then
+    if ! ensure_watcher_fleet; then
+        echo "ERROR: watcher fleet repair failed; coordinator and lane panes were left untouched" >&2
+        exit 1
+    fi
     apply_squad_globals
     if [[ -t 0 && -t 1 ]]; then
         echo "Session '${SESSION}' already exists. Attaching..."
@@ -330,11 +659,10 @@ tmux send-keys -t "${SESSION}:${KIMI_WIN}" "${RESEARCH_CMD}" C-m
 # Outbox watchers nudge the chrono pane when a response lands
 # (closing the pull-based polling gap so Chrono surfaces responses to the
 # operator without waiting for the operator's next turn).
-WATCHERS_WIN="$(lead_window_name watchers)"
-tmux new-window -t "${SESSION}" -n "${WATCHERS_WIN}" -c "${VAULT_ROOT}"
-tmux pipe-pane -t "${SESSION}:${WATCHERS_WIN}" -o "cat >> ${TMUX_LOG_DIR}/watchers-status.log"
-WATCHER_NAMESPACES="${COMPATIBILITY_NAMESPACES[*]}"
-tmux send-keys -t "${SESSION}:${WATCHERS_WIN}" "export SQUAD_SESSION=${SESSION}; for lead in ${WATCHER_NAMESPACES}; do bash ${VAULT_ROOT}/bin/inbox-watcher.sh \"\$lead\" & bash ${VAULT_ROOT}/bin/outbox-watcher.sh \"\$lead\" & done; wait" Enter
+if ! ensure_watcher_fleet; then
+    echo "ERROR: initial watcher fleet failed to start; coordinator and lane panes remain available" >&2
+    exit 1
+fi
 
 # Give the model CLIs a moment to initialize so the sidebar's first capture
 # shows their welcome screens instead of empty shells.

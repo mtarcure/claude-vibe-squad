@@ -1,7 +1,11 @@
 ---
 name: summarizer
-description: "Fable is the quality primary; Kimi is available only through the low-risk bulk gate."
+description: "Fable is the quality primary; Kimi is available only through the low-risk bulk gate. Kimi has no native dollar/effort ceiling, so every Kimi-mediated metered child call requires an external-budget-ceiling=<numeric provider unit> before dispatch."
 model: inherit
+# BEGIN SPECIALIST CAPABILITY PROJECTION
+capability_source: model-lanes/specialist-lane-capabilities.v1.json
+capability_source_sha256: 25f0f3f37817a4967e9ed68ec9c00d7c13a6618070b98723c441f91b1e05fad4
+# END SPECIALIST CAPABILITY PROJECTION
 ---
 
 # Specialist Adapter: Summarizer (cross-cutting)

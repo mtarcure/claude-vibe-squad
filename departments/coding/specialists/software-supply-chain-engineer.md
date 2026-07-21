@@ -35,23 +35,7 @@ Software supply-chain integrity: dependency provenance, SBOMs, signing and verif
 
 ## Tools available to me
 
-### Expected MCPs (verify live before use)
-- `chrono-vault MCP` - Optional storage for approved public keys, policy references, and provenance metadata; never store private signing material or registry secrets.
-- `sequential-thinking MCP` - Multi-stage reasoning for trust roots, dependency graphs, build isolation, publication gates, revocation, and rollback.
-
-### Native CLI features (verified, my CLI is `codex`)
-- `codex -m / --model <MODEL>` - Select the approved execution profile.
-- `codex -c model_reasoning_effort=high` - Use for release, signing, provenance, or vulnerability-policy changes.
-- `codex -s / --sandbox <SANDBOX_MODE> {read-only,workspace-write,danger-full-access}` - Keep analysis and verification isolated from production credentials.
-- `codex review` - Review lockfiles, build/release workflows, policy, and provenance configuration.
-
-### Skills (read these on task start)
-- `compiler-bootstrap-flow` when bootstrapping or validating a compiler/toolchain trust chain.
-- `cross-arch-build-discipline` and `cross-arch-test-discipline` for multi-platform release artifacts.
-- Any task-named SBOM, signing, reproducible-build, registry, or vulnerability-triage skill; missing required integration is a capability gap.
-
-### APIs available (via env)
-- None assumed. Package registries, transparency logs, KMS/HSMs, signing services, and vulnerability feeds require explicit scoped access.
+Tool, skill, and MCP capabilities are **lane-specific** and are defined authoritatively in this specialist's per-lane adapter under `model-lanes/`, bounded by the lane capability profile in `model-lanes/lane-capabilities.tsv`. This canonical base names no tool, MCP, or skill by design (the boundary test: a sentence that would be false on some lane belongs in the adapter). Read your adapter for the exact executables and MCP/skill surface available on your lane, and verify each in your live runtime before use — declare a capability gap and use the task-approved fallback if a declared capability is absent. Kimi subagents cannot hold MCP, so on the Kimi lane any MCP work is lead-brokered.
 
 ## When to fan out
 

@@ -73,8 +73,7 @@ If provenance, authorization, containment, or handling requirements are unclear,
 
 ## Tools available to me
 
-- `Write`, `Bash`, `WebFetch` — all approval-gated per this role's `requires_approval`. Dynamic execution/detonation, network interaction, or firmware modification additionally requires explicit approval and a verified isolated environment.
-- Static, non-executing inspection is the default; the least-risky method that answers the analysis question is always preferred.
+Tool, skill, and MCP capabilities are **lane-specific** and are defined authoritatively in this specialist's per-lane adapter under `model-lanes/`, bounded by the lane capability profile in `model-lanes/lane-capabilities.tsv`. This canonical base names no tool, MCP, or skill by design (the boundary test: a sentence that would be false on some lane belongs in the adapter). Read your adapter for the exact executables and MCP/skill surface available on your lane, and verify each in your live runtime before use — declare a capability gap and use the task-approved fallback if a declared capability is absent. Kimi subagents cannot hold MCP, so on the Kimi lane any MCP work is lead-brokered.
 
 ## When to fan out
 

@@ -14,12 +14,12 @@ For qualifying work, the authoring lane cannot declare itself finished: the runt
   <a href="https://github.com/mtarcure/claude-vibe-squad/actions/workflows/squad-validate.yml"><img alt="validation workflow" src="https://github.com/mtarcure/claude-vibe-squad/actions/workflows/squad-validate.yml/badge.svg"></a>
   <img alt="license AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-blue">
   <img alt="python 3.13" src="https://img.shields.io/badge/python-3.13-blue">
-  <img alt="27 validated capabilities" src="https://img.shields.io/badge/validated_capabilities-27-brightgreen">
-  <img alt="69 validated specialist routes" src="https://img.shields.io/badge/validated_role_routes-69-8a2be2">
+  <img alt="24 of 28 capability cards passing validation" src="https://img.shields.io/badge/capability_cards-24%2F28-yellow">
+  <img alt="71 validated specialist routes" src="https://img.shields.io/badge/validated_role_routes-71-8a2be2">
   <img alt="markdown-first control plane" src="https://img.shields.io/badge/control_plane-markdown--first-orange">
 </p>
 
-> **The short version:** Codex builds. Claude reasons and reviews. Gemini handles design and content work. Kimi is a gated throughput lane for approved low-risk bulk passes. Chrono coordinates the handoffs, and the repository keeps the receipts.
+> **The short version:** Codex builds. Claude reasons and reviews. Gemini handles design and content work. Kimi is a gated throughput lane, primary only for two narrowly scoped roles. Chrono coordinates the handoffs, and the repository keeps the receipts.
 
 ---
 
@@ -48,7 +48,7 @@ The runtime enforces the hold and settlement state. It does **not** silently aut
   <img src="assets/hero/review-loop.svg" alt="A result takes a separate cross-family review path before explicit settlement" width="720">
 </p>
 
-That is the central systems claim: **the model that produced a risky artifact does not get the last word.**
+That is the central systems claim: **the model that produced a risky artifact does not get the last word.** It is enforced by a machine gate, not a convention — see [Settlement needs an exact verdict](#settlement-needs-an-exact-verdict-not-a-vibe) below.
 
 ---
 
@@ -65,11 +65,28 @@ The canonical registry assigns every specialist a primary lane, backup, escalati
 | **GPT/Codex** | Implementation, tests, refactors, PoC mechanics, runtime and graphics engineering | Builds and verifies code; higher-risk results still require independent review and operator gates. |
 | **Claude** | Architecture, planning, judgment, security reasoning, research synthesis, editorial review | The primary reasoning and review family; reviewer dispatch remains coordinator-triggered. |
 | **Gemini** | Design, content, visual and media direction, accessibility, search-oriented work | Routes the creative workflow; the actual generator or connector is credited separately. |
-| **Kimi** | Approved low-risk bulk and mechanical throughput | Throughput-only, with zero primary specialist roles; not a judgment or long-context research primary. |
+| **Kimi** | Approved low-risk bulk and mechanical throughput, plus two narrow primary exceptions | Primary only for `experimental-attacker` and `summarizer`; everything else stays role/policy-gated, and its subagents can't hold MCP at all — a lead has to broker any tool access. Not a judgment or long-context research primary. |
 
 Four persistent lanes are visible in one tmux control room, but they are not treated as interchangeable. Capability fit, lane-specific tools, safety metadata, and review independence determine the route.
 
 Browse the generated [routing map](docs/routing-map.html) or inspect the canonical [specialist runtime map](shared/specialist-runtime-map.tsv).
+
+### Four lanes, one real capability surface
+
+The table above states intent; this is the audited inventory behind it. Counts come from `model-lanes/lane-capabilities.tsv`. "Declared MCP inventory" is not the same claim as "usable everywhere" — every lane inventory still lists a `chrono-kg` compatibility entry, but the typed [`skill-tool-registry.tsv`](shared/registries/skill-tool-registry.tsv) marks it retired and unavailable. Treat that entry as a stale label, not a live tool.
+
+| Lane | Routes | Local/adapter surface | Child MCP behavior | Honest boundary |
+|---|---:|---|---|---|
+| `gpt-codex` | 20 | TOML specialists, `playwright` adapter tool, `repo-shell`, native subagents | `inherit-full`; no native grounding | Guarded security trio is staged, not live; metered provider calls still need budget/authorization. |
+| `claude` | 35 | Markdown specialists, `playwright` adapter tool, `repo-shell`, native agents | `inherit-full`; no native grounding | Deep ultra-research stays probe-failed; guarded trio remains pending restart. |
+| `gemini` | 14 | Markdown specialists, seven edit/shell/browser adapter tools, native agents | `inherit-configured-mcp`; Google Search grounding | Inherits configured MCPs, not the full controller surface; paid/provider actions stay gated. |
+| `kimi` | 2 | YAML specialists, no adapter tools, native subagents | `lead-broker-only`; no grounding | No child MCP possession at all; not a general judgment lane. |
+
+**What's actually wired versus staged, as of this audit:**
+
+- **Firecrawl** is implemented behind [`chrono-research-arsenal`](plugins/chrono-research-arsenal/) as `firecrawl_scrape`, `firecrawl_crawl`, and `firecrawl_parse`. A tools/list handshake on Codex returned all three operations with a live key present; no metered provider call was made to produce that receipt, and the key value was never printed or logged.
+- **Playwright and Chrome DevTools** carry current exit-0 probe receipts on Codex and Gemini, and Claude declares both from an MCP-list receipt on the same date. Kimi has neither — its subagents can't hold MCP, so browser work on that lane has to go through a lead broker.
+- **The Trail of Bits guarded stack** (`guarded-semgrep`, `guarded-slither`, `guarded-solodit`) is declared on Claude and Codex security roles only, and only as `pending-restart-activation`. Its dedicated validator currently passes — three schemas reviewed, Solodit `activated-ready` — but activation still needs inherited credentials, a fail-closed Snyk preflight, a controlled squad restart, a fresh tools/list, and read-only fixture calls before it counts as live. Model Armor stays blocked on operator credentials.
 
 ---
 
@@ -85,17 +102,17 @@ operator intent
         → specialists + lane-qualified tools + evidence + gates
 ```
 
-The repository ships **27 capability cards across six families**. Every card is a Markdown registry file under [`shared/capabilities/`](shared/capabilities/), every mode file has a `## Capabilities` index, and every card instantiates the same S0–S7 skeleton.
+The repository ships **28 capability cards across six families**. Every card is a Markdown registry file under [`shared/capabilities/`](shared/capabilities/), every mode file has a `## Capabilities` index, and every card instantiates the same S0–S7 skeleton.
 
 | Family | Cards | Current state mix | Examples |
 |---|---:|---|---|
-| **Project** | 8 | 6 `live` · 2 `needs_tool` | Web apps, APIs, data pipelines, AI apps, platforms, systems, smart contracts, self-extension |
+| **Project** | 9 | 8 `live` · 1 `needs_tool` | Web apps, APIs, data pipelines, AI apps, platforms, systems, smart contracts, game production, self-extension |
 | **Bounty** | 4 | 3 `live` · 1 `needs_tool` | Web/API, AI systems, smart contracts, binaries and firmware |
-| **Content** | 6 | 3 `live` · 3 `degraded-blueprint` | Editorial, campaigns, search, images, video, audio |
+| **Content** | 6 | 6 `live` | Editorial, campaigns, search, images, video, audio |
 | **Research** | 3 | 3 `live` | Investigation, extraction, learning plans |
 | **Outreach** | 1 | 1 `live` | Prospecting and draft outreach |
 | **Maintenance** | 5 | 5 `live` | Repo health, releases, harnesses, memory, personal operations |
-| **Total** | **27** | **21 `live` · 3 `needs_tool` · 3 `degraded-blueprint`** | **27/27 pass the validator** |
+| **Total** | **28** | **26 `live` · 2 `needs_tool` · 0 `degraded-blueprint`** | **24/28 pass the card validator (details below)** |
 
 Incident and triage remain mode-level workflows with zero cards. **Operations** is a display family spanning incident, maintenance, and triage—not a hidden seventh mode.
 
@@ -117,19 +134,20 @@ Cards specialize this spine without inventing a new workflow language each time.
 ### The complete capability catalog
 
 <details>
-<summary><b>Browse all 27 cards and their machine-checked state</b></summary>
+<summary><b>Browse all 28 cards and their machine-checked state</b></summary>
 
-#### Project — 8
+#### Project — 9
 
 | Capability | State |
 |---|---|
-| [Web application](shared/capabilities/project/web-app.md) | `needs_tool` |
+| [Web application](shared/capabilities/project/web-app.md) | `live` |
 | [Backend service / API](shared/capabilities/project/backend-service-api.md) | `live` |
 | [Data pipeline](shared/capabilities/project/data-pipeline.md) | `live` |
 | [AI / LLM application](shared/capabilities/project/ai-llm-application.md) | `live` |
 | [Platform / release](shared/capabilities/project/platform-release.md) | `live` |
 | [Systems / low-level](shared/capabilities/project/systems-low-level.md) | `needs_tool` |
 | [Smart-contract / web3 build](shared/capabilities/project/smart-contract-web3.md) | `live` |
+| [Game production (browser game)](shared/capabilities/project/game-production.md) | `live` |
 | [Self-extension — agents and tooling](shared/capabilities/project/self-extension-agent-tooling.md) | `live` |
 
 #### Bounty — 4
@@ -141,6 +159,8 @@ Cards specialize this spine without inventing a new workflow language each time.
 | [Smart-contract / web3 research](shared/capabilities/bounty/smart-contract-web3.md) | `live` |
 | [Binary / malware / firmware research](shared/capabilities/bounty/binary-firmware.md) | `needs_tool` |
 
+> All four Bounty cards currently **fail** `bin/validate-capabilities.sh` on a metadata-completeness check — `program-rubric-lookup` and/or `data-flow-trace` are declared `stub` where the validator requires `authored`. This is separate from the `live`/`needs_tool` state above, which is unaffected; it is a documented open repair, not a hidden one.
+
 #### Content — 6
 
 | Capability | State |
@@ -148,9 +168,9 @@ Cards specialize this spine without inventing a new workflow language each time.
 | [Editorial / technical longform](shared/capabilities/content/editorial-longform.md) | `live` |
 | [Marketing campaign](shared/capabilities/content/marketing-campaign.md) | `live` |
 | [Search / discoverability](shared/capabilities/content/search-discoverability.md) | `live` |
-| [Image asset generation](shared/capabilities/content/image.md) | `degraded-blueprint` |
-| [Video / motion asset generation](shared/capabilities/content/video.md) | `degraded-blueprint` |
-| [Audio assets](shared/capabilities/content/audio-assets.md) | `degraded-blueprint` |
+| [Image asset generation](shared/capabilities/content/image.md) | `live` |
+| [Video / motion asset generation](shared/capabilities/content/video.md) | `live` |
+| [Audio assets](shared/capabilities/content/audio-assets.md) | `live` |
 
 #### Research — 3
 
@@ -182,9 +202,14 @@ Cards specialize this spine without inventing a new workflow language each time.
 
 ## Honesty is infrastructure, not a disclaimer
 
-Capability claims are mechanically constrained by [`bin/validate-capabilities.sh`](bin/validate-capabilities.sh) and the typed [`skill-tool-registry.tsv`](shared/registries/skill-tool-registry.tsv).
+Two different systems both use the word "capability" here, and conflating them is exactly the kind of drift this project exists to catch:
 
-The validator checks card structure, specialists, skills, tools, lanes, costs, gates, and state. It derives the strongest state the verified toolchain can support and rejects a card that claims something more generous. A card may remain more conservative—for example, media cards stay `degraded-blueprint` until their paid, credentialed render routes are safe to promise from the selected lane.
+1. **Capability cards** — the S0–S7 workflow blueprints for Project, Bounty, Content, and the rest, covered above. Checked by [`bin/validate-capabilities.sh`](bin/validate-capabilities.sh) against the typed [`skill-tool-registry.tsv`](shared/registries/skill-tool-registry.tsv).
+2. **Specialist-lane capability ownership** — which tools and MCPs each specialist actually holds on each lane. Authored once, checked by a separate suite, described next.
+
+They have separate validators and separate current results — one of them is red right now, and this README says so rather than rounding up.
+
+The card validator checks card structure, specialists, skills, tools, lanes, costs, gates, and state. It derives the strongest state the verified toolchain can support and rejects a card that claims something more generous. A card may remain more conservative — for example, a card can stay `needs_tool` until its load-bearing route is verified from the selected lane.
 
 The state vocabulary is deliberately small:
 
@@ -194,11 +219,43 @@ The state vocabulary is deliberately small:
 | `needs_tool` | A load-bearing tool is missing, unverified, or unavailable on the required lane. |
 | `degraded-blueprint` | The workflow can produce a complete specification or blueprint, but cannot honestly promise the final provider-backed artifact on that route. |
 
-The current registry passes **27/27**. That number is not a hand-maintained badge; it comes from the validator joining every card to the typed registry.
+The current registry stands at **24/28**. That number is not a hand-maintained badge — it comes from the validator joining every card to the typed registry, and today it fails closed on four Bounty cards (see the catalog above) rather than being rounded up to green.
+
+### One versioned source, everything else derived
+
+<p align="center">
+  <img src="assets/hero/capability-source.svg" alt="One versioned capability source; adapters and the generated index are derived from it" width="820">
+</p>
+
+[`model-lanes/specialist-lane-capabilities.v1.json`](model-lanes/specialist-lane-capabilities.v1.json) is the single place specialist-lane capability ownership gets authored: 156 specialist/lane entries — 71 `full` primary entries (one per routed specialist) and 85 `partial` backup/escalation/review/throughput entries. Nothing else in this layer is independently hand-maintained:
+
+- Every specialist lane adapter must physically match those same 156 entries — the validator checks source-to-adapter sync, not just presence.
+- [`model-lanes/generated-specialist-capabilities.json`](model-lanes/generated-specialist-capabilities.json) (schema `specialist-adapter-capability-index/v2`) is regenerated from the source and pinned to it by a SHA-256 hash. The validator re-renders the index and diffs it byte-for-byte against the checked-in copy — drift fails the gate instead of quietly going stale.
+
+Edit the one source file, regenerate, and the validator either confirms the derived files caught up or blocks the change. That is what "regen-safe" means here.
+
+### The honesty-validator suite
+
+<p align="center">
+  <img src="assets/hero/honesty-gates.svg" alt="The honesty-validator gate strip — six green, capability-card gate honestly red at 24/28" width="820">
+</p>
+
+| Validator / gate | What it enforces | Current result |
+|---|---|---|
+| Specialist schema/routing | Registry shape, uniqueness, lane-policy foreign keys, the two explicit Kimi exceptions, safety/review/throughput/tool semantics | 71/71, exit 0, no warnings |
+| Base boundary | Canonical specialist briefs can't declare lane-specific tools, skills, or MCPs — concrete access belongs in lane adapters | Zero diagnostics |
+| Migration parity | The pinned pre-migration capability baseline is preserved across every routed lane | Zero diagnostics |
+| Source/adapter sync | Exactly the routed specialist/lane pairs, `full` coverage on every primary, matching derived arrays | 156 source entries = 156 adapters, zero diagnostics |
+| Tool/source existence | Declared MCPs/skills/tools must resolve in lane inventory, installed roots, or shell-qualified PATH | Zero diagnostics; pending items are tracked, not projected as live |
+| Index freshness | Regenerates the derived index and diffs it byte-for-byte against the checked-in copy | Current, byte-identical |
+| Reconciler verdict gate | Holds cross-family-required results, requires reviewer family ≠ author family, requires an exact structured `APPROVE` before settlement | 32 focused tests passing |
+| Capability-card validator | Card structure, typed skills/tools, lanes, cost/gates, claimed vs. derived state | **24/28 pass** — four Bounty cards fail on a `stub`-vs-`authored` skill-declaration mismatch |
+
+The last row is left in on purpose: this README ships alongside a known-red validator result, because a quietly rounded-up badge is the exact failure mode the rest of this section exists to catch.
 
 ### Why validation still needs independent review
 
-Every capability family was authored by one model family and reviewed by another. That cross-family pass caught real over-claims—including a card whose prose depended on a tool that was absent from its typed tool declarations—and exposed a false-pass hole in the validator itself.
+Every capability family was authored by one model family and reviewed by another. That cross-family pass caught real over-claims — including a card whose prose depended on a tool that was absent from its typed tool declarations — and exposed a false-pass hole in the validator itself.
 
 The lesson became part of the design:
 
@@ -212,19 +269,30 @@ capability states worth trusting
 
 Neither check is presented as sufficient alone.
 
+### Settlement needs an exact verdict, not a vibe
+
+<p align="center">
+  <img src="assets/hero/multi-model-verify.png" alt="Writer family is never the reviewer family; settlement needs an exact APPROVE" width="820">
+</p>
+<p align="center"><em>Review dispatch is Chrono-selected per task, not a standing four-way council — and settlement requires an exact APPROVE, not a vibe.</em></p>
+
+The hold-and-settle flow described at the top of this README is enforced by `registry_reconciler.py`, and the enforcement is more specific than "someone else looked at it": settlement requires a structured verdict field equal to exactly `APPROVE`, the reviewer's family must differ from the author's, and any explicit force override or reopen is logged rather than silently applied. A focused 32-test suite pins this behavior directly.
+
 ### Media claims name the real route
 
 Media production uses the [`chrono-media-studio`](plugins/chrono-media-studio/) wrappers:
 
-- images use `generate_image` — its xAI/Grok image route is verified working in the reference deployment, while the public `content/image` capability stays `degraded-blueprint` pending the Higgsfield wrapper reconciliation;
-- video uses the `generate_video` wrapper;
-- audio uses `generate_audio`, with ElevenLabs child tooling on the Claude host lane.
+- images use `generate_image` — its xAI/Grok image route is verified working in the reference deployment, and the public `content/image` capability now declares and derives `live`;
+- video uses the `generate_video` wrapper, and `content/video` also declares and derives `live`;
+- audio uses `generate_audio`, with ElevenLabs child tooling on the Claude host lane, and `content/audio-assets` also declares and derives `live`.
 
-Raw `higgsfield__*` tools are not claimed as live. Paid or credentialed generation requires budget, rate-limit, and operator gates. When the selected lane cannot render, the result is a typed blueprint or `needs_tool`—not fabricated success.
+Raw `higgsfield__*` tools are still not claimed as live on their own. Paid or credentialed generation still requires budget, rate-limit, and operator gates — a `live` state describes a supported route, not an unconditional green light. When a route genuinely can't render, the result is a typed blueprint or `needs_tool`, not fabricated success.
 
 ### Built now; provider gap closure is roadmap
 
-The card registry, mode indexes, shared protocol, typed tool registry, state derivation, and validator are shipped. Wiring additional browser, design, deployment, binary-analysis, and provider-specific tools is future gap-closure work. The roadmap may turn more cards live; the README does not pre-announce those routes as working.
+The card registry, mode indexes, shared protocol, typed tool registry, state derivation, versioned capability source, and honesty-validator suite are shipped. Browser automation (Playwright, Chrome DevTools) is already declared and probed on Codex, Gemini, and Claude — that is not a gap.
+
+What remains open: repairing the four failing Bounty capability cards, activating the staged Trail of Bits guarded stack (`guarded-semgrep`/`guarded-slither`/`guarded-solodit`) past its restart gate, and wiring additional design, deployment, binary-analysis, and provider-specific tools. The roadmap may turn more cards live or more tools active; the README does not pre-announce those routes as working before they are.
 
 ---
 
@@ -260,9 +328,11 @@ Completion capture and usage feedback make the system memory-backed. Feedback do
 Vibe Squad includes four narrow `chrono-*` plugin implementations:
 
 - [`chrono-vault`](plugins/chrono-vault/) — private Markdown memory and lexical recall;
-- [`chrono-research-arsenal`](plugins/chrono-research-arsenal/) — research-provider wrappers;
+- [`chrono-research-arsenal`](plugins/chrono-research-arsenal/) — research-provider wrappers, including the Firecrawl scrape/crawl/parse operations described above;
 - [`chrono-media-studio`](plugins/chrono-media-studio/) — image, video, and audio entry points;
 - [`chrono-recon`](plugins/chrono-recon/) — passive DNS, WHOIS, certificate, archive, and repository-search helpers.
+
+These four are the repository-owned plugins; they sit alongside externally-sourced MCP integrations declared per-lane rather than shipped as `chrono-*` plugins — Playwright and Chrome DevTools browser automation, and the staged Trail of Bits guarded-scanning trio.
 
 The Project capability for [self-extension](shared/capabilities/project/self-extension-agent-tooling.md) applies the same S0–S7 contract to MCP servers, plugins, skills, agents, and adapters. Four repository implementations prove the pattern; they do not imply every external provider is live on every lane.
 
@@ -328,7 +398,7 @@ Project work is the broadest path: define the result, design it, split implement
 
 | Family | Mode contracts | Capability cards | What it coordinates |
 |---|---|---:|---|
-| **Project** | [`project`](shared/modes/project.md) | 8 | End-to-end software, platforms, AI applications, systems, smart contracts, and self-extension |
+| **Project** | [`project`](shared/modes/project.md) | 9 | End-to-end software, platforms, AI applications, systems, smart contracts, game production, and self-extension |
 | **Bounty** | [`bounty`](shared/modes/bounty.md) | 4 | Authorized recon, analysis, PoCs, impact validation, reporting, and submission holds |
 | **Content** | [`content`](shared/modes/content.md) | 6 | Editorial, campaigns, search, images, video, and audio |
 | **Research** | [`research`](shared/modes/research.md) | 3 | Investigation, synthesis, data extraction, datasets, and learning plans |
@@ -341,9 +411,26 @@ Every mode index links to its cards and prints validator-derived state so operat
 
 ---
 
-## 69 validated specialist routes
+## 71 validated specialist routes
 
-The canonical registry contains 69 specialist routes across implementation, product, content, media, security, operations, review, QA, and research. “Validated route” means the role, adapter, lane, policy, and packet path resolve; it does not promise that every external provider tool is live on every lane.
+<p align="center">
+  <img src="assets/hero/route-distribution.svg" alt="71 specialist routes by namespace and lane: Codex 20, Claude 35, Gemini 14, Kimi 2" width="820">
+</p>
+
+The canonical registry contains 71 specialist routes across implementation, product, content, media, security, operations, review, QA, and research: 20 Codex, 35 Claude, 14 Gemini, and 2 Kimi. "Validated route" means the role, adapter, lane, and policy resolve against the registry — it does not promise that every external provider tool is live on every lane, and the registry has no generic inbox/outbox packet-path field for it to validate.
+
+| Source namespace | Codex | Claude | Gemini | Kimi | Total |
+|---|---:|---:|---:|---:|---:|
+| `coding` | 16 | 3 | 0 | 0 | 19 |
+| `content` | 0 | 7 | 4 | 0 | 11 |
+| `content-engineer` | 1 | 1 | 8 | 0 | 10 |
+| `research` | 1 | 3 | 2 | 0 | 6 |
+| `security` | 2 | 8 | 0 | 1 | 11 |
+| `shared` | 0 | 5 | 0 | 1 | 6 |
+| `sysmgmt` | 0 | 8 | 0 | 0 | 8 |
+| **Total** | **20** | **35** | **14** | **2** | **71** |
+
+`source_namespace` is mailbox/storage provenance, not model ownership. Every Codex primary runs `codex.sol.high`, every Claude primary runs `claude.fable.xhigh`, every Gemini primary runs `gemini.flash.default`, and the two Kimi primaries (`experimental-attacker`, `summarizer`) run `kimi.k2.7.bulk`.
 
 | Area | Representative specialists |
 |---|---|
@@ -364,9 +451,24 @@ See the [interactive routing map](docs/routing-map.html), the [canonical TSV](sh
   <img src="assets/media/swarm-demo.gif" alt="Two specialists run as a bounded same-family panel and return evidence for one synthesis" width="820">
 </p>
 
-Panels collect 2–3 specialist perspectives concurrently inside Claude or Codex. They use quorum, deadlines, visible member states, and one accountable coordinator who owns the final artifact. Fan-out is Claude-enabled and Codex-gated; Gemini and Kimi are excluded because their subagents do not retain the required MCP surface.
+Panels collect 2–3 specialist perspectives concurrently inside Claude or Codex. They use quorum, deadlines, visible member states, and one accountable coordinator who owns the final artifact. `panel-v1` accepts Claude and Codex only; fan-out is Claude-enabled and Codex-gated. Gemini and Kimi are excluded by that bounded-panel protocol—not by a shared MCP limitation: Gemini subagents inherit configured MCP, while Kimi subagents do not.
 
 Panels are not proof of four-family debate, and they are not independent review. Cross-family review is the separate held-and-settled path described at the top.
+
+### Lead-internal big-swarm orchestration
+
+A separate opt-in path is proven on gpt-codex for larger, structured passes:
+
+```bash
+bin/send-task.sh task.md \
+  --subswarm-directive core.json \
+  --subswarm-assignment 'gpt-codex:sub01=<exact objective>' \
+  --subswarm-assignment 'gpt-codex:sub02=<exact objective>'
+```
+
+This is a per-dispatch contract: it needs no relaunch and no `SQUAD_WORKER_POOL_ENABLED`. The lead spawns native structured subagents, preserves each raw return, and seals one `swarm-member-bundle/v1` whose per-member entries use `swarm-member-result/v1`. The lead then emits one exhaustive `subswarm-review-subjects/v1` decomposition: every completion, finding, gap, and tool receipt becomes a subject whose hash is domain-separated as `subswarm-review-item/v1`. Every subject requires one cross-family `finding-review/v1` verdict—no sampling—and Chrono coordinates that separate review and settlement.
+
+The honest lane status is narrower than the schema support: the path is **proven-runnable today only on gpt-codex**. Claude and Gemini are supported but have **not** completed an end-to-end run yet: Claude subagents inherit MCP fully, Gemini subagents inherit configured MCP. Kimi is single-lane and lead-brokered because its subagents cannot hold MCP at all, so no Kimi sub-swarm is claimed. Same-family subagents add coverage; they do not replace independent cross-family review.
 
 ---
 
@@ -387,13 +489,16 @@ See [`tools/export/`](tools/export/) for the projector, [`docs/private-config.md
 | Surface | State | Boundary |
 |---|---|---|
 | tmux + Markdown dispatch | **Shipped** | Requires local authenticated provider CLIs. |
-| 69-role registry and routing validation | **Shipped** | Route validation is distinct from live external-tool availability. |
-| 27-card capability system | **Shipped** | Card state is registry-validated and can conservatively degrade. |
+| 71-role registry and routing validation | **Shipped** | Route validation is distinct from live external-tool availability. |
+| 28-card capability system | **Shipped** | Card state is registry-validated and can conservatively degrade. Four Bounty cards currently fail card-level metadata validation (`stub` vs. `authored` skill declarations) and are tracked openly, not hidden. |
+| versioned capability source + honesty-validator suite | **Shipped** | One authored JSON (156 entries) drives derived specialist-lane adapters and a byte-exact generated index; base-boundary, migration-parity, sync, existence, and index-freshness gates all currently pass. |
 | capability validator + typed tool registry | **Shipped** | Mechanical validation complements, rather than replaces, cross-family review. |
-| cross-family review | **Shipped hold + explicit settlement** | Chrono separately dispatches the reviewer; the runtime does not auto-launch one. |
-| bounded panels | **Shipped, opt-in** | Claude and Codex only; collection is not review. |
+| cross-family review | **Shipped hold + explicit settlement** | Chrono separately dispatches the reviewer; settlement requires an exact structured `APPROVE` with reviewer family ≠ author family, or an explicit logged force override. |
+| bounded panels | **Shipped, opt-in** | Claude and Codex coordinators; native `--fanout` remains Claude-only and collection is not review. |
+| lead-internal big-swarm | **Shipped, opt-in; proven on gpt-codex** | Per-dispatch only; Claude/Gemini remain unexercised end-to-end, Kimi has no sub-swarm, and every decomposed subject requires cross-family review. |
 | Chrono Vault | **Shipped** | Live notes and the vault root are intentionally off-repo. |
-| four `chrono-*` plugins | **Shipped implementations** | Exact tools remain lane- and credential-aware. |
+| four `chrono-*` plugins | **Shipped implementations** | Exact tools remain lane- and credential-aware; Firecrawl scrape/crawl/parse ships inside `chrono-research-arsenal` behind a metered key. |
+| Trail of Bits guarded stack | **Staged, pending-restart-activation** | Validator passes today; going live still needs credentials, a Snyk preflight, a controlled restart, and read-only fixture calls. |
 | moat differential lab | **Shipped JS/TS synthetic path** | Real targets remain private; no smart-contract or signing claim. |
 | more provider and local-tool routes | **Roadmap** | Gap closure must update the registry and re-derive affected card states. |
 | automatic failover | **Implemented, dormant** | Not a default user-facing capability. |
@@ -410,7 +515,8 @@ See [`tools/export/`](tools/export/) for the projector, [`docs/private-config.md
 | `shared/registries/skill-tool-registry.tsv` | Typed skill and tool availability registry |
 | `shared/routing.md`, `shared/protocol.md` | Routing, packet, lifecycle, and review contracts |
 | `shared/modes/` | Eight mode contracts and their capability indexes |
-| `shared/capabilities/` | Twenty-seven S0–S7 capability cards |
+| `shared/capabilities/` | Twenty-eight S0–S7 capability cards |
+| `model-lanes/specialist-lane-capabilities.v1.json` | Versioned capability-ownership source (156 entries); adapters and the generated index are derived from it |
 | `departments/*/specialists/` | Canonical specialist briefs |
 | `plugins/` | Memory, research, media, and recon implementations |
 | `moat/` | Differential impact-verification lab |

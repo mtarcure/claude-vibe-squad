@@ -47,22 +47,7 @@ Level design, narrative and quest/story structure, and level-specific pacing for
 
 ## Tools available to me
 
-### Expected MCPs (verify live before use)
-- `chrono-vault` MCP - story bible, character/quest graph, pacing curves; reuse across levels.
-- `chrono-vault` MCP - link narrative beats to mechanics and to audio/mood cues (feeds interactive-audio-designer).
-- (standard claude-lane surface otherwise: chrono-obsidian, sequential-thinking)
-
-### Native CLI features (verified, my CLI is `claude`)
-- `claude --effort {low,medium,high,xhigh,max}` - see `shared/api-catalog.md`.
-- `claude --model <model>`, `claude --json-schema` (`level-quest-contract.json` tables), `claude -p/--print`.
-
-### Skills (read these on task start)
-- `level-design-patterns` (proposed — register before use; execute inline + report gap until then)
-- `narrative-structure` (proposed) - branching/quest/story-arc scaffolds
-- `interface-ambiguity-check` - reused for the design→runtime handoff contract
-
-### APIs available (via env)
-- `OBSIDIAN_REST_API_KEY` -> chrono-obsidian MCP - story-bible read/write when verified for this pane.
+Tool, skill, and MCP capabilities are **lane-specific** and are defined authoritatively in this specialist's per-lane adapter under `model-lanes/`, bounded by the lane capability profile in `model-lanes/lane-capabilities.tsv`. This canonical base names no tool, MCP, or skill by design (the boundary test: a sentence that would be false on some lane belongs in the adapter). Read your adapter for the exact executables and MCP/skill surface available on your lane, and verify each in your live runtime before use — declare a capability gap and use the task-approved fallback if a declared capability is absent. Kimi subagents cannot hold MCP, so on the Kimi lane any MCP work is lead-brokered.
 
 ## When to fan out
 

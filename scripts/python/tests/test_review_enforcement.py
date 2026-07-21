@@ -28,11 +28,21 @@ def envelope(fm: dict, body: str = "done.") -> str:
     return f"---\n{lines}\n---\n\n{body}\n"
 
 
-def review(target: str, from_lane: str, body: str, status: str = "needs_review", ident: str = "REVIEW") -> str:
-    return envelope({
+def review(
+    target: str,
+    from_lane: str,
+    body: str,
+    status: str = "needs_review",
+    ident: str = "REVIEW",
+    verdict: str | None = None,
+) -> str:
+    meta = {
         "id": f"{ident}-response", "in_response_to": target,
         "from": from_lane, "to": "chrono", "type": "RESULT", "status": status,
-    }, body=body)
+    }
+    if verdict is not None:
+        meta["verdict"] = verdict
+    return envelope(meta, body=body)
 
 
 class ReviewEnforcementTest(unittest.TestCase):
@@ -68,18 +78,60 @@ class ReviewEnforcementTest(unittest.TestCase):
         return result
 
     def run_settle(
-        self, env: dict, task_id: str, review_ref: str, expected_returncode: int = 0
+        self,
+        env: dict,
+        task_id: str,
+        review_ref: str,
+        expected_returncode: int = 0,
+        force: bool = False,
     ) -> subprocess.CompletedProcess:
+        command = [
+            sys.executable, str(RECONCILER),
+            "--settle-review", task_id,
+            "--review-ref", review_ref,
+        ]
+        if force:
+            command.append("--force")
         result = subprocess.run(
-            [
-                sys.executable, str(RECONCILER),
-                "--settle-review", task_id,
-                "--review-ref", review_ref,
-            ],
+            command,
             env=env, capture_output=True, text=True, timeout=60,
         )
         self.assertEqual(result.returncode, expected_returncode, msg=result.stderr)
         return result
+
+    def run_reopen(
+        self,
+        env: dict,
+        task_id: str,
+        status: str | None = None,
+        expected_returncode: int = 0,
+    ) -> subprocess.CompletedProcess:
+        command = [sys.executable, str(RECONCILER), "--reopen", task_id]
+        if status:
+            command.extend(["--reopen-status", status])
+        result = subprocess.run(
+            command, env=env, capture_output=True, text=True, timeout=60
+        )
+        self.assertEqual(result.returncode, expected_returncode, msg=result.stderr)
+        return result
+
+    def run_authorize(self, env: dict, task_id: str, now: str) -> dict:
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(RECONCILER),
+                "--authorize-delivery",
+                task_id,
+                "--now",
+                now,
+            ],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        return json.loads(result.stdout)
 
     def result(self, state: Path, task_id: str) -> tuple[dict, str]:
         registry = json.loads((state / "active-tasks.json").read_text(encoding="utf-8"))
@@ -137,12 +189,51 @@ class ReviewEnforcementTest(unittest.TestCase):
         self.assertEqual(entry["status"], "review-required")
         self.assertIn("REVIEW-REQUIRED", queue)
 
+    def test_a3_review_hold_releases_delivery_lane_without_settling(self):
+        held = "TASK-2026-07-15-0002-review-held"
+        successor = "TASK-2026-07-15-0002-successor"
+        at = "2026-07-17T00:00:00+00:00"
+        entries = {
+            held: self._entry(dispatched_at=at),
+            successor: self._entry(
+                status="in-flight",
+                dispatched_at="2026-07-17T00:00:01+00:00",
+                delivery_state="queued",
+                delivery_attempt_id="d-successor",
+                delivery_generation=1,
+                delivery_lane="claude",
+                delivery_attempt_count=0,
+                delivery_retry_count=0,
+                delivery_max_attempts=5,
+                delivery_next_attempt_at="2026-07-17T00:00:01+00:00",
+                delivery_history=[],
+            ),
+        }
+        _root, state, env = self.fixture(
+            entries,
+            self._own_response(held, "claude", "needs_review"),
+        )
+
+        self.run_reconcile(env, held)
+        held_entry, queue = self.result(state, held)
+        released = self.run_authorize(
+            env,
+            successor,
+            "2026-07-17T00:00:02+00:00",
+        )
+
+        self.assertEqual(held_entry["status"], "review-required")
+        self.assertNotIn("cross_family_review_ref", held_entry)
+        self.assertIn("REVIEW-REQUIRED", queue)
+        self.assertTrue(released["authorized"])
+
     def test_b_reviewer_response_requires_explicit_settlement(self):
         t = "TASK-2026-07-15-0003-cccc"
         responses = self._own_response(t, "claude", "needs_review")
         review_ref = "departments/coding/outbox/TASK-REVIEW-0003-response.md"
         responses[review_ref] = review(
-            t, "gpt-codex", "APPROVE — reviewed.", "complete", "TASK-REVIEW-0003"
+            t, "gpt-codex", "APPROVE — reviewed.", "complete", "TASK-REVIEW-0003",
+            verdict="APPROVE",
         )
         entry, _ = self.reconcile({t: self._entry()}, responses, t)
         self.assertEqual(entry["status"], "review-required")
@@ -154,6 +245,9 @@ class ReviewEnforcementTest(unittest.TestCase):
         )
         self.assertEqual(entry["status"], "complete")
         self.assertEqual(entry["cross_family_review_ref"], review_ref)
+        self.assertEqual(entry["review_ref"], review_ref)
+        self.assertEqual(entry["verdict"], "APPROVE")
+        self.assertFalse(entry["review_force_override"])
         self.assertEqual(entry["review_settled_by"], "chrono-explicit")
         self.assertIn("review_settled_at", entry)
         self.assertEqual(queue.count("REVIEW-SETTLED"), 1)
@@ -167,13 +261,68 @@ class ReviewEnforcementTest(unittest.TestCase):
         self.assertNotIn("review_blocking_ref", entry)
         self.assertIn("REVIEW-REQUIRED", queue)
 
-    def test_c_same_family_in_lane_settles_normally(self):
+    def test_c_in_lane_capability_does_not_override_explicit_needs_review(self):
         t = "TASK-2026-07-15-0005-eeee"
         entry, queue = self.reconcile(
             {t: self._entry(specialist="codex-spec", to_model="gpt-codex", review_model="claude")},
             self._own_response(t, "gpt-codex", "needs_review"), t)
-        self.assertEqual(entry["status"], "needs_review")
+        self.assertEqual(entry["status"], "review-required")
+        self.assertIn("REVIEW-REQUIRED", queue)
+
+    def test_c2_in_lane_capability_can_settle_reported_complete(self):
+        t = "TASK-2026-07-15-0005-eeee-complete"
+        entry, queue = self.reconcile(
+            {t: self._entry(specialist="codex-spec", to_model="gpt-codex", review_model="claude")},
+            self._own_response(t, "gpt-codex", "complete"), t)
+        self.assertEqual(entry["status"], "complete")
         self.assertNotIn("REVIEW-REQUIRED", queue)
+
+    def test_c3_in_lane_needs_review_hold_settles_with_cross_family_review(self):
+        t = "TASK-2026-07-19-in-lane-settle-deadlock"
+        review_ref = "departments/coding/outbox/TASK-DEADLOCK-REVIEW-response.md"
+        responses = self._own_response(t, "gpt-codex", "needs_review")
+        responses[review_ref] = envelope({
+            "id": "TASK-DEADLOCK-REVIEW-response",
+            "in_response_to": "TASK-DEADLOCK-REVIEW",
+            "reviews": t,
+            "from": "claude", "to": "chrono", "type": "RESULT",
+            "status": "complete", "reviewer_family": "anthropic",
+            "verdict": "APPROVE",
+        }, body="APPROVE — independent review complete.")
+        task = self._entry(
+            specialist="codex-spec", to_model="gpt-codex", review_model="claude"
+        )
+        _root, state, env = self.fixture({t: task}, responses)
+        self.run_reconcile(env, t)
+        held, _queue = self.result(state, t)
+        self.assertEqual(held["status"], "review-required")
+
+        self.run_settle(env, t, review_ref)
+
+        settled, queue = self.result(state, t)
+        self.assertEqual(settled["status"], "complete")
+        self.assertEqual(settled["cross_family_review_ref"], review_ref)
+        self.assertEqual(queue.count("REVIEW-SETTLED"), 1)
+
+    def test_c4_in_lane_needs_review_hold_rejects_same_family_review(self):
+        t = "TASK-2026-07-19-in-lane-same-family"
+        review_ref = "departments/coding/outbox/TASK-SAME-FAMILY-response.md"
+        responses = self._own_response(t, "gpt-codex", "needs_review")
+        responses[review_ref] = review(
+            t, "gpt-codex", "APPROVE — self review.",
+            "complete", "TASK-SAME-FAMILY", verdict="APPROVE",
+        )
+        task = self._entry(
+            specialist="codex-spec", to_model="gpt-codex", review_model="claude"
+        )
+        _root, state, env = self.fixture({t: task}, responses)
+        self.run_reconcile(env, t)
+
+        result = self.run_settle(env, t, review_ref, expected_returncode=2)
+
+        self.assertIn("configured review_model", result.stderr)
+        held, _queue = self.result(state, t)
+        self.assertEqual(held["status"], "review-required")
 
     def test_d_non_mandatory_unaffected(self):
         t = "TASK-2026-07-15-0006-ffff"
@@ -232,6 +381,23 @@ class ReviewEnforcementTest(unittest.TestCase):
         responses = self._own_response(t, "claude", "needs_review")
         responses["departments/coding/outbox/TASK-REVIEW-IDEMP-response.md"] = review(t, "gpt-codex", "CHANGES-NEEDED: fix it.", "needs_review", "TASK-REVIEW-IDEMP")
         entry, queue = self.reconcile({t: self._entry()}, responses, t, runs=2)
+        self.assertEqual(entry["status"], "review-required")
+        self.assertEqual(queue.count("REVIEW-REQUIRED"), 1, msg=queue)
+
+    def test_h2_same_notification_key_never_repeats_after_elapsed_interval(self):
+        t = "TASK-2026-07-15-0013-idemp-elapsed"
+        responses = self._own_response(t, "claude", "needs_review")
+        _root, state, env = self.fixture({t: self._entry()}, responses)
+        self.run_reconcile(env, t)
+
+        registry_path = state / "active-tasks.json"
+        registry = json.loads(registry_path.read_text(encoding="utf-8"))
+        registry[t]["notification_last_emitted_at"] = "2020-01-01T00:00:00+00:00"
+        registry_path.write_text(json.dumps(registry), encoding="utf-8")
+        env["NOTIFICATION_REPEAT_SECONDS"] = "0"
+        self.run_reconcile(env, t)
+
+        entry, queue = self.result(state, t)
         self.assertEqual(entry["status"], "review-required")
         self.assertEqual(queue.count("REVIEW-REQUIRED"), 1, msg=queue)
 
@@ -389,14 +555,20 @@ class ReviewEnforcementTest(unittest.TestCase):
         t = "TASK-2026-07-15-0026-guards"
         review_ref = "departments/coding/outbox/TASK-GUARD-REVIEW-response.md"
         responses = self._own_response(t, "claude", "needs_review")
-        responses[review_ref] = review(t, "gpt-codex", "APPROVE", "complete", "TASK-GUARD-REVIEW")
+        responses[review_ref] = review(
+            t, "gpt-codex", "APPROVE", "complete", "TASK-GUARD-REVIEW",
+            verdict="APPROVE",
+        )
         _root, _state, env = self.fixture({t: self._entry()}, responses)
         result = self.run_settle(env, t, review_ref, expected_returncode=2)
         self.assertIn("task is not review-required", result.stderr)
 
         blocked = "TASK-2026-07-15-0026-blocked-subject"
         responses = self._own_response(blocked, "claude", "blocked")
-        responses[review_ref] = review(blocked, "gpt-codex", "APPROVE", "complete", "TASK-GUARD-REVIEW")
+        responses[review_ref] = review(
+            blocked, "gpt-codex", "APPROVE", "complete", "TASK-GUARD-REVIEW",
+            verdict="APPROVE",
+        )
         _root, _state, env = self.fixture({blocked: self._entry()}, responses)
         self.run_reconcile(env, blocked)
         result = self.run_settle(env, blocked, review_ref, expected_returncode=2)
@@ -425,8 +597,14 @@ class ReviewEnforcementTest(unittest.TestCase):
         first_ref = "departments/coding/outbox/TASK-FIRST-REVIEW-response.md"
         second_ref = "departments/coding/outbox/TASK-SECOND-REVIEW-response.md"
         responses = self._own_response(t, "claude", "needs_review")
-        responses[first_ref] = review(t, "gpt-codex", "APPROVE", "complete", "TASK-FIRST-REVIEW")
-        responses[second_ref] = review(t, "gpt-codex", "APPROVE", "complete", "TASK-SECOND-REVIEW")
+        responses[first_ref] = review(
+            t, "gpt-codex", "APPROVE", "complete", "TASK-FIRST-REVIEW",
+            verdict="APPROVE",
+        )
+        responses[second_ref] = review(
+            t, "gpt-codex", "APPROVE", "complete", "TASK-SECOND-REVIEW",
+            verdict="APPROVE",
+        )
         _root, state, env = self.fixture({t: self._entry()}, responses)
         self.run_reconcile(env, t)
 
@@ -454,6 +632,110 @@ class ReviewEnforcementTest(unittest.TestCase):
 
         result = self.run_settle(env, t, second_ref, expected_returncode=2)
         self.assertIn("different review ref", result.stderr)
+
+    def test_t_explicit_settlement_accepts_legacy_needs_review_registry_state(self):
+        t = "TASK-2026-07-15-0028-legacy-needs-review"
+        review_ref = "departments/coding/outbox/TASK-LEGACY-REVIEW-response.md"
+        responses = self._own_response(t, "gpt-codex", "needs_review")
+        responses[review_ref] = review(
+            t, "claude", "APPROVE", "complete", "TASK-LEGACY-REVIEW",
+            verdict="APPROVE",
+        )
+        legacy = self._entry(
+            status="needs_review", specialist="codex-spec",
+            to_model="gpt-codex", review_model="claude",
+        )
+        _root, state, env = self.fixture({t: legacy}, responses)
+
+        self.run_settle(env, t, review_ref)
+
+        entry, queue = self.result(state, t)
+        self.assertEqual(entry["status"], "complete")
+        self.assertEqual(entry["cross_family_review_ref"], review_ref)
+        self.assertEqual(queue.count("REVIEW-SETTLED"), 1)
+
+    def test_u_settlement_requires_structured_approve_unless_forced(self):
+        t = "TASK-2026-07-20-verdict-gate"
+        review_ref = "departments/coding/outbox/TASK-VERDICT-REVIEW-response.md"
+        responses = self._own_response(t, "claude", "needs_review")
+        responses[review_ref] = review(
+            t, "gpt-codex", "Prose says approve but the structured verdict rejects.",
+            "complete", "TASK-VERDICT-REVIEW", verdict="REJECT",
+        )
+        _root, state, env = self.fixture({t: self._entry()}, responses)
+        self.run_reconcile(env, t)
+
+        refused = self.run_settle(env, t, review_ref, expected_returncode=2)
+        self.assertIn("verdict must be exactly APPROVE", refused.stderr)
+        held, _queue = self.result(state, t)
+        self.assertEqual(held["status"], "review-required")
+
+        self.run_settle(env, t, review_ref, force=True)
+        settled, queue = self.result(state, t)
+        self.assertEqual(settled["status"], "complete")
+        self.assertEqual(settled["verdict"], "REJECT")
+        self.assertEqual(settled["review_ref"], review_ref)
+        self.assertTrue(settled["review_force_override"])
+        self.assertIn("REVIEW-SETTLED-FORCED", queue)
+
+    def test_u2_settlement_rejects_missing_structured_verdict(self):
+        t = "TASK-2026-07-20-verdict-missing"
+        review_ref = "departments/coding/outbox/TASK-VERDICT-MISSING-response.md"
+        responses = self._own_response(t, "claude", "needs_review")
+        responses[review_ref] = review(
+            t, "gpt-codex", "APPROVE appears only in prose.",
+            "complete", "TASK-VERDICT-MISSING",
+        )
+        _root, state, env = self.fixture({t: self._entry()}, responses)
+        self.run_reconcile(env, t)
+
+        refused = self.run_settle(env, t, review_ref, expected_returncode=2)
+        self.assertIn("observed MISSING", refused.stderr)
+        held, _queue = self.result(state, t)
+        self.assertEqual(held["status"], "review-required")
+
+    def test_v_reopen_uses_fixture_registry_and_derives_rework(self):
+        t = "TASK-2026-07-20-fixture-reopen"
+        settled = self._entry(
+            status="complete",
+            completed_at="2026-07-20T01:00:00+00:00",
+            review_settled_at="2026-07-20T01:00:00+00:00",
+            review_settled_by="chrono-explicit",
+            review_ref="departments/coding/archive/TASK-REVIEW-response.md",
+            cross_family_review_ref="departments/coding/archive/TASK-REVIEW-response.md",
+            verdict="REJECT",
+        )
+        root, state, env = self.fixture({t: settled}, {})
+        self.assertTrue(root.name.startswith("review-enforce-"))
+
+        self.run_reopen(env, t)
+        entry, queue = self.result(state, t)
+        self.assertEqual(entry["status"], "needs_rework")
+        self.assertIsNone(entry["completed_at"])
+        self.assertEqual(entry["reopen_count"], 1)
+        self.assertEqual(entry["reopen_history"][0]["verdict"], "REJECT")
+        self.assertIn("REVIEW-REOPENED", queue)
+
+        before = (state / "active-tasks.json").read_bytes()
+        self.run_reopen(env, t)
+        self.assertEqual(before, (state / "active-tasks.json").read_bytes())
+
+    def test_w_reopen_allows_explicit_needs_review_target(self):
+        t = "TASK-2026-07-20-fixture-reopen-explicit"
+        root, state, env = self.fixture(
+            {
+                t: self._entry(
+                    status="complete",
+                    completed_at="2026-07-20T01:00:00+00:00",
+                    verdict="APPROVE",
+                )
+            },
+            {},
+        )
+        self.assertTrue(root.name.startswith("review-enforce-"))
+        self.run_reopen(env, t, "needs_review")
+        entry, _queue = self.result(state, t)
+        self.assertEqual(entry["status"], "needs_review")
 
 
 if __name__ == "__main__":

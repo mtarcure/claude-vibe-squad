@@ -11,6 +11,7 @@
         "BRAVE_API_KEY": "${BRAVE_API_KEY}",
         "SERPER_API_KEY": "${SERPER_API_KEY}",
         "PERPLEXITY_API_KEY": "${PERPLEXITY_API_KEY}",
+        "FIRECRAWL_API_KEY": "${FIRECRAWL_API_KEY}",
         "XAI_API_KEY": "${XAI_API_KEY}",
         "APIFY_TOKEN": "${APIFY_TOKEN}",
         "GH_TOKEN": "${GH_TOKEN}"

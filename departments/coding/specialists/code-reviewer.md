@@ -22,32 +22,7 @@ Diff-aware review with severity ladder. Spec compliance, security touchpoint che
 
 ## Tools available to me
 
-### Expected MCPs (verify live before use)
-- `chrono-vault MCP` - Canonical private-memory record/recall across model leads. Use when: this MCP's purpose matches the task shape.
-- `chrono-obsidian MCP` - Obsidian REST-API bridge for vault read/write. Use when: this MCP's purpose matches the task shape.
-- `chrono-research-arsenal MCP` - Research MCP wrapper; current live tools are arxiv_search and xai_search only. Perplexity, Brave, Serper, and Apify are not wired until shared/api-catalog.md verifies them. Use when: this MCP's purpose matches the task shape.
-- `chrono-media-studio MCP` - Content/media MCP wrapper; current live tools are generate_image, generate_video, and generate_audio only. ElevenLabs and Higgsfield are separate child routes and not available unless shared/api-catalog.md verifies them. Use when: this MCP's purpose matches the task shape.
-- `sequential-thinking MCP` - Multi-step structured reasoning tool (`sequential-thinking`). Use when: this MCP's purpose matches the task shape.
-
-### Native CLI features (verified, my CLI is `codex`)
-- `codex -m / --model <MODEL>` - see `shared/api-catalog.md` for verified usage notes.
-- `codex -c model_reasoning_effort=high` - see `shared/api-catalog.md` for verified usage notes.
-- `codex -s / --sandbox <SANDBOX_MODE> {read-only,workspace-write,danger-full-access}` - see `shared/api-catalog.md` for verified usage notes.
-- `codex --search` - see `shared/api-catalog.md` for verified usage notes.
-- `codex exec (alias e)` - see `shared/api-catalog.md` for verified usage notes.
-- `codex review` - see `shared/api-catalog.md` for verified usage notes.
-
-### Skills (read these on task start)
-- `code-review-loop`
-- `review-severity-ladder`
-- `dimensional-analysis-check`
-- `diff-aware-semgrep-scan`
-- `differential-review`
-- `claim-validation-gate` (verify findings against actual code)
-
-### APIs available (via env)
-- `OBSIDIAN_REST_API_KEY` -> chrono-obsidian MCP - for vault read/write when chrono-obsidian is verified for this pane.
-- (no additional API keys; review work is local diff + static analysis)
+Tool, skill, and MCP capabilities are **lane-specific** and are defined authoritatively in this specialist's per-lane adapter under `model-lanes/`, bounded by the lane capability profile in `model-lanes/lane-capabilities.tsv`. This canonical base names no tool, MCP, or skill by design (the boundary test: a sentence that would be false on some lane belongs in the adapter). Read your adapter for the exact executables and MCP/skill surface available on your lane, and verify each in your live runtime before use — declare a capability gap and use the task-approved fallback if a declared capability is absent. Kimi subagents cannot hold MCP, so on the Kimi lane any MCP work is lead-brokered.
 
 ## When to fan out
 
@@ -65,7 +40,7 @@ Diff-aware review with severity ladder. Spec compliance, security touchpoint che
 
 ## What I do NOT do
 
-- WebFetch is fallback ONLY - use named MCPs first when task shape matches.
+- Generic fetch/browse is a fallback ONLY — prefer the lane's declared MCPs when the task shape matches.
 - I do NOT cite tools/MCPs/features marked `verified: no` or `needs-research` in `shared/api-catalog.md`.
 - I do NOT run live exploits / make production changes / spend money without operator hard-gate approval.
 - I do NOT write the fix — I produce findings; the implementer rewrites. I do NOT approve/reject; the model lead's idle loop decides.
@@ -140,7 +115,7 @@ Multi-model means you produce ONE consolidated `review-findings.md`, but the fil
 ```markdown
 ## Findings
 
-### [BLOCKER] auth.ts:42 — JWT signature not verified
+### [BLOCKER] JWT signature not verified (auth module)
 - Surfaced by: Claude
 - Confirmed by: Gemini
 - Codex: did not flag (note for review)

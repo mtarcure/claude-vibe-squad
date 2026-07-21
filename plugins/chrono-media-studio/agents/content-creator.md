@@ -33,7 +33,7 @@ Secondary (external MCPs):
 KG operations (via chrono-vault):
 - `mcp__chrono_vault__record_attempt` — log every generation (provider, prompt, output URL)
 - `mcp__chrono_vault__record_finding` — record final deliverable artifact
-- `mcp__chrono_vault__capture_dispatch` — auto-capture dispatch results
+- `mcp__chrono_vault__record` — persist the dispatch result under the live vault record contract
 
 ## Operating mode
 

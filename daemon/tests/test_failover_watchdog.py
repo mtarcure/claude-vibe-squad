@@ -88,7 +88,8 @@ def test_ack_timeout_hard_signal_redispatches_fenced_backup(tmp_path):
     assert ledger["failover_count"] == 1
     assert backup["generation"] == 2
     assert backup["lane"] == "gpt-codex"
-    assert backup["accepted_at"] is not None
+    assert backup["accepted_at"] is None
+    assert actions[-1]["pane_delivery_attempted"] is True
     assert len(dispatched) == 1
     assert dispatched[0][0] == redispatch
     assert dispatched[0][1]["attempt_id"] == backup["attempt_id"]
@@ -121,10 +122,9 @@ def test_ambiguous_timers_never_redispatch(tmp_path, timer, seconds, expected):
     task_id = f"TASK-{timer}-timer"
     control, primary, _template, _redispatch = initialized(tmp_path, task_id)
     observed = after(primary, seconds)
-    control.record_runtime_event(
+    control.claim_attempt(
         task_id=task_id,
         attempt_id=primary["attempt_id"],
-        event="accepted",
         occurred_at=observed,
     )
     actions = FailoverWatchdog(
@@ -145,10 +145,9 @@ def test_ambiguous_timers_never_redispatch(tmp_path, timer, seconds, expected):
 def test_heartbeat_timeout_is_disabled_for_non_heartbeating_specialists(tmp_path):
     task_id = "TASK-no-heartbeat-noise"
     control, primary, _template, _redispatch = initialized(tmp_path, task_id)
-    control.record_runtime_event(
+    control.claim_attempt(
         task_id=task_id,
         attempt_id=primary["attempt_id"],
-        event="accepted",
         occurred_at=after(primary, 1),
     )
     actions = FailoverWatchdog(
@@ -347,12 +346,28 @@ def test_skipped_dispatch_nudge_is_accepted_by_real_inbox_pickup(tmp_path):
     assert control.read(task_id)["attempts"][0]["accepted_at"] is None
 
     pickup = subprocess.run(
-        base + ["accept-pickup", "--task-file", str(task_file)],
+        base + ["pane-delivery-attempted", "--task-file", str(task_file)],
         check=True,
         capture_output=True,
         text=True,
     )
-    assert json.loads(pickup.stdout)["status"] == "accepted"
+    assert json.loads(pickup.stdout)["status"] == "pane_delivery_attempted"
+    assert control.read(task_id)["attempts"][0]["accepted_at"] is None
+
+    claim = subprocess.run(
+        base
+        + [
+            "claim",
+            "--task-id",
+            task_id,
+            "--attempt-id",
+            primary["attempt_id"],
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert json.loads(claim.stdout)["idempotent"] is False
     assert control.read(task_id)["attempts"][0]["accepted_at"] is not None
 
     actions = FailoverWatchdog(

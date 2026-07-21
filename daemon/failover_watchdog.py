@@ -56,6 +56,40 @@ def _default_dispatcher(packet: Path, _attempt: dict) -> bool:
     return completed.returncode == 0
 
 
+def _default_delivery_advancer(attempt: dict) -> None:
+    vault_root = Path(os.environ.get("VAULT_ROOT", REPO)).expanduser().resolve()
+    state_dir = Path(os.environ.get("STATE_DIR", vault_root / "_state"))
+    registry_path = state_dir / "active-tasks.json"
+    try:
+        registry = json.loads(registry_path.read_text())
+    except FileNotFoundError:
+        return
+    if not isinstance(registry, dict) or attempt["task_id"] not in registry:
+        return
+    completed = subprocess.run(
+        [
+            str(vault_root / "bin" / "registry-reconciler.sh"),
+            "--advance-delivery",
+            attempt["task_id"],
+            "--attempt-id",
+            attempt["attempt_id"],
+            "--generation",
+            str(attempt["generation"]),
+            "--lane",
+            attempt["lane"],
+        ],
+        cwd=vault_root,
+        env={**os.environ, "VAULT_ROOT": str(vault_root)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise ControlPlaneError(
+            f"active delivery generation advance failed: {completed.stderr.strip()}"
+        )
+
+
 class FailoverWatchdog:
     """Evaluate durable sensor events and deadlines without guessing liveness."""
 
@@ -64,11 +98,13 @@ class FailoverWatchdog:
         control: DispatchControlPlane,
         *,
         dispatcher: Callable[[Path, dict], bool] | None = None,
+        delivery_advancer: Callable[[dict], None] | None = None,
         now: Callable[[], datetime] | None = None,
         lease_owner: str = "failover-watchdog",
     ):
         self.control = control
         self.dispatcher = dispatcher or _default_dispatcher
+        self.delivery_advancer = delivery_advancer or _default_delivery_advancer
         self.now = now or (lambda: datetime.now(UTC))
         self.lease_owner = lease_owner
 
@@ -78,13 +114,15 @@ class FailoverWatchdog:
         if primary["generation"] != 1 or ledger.get("failover_count", 0) != 0:
             return {"action": "no_failover", "reason": "hop_budget_or_generation"}
         backup = self.control.begin_failover(task_id=task_id, lease_owner=self.lease_owner)
+        self.delivery_advancer(backup)
         packet = self.control.prepare_backup_redispatch(task_id=task_id, attempt_id=backup["attempt_id"])
-        accepted = self.dispatcher(packet, backup)
-        if accepted:
+        delivered = self.dispatcher(packet, backup)
+        if delivered:
             self.control.record_runtime_event(
                 task_id=task_id,
                 attempt_id=backup["attempt_id"],
-                event="accepted",
+                event="pane_delivery_attempted",
+                detail="failover-watchdog-nudge",
             )
         else:
             self.control.record_terminal_signal(
@@ -96,7 +134,7 @@ class FailoverWatchdog:
             "action": "backup_redispatched",
             "attempt_id": backup["attempt_id"],
             "packet": str(packet),
-            "accepted": accepted,
+            "pane_delivery_attempted": delivered,
         }
 
     def _process_event(self, task_id: str, attempt: dict, event: dict) -> dict | None:

@@ -34,17 +34,19 @@ into a one-line brief. What is standard is the **typed step contract**, not the 
 
 | Step | Name | What it does | Typical owners |
 |---|---|---|---|
-| **S0** | Intake / Admit | Define goal, scope, and safety class; **precheck `capability_state`** (verify each step's tools resolve to `verified: yes` on the executing lane); recall prior work. | Chrono direct, or `triage` |
-| **S1** | Frame | Establish the target/contract for the work (requirements · OSINT + scope · brief). | `product-manager` · `scout` · `editor` (mode-specific) |
-| **S2** | Design / Plan | Design the solution + the dispatch plan; enumerate the gates the work will hit. | `architect` · `threat-modeler` · strategist + `planner` |
+| **S0** | Intake / Admit | Admit the task, validate capability state/scope, and pin the dispatcher-owned verification contract. | Chrono direct, or `triage` |
+| **S1** | Understand / Recall | Establish the target and requirements, then perform the required memory recall and bind its receipt/usage coverage. | `product-manager` · `scout` · `editor` (mode-specific) |
+| **S2** | Design / Plan | Design the solution and dispatch plan, enumerate gates, hash the plan, and obtain the mandatory different-family plan review. | `architect` · `threat-modeler` · strategist + `planner` |
 | **S3** | Produce | **The distinctive core** — build · analyze→PoC · generate · curate. This step is what makes one capability different from another. | the capability's domain implementation specialists |
-| **S4** | Verify | Exercise + validate the produced artifact (tests, domain checks, evidence). | `test-engineer` · domain validators |
-| **S5** | Review / Gate | Independent review + operator gate hard-holds before anything irreversible. | reviewers + operator |
-| **S6** | Ship / Deliver | Produce the terminal artifact (package · submit · publish · install · deploy). | `technical-writer` · `devops-engineer` (mode-specific) |
-| **S7** | Capture | Record durable learnings/evidence to memory. | `memory-curator` + `chrono-vault` |
+| **S4** | Verify | Exercise and validate the produced artifact with admission-derived verification kinds and hash-bound evidence. | `test-engineer` · domain validators |
+| **S5** | Review / Hold | Obtain the mandatory different-family deliverable review, evaluate gates, and hold anything stale or irreversible. | reviewers + operator |
+| **S6** | Local Deliver | Produce a local package/report only in v1; external delivery and Bounty submission remain hard stops. | `technical-writer` · `devops-engineer` (mode-specific) |
+| **S7** | Record / Clean | Record durable learning with final-bundle-bound receipts and clean declared ephemeral resources. | `memory-curator` + `chrono-vault` |
 
 A per-capability step row carries: `step_id` (`<capability>/S<n>-<name>`), `specialists`,
 `tools_by_lane`, `skills`, and `gate`.
+
+S5 rejection routes through the I-loop to S2 for plan changes or S3 for artifact changes. Any changed plan or artifact hash invalidates prior verification, reviews, gates, delivery, and S7 close evidence; stale hashes never count toward completion. Rich capabilities may still expand any typed step into multiple domain-specific rows—the typed proof contract does not remove that richer expansion rule.
 
 ---
 

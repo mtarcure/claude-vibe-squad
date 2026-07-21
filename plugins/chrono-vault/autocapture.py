@@ -24,7 +24,7 @@ MAX_FIELD_CHARS = 1000
 RESPONSE_NAME = re.compile(r"^(TASK-[A-Za-z0-9-]+)-response\.md$")
 FIELD_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*$")
 KNOWN_NAMESPACES = frozenset(
-    {"coding", "security", "content", "sysmgmt", "research"}
+    {"coding", "security", "content", "content-engineer", "sysmgmt", "research"}
 )
 KNOWN_INTERNAL_MODES = frozenset(
     {"build", "content", "plan", "research", "review", "sysmgmt"}
@@ -175,31 +175,58 @@ def _source_namespace(path: Path) -> str | None:
     return namespace
 
 
-def _resolve_specialist(
-    response_path: Path, source_task: str, fields: dict[str, Any]
-) -> str:
+DEFAULT_MODES = {
+    "coding": "build",
+    "security": "bounty",
+    "content": "content",
+    "content-engineer": "content",
+    "research": "research",
+    "sysmgmt": "sysmgmt",
+}
+
+
+def _resolve_packet_fields(response_path: Path, source_task: str) -> dict[str, str]:
+    """Return capture-relevant metadata from the matching source packet."""
+    department = response_path.parent.parent  # departments/<namespace>
+    for mailbox in ("archive", "active", "inbox"):
+        packet = department / mailbox / f"{source_task}.md"
+        try:
+            text = packet.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        if not lines or lines[0] != "---":
+            continue
+        try:
+            closing = lines.index("---", 1)
+        except ValueError:
+            continue
+        frontmatter = "\n".join(lines[1:closing])
+        resolved: dict[str, str] = {}
+        for field in ("specialist", "mode"):
+            match = re.search(rf"(?m)^{field}:[ \t]*(\S.*?)[ \t]*$", frontmatter)
+            if match and match.group(1).strip():
+                resolved[field] = match.group(1).strip().strip("'\"")
+        return resolved
+    return {}
+
+
+def _resolve_specialist(fields: dict[str, Any], packet_fields: dict[str, str]) -> str:
     """Specialist from the envelope, else the source packet, else a safe default.
 
     The canonical completion envelope (shared/protocol.md) does not carry a
     `specialist` field, so a hard requirement on it silently dropped
     correctly-formatted completions. When the envelope omits it, derive it from
-    the original task packet (departments/<ns>/{archive,inbox}/<id>.md) to
+    the original task packet (departments/<ns>/{archive,active,inbox}/<id>.md) to
     preserve recall quality; fall back to a stable placeholder only if neither
     source has it.
     """
     envelope_value = fields.get("specialist")
     if isinstance(envelope_value, str) and envelope_value.strip():
         return _slug(envelope_value, "unknown-specialist")
-    department = response_path.parent.parent  # departments/<namespace>
-    for mailbox in ("archive", "inbox"):
-        packet = department / mailbox / f"{source_task}.md"
-        try:
-            text = packet.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        match = re.search(r"(?m)^specialist:[ \t]*(\S.*?)[ \t]*$", text)
-        if match and match.group(1).strip():
-            return _slug(match.group(1), "unknown-specialist")
+    packet_value = packet_fields.get("specialist")
+    if packet_value:
+        return _slug(packet_value, "unknown-specialist")
     return "unknown-specialist"
 
 
@@ -364,21 +391,28 @@ def capture_response(response_path: str) -> dict[str, bool | str | None]:
         raw = _read_response(path)
         fields, body = _parse_response(raw)
         source_task = name_match.group(1)
-        declared_task = fields.get("in_reply_to") or fields.get("task_id")
-        if declared_task is not None and declared_task != source_task:
-            raise CaptureError("task_mismatch")
+        for field_name in ("in_response_to", "in_reply_to", "task_id"):
+            declared_task = fields.get(field_name)
+            if declared_task is not None:
+                if not isinstance(declared_task, str):
+                    raise CaptureError("malformed_frontmatter")
+                if declared_task != source_task:
+                    raise CaptureError("task_mismatch")
 
         # `status` is the only always-present field in the canonical envelope
         # (shared/protocol.md); `specialist` is optional and derived below.
         if not isinstance(fields.get("status"), str) or not fields["status"].strip():
             raise CaptureError("missing_metadata")
-        specialist = _resolve_specialist(path, source_task, fields)
+        packet_fields = _resolve_packet_fields(path, source_task)
+        specialist = _resolve_specialist(fields, packet_fields)
         status_value = _slug(fields["status"], "unknown")
-        raw_mode = fields.get("mode", "unknown")
+        namespace = _source_namespace(path)
+        raw_mode = fields.get("mode") or packet_fields.get("mode") or DEFAULT_MODES.get(
+            namespace, "unknown"
+        )
         if not isinstance(raw_mode, str):
             raise CaptureError("malformed_frontmatter")
         mode = _slug(raw_mode, "unknown")
-        namespace = _source_namespace(path)
         verdict = fields.get("verdict", "")
         if not isinstance(verdict, str):
             raise CaptureError("malformed_frontmatter")

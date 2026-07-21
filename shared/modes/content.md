@@ -65,5 +65,5 @@ Media specialists stay `tool_gated` to the plugin-host lane (see Dispatch Notes)
 ## Gates
 
 - Operator approval before publish, external send, public release language, paid media, or claims about private work.
-- Pre-publication gates: `content-verifier` (Rule 8 truth gate — facts/citations) and `asset-provenance-and-rights-auditor` (Rule 6 rights gate — generated/third-party media). Both emit a machine-readable gate record; a non-PASS or stale-hash gate blocks publish.
+- Pre-publication gates: `content-verifier` (Rule 8 truth gate — facts/citations) and `asset-provenance-and-rights-auditor` (Rule 6 rights gate — generated/third-party media). Both emit a machine-readable gate record; a non-PASS or stale-hash gate blocks publish. **Dispatch these as their named specialists — do not fold the check inline into Chrono;** `content-verifier` routes web claims through the Gemini Google-Search grounding path before adjudicating.
 - Run `vibecoding-check` before the final package.

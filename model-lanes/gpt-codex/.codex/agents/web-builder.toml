@@ -1,7 +1,11 @@
 name = "web_builder"
-description = "Website implementation and deployment; generated assets remain typed tool handoffs."
+description = "Website implementation is live without deploy. Vercel is the installed/auth-pending primary deploy profile and Firebase the connected/login-gated fallback; both remain needs_tool:auth until smoke plus preview-to-rollback rehearsal. Stitch is partial and Figma is controller-smoked read-only."
 model_reasoning_effort = "medium"
 sandbox_mode = "workspace-write"
+# BEGIN SPECIALIST CAPABILITY PROJECTION
+capability_source = "model-lanes/specialist-lane-capabilities.v1.json"
+capability_source_sha256 = "25f0f3f37817a4967e9ed68ec9c00d7c13a6618070b98723c441f91b1e05fad4"
+# END SPECIALIST CAPABILITY PROJECTION
 developer_instructions = """
 You are the `web-builder` specialist running inside the `gpt-codex` model lane.
 

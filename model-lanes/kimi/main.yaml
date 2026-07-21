@@ -6,7 +6,13 @@ agent:
   subagents:
     growth-and-search-analyst:
       path: ./.kimi/agents/growth-and-search-analyst.yaml
-      description: "Throughput-only deterministic metadata templating from supplied data; never keyword research, SERP interpretation, analytics, recommendation, or schema selection."
+      description: "Registry-generated thin specialist adapter."
+    data-extraction-engineer:
+      path: ./.kimi/agents/data-extraction-engineer.yaml
+      description: "Registry-generated thin specialist adapter."
+    experimental-attacker:
+      path: ./subagents/experimental-attacker.yaml
+      description: "Authorized high-volume experimental probing. Kimi output is a lead only; Claude/Codex validation and mandatory review are required, and ranked non-primary lanes require same-name adapters before dispatch."
     summarizer:
       path: ./.kimi/agents/summarizer.yaml
-      description: "Low-risk bulk compression under the throughput downshift gate; preserve decisions, approvals, open loops, citations, and errors."
+      description: "Registry-generated thin specialist adapter."

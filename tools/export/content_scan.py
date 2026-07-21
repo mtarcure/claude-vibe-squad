@@ -28,6 +28,29 @@ class ScanError(RuntimeError):
     """A required scan could not complete safely."""
 
 
+def _private_home_patterns() -> list[re.Pattern[str]]:
+    """Return concrete private-home patterns without embedding a scannable example."""
+    patterns = [
+        re.compile(
+            r"(?<![A-Za-z0-9._-])"
+            + re.escape("/" + directory + "/")
+            + r"[^/\s\"'<>]+"
+        )
+        for directory in ("Users", "home")
+    ]
+    try:
+        operator_home = str(Path.home()).rstrip("/")
+    except (KeyError, RuntimeError) as error:
+        raise ScanError(f"cannot resolve operator home directory: {error}") from error
+    if not operator_home or operator_home == "/" or not os.path.isabs(operator_home):
+        raise ScanError("operator home directory is not a safe absolute path")
+    boundary = r"(?=$|[/\\\s\"'<>()[\]{},:;.!?])"
+    patterns.append(
+        re.compile(r"(?<![A-Za-z0-9._-])" + re.escape(operator_home) + boundary)
+    )
+    return patterns
+
+
 @dataclass(frozen=True)
 class Finding:
     kind: str
@@ -115,7 +138,10 @@ def _tracked_text(root: Path, relative_path: str) -> str | None:
     except OSError as error:
         raise ScanError(f"cannot stat tracked file {relative_path!r}: {error}") from error
     if stat.S_ISLNK(metadata.st_mode):
-        return None
+        try:
+            return os.readlink(candidate)
+        except OSError as error:
+            raise ScanError(f"cannot read tracked symlink {relative_path!r}: {error}") from error
     if not stat.S_ISREG(metadata.st_mode):
         raise ScanError(f"tracked path is not a regular file or symlink: {relative_path!r}")
     try:
@@ -131,6 +157,7 @@ def scan(
     allowed_fingerprints: set[Fingerprint],
 ) -> list[Finding]:
     findings: list[Finding] = []
+    private_home_patterns = _private_home_patterns()
     for relative_path in tracked_paths:
         text = _tracked_text(root, relative_path)
         if text is None:
@@ -152,6 +179,20 @@ def scan(
             if regex.search(text):
                 findings.append(
                     Finding(kind="private-identifier", path=relative_path, detail=source)
+                )
+        private_home_offsets: set[int] = set()
+        for regex in private_home_patterns:
+            for match in regex.finditer(text):
+                if match.start() in private_home_offsets:
+                    continue
+                private_home_offsets.add(match.start())
+                line_number = text.count("\n", 0, match.start()) + 1
+                findings.append(
+                    Finding(
+                        kind="private-home-absolute",
+                        path=relative_path,
+                        detail=f"line={line_number}",
+                    )
                 )
     return findings
 

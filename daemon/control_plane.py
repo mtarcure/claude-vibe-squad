@@ -26,7 +26,12 @@ import yaml
 HARD_SIGNALS = {"dispatch_ack_failure", "process_exit", "provider_error", "operational_error"}
 AMBIGUOUS_SIGNALS = {"slow", "silent", "missed_heartbeat", "soft_deadline", "hard_deadline", "unknown"}
 REFUSAL_SIGNALS = {"safety_refusal", "policy_refusal"}
-INFORMATIONAL_RUNTIME_EVENTS = {"inbox_delivered", "dispatch_nudge_failed", "dispatch_nudge_unavailable"}
+INFORMATIONAL_RUNTIME_EVENTS = {
+    "inbox_delivered",
+    "dispatch_nudge_failed",
+    "dispatch_nudge_unavailable",
+    "pane_delivery_attempted",
+}
 TERMINAL_STATUSES = {"HARD_FAILED", "REFUSED", "POSSIBLE_REFUSAL", "NEEDS_HUMAN", "SUCCEEDED", "ORPHANED"}
 GATE_FIELDS = {
     "gate_type",
@@ -396,6 +401,10 @@ class DispatchControlPlane:
         occurred_at: datetime | None = None,
     ) -> dict[str, Any]:
         """Persist a sensor observation for conservative watchdog processing."""
+        if event == "accepted":
+            raise ControlPlaneError(
+                "accepted_at may only be set by a lane-authored claim receipt"
+            )
         if process_pid is not None and process_pid <= 0:
             raise ControlPlaneError("process PID must be positive")
         observed_at = occurred_at or _utcnow()
@@ -414,11 +423,7 @@ class DispatchControlPlane:
             }
             if process_pid is not None:
                 attempt["process_pid"] = process_pid
-            if event == "accepted":
-                attempt["accepted_at"] = attempt.get("accepted_at") or _iso(observed_at)
-                attempt["last_heartbeat_at"] = _iso(observed_at)
-                record["processed_at"] = _iso(observed_at)
-            elif event == "heartbeat":
+            if event == "heartbeat":
                 attempt["last_heartbeat_at"] = _iso(observed_at)
                 record["processed_at"] = _iso(observed_at)
             elif event in INFORMATIONAL_RUNTIME_EVENTS:
@@ -426,6 +431,56 @@ class DispatchControlPlane:
             attempt.setdefault("runtime_events", []).append(record)
             self._save(task_id, ledger)
             return record
+
+    def claim_attempt(
+        self,
+        *,
+        task_id: str,
+        attempt_id: str,
+        occurred_at: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Record the only authoritative model-acceptance receipt."""
+        observed_at = occurred_at or _utcnow()
+        with self._locked(task_id):
+            ledger = self._load(task_id)
+            attempt = self._attempt(ledger, attempt_id)
+            if (
+                attempt_id != ledger.get("current_attempt_id")
+                or attempt.get("generation") != ledger.get("generation")
+            ):
+                raise ControlPlaneError("claim rejected by generation fence")
+            accepted_at = attempt.get("accepted_at")
+            if accepted_at:
+                return {
+                    "task_id": task_id,
+                    "attempt_id": attempt_id,
+                    "generation": attempt["generation"],
+                    "accepted_at": accepted_at,
+                    "idempotent": True,
+                }
+            accepted_at = _iso(observed_at)
+            attempt["accepted_at"] = accepted_at
+            attempt["last_heartbeat_at"] = accepted_at
+            attempt.setdefault("runtime_events", []).append(
+                {
+                    "event_id": f"e-{uuid.uuid4().hex}",
+                    "event": "claim_receipt",
+                    "occurred_at": accepted_at,
+                    "typed_error": False,
+                    "process_confirmed": False,
+                    "valid_artifact": False,
+                    "detail": "lane-authored-claim",
+                    "processed_at": accepted_at,
+                }
+            )
+            self._save(task_id, ledger)
+            return {
+                "task_id": task_id,
+                "attempt_id": attempt_id,
+                "generation": attempt["generation"],
+                "accepted_at": accepted_at,
+                "idempotent": False,
+            }
 
     def pending_runtime_events(self, task_id: str, attempt_id: str) -> list[dict[str, Any]]:
         with self._locked(task_id):

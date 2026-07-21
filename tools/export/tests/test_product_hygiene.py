@@ -127,6 +127,50 @@ class ProductHygieneGateTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("private-identifier", (self.reports / "gate.md").read_text())
 
+    def test_private_home_absolute_paths_fail_the_maintained_gate(self) -> None:
+        operator_home = self.base / "operator-home"
+        macos_home = "/" + "Users" + "/alice/private/config.json"
+        linux_home = "/" + "home" + "/bob/private/config.json"
+        operator_path = str(operator_home / "private" / "config.json")
+        unicode_home = "/" + "Users" + "/álîce/private/config.json"
+        dollar_home = "/" + "home" + "/build$/private/config.json"
+        plus_home = "/" + "home" + "/user+/private/config.json"
+        punctuation_homes = [
+            "/" + "Users" + f"/alice{suffix}"
+            for suffix in (")", ",", "]", ":")
+        ]
+        self._track("docs/macos-path.txt", f"path={macos_home}\n")
+        self._track("docs/linux-path.txt", f"path={linux_home}\n")
+        self._track(
+            "docs/operator-path.txt",
+            f"path={operator_path}\nexact={operator_home})\n",
+        )
+        self._track("docs/unicode-path.txt", f"path={unicode_home}\n")
+        self._track("docs/dollar-path.txt", f"path={dollar_home}\n")
+        self._track("docs/plus-path.txt", f"path={plus_home}\n")
+        self._track(
+            "docs/punctuation-paths.txt",
+            "".join(f"path={path}\n" for path in punctuation_homes),
+        )
+        symlink_path = self.root / "docs/private-home-link"
+        os.symlink("/" + "Users" + "/carol/private/config.json", symlink_path)
+        self._run(["git", "add", "-f", "--", "docs/private-home-link"], check=True)
+        result = self._gate(env={"HOME": str(operator_home)})
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        report = (self.reports / "gate.md").read_text(encoding="utf-8")
+        self.assertIn("Independent content findings: 12", report)
+        self.assertEqual(report.count("private-home-absolute"), 12)
+        self.assertNotIn(str(operator_home), report)
+        self.assertNotIn(macos_home, report)
+
+    def test_relative_home_like_paths_do_not_fail_the_maintained_gate(self) -> None:
+        self._track(
+            "README.md",
+            "Use Users/alice/config.json or home/bob/config.json as relative examples.\n",
+        )
+        result = self._gate()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_high_entropy_assignment_fails_independent_check(self) -> None:
         generated = "aB3_cD4-eF5_gH6-iJ7_kL8-mN9_oP0"
         self._track("README.md", f"access_token = {generated}\n")

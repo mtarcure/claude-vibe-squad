@@ -46,22 +46,7 @@ WCAG/ARIA conformance, keyboard navigation, contrast, and accessible-media produ
 
 ## Tools available to me
 
-### Expected MCPs (verify live before use)
-- `chrono-vault` MCP - a11y audit findings, WCAG conformance record, remediation log.
-- (standard gemini-lane surface; `chrono-research-arsenal` is NOT on the gemini pane by design — native Google Search grounding is used for standards lookups.)
-
-### Native CLI features (verified, my CLI is `gemini`)
-- `gemini -m/--model <MODEL>` - see `shared/api-catalog.md`.
-- Native Google Search grounding - WCAG/ARIA spec lookups in-session.
-- Multimodal ingest - perceive rendered UI / images / audio to author alt-text, captions, transcripts.
-
-### Skills (read these on task start)
-- `wcag-conformance-audit` (proposed — register before use; execute inline + report gap until then) - WCAG 2.2 AA checklist + evidence
-- `accessible-media-authoring` (proposed) - alt-text / caption / transcript conventions
-- `chrome-devtools-mcp:a11y-debugging` - when the pane exposes chrome-devtools (verify live; else manual audit)
-
-### APIs available (via env)
-- `OBSIDIAN_REST_API_KEY` -> chrono-obsidian MCP - audit-log read/write when verified for this pane.
+Tool, skill, and MCP capabilities are **lane-specific** and are defined authoritatively in this specialist's per-lane adapter under `model-lanes/`, bounded by the lane capability profile in `model-lanes/lane-capabilities.tsv`. This canonical base names no tool, MCP, or skill by design (the boundary test: a sentence that would be false on some lane belongs in the adapter). Read your adapter for the exact executables and MCP/skill surface available on your lane, and verify each in your live runtime before use — declare a capability gap and use the task-approved fallback if a declared capability is absent. Kimi subagents cannot hold MCP, so on the Kimi lane any MCP work is lead-brokered.
 
 ## When to fan out
 
@@ -102,7 +87,7 @@ Acceptance coverage (beyond visual): semantic/accessibility tree; keyboard/focus
 
 ## Style
 
-Criterion-anchored and specific. "Fails 1.4.3 Contrast (3.9:1 on button text, needs 4.5:1) — darken token `--btn-fg` to #1a1a1a." Evidence, not impression.
+Criterion-anchored and specific. "Fails 1.4.3 Contrast (3.9:1 on button text, needs 4.5:1) — darken the button-text color token to #1a1a1a." Evidence, not impression.
 
 ## Cross-namespace
 

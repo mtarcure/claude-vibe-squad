@@ -1,0 +1,71 @@
+record_kind	subject	value	scope	notes
+adapter_template	claude	model-lanes/claude/.claude/agents/{specialist}.md	frontmatter_optional	Claude native markdown adapter.
+adapter_template	codex	model-lanes/gpt-codex/.codex/agents/{specialist}.toml	underscore_toml_name	Codex TOML name uses underscores while the filename remains canonical hyphenated specialist.
+adapter_template	gemini	model-lanes/gemini/.gemini/agents/{specialist}.md	exact_frontmatter_name	Gemini native markdown adapter with exact canonical name.
+adapter_template	kimi	model-lanes/kimi/.kimi/agents/{specialist}.yaml	main_yaml_registration	Kimi YAML adapter must also be registered in model-lanes/kimi/main.yaml.
+heightened_role	asset-provenance-and-rights-auditor	true	all	Heightened rights gate.
+heightened_role	detection-engineer	true	all	Heightened defensive security.
+heightened_role	experimental-attacker	true	all	Authorized experimental offensive lead generation.
+heightened_role	exploit-developer	true	all	Authorized exploit reproduction.
+heightened_role	impact-validator	true	all	Bounty impact authority.
+heightened_role	incident-responder	true	all	Live incident work.
+heightened_role	privacy-steward	true	all	Privacy-sensitive judgment.
+heightened_role	red-team-operator	true	all	Authorized adversary emulation.
+heightened_role	reverse-engineer	true	all	Untrusted binary analysis.
+heightened_role	scout	true	all	Authorized target reconnaissance.
+heightened_role	scraping-engineer	true	all	Target-facing extraction.
+heightened_role	security-analyst	true	all	Security judgment.
+heightened_role	smart-contract-engineer	true	all	On-chain security engineering.
+heightened_role	software-supply-chain-engineer	true	all	Supply-chain security.
+heightened_role	threat-modeler	true	all	Adversarial security reasoning.
+primary_default	claude	allow	all	Heavy-hitter judgment lane.
+primary_default	codex	allow	all	Heavy-hitter implementation lane.
+primary_default	gemini	allow	all	Grounded research and multimodal lane.
+primary_default	kimi	deny	all	Kimi primary remains forbidden unless an explicit role exception exists.
+primary_exception	kimi	allow	experimental-attacker	Narrow operator-ratified experimental-primary exception; output remains a lead pending heavy-hitter validation and review.
+primary_exception	kimi	allow	summarizer	Narrow operator-ratified low-risk supplied-document summarization exception; Claude review remains required before consequential use.
+vocabulary	anti_affinity	author_family	all	Review anti-affinity.
+vocabulary	anti_affinity	none	all	No anti-affinity.
+vocabulary	capability_class	code_review	all	Code review.
+vocabulary	capability_class	content_text	all	Text content.
+vocabulary	capability_class	extraction	all	Structured extraction.
+vocabulary	capability_class	game_design	all	Game design.
+vocabulary	capability_class	implementation	all	Implementation and tool mechanics.
+vocabulary	capability_class	judgment	all	Decision and evaluation work.
+vocabulary	capability_class	media_production	all	Media production.
+vocabulary	capability_class	research_synthesis	all	Grounded research and synthesis.
+vocabulary	capability_class	security_defense	all	Defensive security.
+vocabulary	capability_class	security_reasoning	all	Security analysis.
+vocabulary	operator_gate	cleanup	all	Cleanup mutation.
+vocabulary	operator_gate	credential_change	all	Credential mutation.
+vocabulary	operator_gate	delete	all	Deletion.
+vocabulary	operator_gate	live_outreach	all	External contact.
+vocabulary	operator_gate	malware_detonation	all	Untrusted sample execution.
+vocabulary	operator_gate	offensive_execution	all	Authorized offensive execution.
+vocabulary	operator_gate	paid_media	all	Metered generation.
+vocabulary	operator_gate	production_mutation	all	Live production mutation.
+vocabulary	operator_gate	public_release	all	Publication.
+vocabulary	route_lane	claude	all	Claude lane.
+vocabulary	route_lane	codex	all	Codex lane.
+vocabulary	route_lane	gemini	all	Gemini lane.
+vocabulary	route_lane	kimi	all	Kimi lane.
+vocabulary	safety_level	high	all	High safety floor.
+vocabulary	safety_level	low	all	Low safety floor.
+vocabulary	safety_level	medium	all	Medium safety floor.
+vocabulary	safety_tag	dual_use	all	Dual-use security content.
+vocabulary	safety_tag	financial	all	Financial content.
+vocabulary	safety_tag	live_target	all	Live target interaction.
+vocabulary	safety_tag	privacy	all	Privacy-sensitive content.
+vocabulary	source_namespace	coding	all	Coding source namespace.
+vocabulary	source_namespace	content	all	Content source namespace.
+vocabulary	source_namespace	content-engineer	all	Content engineering source namespace.
+vocabulary	source_namespace	research	all	Research source namespace.
+vocabulary	source_namespace	security	all	Security source namespace.
+vocabulary	source_namespace	shared	all	Shared source namespace.
+vocabulary	source_namespace	sysmgmt	all	System-management source namespace.
+vocabulary	throughput_lane	kimi	all	Only Kimi may be a throughput lane.
+vocabulary	throughput_lane	none	all	No throughput lane.
+vocabulary	tool_profile	media.elevenlabs	all	ElevenLabs media profile.
+vocabulary	tool_profile	media.elevenlabs-agent	all	ElevenLabs agent profile.
+vocabulary	tool_profile	media.higgsfield	all	Higgsfield media profile.
+vocabulary	tool_profile	none	all	No tool-gated media profile.

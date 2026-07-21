@@ -26,9 +26,9 @@ For bug bounty and vulnerability research. Chrono owns target selection, safety 
 | Phase | Work | Likely specialists |
 |---|---|---|
 | 0 | Target discovery and operator selection | Chrono direct |
-| 1 | Target OSINT | `scout`, `research`, `data-extraction-engineer` |
+| 1 | Target OSINT | `scout`, `bounty-researcher` (grounded prior-audit/historical-exploit recon — gemini), `research`, `data-extraction-engineer` |
 | 2 | Scope and rules | `scout`, `security-analyst` |
-| 3 | Recon | `scout` |
+| 3 | Recon | `scout`, `bounty-researcher` (cited weakness-taxonomy leads — gemini) |
 | 4 | Threat model | `threat-modeler`, `security-analyst` |
 | 5 | Focused analysis | `security-analyst` |
 | 6 | PoC mechanics | `exploit-developer`, `backend-engineer`, `test-engineer` when code-heavy |
@@ -46,7 +46,7 @@ After final review, Chrono records through chrono-vault `record`: every verified
 
 - Bounty work does not imply one model lead. Chrono dispatches each specialist per `shared/specialist-runtime-map.tsv` on capability; see `shared/routing.md` for the model.
 - PoC and harness mechanics route to codex (`gpt-5.6-sol`) with claude (`claude-fable-5`) review; judgment/security-reasoning (`security-analyst`, `threat-modeler`, `impact-validator`, `scout`) is claude-primary with codex backup.
-- Target research and synthesis route to claude or codex on capability — **not kimi** (kimi is the throughput-only lane, 0 primaries).
+- Grounded prior-audit / historical-exploit / weakness-taxonomy bounty research routes to **Gemini** (`bounty-researcher`, Google Search grounding). Other target research and synthesis route to their best-fit lane per `shared/specialist-runtime-map.tsv` — judgment-heavy analysis is claude/codex. Kimi is not a bounty-research primary (its only primary is the allowlisted `experimental-attacker`); it takes research work only as a throughput/backup lane, never as the default.
 - Report wording routes to the assigned writer's lane (`technical-writer` = claude/Fable).
 - **Safety-refusal invariant:** a genuine safety refusal on any lane surfaces to the operator and is NEVER cross-family re-dispatched in either direction. The offensive-security specialists here (`security-analyst`, `exploit-developer`, `scout`, `impact-validator`, `smart-contract-engineer`, `threat-modeler`) run under heightened-risk defaults — a refused request is never shopped to a more permissive lane.
 
@@ -63,7 +63,7 @@ After final review, Chrono records through chrono-vault `record`: every verified
 
 The local CLI toolchain is well-stocked; specialists have shell access and MUST use it, not just grep:
 - **Go:** `gosec -severity=medium`, `staticcheck`, `golangci-lint`, `semgrep --config=p/gosec --config=p/golang`, `osv-scanner --lockfile go.mod`, `go test -race`, `go test -fuzz`.
-- **EVM:** `slither`, `myth`, Foundry (`forge`/`cast`/`anvil` fork-and-replay + fuzz), `echidna`, `halmos`, `aderyn`.
+- **EVM:** `slither`, `aderyn`, **`myth`** (Mythril — NOT `mythril`), `semgrep`, Foundry (`forge`/`cast`/`anvil`/`chisel` fork-and-replay + auth-fuzz), `echidna`, `medusa`, `halmos`, **ItyFuzz** (hybrid/dataflow — pinned Linux container `vibe-ityfuzz:nightly`; native Apple-Silicon build fails on Z3), **solodit-mcp** (Cyfrin Solodit ~49k audit-findings DB for precedent lookup — guarded, cutover-ready, live after operator relaunch). Skips: Manticore (archived); HexStrike (dedicated-VM-only, never lane-wide). **Mock harnesses are BLIND to valuation — fork the REAL oracle/registry.** Halmos/Z3 can't prove staking/recursive-valuation math (fuzz those).
 - **Rust/Solana:** `cargo-audit`, `clippy`, `cargo-geiger`, `cargo-fuzz`, `anchor`, `solana`.
 - **General:** `trivy`, `grype`, `gitleaks`/`trufflehog` (secret scan is operator-gated for a target org).
 
@@ -76,4 +76,8 @@ The local CLI toolchain is well-stocked; specialists have shell access and MUST 
 
 **PoC reproduction gate (before ANY submission):** the PoC author is not the validator. A **different-model-family agent** must independently **reproduce the runnable PoC from scratch** (clone/run it fresh, confirm it passes AND that the harness faithfully maps to the real in-scope code file:line — not a mis-modeled test), and **multiple models must concur** (the cross-family reproducer + `skeptic` + `impact-validator`). Chrono coordinates this fan-out and reads the verdicts — Chrono does NOT run the PoC itself (that's specialist work and a single-model check). A PoC only counts as reproduced when ≥2 model families have independently run it and agreed it proves the claim.
 
-**Swarm it:** run specialists in parallel across lanes — a claude panel (security-analyst + threat-modeler) concurrent with codex (smart-contract-engineer / exploit-developer). Namespace is only the mailbox; each specialist routes to its best-fit model.
+**Big-swarm it (proven mechanic — `--subswarm-directive`):** a lead spawns native structured subagents *within one dispatch* via `bin/send-task.sh --subswarm-directive <core.json> --subswarm-assignment '<lane>:subNN=<objective>' …` (**per-dispatch, no relaunch, no `SQUAD_WORKER_POOL_ENABLED`**). **The lead alone seals one `swarm-member-bundle/v1` (per-member entries `swarm-member-result/v1`) and decomposes it exhaustively into the review subjects `subswarm-review-subjects/v1`** — individual `subswarm-review-item/v1` subjects (one per `<lane>:sub<NN>` member's completions/findings/gaps/receipts), every declared member present, no sampling (exact schemas: `swarm_diff.py:16-22`). **Chrono / the reconciler then coordinates the per-subject cross-family review** (one `finding-review/v1` verdict per subject) **and the settlement** — it does not decompose. Every security/divergent sub-finding is a mandatory review subject, and a bundle that hides or samples one is rejected. This is distinct from the old parallel-panel "swarm."
+
+- **Lane status:** subagent-orchestration is **proven-runnable today only on gpt-codex**; **supported but NOT yet exercised end-to-end on Claude/Gemini** (their subagents inherit MCP — probed 2026-07-18 — but the lead-native fan-out has not been run to completion on those lanes yet); and **Kimi is single-lane / lead-brokered** — Kimi subagents do NOT hold MCP, so route Kimi's MCP work through the main lane or another lane. Do **not** claim a Kimi sub-swarm.
+- **Role architecture:** **Kimi = experimental-attacker** (bold, high-volume, everything-is-a-LEAD); **Gemini = research** (grounded); **Claude + Codex = heavy hitters + independent validation/skeptic**. Same-family subagents are coverage, not independent corroboration — cross-family independence lives between leads/lanes.
+- **Cross-lane `--swarm`** (independent lane children + deterministic `swarm_diff` alignment, not a vote) remains the mechanism when you want genuine cross-family corroboration on the *same* objective. Namespace is only the mailbox; each specialist routes to its best-fit model per `shared/routing.md`.

@@ -1,10 +1,15 @@
 ---
 name: music-composer
-description: "Tool-gated original music composition; Claude backup produces a TBASF blueprint when tools are unavailable."
+description: "Tool-gated original music composition; operations[chrono-media-studio]=elevenlabs__compose_music|elevenlabs__video_to_music|elevenlabs__upload_music_for_inpainting; Claude backup produces a TBASF blueprint when tools are unavailable."
 kind: local
 tools: ["read_file", "replace", "write_file", "run_shell_command", "glob", "grep_search"]
 model: inherit
 max_turns: 30
+# BEGIN SPECIALIST CAPABILITY PROJECTION
+capability_source: model-lanes/specialist-lane-capabilities.v1.json
+capability_source_sha256: 25f0f3f37817a4967e9ed68ec9c00d7c13a6618070b98723c441f91b1e05fad4
+capability_mcps: ["chrono-media-studio"]
+# END SPECIALIST CAPABILITY PROJECTION
 ---
 
 # Specialist Adapter: Music Composer

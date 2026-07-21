@@ -46,6 +46,13 @@ class PathPolicyTests(unittest.TestCase):
             "keys/release.pem",
             "model-lanes/gemini/.gemini/settings.json",
             "model-lanes/gpt/.claude/settings.local.json",
+            "model-lanes/claude/.mcp.json",
+            "model-lanes/claude/.mcp.security-arsenal.staged.json",
+            "model-lanes/gpt-codex/.codex/config.toml",
+            "model-lanes/gpt-codex/.codex/security-arsenal.staged.toml",
+            "plugins/security-mcp-stack/held-solodit.json",
+            "plugins/security-mcp-stack/preactivate-security-stack.sh",
+            "plugins/security-mcp-stack/snyk-preactivation-targets.json",
             "chrono/operator-setup.local.md",
             "logs/runtime.txt",
             "nested/runtime.log",
@@ -81,6 +88,18 @@ class PathPolicyTests(unittest.TestCase):
         )
         self.assertEqual(
             self.policy.classify("docs/superpowers/specs/spec-example.md"),
+            "public",
+        )
+        self.assertEqual(
+            self.policy.classify("model-lanes/claude/.mcp.example.json"),
+            "public",
+        )
+        self.assertEqual(
+            self.policy.classify("model-lanes/gpt-codex/.codex/agents/systems_engineer.toml"),
+            "public",
+        )
+        self.assertEqual(
+            self.policy.classify("plugins/security-mcp-stack/README.md"),
             "public",
         )
 

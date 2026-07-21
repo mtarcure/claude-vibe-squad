@@ -1,0 +1,93 @@
+<svg width="1400" height="720" viewBox="0 0 1400 720" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Vibe Squad route distribution</title>
+  <desc id="desc">71 primary specialist routes broken out by source namespace and model lane.</desc>
+  <rect width="1400" height="720" fill="#0b1020"/>
+  <text x="80" y="82" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="42" font-weight="800">Route Distribution</text>
+  <text x="80" y="120" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="22">71 primary specialist routes across 7 source namespaces.</text>
+
+  <g font-family="Inter, Arial, sans-serif" font-size="17">
+    <rect x="80" y="148" width="20" height="20" fill="#f59e0b"/>
+    <text x="108" y="164" fill="#cbd5e1">Codex 20</text>
+    <rect x="230" y="148" width="20" height="20" fill="#fb7185"/>
+    <text x="258" y="164" fill="#cbd5e1">Claude 35</text>
+    <rect x="400" y="148" width="20" height="20" fill="#c084fc"/>
+    <text x="428" y="164" fill="#cbd5e1">Gemini 14</text>
+    <rect x="580" y="148" width="20" height="20" fill="#22d3ee"/>
+    <text x="608" y="164" fill="#cbd5e1">Kimi 2</text>
+    <text x="1340" y="164" text-anchor="end" fill="#f8fafc" font-weight="800">71 total</text>
+  </g>
+
+  <line x1="100" y1="560" x2="1340" y2="560" stroke="#334155" stroke-width="2"/>
+
+  <!-- coding: codex16 claude3 total19 -->
+  <g>
+    <rect x="180.5" y="272" width="90" height="288" fill="#f59e0b" stroke="#0b1020"/>
+    <rect x="180.5" y="218" width="90" height="54" fill="#fb7185" stroke="#0b1020"/>
+    <text x="225.5" y="204" text-anchor="middle" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="800">19</text>
+    <text x="225.5" y="416" text-anchor="middle" fill="#111827" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="700">16</text>
+    <text x="225.5" y="249" text-anchor="middle" fill="#111827" font-family="Inter, Arial, sans-serif" font-size="14" font-weight="700">3</text>
+    <text x="225.5" y="585" text-anchor="middle" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="15">coding</text>
+  </g>
+
+  <!-- content: claude7 gemini4 total11 -->
+  <g>
+    <rect x="351.5" y="434" width="90" height="126" fill="#fb7185" stroke="#0b1020"/>
+    <rect x="351.5" y="362" width="90" height="72" fill="#c084fc" stroke="#0b1020"/>
+    <text x="396.5" y="348" text-anchor="middle" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="800">11</text>
+    <text x="396.5" y="501" text-anchor="middle" fill="#111827" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="700">7</text>
+    <text x="396.5" y="402" text-anchor="middle" fill="#111827" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="700">4</text>
+    <text x="396.5" y="585" text-anchor="middle" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="15">content</text>
+  </g>
+
+  <!-- content-engineer: codex1 claude1 gemini8 total10 -->
+  <g>
+    <rect x="522.5" y="542" width="90" height="18" fill="#f59e0b" stroke="#0b1020"/>
+    <rect x="522.5" y="524" width="90" height="18" fill="#fb7185" stroke="#0b1020"/>
+    <rect x="522.5" y="380" width="90" height="144" fill="#c084fc" stroke="#0b1020"/>
+    <text x="567.5" y="366" text-anchor="middle" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="800">10</text>
+    <text x="567.5" y="456" text-anchor="middle" fill="#111827" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="700">8</text>
+    <text x="567.5" y="585" text-anchor="middle" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="15">content-engineer</text>
+  </g>
+
+  <!-- research: codex1 claude3 gemini2 total6 -->
+  <g>
+    <rect x="693.5" y="542" width="90" height="18" fill="#f59e0b" stroke="#0b1020"/>
+    <rect x="693.5" y="488" width="90" height="54" fill="#fb7185" stroke="#0b1020"/>
+    <rect x="693.5" y="452" width="90" height="36" fill="#c084fc" stroke="#0b1020"/>
+    <text x="738.5" y="438" text-anchor="middle" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="800">6</text>
+    <text x="738.5" y="519" text-anchor="middle" fill="#111827" font-family="Inter, Arial, sans-serif" font-size="14" font-weight="700">3</text>
+    <text x="738.5" y="474" text-anchor="middle" fill="#111827" font-family="Inter, Arial, sans-serif" font-size="14" font-weight="700">2</text>
+    <text x="738.5" y="585" text-anchor="middle" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="15">research</text>
+  </g>
+
+  <!-- security: codex2 claude8 kimi1 total11 -->
+  <g>
+    <rect x="864.5" y="524" width="90" height="36" fill="#f59e0b" stroke="#0b1020"/>
+    <rect x="864.5" y="380" width="90" height="144" fill="#fb7185" stroke="#0b1020"/>
+    <rect x="864.5" y="362" width="90" height="18" fill="#22d3ee" stroke="#0b1020"/>
+    <text x="909.5" y="348" text-anchor="middle" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="800">11</text>
+    <text x="909.5" y="546" text-anchor="middle" fill="#111827" font-family="Inter, Arial, sans-serif" font-size="14" font-weight="700">2</text>
+    <text x="909.5" y="456" text-anchor="middle" fill="#111827" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="700">8</text>
+    <text x="909.5" y="585" text-anchor="middle" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="15">security</text>
+  </g>
+
+  <!-- shared: claude5 kimi1 total6 -->
+  <g>
+    <rect x="1035.5" y="470" width="90" height="90" fill="#fb7185" stroke="#0b1020"/>
+    <rect x="1035.5" y="452" width="90" height="18" fill="#22d3ee" stroke="#0b1020"/>
+    <text x="1080.5" y="438" text-anchor="middle" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="800">6</text>
+    <text x="1080.5" y="519" text-anchor="middle" fill="#111827" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="700">5</text>
+    <text x="1080.5" y="585" text-anchor="middle" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="15">shared</text>
+  </g>
+
+  <!-- sysmgmt: claude8 total8 -->
+  <g>
+    <rect x="1206.5" y="416" width="90" height="144" fill="#fb7185" stroke="#0b1020"/>
+    <text x="1251.5" y="402" text-anchor="middle" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="800">8</text>
+    <text x="1251.5" y="492" text-anchor="middle" fill="#111827" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="700">8</text>
+    <text x="1251.5" y="585" text-anchor="middle" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="15">sysmgmt</text>
+  </g>
+
+  <rect x="180" y="636" width="1040" height="60" rx="12" fill="#111827" stroke="#334155"/>
+  <text x="700" y="672" text-anchor="middle" fill="#cbd5e1" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="17">codex.sol.high &#183; claude.fable.xhigh &#183; gemini.flash.default &#183; kimi.k2.7.bulk</text>
+</svg>

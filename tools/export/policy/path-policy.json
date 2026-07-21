@@ -34,6 +34,13 @@
     "**/*.pfx",
     "**/.claude/settings.local.json",
     "model-lanes/*/.gemini/settings.json",
+    "model-lanes/claude/.mcp.json",
+    "model-lanes/claude/.mcp.security-arsenal.staged.json",
+    "model-lanes/gpt-codex/.codex/config.toml",
+    "model-lanes/gpt-codex/.codex/security-arsenal.staged.toml",
+    "plugins/security-mcp-stack/held-solodit.json",
+    "plugins/security-mcp-stack/preactivate-security-stack.sh",
+    "plugins/security-mcp-stack/snyk-preactivation-targets.json",
     "**/*.local.md",
     "**/*.log",
     "logs/**",
@@ -46,6 +53,7 @@
     "_state/repo-split-2026-07-16/identifier-denylist.txt"
   ],
   "public": [
+    ".agents/skills/**",
     ".claude/**",
     ".claude-plugin/**",
     ".githooks/**",

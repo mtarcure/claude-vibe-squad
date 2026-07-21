@@ -1,0 +1,5490 @@
+{
+  "baseline_ref": "be0354823d51f93d47f4833b8bfafd2a6b204dcd",
+  "entries": [
+    {
+      "adapter": "model-lanes/claude/.claude/agents/accessibility-engineer.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "accessibility-engineer",
+      "tools": [
+        "chrome-devtools"
+      ]
+    },
+    {
+      "adapter": "model-lanes/gemini/.gemini/agents/accessibility-engineer.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gemini",
+      "limitations": [],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [
+        "accessible-media-authoring",
+        "wcag-conformance-audit"
+      ],
+      "specialist": "accessibility-engineer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/agentops.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "mcp-reachability-audit",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "prompt-cache-hit-monitoring",
+            "requirement": "preferred"
+          }
+        ],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "resolution": "local"
+        }
+      ],
+      "skills": [
+        "harness-baseline-audit",
+        "instinct-prune-loop",
+        "kg-vault-health-check",
+        "stale-knowledge-purge"
+      ],
+      "specialist": "agentops",
+      "tools": [
+        "awk",
+        "du",
+        "find",
+        "jq",
+        "lsof",
+        "pgrep",
+        "ps",
+        "tmux"
+      ]
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/agentops.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "agentops",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/ai-engineer.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "eval-harness-pattern",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "prompt-cache-discipline",
+            "requirement": "preferred"
+          }
+        ],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [
+        "agent-architecture-pattern",
+        "mcp-tool-design",
+        "multi-model-routing-discipline",
+        "rag-eval-loop"
+      ],
+      "specialist": "ai-engineer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/ai-engineer.toml",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gpt-codex",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "resolution": "local"
+        }
+      ],
+      "skills": [],
+      "specialist": "ai-engineer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/architect.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "dependency-cycle-audit",
+            "requirement": "preferred"
+          }
+        ],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault",
+        "sequential-thinking"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "sequential-thinking",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "sequential-thinking",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "resolution": "local"
+        }
+      ],
+      "skills": [
+        "boundary-design",
+        "c4-model-authoring",
+        "data-model-contract",
+        "interface-ambiguity-check"
+      ],
+      "specialist": "architect",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/architect.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "architect",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/asset-provenance-and-rights-auditor.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [
+        "consent-and-likeness-check",
+        "rights-and-provenance-gate"
+      ],
+      "specialist": "asset-provenance-and-rights-auditor",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gemini/.gemini/agents/asset-provenance-and-rights-auditor.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gemini",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "asset-provenance-and-rights-auditor",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/backend-engineer.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [
+        "async-scraper-pipeline",
+        "axum-tokio-pattern",
+        "fastapi-service-boot",
+        "mcp-server-cdp-pattern",
+        "n8n-workflow-orchestration",
+        "playwright-stealth-config"
+      ],
+      "specialist": "backend-engineer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/backend-engineer.toml",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gpt-codex",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "resolution": "local"
+        }
+      ],
+      "skills": [],
+      "specialist": "backend-engineer",
+      "tools": [
+        "playwright"
+      ]
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/bounty-researcher.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "bounty-researcher",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gemini/.gemini/agents/bounty-researcher.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gemini",
+      "limitations": [
+        "grounded live search stays on Gemini; deep six-round research hands off to large-context-analyst on Claude"
+      ],
+      "mcps": [],
+      "primary_plan": [
+        {
+          "capability_id": "google_web_search",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "Google Search grounding",
+          "kind": "tools",
+          "provider_lane": "gemini",
+          "resolution": "local"
+        }
+      ],
+      "skills": [],
+      "specialist": "bounty-researcher",
+      "tools": [
+        "google_web_search"
+      ]
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/bounty-researcher.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "bounty-researcher",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/brand-voice.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [
+        "chrono-media-studio",
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "chrono-media-studio",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-media-studio",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "resolution": "local"
+        }
+      ],
+      "skills": [
+        "cite-properly",
+        "skill-description-trigger-authoring",
+        "writing-skills"
+      ],
+      "specialist": "brand-voice",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gemini/.gemini/agents/brand-voice.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gemini",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "brand-voice",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/code-reviewer.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "resolution": "local"
+        }
+      ],
+      "skills": [
+        "claim-validation-gate",
+        "code-review-loop",
+        "diff-aware-semgrep-scan",
+        "differential-review",
+        "dimensional-analysis-check",
+        "review-severity-ladder"
+      ],
+      "specialist": "code-reviewer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/code-reviewer.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "code-reviewer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/content-verifier.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [],
+      "primary_plan": [
+        {
+          "capability_id": "google_web_search",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "Google Search grounding",
+          "kind": "tools",
+          "provider_lane": "gemini",
+          "resolution": "handoff"
+        }
+      ],
+      "skills": [
+        "citation-audit",
+        "claim-verification",
+        "verification-before-completion"
+      ],
+      "specialist": "content-verifier",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gemini/.gemini/agents/content-verifier.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gemini",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "content-verifier",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/copywriter.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "copy-refinement",
+            "requirement": "preferred"
+          }
+        ],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [
+        "cite-properly",
+        "writing-skills"
+      ],
+      "specialist": "copywriter",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gemini/.gemini/agents/copywriter.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "perplexity_search_web",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gemini",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "firecrawl_scrape",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "firecrawl",
+          "kind": "tools",
+          "provider_lane": "gemini",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "gemini",
+          "resolution": "local"
+        }
+      ],
+      "skills": [],
+      "specialist": "copywriter",
+      "tools": [
+        "firecrawl_scrape"
+      ]
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/data-extraction-engineer.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "data-cleaning-pipeline",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "schema-inference",
+            "requirement": "preferred"
+          }
+        ],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [
+        "cite-properly",
+        "evidence-level",
+        "find-sources",
+        "research-integrity-gate",
+        "source-triangulation",
+        "summarize-findings"
+      ],
+      "specialist": "data-extraction-engineer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/data-extraction-engineer.toml",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "ftfy",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "pandas",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "pandoc",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "pdfplumber",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "perplexity_search_web",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "polars",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "pymupdf",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "tabula",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gpt-codex",
+      "limitations": [],
+      "mcps": [
+        "chrono-research-arsenal",
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-research-arsenal",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-research-arsenal",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "resolution": "local"
+        }
+      ],
+      "skills": [],
+      "specialist": "data-extraction-engineer",
+      "tools": [
+        "pdftotext"
+      ]
+    },
+    {
+      "adapter": "model-lanes/kimi/.kimi/agents/data-extraction-engineer.yaml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "kimi",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "data-extraction-engineer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/database-engineer.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "database-engineer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/database-engineer.toml",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gpt-codex",
+      "limitations": [],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "database-engineer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/detection-engineer.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [
+        "attack-coverage-map",
+        "detection-as-code",
+        "detection-tuning"
+      ],
+      "specialist": "detection-engineer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/detection-engineer.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "detection-engineer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/devops-engineer.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "rollback-test-coverage",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "secret-rotation-discipline",
+            "requirement": "preferred"
+          }
+        ],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [
+        "cc-hooks-ci-discipline",
+        "k8s-deploy-loop",
+        "terraform-state-hygiene"
+      ],
+      "specialist": "devops-engineer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/devops-engineer.toml",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gpt-codex",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "resolution": "local"
+        }
+      ],
+      "skills": [
+        "sandbox-provision-discipline"
+      ],
+      "specialist": "devops-engineer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/editor.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "voice-consistency-audit",
+            "requirement": "preferred"
+          }
+        ],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "resolution": "local"
+        }
+      ],
+      "skills": [
+        "cite-properly",
+        "skill-description-trigger-authoring",
+        "writing-skills"
+      ],
+      "specialist": "editor",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gemini/.gemini/agents/editor.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gemini",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "editor",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/experimental-attacker.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "experimental-attacker",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/experimental-attacker.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "experimental-attacker",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/kimi/.kimi/agents/experimental-attacker.yaml",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "kimi",
+      "limitations": [],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "experimental-attacker",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/exploit-developer.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [
+          {
+            "availability": "pending-restart-activation",
+            "evidence": "staged-lane-config:validate-staged",
+            "id": "guarded-semgrep",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "pending-restart-activation",
+            "evidence": "staged-lane-config:validate-staged",
+            "id": "guarded-slither",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "pending-restart-activation",
+            "evidence": "staged-lane-config:validate-staged",
+            "id": "guarded-solodit",
+            "requirement": "preferred"
+          }
+        ],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [
+        "chrono-research-arsenal",
+        "chrono-vault"
+      ],
+      "primary_plan": [],
+      "skills": [
+        "binary-re-pipeline",
+        "fuzzing-campaign-flow",
+        "pwntools-exploit-authoring",
+        "scope-gate",
+        "xbow-benchmark-runner"
+      ],
+      "specialist": "exploit-developer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/exploit-developer.toml",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [
+          {
+            "availability": "pending-restart-activation",
+            "evidence": "staged-lane-config:validate-staged",
+            "id": "guarded-semgrep",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "pending-restart-activation",
+            "evidence": "staged-lane-config:validate-staged",
+            "id": "guarded-slither",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "pending-restart-activation",
+            "evidence": "staged-lane-config:validate-staged",
+            "id": "guarded-solodit",
+            "requirement": "preferred"
+          }
+        ],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "afl",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "angr",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "burp",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "ghidra",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "ida",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "libfuzzer",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "mitmproxy",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "pwntools",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gpt-codex",
+      "limitations": [],
+      "mcps": [
+        "chrono-research-arsenal",
+        "chrono-vault",
+        "playwright"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "playwright",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "playwright",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "resolution": "local"
+        }
+      ],
+      "skills": [
+        "sandbox-provision-discipline"
+      ],
+      "specialist": "exploit-developer",
+      "tools": [
+        "aderyn",
+        "anvil",
+        "cast",
+        "chisel",
+        "curl",
+        "echidna",
+        "forge",
+        "halmos",
+        "hardhat",
+        "medusa",
+        "myth",
+        "playwright",
+        "radare2",
+        "semgrep",
+        "slither"
+      ]
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/finance-analyst.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "pandas",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "plaid",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "polars",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [
+        "chrono-research-arsenal",
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "chrono-research-arsenal",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-research-arsenal",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "resolution": "local"
+        }
+      ],
+      "skills": [
+        "harness-baseline-audit",
+        "instinct-prune-loop",
+        "kg-vault-health-check",
+        "stale-knowledge-purge"
+      ],
+      "specialist": "finance-analyst",
+      "tools": [
+        "pdftotext"
+      ]
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/finance-analyst.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "finance-analyst",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/frontend-engineer.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "cross-family review route; browser execution uses fresh profiles unless explicitly authorized for Claude CDP :9222"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [
+        "collab-editor-stack",
+        "frontend-visual-discipline",
+        "playwright-session-recorder",
+        "react-performance-loop",
+        "tailwind-class-management"
+      ],
+      "specialist": "frontend-engineer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gemini/.gemini/agents/frontend-engineer.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gemini",
+      "limitations": [
+        "fresh-browser backup only; authenticated CDP :9222 sessions remain Claude-specific"
+      ],
+      "mcps": [
+        "chrome-devtools",
+        "playwright"
+      ],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "frontend-engineer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/frontend-engineer.toml",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gpt-codex",
+      "limitations": [],
+      "mcps": [
+        "chrome-devtools",
+        "chrono-vault",
+        "playwright"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "chrome-devtools",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrome-devtools",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "playwright",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "playwright",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "resolution": "local"
+        }
+      ],
+      "skills": [],
+      "specialist": "frontend-engineer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/game-designer.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "game-design-fundamentals",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "game-mechanics-balancing",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "player-engagement-psychology",
+            "requirement": "preferred"
+          }
+        ],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "game-designer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gemini/.gemini/agents/game-designer.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gemini",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "game-designer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/game-designer.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "game-designer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/game-engineer.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "cross-arch-test-discipline",
+            "requirement": "preferred"
+          }
+        ],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [
+        "cross-arch-build-discipline"
+      ],
+      "specialist": "game-engineer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/game-engineer.toml",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gpt-codex",
+      "limitations": [],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "game-engineer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/growth-and-search-analyst.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "growth-and-search-analyst",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gemini/.gemini/agents/growth-and-search-analyst.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gemini",
+      "limitations": [],
+      "mcps": [],
+      "primary_plan": [
+        {
+          "capability_id": "google_web_search",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "Google Search grounding",
+          "kind": "tools",
+          "provider_lane": "gemini",
+          "resolution": "local"
+        }
+      ],
+      "skills": [
+        "keyword-clustering",
+        "structured-data-authoring",
+        "technical-seo-audit"
+      ],
+      "specialist": "growth-and-search-analyst",
+      "tools": [
+        "google_web_search"
+      ]
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/growth-and-search-analyst.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "growth-and-search-analyst",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/kimi/.kimi/agents/growth-and-search-analyst.yaml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "kimi",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "growth-and-search-analyst",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/harness-optimizer.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "resolution": "local"
+        }
+      ],
+      "skills": [
+        "harness-baseline-audit",
+        "leverage-area-identification",
+        "reversible-change-protocol"
+      ],
+      "specialist": "harness-optimizer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/harness-optimizer.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "harness-optimizer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/image-designer.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "color-theory",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "composition-rules",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "visual-design-principles",
+            "requirement": "preferred"
+          }
+        ],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "image-designer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gemini/.gemini/agents/image-designer.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gemini",
+      "limitations": [],
+      "mcps": [],
+      "primary_plan": [
+        {
+          "capability_id": "generate_image",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "generate_image",
+          "kind": "tools",
+          "provider_lane": "gemini",
+          "resolution": "local"
+        }
+      ],
+      "skills": [],
+      "specialist": "image-designer",
+      "tools": [
+        "generate_image"
+      ]
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/impact-validator.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [
+        "chrono-research-arsenal",
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "resolution": "local"
+        }
+      ],
+      "skills": [
+        "chain-impact-rescore",
+        "cvss-v4-gate",
+        "nvd-osv-calibration",
+        "program-fit-check",
+        "program-rubric-lookup",
+        "self-inflicted-detector"
+      ],
+      "specialist": "impact-validator",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/impact-validator.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "impact-validator",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/incident-responder.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [],
+      "skills": [
+        "agentic-safety-audit",
+        "forensic-timeline-authoring",
+        "incident-response-runbook"
+      ],
+      "specialist": "incident-responder",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/incident-responder.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "incident-responder",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/interactive-audio-designer.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [
+        "interface-ambiguity-check"
+      ],
+      "specialist": "interactive-audio-designer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gemini/.gemini/agents/interactive-audio-designer.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gemini",
+      "limitations": [],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [
+        "audio-event-map-authoring",
+        "interactive-audio-design"
+      ],
+      "specialist": "interactive-audio-designer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/interactive-audio-designer.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "interactive-audio-designer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/knowledge-librarian.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "zotero",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "resolution": "local"
+        }
+      ],
+      "skills": [
+        "binary-doc-to-markdown",
+        "harness-baseline-audit",
+        "instinct-prune-loop",
+        "kg-vault-health-check",
+        "stale-knowledge-purge"
+      ],
+      "specialist": "knowledge-librarian",
+      "tools": [
+        "pdftotext"
+      ]
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/knowledge-librarian.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "knowledge-librarian",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/large-context-analyst.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "evidence-chain-preservation",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "probe-failed",
+            "evidence": "claude-plugin:legacy-manifest",
+            "id": "ultra-research",
+            "requirement": "preferred"
+          }
+        ],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "perplexity_search_web",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [
+        "chrono-research-arsenal",
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-research-arsenal",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-research-arsenal",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "resolution": "local"
+        }
+      ],
+      "skills": [
+        "claim-validation-gate",
+        "cross-file-relationship-synthesis",
+        "dual-level-retrieval",
+        "layered-analysis-loop",
+        "scope-estimation"
+      ],
+      "specialist": "large-context-analyst",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/large-context-analyst.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "large-context-analyst",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/learning-coach.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "resolution": "local"
+        }
+      ],
+      "skills": [
+        "cite-properly",
+        "evidence-level",
+        "find-sources",
+        "research-integrity-gate",
+        "source-triangulation",
+        "summarize-findings"
+      ],
+      "specialist": "learning-coach",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gemini/.gemini/agents/learning-coach.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gemini",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "learning-coach",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/learning-coach.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "learning-coach",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/level-narrative-designer.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [
+        "interface-ambiguity-check",
+        "level-design-patterns",
+        "narrative-structure"
+      ],
+      "specialist": "level-narrative-designer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gemini/.gemini/agents/level-narrative-designer.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gemini",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "level-narrative-designer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/localization-specialist.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [
+        "locale-adaptation",
+        "regional-compliance-check",
+        "terminology-memory"
+      ],
+      "specialist": "localization-specialist",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gemini/.gemini/agents/localization-specialist.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gemini",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "localization-specialist",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/loop-operator.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "resolution": "local"
+        }
+      ],
+      "skills": [
+        "loop-checkpoint-protocol",
+        "safe-intervention",
+        "stall-detection"
+      ],
+      "specialist": "loop-operator",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/loop-operator.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "loop-operator",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/mac-ops.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "hammerspoon",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "htop",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "iftop",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "pip",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "resolution": "local"
+        }
+      ],
+      "skills": [
+        "harness-baseline-audit",
+        "instinct-prune-loop",
+        "kg-vault-health-check",
+        "stale-knowledge-purge"
+      ],
+      "specialist": "mac-ops",
+      "tools": [
+        "brew",
+        "df",
+        "diskutil",
+        "fswatch",
+        "iotop",
+        "launchctl",
+        "npm",
+        "osascript",
+        "pipx",
+        "shortcuts",
+        "tmux",
+        "uv"
+      ]
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/mac-ops.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "mac-ops",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/memory-curator.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "resolution": "local"
+        }
+      ],
+      "skills": [
+        "brain-trio-amendment-authoring",
+        "instinct-prune-loop",
+        "kg-vault-health-check",
+        "stale-knowledge-purge"
+      ],
+      "specialist": "memory-curator",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/memory-curator.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "memory-curator",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/music-composer.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "music-production-basics",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "sonic-branding",
+            "requirement": "preferred"
+          }
+        ],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "music-composer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gemini/.gemini/agents/music-composer.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gemini",
+      "limitations": [],
+      "mcps": [
+        "chrono-media-studio"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-media-studio",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-media-studio",
+          "kind": "mcps",
+          "provider_lane": "gemini",
+          "resolution": "local"
+        }
+      ],
+      "skills": [],
+      "specialist": "music-composer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/performance-optimizer.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "regression-bisect-flow",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "representative-workload-design",
+            "requirement": "preferred"
+          }
+        ],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [
+        "cross-arch-compute-routing",
+        "flamegraph-triage-flow",
+        "thread-sweet-spot-profiling"
+      ],
+      "specialist": "performance-optimizer",
+      "tools": [
+        "chrome-devtools"
+      ]
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/performance-optimizer.toml",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "cargo-flamegraph",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "cprofile",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "instruments",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "line_profiler",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "perf",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gpt-codex",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "resolution": "local"
+        }
+      ],
+      "skills": [],
+      "specialist": "performance-optimizer",
+      "tools": [
+        "dtrace",
+        "pprof",
+        "py-spy"
+      ]
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/personal-ops.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "resolution": "local"
+        }
+      ],
+      "skills": [
+        "harness-baseline-audit",
+        "instinct-prune-loop",
+        "kg-vault-health-check",
+        "stale-knowledge-purge"
+      ],
+      "specialist": "personal-ops",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/personal-ops.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "personal-ops",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/planner.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault",
+        "sequential-thinking"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "sequential-thinking",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "sequential-thinking",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "resolution": "local"
+        }
+      ],
+      "skills": [],
+      "specialist": "planner",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/planner.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "planner",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/privacy-steward.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [
+        "chrono-research-arsenal",
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "resolution": "local"
+        }
+      ],
+      "skills": [
+        "agentic-safety-audit",
+        "cvss-v4-gate",
+        "data-flow-trace",
+        "pre-audit-threat-model",
+        "scope-gate",
+        "supply-chain-audit"
+      ],
+      "specialist": "privacy-steward",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/privacy-steward.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "privacy-steward",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/product-manager.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "requirements-elicitation",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "scope-decomposition",
+            "requirement": "preferred"
+          }
+        ],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "resolution": "local"
+        }
+      ],
+      "skills": [
+        "code-review-loop",
+        "review-severity-ladder",
+        "systematic-debugging",
+        "test-driven-development",
+        "verification-before-completion"
+      ],
+      "specialist": "product-manager",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/product-manager.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "product-manager",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/prompt-engineer.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "resolution": "local"
+        }
+      ],
+      "skills": [],
+      "specialist": "prompt-engineer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/prompt-engineer.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "prompt-engineer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/red-team-operator.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "red-team-operator",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/red-team-operator.toml",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gpt-codex",
+      "limitations": [],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "red-team-operator",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/refactor-cleaner.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "behavior-preservation-test",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "refactor-scope-bounding",
+            "requirement": "preferred"
+          }
+        ],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [
+        "ast-rewrite-loop",
+        "comby-semantic-patch",
+        "dead-code-elimination",
+        "import-reorg"
+      ],
+      "specialist": "refactor-cleaner",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/refactor-cleaner.toml",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "babel",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "clippy",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "depcheck",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "knip",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "pylint",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "python-ast",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "rust-syn",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "ts-morph",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gpt-codex",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "resolution": "local"
+        }
+      ],
+      "skills": [],
+      "specialist": "refactor-cleaner",
+      "tools": [
+        "comby",
+        "ruff"
+      ]
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/research.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [
+        "cite-properly",
+        "dual-level-retrieval",
+        "evidence-level",
+        "find-sources",
+        "research-integrity-gate",
+        "source-triangulation",
+        "summarize-findings"
+      ],
+      "specialist": "research",
+      "tools": [
+        "firecrawl"
+      ]
+    },
+    {
+      "adapter": "model-lanes/gemini/.gemini/agents/research.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "context7",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "perplexity_search_web",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gemini",
+      "limitations": [
+        "grounded live search stays on Gemini; deep six-round research hands off to large-context-analyst on Claude"
+      ],
+      "mcps": [
+        "chrono-research-arsenal",
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-research-arsenal",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-research-arsenal",
+          "kind": "mcps",
+          "provider_lane": "gemini",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "gemini",
+          "resolution": "local"
+        }
+      ],
+      "skills": [],
+      "specialist": "research",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/research.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "research",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/reverse-engineer.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "reverse-engineer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/reverse-engineer.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "reverse-engineer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/scout.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "aquatone",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "linkfinder",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "nmap",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "paramspider",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "waybackmachine",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [
+        "chrome-devtools",
+        "chrono-recon",
+        "chrono-research-arsenal",
+        "chrono-vault",
+        "playwright"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-research-arsenal",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-research-arsenal",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "playwright",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "playwright",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "chrome-devtools",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrome-devtools",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "resolution": "local"
+        }
+      ],
+      "skills": [
+        "api-surface-mapper",
+        "github-recon",
+        "nuclei-scan",
+        "program-intel-query",
+        "recon-chain-orchestrator",
+        "scope-gate"
+      ],
+      "specialist": "scout",
+      "tools": [
+        "amass",
+        "gowitness",
+        "httpx",
+        "nuclei",
+        "subfinder"
+      ]
+    },
+    {
+      "adapter": "model-lanes/gemini/.gemini/agents/scout.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gemini",
+      "limitations": [
+        "fresh-browser and non-authenticated reconnaissance only; authenticated CDP :9222 work remains on Claude primary"
+      ],
+      "mcps": [
+        "chrome-devtools",
+        "chrono-recon",
+        "chrono-research-arsenal",
+        "playwright"
+      ],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "scout",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/scout.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "review and CLI reconnaissance only; authenticated playwright/chrome-devtools browser work remains on Claude primary"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "scout",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/scraping-engineer.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "rate-limit-respect",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "tos-compliance-check",
+            "requirement": "preferred"
+          }
+        ],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [
+        "bot-evasion-loop",
+        "browser-scrape-pipeline",
+        "data-normalization",
+        "playwright-stealth-config",
+        "scrape-state-persistence"
+      ],
+      "specialist": "scraping-engineer",
+      "tools": [
+        "chrome-devtools"
+      ]
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/scraping-engineer.toml",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "beautifulsoup",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "browser-use",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "lxml",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "pandas",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "polars",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "requests",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gpt-codex",
+      "limitations": [],
+      "mcps": [
+        "chrome-devtools",
+        "chrono-vault",
+        "playwright"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "playwright",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "playwright",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "chrome-devtools",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrome-devtools",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "resolution": "local"
+        }
+      ],
+      "skills": [],
+      "specialist": "scraping-engineer",
+      "tools": [
+        "httpx",
+        "playwright"
+      ]
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/security-analyst.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [
+          {
+            "availability": "pending-restart-activation",
+            "evidence": "staged-lane-config:validate-staged",
+            "id": "guarded-semgrep",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "pending-restart-activation",
+            "evidence": "staged-lane-config:validate-staged",
+            "id": "guarded-slither",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "pending-restart-activation",
+            "evidence": "staged-lane-config:validate-staged",
+            "id": "guarded-solodit",
+            "requirement": "preferred"
+          }
+        ],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "bandit",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "brakeman",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "eslint-security",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "snyk",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [
+        "chrono-recon",
+        "chrono-research-arsenal",
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "resolution": "local"
+        }
+      ],
+      "skills": [
+        "agentic-safety-audit",
+        "dependency-health-triage",
+        "findings-filter",
+        "osint-platform-audit",
+        "review-severity-ladder",
+        "security-ownership-map",
+        "security-threat-model",
+        "semgrep-rule-author",
+        "supply-chain-audit",
+        "variant-analysis"
+      ],
+      "specialist": "security-analyst",
+      "tools": [
+        "aderyn",
+        "anvil",
+        "cast",
+        "echidna",
+        "forge",
+        "halmos",
+        "medusa",
+        "myth",
+        "nikto",
+        "nuclei",
+        "osv-scanner",
+        "semgrep",
+        "slither",
+        "trivy"
+      ]
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/security-analyst.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [
+          {
+            "availability": "pending-restart-activation",
+            "evidence": "staged-lane-config:validate-staged",
+            "id": "guarded-semgrep",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "pending-restart-activation",
+            "evidence": "staged-lane-config:validate-staged",
+            "id": "guarded-slither",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "pending-restart-activation",
+            "evidence": "staged-lane-config:validate-staged",
+            "id": "guarded-solodit",
+            "requirement": "preferred"
+          }
+        ],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "security-analyst",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/site-reliability-engineer.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "site-reliability-engineer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/site-reliability-engineer.toml",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gpt-codex",
+      "limitations": [],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "site-reliability-engineer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/skeptic.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "resolution": "local"
+        }
+      ],
+      "skills": [],
+      "specialist": "skeptic",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/skeptic.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "skeptic",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/smart-contract-engineer.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [
+          {
+            "availability": "pending-restart-activation",
+            "evidence": "staged-lane-config:validate-staged",
+            "id": "guarded-semgrep",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "pending-restart-activation",
+            "evidence": "staged-lane-config:validate-staged",
+            "id": "guarded-slither",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "pending-restart-activation",
+            "evidence": "staged-lane-config:validate-staged",
+            "id": "guarded-solodit",
+            "requirement": "preferred"
+          }
+        ],
+        "skills": [
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "audit-context-prep",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "gas-optimization-pattern",
+            "requirement": "preferred"
+          }
+        ],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [
+        "evm-audit-flow",
+        "solana-audit-flow",
+        "vulnhunter-solana"
+      ],
+      "specialist": "smart-contract-engineer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/smart-contract-engineer.toml",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [
+          {
+            "availability": "pending-restart-activation",
+            "evidence": "staged-lane-config:validate-staged",
+            "id": "guarded-semgrep",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "pending-restart-activation",
+            "evidence": "staged-lane-config:validate-staged",
+            "id": "guarded-slither",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "pending-restart-activation",
+            "evidence": "staged-lane-config:validate-staged",
+            "id": "guarded-solodit",
+            "requirement": "preferred"
+          }
+        ],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "litesvm",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gpt-codex",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "resolution": "local"
+        }
+      ],
+      "skills": [],
+      "specialist": "smart-contract-engineer",
+      "tools": [
+        "aderyn",
+        "anchor",
+        "echidna",
+        "forge",
+        "halmos",
+        "hardhat",
+        "medusa",
+        "myth",
+        "slither"
+      ]
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/social-strategist.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [
+        "cite-properly",
+        "skill-description-trigger-authoring",
+        "writing-skills"
+      ],
+      "specialist": "social-strategist",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gemini/.gemini/agents/social-strategist.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gemini",
+      "limitations": [],
+      "mcps": [
+        "chrono-media-studio",
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "gemini",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "chrono-media-studio",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-media-studio",
+          "kind": "mcps",
+          "provider_lane": "gemini",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "google_web_search",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "Google Search grounding",
+          "kind": "tools",
+          "provider_lane": "gemini",
+          "resolution": "local"
+        }
+      ],
+      "skills": [],
+      "specialist": "social-strategist",
+      "tools": [
+        "google_web_search"
+      ]
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/software-supply-chain-engineer.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "cross-arch-test-discipline",
+            "requirement": "preferred"
+          }
+        ],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [
+        "compiler-bootstrap-flow",
+        "cross-arch-build-discipline"
+      ],
+      "specialist": "software-supply-chain-engineer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/software-supply-chain-engineer.toml",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gpt-codex",
+      "limitations": [],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "software-supply-chain-engineer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/sound-designer.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "audio-layering-techniques",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "sound-design-principles",
+            "requirement": "preferred"
+          }
+        ],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "sound-designer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gemini/.gemini/agents/sound-designer.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gemini",
+      "limitations": [],
+      "mcps": [
+        "chrono-media-studio"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-media-studio",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-media-studio",
+          "kind": "mcps",
+          "provider_lane": "gemini",
+          "resolution": "local"
+        }
+      ],
+      "skills": [],
+      "specialist": "sound-designer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/summarizer.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "summarizer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/summarizer.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "perplexity_search_web",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "summarizer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/kimi/.kimi/agents/summarizer.yaml",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "kimi",
+      "limitations": [],
+      "mcps": [
+        "lead:chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "lead:chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "kimi",
+          "resolution": "local"
+        }
+      ],
+      "skills": [],
+      "specialist": "summarizer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/synthesizer.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "perplexity_search_web",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "resolution": "local"
+        }
+      ],
+      "skills": [
+        "cite-properly",
+        "cross-file-relationship-synthesis",
+        "evidence-level",
+        "preserve-outliers",
+        "summarize-findings"
+      ],
+      "specialist": "synthesizer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/synthesizer.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "synthesizer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/systems-engineer.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "cross-arch-test-discipline",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "simd-correctness-validation",
+            "requirement": "preferred"
+          }
+        ],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [
+        "compiler-bootstrap-flow",
+        "cross-arch-build-discipline",
+        "hybrid-threading-tuning",
+        "simd-porting-layer"
+      ],
+      "specialist": "systems-engineer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/systems-engineer.toml",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gpt-codex",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "resolution": "local"
+        }
+      ],
+      "skills": [],
+      "specialist": "systems-engineer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/technical-artist.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "cross-arch-test-discipline",
+            "requirement": "preferred"
+          }
+        ],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [
+        "cross-arch-build-discipline"
+      ],
+      "specialist": "technical-artist",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gemini/.gemini/agents/technical-artist.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gemini",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "technical-artist",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/technical-artist.toml",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gpt-codex",
+      "limitations": [],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "technical-artist",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/technical-writer.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "resolution": "local"
+        }
+      ],
+      "skills": [
+        "binary-doc-to-markdown",
+        "chrono-adr-authoring",
+        "chrono-changelog-generator",
+        "chrono-handoff-authoring",
+        "cite-properly",
+        "skill-description-trigger-authoring"
+      ],
+      "specialist": "technical-writer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/technical-writer.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "technical-writer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/test-engineer.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [
+        "chrono-mutation-campaign",
+        "chrono-property-based-strategy",
+        "e2e-authoring-flow",
+        "flaky-e2e-hunt",
+        "playwright-page-object-model",
+        "property-based-fuzz-harness",
+        "staged-integrity-gate",
+        "test-shrinkage-loop",
+        "webapp-testing-local"
+      ],
+      "specialist": "test-engineer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/test-engineer.toml",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gpt-codex",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "resolution": "local"
+        }
+      ],
+      "skills": [],
+      "specialist": "test-engineer",
+      "tools": [
+        "playwright"
+      ]
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/threat-modeler.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [
+        "chrono-research-arsenal",
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "resolution": "local"
+        }
+      ],
+      "skills": [
+        "agentic-safety-audit",
+        "interface-ambiguity-check",
+        "pre-audit-threat-model",
+        "security-ownership-map",
+        "security-threat-model",
+        "threat-model-loop"
+      ],
+      "specialist": "threat-modeler",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/threat-modeler.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "threat-modeler",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/triage.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "resolution": "local"
+        }
+      ],
+      "skills": [],
+      "specialist": "triage",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/triage.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "triage",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/ui-engineer.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "figma-implement-design",
+            "requirement": "preferred"
+          }
+        ],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "cross-family review route; browser execution uses fresh profiles unless explicitly authorized for Claude CDP :9222"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [
+        "a11y-audit",
+        "chrono-ui-aesthetic-framework",
+        "design-token-governance",
+        "figma-code-connect",
+        "frontend-design"
+      ],
+      "specialist": "ui-engineer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gemini/.gemini/agents/ui-engineer.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gemini",
+      "limitations": [
+        "fresh-browser backup only; authenticated CDP :9222 sessions remain Claude-specific"
+      ],
+      "mcps": [
+        "chrome-devtools",
+        "playwright"
+      ],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "ui-engineer",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/ui-engineer.toml",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gpt-codex",
+      "limitations": [],
+      "mcps": [
+        "chrome-devtools",
+        "chrono-vault",
+        "playwright"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "chrome-devtools",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrome-devtools",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "resolution": "local"
+        }
+      ],
+      "skills": [],
+      "specialist": "ui-engineer",
+      "tools": [
+        "playwright"
+      ]
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/vibecoding-check.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "resolution": "local"
+        }
+      ],
+      "skills": [],
+      "specialist": "vibecoding-check",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/vibecoding-check.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "vibecoding-check",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/video-director.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "narrative-pacing",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "video-production-principles",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "virality-analysis",
+            "requirement": "preferred"
+          }
+        ],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "video-director",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gemini/.gemini/agents/video-director.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gemini",
+      "limitations": [],
+      "mcps": [],
+      "primary_plan": [
+        {
+          "capability_id": "generate_video",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "generate_video",
+          "kind": "tools",
+          "provider_lane": "gemini",
+          "resolution": "local"
+        }
+      ],
+      "skills": [],
+      "specialist": "video-director",
+      "tools": [
+        "generate_video"
+      ]
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/video-editor.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "color-grading-basics",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "platform-compliance",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "video-post-production",
+            "requirement": "preferred"
+          }
+        ],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "video-editor",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gemini/.gemini/agents/video-editor.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gemini",
+      "limitations": [],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "video-editor",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/voice-agent-builder.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "agent-prompt-engineering",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "conversation-design",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "knowledge-base-integration",
+            "requirement": "preferred"
+          }
+        ],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "voice-agent-builder",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gemini/.gemini/agents/voice-agent-builder.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gemini",
+      "limitations": [],
+      "mcps": [
+        "chrono-media-studio"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-media-studio",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-media-studio",
+          "kind": "mcps",
+          "provider_lane": "gemini",
+          "resolution": "local"
+        }
+      ],
+      "skills": [],
+      "specialist": "voice-agent-builder",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/voice-narrator.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "audio-production-basics",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "voice-performance-direction",
+            "requirement": "preferred"
+          }
+        ],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "voice-narrator",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gemini/.gemini/agents/voice-narrator.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gemini",
+      "limitations": [],
+      "mcps": [
+        "chrono-media-studio"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-media-studio",
+          "evidence": "primary_requirement_policy+lane_registry",
+          "id": "chrono-media-studio",
+          "kind": "mcps",
+          "provider_lane": "gemini",
+          "resolution": "local"
+        }
+      ],
+      "skills": [],
+      "specialist": "voice-narrator",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/web-builder.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "accessibility-wcag",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "responsive-design",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "seo-fundamentals",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "web-performance-optimization",
+            "requirement": "preferred"
+          }
+        ],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "web-builder",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/web-builder.toml",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "web-builder",
+      "tools": []
+    }
+  ],
+  "generated": true,
+  "policy_sha256": "e10b87591263969484a337f2f32c5c183b9f7115261250a9da48ba53c85f6ed7",
+  "schema": "specialist-adapter-capability-index/v2",
+  "source": "model-lanes/specialist-lane-capabilities.v1.json",
+  "source_sha256": "25f0f3f37817a4967e9ed68ec9c00d7c13a6618070b98723c441f91b1e05fad4"
+}

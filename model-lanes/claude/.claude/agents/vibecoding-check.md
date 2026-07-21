@@ -2,6 +2,11 @@
 name: vibecoding-check
 description: "Scope, artifact quality, acceptance, and drift checking."
 model: inherit
+# BEGIN SPECIALIST CAPABILITY PROJECTION
+capability_source: model-lanes/specialist-lane-capabilities.v1.json
+capability_source_sha256: 25f0f3f37817a4967e9ed68ec9c00d7c13a6618070b98723c441f91b1e05fad4
+mcps: ["chrono-vault"]
+# END SPECIALIST CAPABILITY PROJECTION
 ---
 
 # Specialist Adapter: Vibecoding Check (cross-cutting)

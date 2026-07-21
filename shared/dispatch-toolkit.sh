@@ -16,11 +16,8 @@
 #   _state/incident-2026-05-03-claude-mcp-tilde.md (post-fix Claude MCP set)
 #   gemini mcp list -d (post-Hybrid-Path-A install on 2026-05-03)
 #
-# Live research MCP tools (claude/codex/kimi/gemini panes):
-# `perplexity_search_web` (synthesized + cited — default for general research),
-# `xai_search` (real-time web/X/news), and `arxiv_search` (papers) — all verified
-# live. Brave/Apify/Serper are planned/unverified. Other namespaces route
-# external research through the research namespace instead of inventing tools.
+# Provider availability changes over time, so the status block below is rendered
+# from the canonical skill/tool registry on every dispatch.
 #
 # Usage:  bash shared/dispatch-toolkit.sh <compatibility-namespace> <to-model>
 
@@ -28,6 +25,31 @@ set -euo pipefail
 
 NAMESPACE="${1:-}"
 TO_MODEL="${2:-unknown}"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TOOL_REGISTRY="${REPO_ROOT}/shared/registries/skill-tool-registry.tsv"
+
+emit_registry_research_guidance() {
+    python3 - "$TOOL_REGISTRY" <<'PYEOF'
+import csv
+import sys
+from pathlib import Path
+
+registry = Path(sys.argv[1])
+wanted = ("Brave Search", "Apify", "Serper")
+with registry.open(encoding="utf-8", newline="") as handle:
+    rows = {row["name"]: row for row in csv.DictReader(handle, delimiter="\t")}
+missing = [name for name in wanted if name not in rows]
+if missing:
+    raise SystemExit(f"dispatch registry guidance missing rows: {', '.join(missing)}")
+rendered = "; ".join(
+    f"`{name}` ({rows[name]['lanes']} · {rows[name]['verified_state']} · {rows[name]['cost_tier']})"
+    for name in wanted
+)
+print("## Registry-derived research add-ons\n")
+print(rendered + ".")
+print("\nRegistry `yes` records availability, not permission to spend. Apply the row's invocation constraints and any task budget/authorization gate before use.")
+PYEOF
+}
 
 cat <<EOF
 
@@ -37,6 +59,8 @@ cat <<EOF
 - Executing model lane: \`${TO_MODEL}\`
 
 EOF
+
+emit_registry_research_guidance
 
 case "${NAMESPACE}" in
     coding)
@@ -60,7 +84,7 @@ case "${NAMESPACE}" in
 - `systems-engineer` · cross-arch builds, NUMA/SIMD
 - `e2e-runner` · Playwright suites, visual diffs, flaky-test hunting
 
-**Routing reminder:** for OSINT / vendor research / library exploration, ask Chrono for a research-namespace dispatch. Live research MCP tools (claude/codex/kimi/gemini panes): `perplexity_search_web` (synthesized + cited — default for general research), `xai_search` (real-time web/X/news), `arxiv_search` (papers) — all verified live. Brave/Apify/Serper: planned/unverified.
+**Routing reminder:** for OSINT / vendor research / library exploration, ask Chrono for a research-namespace dispatch. Use only tools supported by the registry-derived status block and verified in the current runtime.
 
 **Required:** Execute the `specialist:` named in the task packet in this model lane. Native specialist/subagent adapters are allowed when registered; creating a new Chrono/mailbox task is not allowed unless the packet explicitly asks for cross-lane review or parallel work.
 EOF
@@ -83,7 +107,7 @@ EOF
 - Other authorized programs are browser-only; attach via the persistent CDP Chrome (see `shared/lifecycle.md`)
 - Only engage programs the operator has explicitly authorized; do not suggest programs outside that authorized set
 
-**Routing reminder:** for OSINT / vendor research that doesn't fit `scout`'s platform-intel scope, ask Chrono for a research-namespace dispatch. Live research MCP tools (claude/codex/kimi/gemini panes): `perplexity_search_web` (synthesized + cited — default for general research), `xai_search` (real-time web/X/news), `arxiv_search` (papers) — all verified live. Brave/Apify/Serper: planned/unverified.
+**Routing reminder:** for OSINT / vendor research that doesn't fit `scout`'s platform-intel scope, ask Chrono for a research-namespace dispatch. Use only tools supported by the registry-derived status block and verified in the current runtime.
 
 **Required:** Execute the `specialist:` named in the task packet in this model lane. Native specialist/subagent adapters are allowed when registered; creating a new Chrono/mailbox task is not allowed unless Chrono explicitly assigns a review or parallel pass.
 EOF
@@ -101,7 +125,7 @@ EOF
 - `brand-voice` · operator voice consistency check
 - `video-editor` · video trim/edit/captions
 
-**Research tools:** `gemini-3.1-pro-preview` carries native Google Search grounding. The Gemini pane also has the live research MCP tools: `perplexity_search_web` (synthesized + cited — default for general research), `xai_search` (real-time web/X/news), and `arxiv_search` (papers). Brave/Apify/Serper are planned/unverified.
+**Research tools:** `gemini-3.1-pro-preview` carries native Google Search grounding. For other research tools, use the registry-derived status block and verify the current runtime.
 
 **Routing reminder:** for deeper multi-source synthesis beyond a quick grounded check, hand off to research namespace.
 
@@ -144,7 +168,7 @@ EOF
 
 **This namespace is the squad's web-research home.** Other namespaces route research tasks here; you own the live `chrono-research-arsenal` wrapper.
 
-**Live research MCP tools (claude/codex/kimi/gemini panes):** `perplexity_search_web` (synthesized + cited — default for general research), `xai_search` (real-time web/X/news), `arxiv_search` (papers) — all verified live. Brave/Apify/Serper: planned/unverified. Verify the current runtime with a live probe; treat absence from the callable runtime schema as an availability error, declare `capability_gap`, and use the approved fallback. Otherwise use WebSearch only after the dedicated tool errors on that call.
+**Research capability rule:** use the registry-derived status block, then verify the current runtime with a live probe. Treat absence from the callable runtime schema as an availability error, declare `capability_gap`, and use the approved fallback.
 
 **NOT YOUR DOMAIN:** Bounty target selection (that's security namespace `scout`). Vulnerability discovery (that's security namespace `security-analyst`). Implementation work (that's coding namespace specialists).
 
@@ -192,7 +216,7 @@ EOF
 
 ## Expected Model Lane Tool Surface
 
-Kimi lane is expected to have `chrono-research-arsenal`, `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `chrono-media-studio` when relevant, and `sequential-thinking`. Live research MCP tools are `perplexity_search_web` (synthesized + cited — default for general research), `xai_search` (real-time web/X/news), and `arxiv_search` (papers). Brave/Apify/Serper are planned/unverified.
+Kimi lane is expected to have `chrono-research-arsenal`, `chrono-vault`, `chrono-kg`, `chrono-obsidian`, `chrono-media-studio` when relevant, and `sequential-thinking`. Use the registry-derived status block for research add-ons and verify the current runtime before invocation.
 
 This is an expected surface, not proof of live availability. Verify the tool exists in your current runtime before using it. If missing, report `capability_gap` and use the task-approved fallback.
 EOF

@@ -48,23 +48,7 @@ Pre-publication truth gate (Hard Rule 8): verifies facts, statistics, and citati
 
 ## Tools available to me
 
-### Expected MCPs (verify live before use)
-- `chrono-vault` MCP - check a claim against recorded findings/contradictions.
-- `chrono-vault` MCP - record the verification verdict + citation-audit trail.
-- `chrono-research-arsenal` MCP - LIMITED on this lane: only `arxiv_search` + `xai_search` are live, NOT general web search. General web grounding comes via the grounding stage below.
-- (standard claude-lane surface otherwise: chrono-obsidian, sequential-thinking)
-
-### Native CLI features (verified, my CLI is `claude`)
-- `claude --effort {low,medium,high,xhigh,max}` - see `shared/api-catalog.md`.
-- `claude --model <model>`, `claude --json-schema` (typed per-claim verdicts + gate record), `claude -p/--print`.
-
-### Skills (read these on task start)
-- `citation-audit` (proposed — register before use; execute inline + report gap until then) - resolve → read → confirm-supports, per citation
-- `claim-verification` (proposed) - claim decomposition + evidence standard
-- `verification-before-completion` - reused (evidence-before-assertion discipline)
-
-### APIs available (via env)
-- `OBSIDIAN_REST_API_KEY` -> chrono-obsidian MCP - verdict read/write when verified for this pane.
+Tool, skill, and MCP capabilities are **lane-specific** and are defined authoritatively in this specialist's per-lane adapter under `model-lanes/`, bounded by the lane capability profile in `model-lanes/lane-capabilities.tsv`. This canonical base names no tool, MCP, or skill by design (the boundary test: a sentence that would be false on some lane belongs in the adapter). Read your adapter for the exact executables and MCP/skill surface available on your lane, and verify each in your live runtime before use — declare a capability gap and use the task-approved fallback if a declared capability is absent. Kimi subagents cannot hold MCP, so on the Kimi lane any MCP work is lead-brokered.
 
 ## Grounding stage (first-class, not review_lane)
 For any web-dependent claim, dispatch a grounding worker — `gemini` (native Google Search grounding) or a research-namespace handoff — to return a typed evidence bundle (URL/ID, accessed-at, supporting span). This role adjudicates that bundle. Absent it for a load-bearing web claim, the verdict is `unverifiable/needs_tool` and the gate does NOT PASS.

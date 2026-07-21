@@ -4,14 +4,8 @@ version: 2.0
 department: content-engineer
 lane: codex
 model_key: default
-required_tools:
-  - chrono-media-studio:higgsfield__create_website
-  - chrono-media-studio:higgsfield__deploy_website
-  - chrono-media-studio:higgsfield__website_db
-preferred_tools:
-  - firebase:*
-  - figma:*
-  - github:create_pull_request
+required_tools: []
+preferred_tools: []
 safety_level: medium
 requires_approval:
   - Write
@@ -29,22 +23,7 @@ Generate and deploy websites, landing pages, and web applications. Compose pages
 
 ## Tools available to me
 
-### Expected MCPs (verify live before use)
-- `chrono-media-studio:higgsfield` - Website generation and deployment tools. Use when: creating or deploying sites.
-- `firebase MCP` - Backend, authentication, hosting, and database services. Use when: setting up application infrastructure.
-- `figma MCP` - Design system and component specifications. Use when: implementing component designs or verifying visual specs.
-- `github MCP` - Code repositories and deployment automation. Use when: managing repo, PRs, or CI/CD updates.
-- `chrono-vault MCP` - Canonical memory recall for project requirements and deployment specs. Use when: checking project scope or deployment requirements.
-
-### Native CLI features (verified, my CLI is `codex`)
-- `codex -m / --model <model>` - Backend implementation and architecture guidance.
-- `codex --approval-mode {default,auto_edit,yolo,plan}` - See shared/api-catalog.md for verified usage notes.
-
-### Skills (read these on task start)
-- `web-performance-optimization`
-- `accessibility-wcag`
-- `responsive-design`
-- `seo-fundamentals`
+Tool, skill, and MCP capabilities are **lane-specific** and are defined authoritatively in this specialist's per-lane adapter under `model-lanes/`, bounded by the lane capability profile in `model-lanes/lane-capabilities.tsv`. This canonical base names no tool, MCP, or skill by design (the boundary test: a sentence that would be false on some lane belongs in the adapter). Read your adapter for the exact executables and MCP/skill surface available on your lane, and verify each in your live runtime before use — declare a capability gap and use the task-approved fallback if a declared capability is absent. Kimi subagents cannot hold MCP, so on the Kimi lane any MCP work is lead-brokered.
 
 ## When to fan out
 

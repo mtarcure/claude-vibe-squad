@@ -272,6 +272,7 @@ def project(
         gate_environment = index_environment.copy()
         gate_environment["GIT_DIR"] = git_dir
         gate_environment["GIT_WORK_TREE"] = str(candidate)
+        gate_environment["PYTHONDONTWRITEBYTECODE"] = "1"
         gate_environment["GITLEAKS_CONFIG"] = str(
             candidate / "tools" / "export" / "policy" / "gitleaks.toml"
         )

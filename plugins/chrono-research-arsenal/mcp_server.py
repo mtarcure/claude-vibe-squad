@@ -14,6 +14,9 @@ from __future__ import annotations
 import os
 import logging
 import json
+import base64
+import binascii
+import mimetypes
 from typing import Any
 
 import arxiv
@@ -24,6 +27,20 @@ mcp = FastMCP("chrono-research-arsenal")
 logging.getLogger("arxiv").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
+FIRECRAWL_API_BASE = "https://api.firecrawl.dev/v2"
+FIRECRAWL_PARSE_MAX_BYTES = 10 * 1024 * 1024
+FIRECRAWL_PARSE_EXTENSIONS = {
+    ".doc",
+    ".docx",
+    ".htm",
+    ".html",
+    ".odt",
+    ".pdf",
+    ".rtf",
+    ".xls",
+    ".xlsx",
+}
+
 
 def _ok(payload: Any) -> dict[str, Any]:
     return {"ok": True, "result": payload}
@@ -31,6 +48,44 @@ def _ok(payload: Any) -> dict[str, Any]:
 
 def _err(reason: str, **extra: Any) -> dict[str, Any]:
     return {"ok": False, "error": reason, **extra}
+
+
+def _firecrawl_key() -> str | None:
+    """Read the Firecrawl credential at call time without logging or returning it."""
+    return os.environ.get("FIRECRAWL_API_KEY") or None
+
+
+def _firecrawl_json_request(path: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
+    api_key = _firecrawl_key()
+    if not api_key:
+        return _err("FIRECRAWL_API_KEY missing")
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            response = client.post(
+                f"{FIRECRAWL_API_BASE}/{path}",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+        response.raise_for_status()
+        return _ok(response.json())
+    except httpx.HTTPStatusError as exc:
+        return _err(
+            "firecrawl_http_error",
+            status_code=exc.response.status_code,
+            reason_phrase=exc.response.reason_phrase,
+        )
+    except Exception as exc:
+        return _err(f"firecrawl_error: {type(exc).__name__}")
+
+
+def _firecrawl_formats(formats: list[str] | None) -> list[str]:
+    allowed = {"markdown", "html", "rawHtml", "links", "images", "summary"}
+    requested = formats or ["markdown"]
+    normalized = [str(value) for value in requested if str(value) in allowed]
+    return normalized or ["markdown"]
 
 
 def _coerce_result(item: Any, source_hint: str) -> dict[str, str] | None:
@@ -274,6 +329,111 @@ def xai_search(
         }
     except Exception as e:
         return {"ok": False, "error": f"{type(e).__name__}", "query": query}
+
+
+@mcp.tool()
+def firecrawl_scrape(
+    url: str,
+    formats: list[str] | None = None,
+    only_main_content: bool = True,
+    wait_for_ms: int = 0,
+    timeout_ms: int = 60_000,
+) -> dict[str, Any]:
+    """Scrape one public URL through Firecrawl API v2.
+
+    The API key is read only from ``FIRECRAWL_API_KEY``. Custom request headers
+    are intentionally not accepted so callers cannot forward ambient secrets.
+    """
+    timeout_ms = max(1_000, min(int(timeout_ms), 120_000))
+    payload = {
+        "url": url,
+        "formats": _firecrawl_formats(formats),
+        "onlyMainContent": bool(only_main_content),
+        "waitFor": max(0, min(int(wait_for_ms), 30_000)),
+        "timeout": timeout_ms,
+        "storeInCache": False,
+        "zeroDataRetention": True,
+    }
+    return _firecrawl_json_request("scrape", payload, timeout=(timeout_ms / 1000) + 10)
+
+
+@mcp.tool()
+def firecrawl_crawl(
+    url: str,
+    max_pages: int = 10,
+    max_discovery_depth: int = 2,
+    formats: list[str] | None = None,
+    only_main_content: bool = True,
+) -> dict[str, Any]:
+    """Start a bounded Firecrawl API v2 crawl and return its asynchronous job ID."""
+    payload = {
+        "url": url,
+        "limit": max(1, min(int(max_pages), 100)),
+        "maxDiscoveryDepth": max(0, min(int(max_discovery_depth), 10)),
+        "allowExternalLinks": False,
+        "zeroDataRetention": True,
+        "scrapeOptions": {
+            "formats": _firecrawl_formats(formats),
+            "onlyMainContent": bool(only_main_content),
+            "storeInCache": False,
+        },
+    }
+    return _firecrawl_json_request("crawl", payload, timeout=70.0)
+
+
+@mcp.tool()
+def firecrawl_parse(
+    filename: str,
+    content_base64: str,
+    formats: list[str] | None = None,
+    only_main_content: bool = True,
+) -> dict[str, Any]:
+    """Parse caller-supplied document bytes through Firecrawl API v2.
+
+    This operation accepts explicit base64 content instead of a filesystem path,
+    preventing the MCP from becoming an arbitrary local-file exfiltration primitive.
+    Files are limited to 10 MiB and to Firecrawl's documented document formats.
+    """
+    api_key = _firecrawl_key()
+    if not api_key:
+        return _err("FIRECRAWL_API_KEY missing")
+    safe_name = os.path.basename(filename)
+    extension = os.path.splitext(safe_name)[1].lower()
+    if not safe_name or safe_name != filename or extension not in FIRECRAWL_PARSE_EXTENSIONS:
+        return _err("unsupported_or_unsafe_filename")
+    try:
+        content = base64.b64decode(content_base64, validate=True)
+    except (binascii.Error, ValueError):
+        return _err("invalid_base64")
+    if not content or len(content) > FIRECRAWL_PARSE_MAX_BYTES:
+        return _err("document_size_out_of_bounds", max_bytes=FIRECRAWL_PARSE_MAX_BYTES)
+
+    options = {
+        "formats": _firecrawl_formats(formats),
+        "onlyMainContent": bool(only_main_content),
+        "zeroDataRetention": True,
+    }
+    content_type = mimetypes.guess_type(safe_name)[0] or "application/octet-stream"
+    try:
+        with httpx.Client(timeout=130.0) as client:
+            response = client.post(
+                f"{FIRECRAWL_API_BASE}/parse",
+                headers={"Authorization": f"Bearer {api_key}"},
+                files={
+                    "file": (safe_name, content, content_type),
+                    "options": (None, json.dumps(options), "application/json"),
+                },
+            )
+        response.raise_for_status()
+        return _ok(response.json())
+    except httpx.HTTPStatusError as exc:
+        return _err(
+            "firecrawl_http_error",
+            status_code=exc.response.status_code,
+            reason_phrase=exc.response.reason_phrase,
+        )
+    except Exception as exc:
+        return _err(f"firecrawl_error: {type(exc).__name__}")
 
 
 if __name__ == "__main__":

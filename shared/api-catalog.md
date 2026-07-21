@@ -933,16 +933,17 @@ Per-pane verification matrix for each chrono-* family MCP. Claude pane verificat
 - replacement: inspect installed plugin/skill manifests directly; use `chrono-vault` `record`/`recall` for durable memory
 
 ### chrono-research-arsenal MCP
-- purpose: Current live research wrapper exposing `arxiv_search`, `xai_search`, and `perplexity_search_web` (the last as a sibling MCP under the same plugin namespace via `uvx perplexity-mcp`). Brave, Apify, and Serper remain planned/unverified.
-- specialists: research, scout, large-context-analyst
+- purpose: Current live research wrapper exposing `arxiv_search`, `xai_search`, plus the Firecrawl v2 operations `firecrawl_scrape`, `firecrawl_crawl`, and `firecrawl_parse`. `perplexity_search_web` remains a sibling MCP under the same plugin namespace via `uvx perplexity-mcp`. Brave, Apify, and Serper remain planned/unverified.
+- specialists: research, scout, large-context-analyst, copywriter, data-extraction-engineer
 - verified per pane:
   - chrono pane (claude): yes — wrapper registered; verified live: `arxiv_search`, `perplexity_search_web` (Perplexity smoke test 2026-07-12 returned cited results), and `xai_search` (fixed 2026-07-12 to use xAI Responses API `POST https://api.x.ai/v1/responses` with `web_search` / `x_search` tools; smoke test returned `ok:true` with real URLs).
   - security pane (claude): yes — same
   - sysmgmt pane (claude): yes — same
-  - coding pane (codex): yes — registered; task packets must still verify `tools/list` before naming provider-specific tools
-  - content pane (gemini): yes — live runtime probe 2026-07-15 confirmed `arxiv_search` and `xai_search` return live results. GAP: `perplexity_search_web` is NOT registered on gemini (the sibling `perplexity` MCP server is defined in the plugin's `plugin.json` but missing from gemini's `settings.json`). Evidence: `_state/research-probe-2026-07-15/gemini.md`.
-  - research pane (kimi): registered; same wrapper; `xai_search` endpoint fixed tool-wide via the 2026-07-12 Responses API patch. Re-smoke in-lane before relying on Kimi-specific tool availability.
-- last_checked: 2026-07-12 for `xai_search` endpoint fix + arxiv/perplexity sibling smoke tests
+  - coding pane (codex): yes — registered; 2026-07-20 MCP handshake returned `arxiv_search`, `xai_search`, `firecrawl_scrape`, `firecrawl_crawl`, and `firecrawl_parse`.
+  - content pane (gemini): yes — live runtime probe 2026-07-15 confirmed `arxiv_search` and `xai_search`; the shared wrapper makes the three Firecrawl operations available through the same configured server. `perplexity_search_web` remains a separate sibling surface.
+  - research pane (kimi): lead-broker registration only; the shared wrapper advertises the same Firecrawl operations, but Kimi children must route them through the lead rather than claiming inherited child MCP access.
+- last_checked: 2026-07-20 for Firecrawl operation tools/list; no key-backed provider call was made because `FIRECRAWL_API_KEY` was absent from the probe shell
+- Firecrawl provider path: `chrono-research-arsenal:firecrawl_scrape` / `firecrawl_crawl` / `firecrawl_parse`, distinct from the Claude-only skill plugin below. The wrapper reads `FIRECRAWL_API_KEY` only at call time from the off-repo environment and never returns it. Scrape/crawl are bounded, do not accept caller headers, disable provider cache where supported, and request zero data retention. Parse accepts explicit base64 bytes only (no filesystem path), supports documented document extensions, and caps payloads at 10 MiB.
 
 ### chrono-media-studio MCP
 - purpose: Current live content/media wrapper exposing `generate_image`, `generate_video`, and `generate_audio`. Provider-specific child routes such as ElevenLabs and Higgsfield are separate surfaces unless the active lane schema exposes them.
@@ -987,6 +988,17 @@ Per-pane verification matrix for each chrono-* family MCP. Claude pane verificat
 
 Claude Code plugins available on the `claude` / `chrono` panes. Not part of the chrono-* family; registered via `enabledPlugins`, not the chrono marketplace.
 
+### Playwright and Chrome DevTools fresh-browser MCPs
+- purpose: Browser navigation, DOM/accessibility snapshots, console/network inspection, screenshots, and non-authenticated scraping in fresh isolated browser profiles.
+- verified per pane:
+  - claude: yes — existing fresh-browser MCPs; authenticated raw-CDP `:9222` remains a separate Claude-specific path.
+  - codex: yes — repo-local `model-lanes/gpt-codex/.codex/config.toml` pins `@playwright/mcp@0.0.78` and `chrome-devtools-mcp@1.6.0`; `codex mcp list` reported both enabled and direct MCP handshakes returned tool lists.
+  - gemini: yes — repo-local `model-lanes/gemini/.gemini/settings.json` pins the same servers; `gemini mcp list` reported both connected and direct MCP handshakes returned tool lists.
+  - kimi: no inherited child MCP — `lead-broker-only`; browser work must be brokered by the lead or use the host CLI after a task-local probe.
+- Playwright PATH CLI: `/opt/homebrew/bin/playwright`, version `1.61.0`, probe receipt `2026-07-20:shell-playwright-cli:exit-0`.
+- MCP receipts: `2026-07-20:codex-playwright+chrome-devtools:exit-0`; `2026-07-20:gemini-playwright+chrome-devtools:exit-0`.
+- notes: These MCPs launch fresh profiles and do not imply access to the operator's authenticated browser session. Scout's authenticated CDP `:9222` recon stays Claude-anchored.
+
 ### context7 MCP
 - url: https://github.com/upstash/context7
 - access: Public (Claude Code plugin `context7@claude-plugins-official`)
@@ -1003,7 +1015,16 @@ Claude Code plugins available on the `claude` / `chrono` panes. Not part of the 
 - verified: yes (plugin enabled) — NOTE: firecrawl is a **skills** plugin, not an MCP server; it does **not** appear in `claude mcp list`.
 - last_checked: 2026-07-12
 - test_reference: `jq '.enabledPlugins["firecrawl@claude-plugins-official"]' ~/.claude/settings.json` → `true`; skills `firecrawl-scrape` / `firecrawl-crawl` / `firecrawl-map` / `firecrawl-parse` present in the plugin catalog.
-- notes: The `firecrawl:scrape` token used in `required_tools` / `tool-catalog.md` refers to this plugin's scrape capability, not an MCP `server:tool`. Claude-lane only — a specialist routed to a non-claude lane must treat firecrawl as unavailable and report `capability_gap`.
+- notes: The `firecrawl:scrape` token used by the legacy Claude plugin refers to this plugin's scrape capability, not an MCP `server:tool`. The all-lane replacement path is separately cataloged as `chrono-research-arsenal:firecrawl_scrape`; a key-backed call still requires `FIRECRAWL_API_KEY` in the executing lane's off-repo environment.
+
+### ultra-research (Claude deep-research slash command)
+- url: N/A (local Claude plugin)
+- access: Local plugin; rounds call metered providers and require a separate explicit budget/confirmation gate
+- specialists: large-context-analyst (Claude handoff owner); research and bounty-researcher route deep six-round work to that role
+- verified: no (present legacy plugin, failed current slash-command discovery)
+- last_checked: 2026-07-20
+- test_reference: no-execution probe `claude --plugin-dir ~/.claude/plugins/ultra-research --tools '' ... -p '/ultra-research ...'` returned `Unknown command: /ultra-research` with zero turns/tokens/cost; `claude plugin validate ~/.claude/plugins/ultra-research` reported the missing `.claude-plugin/plugin.json`
+- notes: Do not run or advertise as live until the plugin is migrated inside an authorized write scope and a fresh slash-command probe passes. Grounded live search stays on Gemini. A full run remains separately gated because rounds use Perplexity, Gemini, GPT, Apify, and optional ElevenLabs resources.
 
 ---
 
@@ -1066,7 +1087,7 @@ These showed `Failed to connect` in `claude mcp list` post-2026-05-03 tilde fix 
 
 Local security/bounty CLIs installed on the operator's Mac, invoked via **Bash** (these are CLIs, not MCPs). Specialists in the `security` and smart-contract namespaces may now cite any `verified: yes` entry here (this section is the sanction that unblocks the `## Tools` prose in those briefs).
 
-All `--version` output below was reproduced live on 2026-07-12 (root CLAUDE.md rule 8). `access: Public` = locally installed binary, no subscription/API gate.
+Unless an entry carries a newer `last_checked`, `--version` output below was reproduced live on 2026-07-12 (root CLAUDE.md rule 8). `access: Public` = locally installed binary or local container image, no subscription/API gate.
 
 **PATH caveat:** `waybackurls` and `interactsh-client` are installed under `~/go/bin`, which is NOT on the default login PATH. Invoke them by absolute path, or add `~/go/bin` to PATH (operator action — not done by this task). All other tools are on PATH via `/opt/homebrew/bin` or `~/.local/bin`.
 
@@ -1122,8 +1143,8 @@ All `--version` output below was reproduced live on 2026-07-12 (root CLAUDE.md r
 - access: Public
 - specialists: smart-contract-engineer, exploit-developer
 - verified: yes
-- last_checked: 2026-07-12
-- test_reference: `myth version` → `Mythril version v0.24.8` (`~/.local/bin/myth`). NOTE: version flag is `myth version`, not `--version`.
+- last_checked: 2026-07-18
+- test_reference: `myth version` → `Mythril version v0.24.8` (`~/.local/bin/myth`), reproduced 2026-07-18. NOTE: version flag is `myth version`, not `--version`.
 - notes: Use when symbolic-executing EVM bytecode to confirm reachability of a suspected bug.
 
 #### echidna
@@ -1158,9 +1179,20 @@ All `--version` output below was reproduced live on 2026-07-12 (root CLAUDE.md r
 - access: Public
 - specialists: smart-contract-engineer, exploit-developer
 - verified: yes
-- last_checked: 2026-07-12
-- test_reference: `aderyn --version` → `aderyn 0.6.8` (/opt/homebrew/bin/aderyn)
+- install_command: `brew install cyfrin/tap/aderyn` (already installed; not redundantly reinstalled)
+- last_checked: 2026-07-18
+- test_reference: `aderyn --version` → `aderyn 0.6.8` (`/opt/homebrew/bin/aderyn`), reproduced 2026-07-18
 - notes: Use as a fast Rust-based Solidity static analyzer for a first-pass issue sweep.
+
+#### ityfuzz (containerized, pinned Linux/amd64 build)
+- url: https://github.com/fuzzland/ityfuzz
+- access: Public
+- specialists: smart-contract-engineer, exploit-developer
+- verified: yes (containerized CLI; native macOS ARM install is not verified)
+- install_command: `curl -fL https://github.com/fuzzland/ityfuzz/releases/download/nightly-35b7f08962fdd0c2e02df7ef8a43164913d514d9/ityfuzz_nightly_linux_amd64.tar.gz -o ~/.local/share/ityfuzz-nightly-35b7f089/ityfuzz_nightly_linux_amd64.tar.gz`; verify `shasum -a 256` equals `73cb7cdb8eab5341c2a61b267df83f63f7c537c2950c1aa1bdbdf15beadcb489`; build the repo-owned `Dockerfile.ityfuzz` as `docker build --platform linux/amd64 -f _state/tooling-arsenal-2026-07-18/Dockerfile.ityfuzz -t vibe-ityfuzz:nightly-35b7f089 _state/tooling-arsenal-2026-07-18`
+- last_checked: 2026-07-18
+- test_reference: `docker run --name arsenal-1015-ityfuzz-smoke --platform linux/amd64 --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m --cap-drop ALL --security-opt no-new-privileges --pids-limit 64 --memory 512m --cpus 1 vibe-ityfuzz:nightly-35b7f089 --version` → `ityfuzz 35b7f08962fdd0c2e02df7ef8a43164913d514d9[...]`
+- notes: Use for EVM/MoveVM hybrid fuzzing and Foundry invariant campaigns in an authorized local test environment. The upstream release offers only Linux/amd64; the native Apple Silicon source build failed first on CMake policy handling and, after `CMAKE_POLICY_VERSION_MINIMUM=3.5`, on pinned Z3 4.12.1 / AppleClang compilation. The verified path is therefore the pinned container image, not a host binary. Retain explicit `--platform linux/amd64` on this ARM Mac and add network/write mounts only when an approved test plan requires them.
 
 ### Web / recon tooling → `scout`
 
@@ -1270,9 +1302,112 @@ All `--version` output below was reproduced live on 2026-07-12 (root CLAUDE.md r
 - access: Public
 - specialists: security-analyst
 - verified: yes
-- last_checked: 2026-07-12
-- test_reference: `semgrep --version` → `1.157.0` (/opt/homebrew/bin/semgrep)
-- notes: Use for pattern-based SAST over target source. Kept CLI-only (see §12 footnote on the disabled `semgrep` plugin MCP).
+- last_checked: 2026-07-18
+- test_reference: `semgrep --version` → `1.157.0` (`/opt/homebrew/bin/semgrep`); `semgrep mcp --help` → bundled MCP entry point with `stdio` and `streamable-http`, both reproduced 2026-07-18
+- notes: Use for pattern-based SAST over target source. The bundled MCP is present in the restart-discoverable Claude/Codex project configs behind Context Protector; no running lane was restarted, so runtime activation remains operator-controlled.
+
+### LLM / agent security pilots → `security-analyst`, `experimental-attacker`, `agentops`
+
+#### promptfoo
+- url: https://github.com/promptfoo/promptfoo
+- access: Public; provider campaigns remain separately cost/data-flow gated
+- specialists: security-analyst, experimental-attacker, test-engineer
+- verified: yes (CLI install/version smoke only)
+- install_command: `npm install --prefix _state/tooling-arsenal-2026-07-18/tools/promptfoo promptfoo@0.121.19`
+- last_checked: 2026-07-18
+- test_reference: state-local `promptfoo --version` → `0.121.19`; no provider was called
+- notes: Use for synthetic prompt/eval regression design. Never infer authorization for a live target or provider spend.
+
+#### garak
+- url: https://github.com/NVIDIA/garak
+- access: Public; model/provider scans are separately gated
+- specialists: security-analyst, experimental-attacker
+- verified: yes (CLI version smoke only)
+- install_command: state-local Python 3.12 venv + `uv pip install 'garak==0.15.1'`
+- last_checked: 2026-07-18
+- test_reference: state-local `garak --version` → `garak LLM vulnerability scanner v0.15.1`
+- notes: Use for a bounded model-security baseline only after target, provider, data-flow, and spend authorization.
+
+#### PyRIT
+- url: https://github.com/microsoft/PyRIT
+- access: Public; targets/providers remain separately gated
+- specialists: security-analyst, experimental-attacker
+- verified: yes (package import/version smoke only)
+- install_command: state-local Python 3.12 venv + `uv pip install 'pyrit==0.14.0'`
+- last_checked: 2026-07-18
+- test_reference: `importlib.metadata.version('pyrit')` → `0.14.0`; no scenario or target ran
+- notes: Use for reviewed multi-turn red-team scenario construction, never as authority to expand scope.
+
+#### Snyk Agent Scan (`mcp-scan` lineage)
+- url: https://github.com/invariantlabs-ai/mcp-scan
+- access: Public package; current verification scans require Snyk account/token and transmit allowlisted component metadata under upstream terms
+- specialists: agentops, security-analyst, detection-engineer
+- verified: yes for installed CLI/help; no for fleet scan/proxy
+- install_command: state-local Python 3.12 venv + `uv pip install 'mcp-scan==0.4.3'` (compatibility package installs `snyk-agent-scan==0.5.15`)
+- last_checked: 2026-07-18
+- test_reference: state-local `snyk-agent-scan --help` succeeded; no MCP config was executed and no Snyk API call was made
+- notes: Upstream renamed/reworked mcp-scan as Snyk Agent Scan. It remains outside the inline MCP set. `plugins/security-mcp-stack/preactivate-security-stack.sh` is the fail-closed pre-restart gate: it requires inherited `SNYK_TOKEN` and `SOLODIT_API_KEY`, runs the normalized three-server mirror with `--ci`, and blocks restart on findings or runtime failure. No network scan ran during configuration preparation.
+
+#### LlamaFirewall
+- url: https://github.com/meta-llama/PurpleLlama/tree/main/LlamaFirewall
+- access: Public framework; PromptGuard models require separate Hugging Face access/download and AlignmentCheck requires provider configuration
+- specialists: agentops, detection-engineer, security-analyst
+- verified: yes for pinned package import/CLI help; no for model-backed enforcement
+- install_command: state-local Python 3.12 venv + `uv pip install 'git+https://github.com/meta-llama/PurpleLlama.git@b71c6350a2acf2fb62c2328a734cbf440ecac386#subdirectory=LlamaFirewall'`
+- last_checked: 2026-07-18
+- test_reference: package version `1.0.3` and `llamafirewall --help`; no model download or provider call
+- notes: Installed as a defensive pilot, not enabled inline. Model/license/data-flow review is required before configuring a scanner.
+
+#### Heimdall-rs
+- url: https://github.com/Jon-Becker/heimdall-rs
+- access: Public
+- specialists: reverse-engineer, exploit-developer, smart-contract-engineer
+- verified: yes (pinned binary checksum + version/help smoke); pilot
+- install_command: download official `0.9.3/heimdall-macos-arm64` over HTTPS to the task-state bin and require SHA-256 `c279e92aa5a2178cb6327861f206eddee5d53209bb19a863915159b844cc0d23`
+- last_checked: 2026-07-18
+- test_reference: checksum matched GitHub release metadata; binary returned `heimdall 0.9.2` and command help
+- notes: Upstream's 0.9.3 asset embeds a 0.9.2 version string; this mismatch is disclosed. Never use the unencrypted-HTTP bootstrap.
+
+#### Kontrol
+- url: https://github.com/runtimeverification/kontrol
+- access: Public
+- specialists: smart-contract-engineer, exploit-developer
+- verified: no (installer prerequisite gap)
+- install_command: pinned official `kup` commit `2e3469d16437a2abe639e59123e1a25037ca205b`; intended Kontrol release `v1.0.255`
+- last_checked: 2026-07-18
+- test_reference: `kup` package installed, then its first invocation failed `FileNotFoundError: nix`; Kontrol publishes no release assets and documents a 30–60 minute Nix/kup install
+- notes: Pilot is not installed. Requires separately approved Nix provisioning, disk budget, containment, and rollback.
+
+### Restart-gated security MCP pilots → Claude and gpt-codex only
+
+#### mcp-context-protector / guarded Semgrep, Slither, and Solodit MCPs
+- url: https://github.com/trailofbits/mcp-context-protector ; https://github.com/trailofbits/slither-mcp
+- access: Public
+- specialists: security-analyst, exploit-developer, smart-contract-engineer, agentops
+- verified: yes for pinned installs/help and validated restart-discoverable Claude/Codex project configs; no for running-lane activation
+- install_command: pinned commits `05e56c1616f4382ca25eb15bdfc98c4967bbdd74` and `196a420a90f4b5e27d245148f46fb1ad32c40458`; Semgrep uses installed `/opt/homebrew/bin/semgrep mcp`
+- last_checked: 2026-07-19
+- test_reference: `plugins/security-mcp-stack/validate_staged.py` validates the live project configs, exact staged mirrors, normalized Snyk target, absolute child paths, empty-or-exactly-three-approved Context Protector DB phases, Solodit inherited-env discipline, and Model Armor credential hold
+- notes: Restart-discoverable files are `model-lanes/claude/.mcp.json` and `model-lanes/gpt-codex/.codex/config.toml`. `model-lanes/lane-capabilities.tsv` records the exact guarded trio in `staged_mcp_surface`; specialist sources label them `pending-restart-activation`, so generated adapters do not project them as live. Context Protector starts fail-closed until the operator reviews/pins all three downstream schemas. ANSI visualization is enabled. No guardrail provider is configured, so response quarantine is not active. No lane restart occurred.
+
+#### solodit-mcp (cutover-ready, restart-gated)
+- url: https://github.com/zerotrust-labs/solodit-mcp
+- access: Requires a Solodit API key
+- specialists: security-analyst, smart-contract-engineer
+- verified: yes for remediated build, production-only install, and static cutover wiring; no for API call or running-lane activation
+- install_command: copy pinned commit `72ff083167a10b332a04651a2ed4897551fb3f7c` to a fresh remediated tree; install `@modelcontextprotocol/sdk@^1.29.0`; run `npm run build`; copy build/package manifests to a fresh runtime; run `npm ci --omit=dev --ignore-scripts`
+- last_checked: 2026-07-19
+- test_reference: SDK resolved `1.29.0`; TypeScript build passed; fresh runtime installed 93 packages / audited 94; `npm audit --omit=dev --json` reported 2 residual advisories (fast-uri high, ajv moderate), down from the prior 7 production advisories; `validate_staged.py` passed with Solodit in all Claude/Codex live/review mirrors
+- notes: The guarded command points only to `_state/tooling-arsenal-2026-07-18/runtime/solodit-mcp-prod/dist/index.js`. `SOLODIT_API_KEY` is inherited and absent from config. Status `activated-ready` means restart-discoverable after mandatory review, schema pinning, and Snyk gate; it does not claim a lane restart or API query.
+
+#### Google Model Armor gateway (credential-blocked)
+- url: https://docs.cloud.google.com/model-armor
+- access: GCP project service; durable OAuth2 service-account identity or ADC required
+- specialists: security-analyst, agentops
+- verified: no for credential or live gateway; configuration contract only
+- last_checked: 2026-07-19
+- test_reference: `plugins/security-mcp-stack/validate_staged.py` requires `held-modelarmor.json.activation == blocked-on-operator-credential`, the exact operator ask, and no credential literal
+- notes: Not an MCP server and not present in Claude/Codex lane configs. Operator ask: Provide either the absolute path to a durable least-privilege Model Armor service-account JSON key via GOOGLE_APPLICATION_CREDENTIALS, or run `gcloud auth application-default login` for the gateway identity. Copied bearer tokens are rejected.
 
 #### osv-scanner
 - url: https://github.com/google/osv-scanner
@@ -1343,7 +1478,7 @@ Installed and runnable high-blast-radius active tools. Usable for authorized bou
 - test_reference: `uv tool install manticore` → FAILED (pysha3 native build error on py3.13/ARM 2026-07-12). Superseded by halmos/mythril/echidna (all verified:yes); not pursued.
 - notes: Symbolic-execution engine (EVM + native). Heavy/brittle native deps; pip-only, historically fragile install. Deferred — flag before forcing.
 
-**Footnote — semgrep MCP (packet P3):** `~/.claude/settings.json` does NOT contain an active `semgrep` MCP server; it carries `"semgrep@claude-plugins-official": false` in `enabledPlugins` (i.e. the plugin is *disabled*). Since the semgrep **CLI** is verified above and available to `security-analyst` via Bash, the recommendation is to keep semgrep **CLI-only** and NOT replicate a disabled plugin MCP across lanes. No lane MCP configs were changed for semgrep.
+**Footnote — semgrep MCP (updated 2026-07-19):** the former standalone `semgrep/mcp` repository is deprecated because Semgrep moved the server into the main CLI. This host's verified `semgrep 1.157.0` exposes `semgrep mcp` directly. The restart-discoverable Claude/Codex project configs now route its stdio server through Context Protector with an empty cloud token. No lane was restarted; schema approval, Snyk pre-scan, and post-restart read-only verification remain mandatory.
 
 ---
 

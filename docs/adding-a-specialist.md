@@ -84,7 +84,16 @@ Every runtime-map specialist needs a thin adapter in its lane so native subagent
 | claude | `model-lanes/claude/.claude/agents/<specialist>.md` |
 | gpt-codex | `model-lanes/gpt-codex/.codex/agents/<specialist>.toml` (contains `name = "<specialist_with_underscores>"`) |
 | gemini | `model-lanes/gemini/.gemini/agents/<specialist>.md` (YAML frontmatter with `name: <specialist>`) |
-| kimi | `model-lanes/kimi/subagents/<specialist>.yaml` (+ an entry in `model-lanes/kimi/main.yaml`) |
+| kimi | `model-lanes/kimi/.kimi/agents/<specialist>.yaml` (+ an entry in `model-lanes/kimi/main.yaml`) |
+
+Ranked routes need adapters too, not only the primary route. Generate/check the primary, backup, escalation, review, and throughput lanes from the canonical brief and runtime-map row:
+
+```bash
+python3 model-lanes/generate-specialist-adapters.py --write <specialist>
+python3 model-lanes/generate-specialist-adapters.py <specialist>
+```
+
+The first command creates missing adapters and never replaces reviewed adapters. Canonical brief updates take effect through the adapter pointer, so ordinary updates do not require rewriting its lane wrappers. Kimi adapters must also remain registered under `agent.subagents` in `model-lanes/kimi/main.yaml`; the check fails if that registry entry is absent. The runtime map remains the routing source of truth, so this procedure does not make a lane legitimate merely by creating a file.
 
 ## 4. Validate
 

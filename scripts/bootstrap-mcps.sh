@@ -14,6 +14,9 @@ set -uo pipefail
 
 export PATH="${HOME}/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:${PATH}"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+VAULT_ROOT="${VAULT_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd -P)}"
+
 DRY_RUN=0
 STATUS_ONLY=0
 for arg in "$@"; do
@@ -31,8 +34,8 @@ if [[ -f "${SECRETS}" ]]; then
     source "${SECRETS}"
 fi
 
-CHRONO_PY="${HOME}/chrono/.venv/bin/python"
-CHRONO_PLUGINS="${HOME}/chrono/plugins"
+CHRONO_PY="${CHRONO_PY:-${VAULT_ROOT}/.venv/bin/python}"
+CHRONO_PLUGINS="${CHRONO_PLUGINS:-${VAULT_ROOT}/plugins}"
 
 if [[ ! -x "${CHRONO_PY}" ]]; then
     echo "WARNING: chrono Python venv not at ${CHRONO_PY}"
@@ -44,10 +47,8 @@ fi
 # Format per MCP:  name|args|env_vars (space-separated KEY=VAR_NAME pairs to forward)
 MCPS=(
     "chrono-vault|${CHRONO_PLUGINS}/chrono-vault/mcp_server.py|CHRONO_VAULT_ROOT OBSIDIAN_REST_API_KEY OBSIDIAN_VAULT_ROOT"
-    "chrono-kg|${CHRONO_PLUGINS}/chrono-vault/mcp_server.py --namespace kg|CHRONO_VAULT_ROOT OBSIDIAN_REST_API_KEY OBSIDIAN_VAULT_ROOT"
     "chrono-obsidian|${CHRONO_PLUGINS}/chrono-vault/mcp_server.py --namespace obsidian|OBSIDIAN_REST_API_KEY OBSIDIAN_VAULT_ROOT"
-    "chrono-catalog|${CHRONO_PLUGINS}/chrono-vault/mcp_server.py --namespace catalog|"
-    "chrono-research-arsenal|${CHRONO_PLUGINS}/chrono-research-arsenal/mcp_server.py|APIFY_TOKEN BRAVE_API_KEY PERPLEXITY_API_KEY SERPER_API_KEY XAI_API_KEY"
+    "chrono-research-arsenal|${CHRONO_PLUGINS}/chrono-research-arsenal/mcp_server.py|APIFY_TOKEN BRAVE_API_KEY FIRECRAWL_API_KEY PERPLEXITY_API_KEY SERPER_API_KEY XAI_API_KEY"
     "chrono-media-studio|${CHRONO_PLUGINS}/chrono-media-studio/mcp_server.py|GEMINI_API_KEY OPENAI_API_KEY XAI_API_KEY"
 )
 

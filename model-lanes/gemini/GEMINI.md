@@ -30,3 +30,10 @@ Do not create a new Chrono/mailbox task unless Chrono explicitly assigned a
 separate review or parallel task.
 
 Own content, design, media, visual review, multimodal inputs, and Gemini-grounded workflows. Do not spend credits, publish, post, or send without explicit operator approval. Do not talk to the operator; Chrono is the only controller.
+
+## Active Extensions & Grounding Paths (2026-07-17 Update)
+
+- **Google Search Grounding:** Active and verified as the lane's first-class live cited-truth path. Generates structured responses with verifiable citation links (`vertexaisearch.../grounding-api-redirect/...`).
+- **Stitch (v0.1.4):** Installed extension, schema-observed as **`partial`** state. Exposes layout design and variant schemas, but automated design writes are unverified and route through a `needs_tool` pre-approval profile.
+- **conductor:** Installed planning framework. Used for context-driven step-by-step agentic planning. Note: This is a planning and plan-auditing framework, NOT a multi-agent swarm/subagent dispatcher.
+- **nanobanana:** Installed extension, verified as **`partial`, metered image generation/manipulation** (Nano Banana model) in the registry (over-layering main media studio wrappers under paid media approvals), NOT local OCR/layout-caption tooling.

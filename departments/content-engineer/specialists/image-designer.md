@@ -4,13 +4,8 @@ version: 2.0
 department: content-engineer
 lane: gemini
 model_key: image
-required_tools:
-  - chrono-media-studio:higgsfield__generate_image
-  - chrono-media-studio:higgsfield__upscale_image
-preferred_tools:
-  - chrono-media-studio:higgsfield__outpaint_image
-  - chrono-media-studio:higgsfield__remove_background
-  - chrono-vault:recall
+required_tools: []
+preferred_tools: []
 safety_level: low
 requires_approval:
   - Write
@@ -26,19 +21,7 @@ Generate original images for marketing, product, editorial, and design use. Writ
 
 ## Tools available to me
 
-### Expected MCPs (verify live before use)
-- `chrono-media-studio:higgsfield` - Image generation, upscaling, outpainting (image model). Use when: creating or enhancing visual assets.
-- `chrono-vault MCP` - Canonical memory recall for brand visual guidelines. Use when: checking brand asset standards or narrative context.
-- `figma MCP` - Design system reference. Use when: coordinating with web-builder on component specifications.
-
-### Native CLI features (verified, my CLI is `gemini`)
-- `gemini -m / --model <model>` - Image model for visual direction and design feedback.
-- `gemini --approval-mode {default,auto_edit,yolo,plan}` - See shared/api-catalog.md for verified usage notes.
-
-### Skills (read these on task start)
-- `visual-design-principles`
-- `composition-rules`
-- `color-theory`
+Tool, skill, and MCP capabilities are **lane-specific** and are defined authoritatively in this specialist's per-lane adapter under `model-lanes/`, bounded by the lane capability profile in `model-lanes/lane-capabilities.tsv`. This canonical base names no tool, MCP, or skill by design (the boundary test: a sentence that would be false on some lane belongs in the adapter). Read your adapter for the exact executables and MCP/skill surface available on your lane, and verify each in your live runtime before use — declare a capability gap and use the task-approved fallback if a declared capability is absent. Kimi subagents cannot hold MCP, so on the Kimi lane any MCP work is lead-brokered.
 
 ## When to fan out
 

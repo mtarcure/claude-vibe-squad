@@ -17,6 +17,7 @@ review_model: gpt-codex | claude | gemini | kimi | none
 mandatory_review: true | false
 mode: bounty | project | content | maintenance | incident | research | triage | outreach | none
 capability: <card slug valid for the mode, e.g. web-app> | none
+capability_degradation_ack: <exact validator-derived needs_tool[:reason] | degraded-blueprint> | none
 phase: <phase or none>
 type: TASK
 priority: low | normal | high | urgent
@@ -55,15 +56,31 @@ override `to_model`. Routing stays per-specialist: `specialist` + `shared/routin
 `capability:` selects gates/workflow, **never a model lead**; routing stays per-specialist"). A packet may set
 `capability:` on any `to_model` lane; the field changes the *protocol*, not the *router*.
 
-**Enforcement level (advisory today — do not over-read it).** `capability:` is **advisory / selective
-metadata** that points at a validated card. What is machine-checked today is the **cards**, not the field:
-`bin/validate-capabilities.sh` validates every `shared/capabilities/<mode>/<card>.md` (specialist / tool /
-skill honesty and the derived `capability_state`), so a slug that names a real card points at validated
-content. What is **not** wired yet is **dispatcher-side field validation** — `bin/send-task.sh` does not
-currently reject a packet whose `capability:` is malformed or is not a real card for its `mode`, and it does
-not surface the card's `capability_state`. Treat the field as a pointer, not a gate. Rejecting an invalid
-`capability:` at dispatch (and optionally flagging a `needs_tool` / `degraded-blueprint` card's state) is a
-**documented future hardening**, not a live guarantee.
+**Enforcement level (live).** When `capability:` is present and not `none`, `bin/send-task.sh` requires a strict
+slug (or exact `<mode>/<slug>` ID), resolves it only beneath `shared/capabilities/<mode>/`, and calls the canonical
+capability validator. A malformed, mode-mismatched, missing, or validator-failing card blocks dispatch. The
+dispatcher surfaces the validator-derived state. A `needs_tool` (including a typed reason) or
+`degraded-blueprint` snapshot is held unless the packet explicitly carries
+`capability_degradation_ack: <exact-derived-state>`; acknowledgement permits the bounded degraded task, it does
+not promote the card.
+
+For an allowed capability dispatch, the delivered packet and active-task registry receive an immutable snapshot:
+`capability_id`, `capability_card_path`, `capability_card_sha256`, `capability_derived_state`, and
+`capability_gates`. These keys are dispatcher-owned and source packets may not pre-populate them. The card's
+SHA-256 is computed over the same bytes validated at dispatch. Capability/tool claims in the author packet are
+validated **before** `shared/dispatch-toolkit.sh` appends registry-derived status guidance; injected cross-lane
+backticks are context, not author claims, and are not fed back through predispatch validation. Registry `no` /
+`needs-research` / `catalog-absent` / `needs_tool` states remain hard gates, while a `yes` tool's lane mismatch is
+surfaced as a warning rather than blocking a legitimate cross-lane reference.
+
+**Enforcement DESIGN direction (Tier-4 follow-on — NOT built now).** Remaining narrative gates may become hard
+stops through a broader machine-enforcement layer, all subscription-free and deferred to a dedicated hardening
+task: Claude **hooks** (a `PreToolUse` hook to
+enforce a packet's `write_scope` and block an unapproved `git push`; a `Stop`/`PostToolUse` hook to enforce the
+two-output Completion Contract so finished work can't settle without its outbox envelope), **`--json-schema` /
+`--output-format json`** for machine-checked gate records (impact G1–G4, the Rule-6 rights gate, reconciler
+envelopes), and **`--max-budget-usd`** to enforce the metered ceilings each card's `cost_note` already promises.
+None of these is active today — treat them as the intended hardening roadmap, not a current guarantee.
 
 ## Lifecycle
 
@@ -100,12 +117,62 @@ If Vibe Squad gains untrusted packet authors, shared filesystem writers, or a
 multi-user mailbox, dispatch must move to a directory-descriptor-relative,
 no-follow publisher before that environment is supported.
 
+### Dispatcher-pinned verification contract v1
+
+For Project and Bounty, `bin/send-task.sh` owns `author_family`, `verification_contract`, and `verification_contract_sha256`; author packets may not pre-populate them. The author family comes only from the executing `to_model` lane. The dispatcher combines the validated capability snapshot and runtime-map gates, derives `verification-contract/v1`, serializes it as UTF-8 canonical JSON (`sort_keys`, compact separators, no NaN), and stores the lowercase SHA-256 beside the object.
+
+The exact object/hash pair is injected into every dispatched packet and persisted in the locked active registry. A `verification-run/v1` manifest must echo both. The checker trusts in this order: active registry identity under shared lock; registry object validation and recomputed hash; registry lane-to-author-family pin; all packet echoes; then the manifest echo and manifest/contract identities. A mismatch at any layer is `verification_contract_integrity` / `OPERATOR=3`. Same-task registration includes the contract hash in dispatch identity, so a changed contract cannot silently replace the original.
+
+The trace bundle must supply ordered S0–S7 evidence, current plan and canonical artifact-bundle hashes, required verification kinds, different-family plan/deliverable review records and their evidence-file frontmatter, memory recall/usage/record receipts, a complete action log, expected gate decisions, iteration invalidation records, and local delivery evidence. Reviews bind S2 to `plan.sha256` and S5 to `artifact_bundle_sha256`; changed subjects require fresh evidence. Project and Bounty are the only typed v1 profiles.
+
+This is a trusted single-user filesystem contract, not cryptographic attestation. The checker validates reviewer-family, memory, and verification records for schema, file hash, identity, and current-subject binding, but cannot prove which external reviewer or MCP authored the bytes. Live acceptance therefore uses actual independent reviews and actual `chrono-vault` returns. The reconciler preserves and settles task state; it does not independently enforce a completed run's verification spine.
+
+## Delivery Claim Contract
+
+Task execution and response settlement use separate state fields. Registry
+`status` remains the completion/review authority; `delivery_state` is the
+transport lifecycle `queued → claimed → in-progress → terminal`.
+
+Every new dispatch receives one immutable `delivery_attempt_id` and generation.
+Before sending a pane prompt, `bin/nudge-task.sh` obtains a locked authorization
+for the oldest nonterminal task on that lane and persists its retry count and
+next-attempt timestamp. Redeliveries reuse the same task and attempt IDs, follow
+the bounded schedule, and never release a later same-lane task while the head is
+claimed or in progress. Watcher startup replays queued inbox files, making a
+crash between authorization and pane submission recoverable without an
+unbounded loop.
+
+The delivered prompt begins with the mandatory lane action:
+
+```bash
+bin/claim-task.sh TASK-ID ATTEMPT-ID
+```
+
+That command atomically records both the `claimed` and `in-progress` transitions
+under `_state/active-tasks.json.lock`. Repeating the current claim is idempotent;
+a stale attempt/generation or a non-head task is rejected. A valid response (or
+the explicit work-done-without-envelope backstop) marks delivery `terminal` and
+releases the next same-lane task without changing mandatory-review semantics.
+
+Pane submission is only `pane_delivery_attempted`. It proves that the transport
+accepted keystrokes, not that the model accepted work. Only the lane-authored
+claim receipt may set failover `accepted_at`; therefore pane delivery alone does
+not suppress the watchdog's dispatch-ack failure path. A failover generation is
+also fenced in the active registry before its packet is submitted, so an older
+generation cannot claim after the handoff.
+
 ## Completion Contract
 
 Lifecycle step 6 has **two** required outputs, not one. On finishing a task the model lead writes both:
 
 1. the **`return_artifact`** named in the packet, and
 2. the **outbox completion envelope** at `departments/<compatibility_namespace>/outbox/<id>-response.md`.
+
+**Before** declaring a task `complete`, apply the **verify-before-claiming-done** discipline (Hard Rule 8): run
+the actual verification (commands/tests/re-reads) and confirm the claimed outcome — never emit a `complete`
+`status` on an unverified result. On the **Claude lane** this is the invokable `verification-before-completion`
+skill (`supported_lanes: claude`; codex/kimi/gemini apply the same discipline via their own means, not this
+claude-only skill).
 
 `bin/outbox-watcher.sh` watches for `<id>-response.md` and `scripts/python/registry_reconciler.py` reconciles the active-task registry and nudges Chrono from it. Writing only the `return_artifact` leaves the task `in-flight`: the reconciler's `work-done-no-envelope` path is a **backstop** (it flags settled-but-unenveloped work after a grace period once the lane goes idle), not the primary path. Emitting the envelope is what makes reconciliation instant and deterministic.
 
@@ -122,12 +189,19 @@ to: chrono
 type: RESULT
 status: complete | needs_review | blocked
 return_artifact: <the return_artifact path>
+capability_card_sha256: <exact dispatched hash> # required only when the packet carries a capability snapshot
 ---
 
 One-paragraph summary of what you did (the reconciler surfaces this first paragraph).
 ```
 
-The reconciler keys on the `<id>-response.md` filename and reads `status` (canonicalizing `completed`→`complete`) plus the summary body; the other fields are provenance it tolerates. Use `needs_review` when the packet sets `mandatory_review: true`, and `blocked` if the work could not be finished. **Panel/fan-out members never write the envelope — the coordinator is the sole outbox writer for the parent task.**
+The reconciler keys on the `<id>-response.md` filename and reads `status` (canonicalizing `completed`→`complete`) plus the summary body. For a capability-pinned task, the envelope must echo the exact dispatched
+`capability_card_sha256`; a missing or mismatched echo keeps the task open, including before cross-family review
+settlement. Reconciliation compares the current card hash separately and records/surfaces
+`capability_card_drift`, but drift does not rewrite the pinned ID, hash, derived state, or gates and does not by
+itself block a correctly pinned response. Use `needs_review` when the packet sets `mandatory_review: true`, and
+`blocked` if the work could not be finished. **Panel/fan-out members never write the envelope — the coordinator
+is the sole outbox writer for the parent task.**
 
 ## Memory Apply Citations
 
@@ -140,6 +214,14 @@ Senders do not block on lane-to-lane work. If a response is required, track the 
 ## Mandatory Review Behavior
 
 `mandatory_review: true` is a contract enforced at dispatch time, not auto-firing automation. Specifically:
+
+The shared review-gate that every review-overlay S5 step fires has a two-part **request → receive** discipline,
+invokable on the **Claude lane** (`supported_lanes: claude`; codex/kimi/gemini apply the same discipline via
+their own means): **`requesting-code-review`** — before handing off, the author confirms the work actually meets
+the packet's requirements/scope; **`receiving-code-review`** — findings are weighed on merit (especially when a
+comment is unclear or technically questionable) before any change is made. This loop **supplements, never
+replaces**, the independent cross-family reviewer, and a claude-only skill is never a card's sole review
+mechanism.
 
 - **At dispatch:** `bin/send-task.sh` validates that `review_model` is set when `mandatory_review: true`, and rejects high-safety specialists (per `shared/specialist-runtime-map.tsv`) that don't carry `mandatory_review: true`.
 - **Same-family review (specialist's primary lane and reviewer's lane share a model family — e.g., gpt-codex specialist with claude reviewer where the specialist already has Claude available as an in-lane tool):** the specialist is expected to run the review IN-LANE before declaring done. Most current `mandatory_review: true` packets land this way (e.g., gpt-codex/ai-engineer responses commonly include "Mandatory Claude review completed twice").

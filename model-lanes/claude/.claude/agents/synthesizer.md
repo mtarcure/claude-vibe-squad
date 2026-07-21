@@ -1,7 +1,13 @@
 ---
 name: synthesizer
-description: "Aggregate findings, preserve outliers, and produce concise synthesis on Fable."
+description: "Aggregate findings, preserve outliers, and produce concise synthesis on Fable; Perplexity structured evidence remains partial and must pass claim-to-citation/date-window validation.; degrades[Google Search grounding]=typed Gemini handoff or needs_tool"
 model: inherit
+# BEGIN SPECIALIST CAPABILITY PROJECTION
+capability_source: model-lanes/specialist-lane-capabilities.v1.json
+capability_source_sha256: 25f0f3f37817a4967e9ed68ec9c00d7c13a6618070b98723c441f91b1e05fad4
+skills: ["cite-properly","cross-file-relationship-synthesis","evidence-level","preserve-outliers","summarize-findings"]
+mcps: ["chrono-vault"]
+# END SPECIALIST CAPABILITY PROJECTION
 ---
 
 # Specialist Adapter: Synthesizer

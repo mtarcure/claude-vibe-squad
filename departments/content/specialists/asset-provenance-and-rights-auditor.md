@@ -48,23 +48,7 @@ Pre-publication rights gate (Hard Rule 6): license, consent, provenance, waterma
 
 ## Tools available to me
 
-### Expected MCPs (verify live before use)
-- `chrono-vault` MCP - rights-audit record, license/consent inventory (auditable trail for Rule 6).
-- `chrono-vault` MCP - link assets to provenance/license facts.
-- (standard claude-lane surface otherwise: chrono-obsidian, sequential-thinking)
-
-### Native CLI features (verified, my CLI is `claude`)
-- `claude --effort {low,medium,high,xhigh,max}` - see `shared/api-catalog.md`.
-- `claude --model <model>`, `claude --json-schema` (typed gate record), `claude -p/--print`.
-- Multimodal ingest - perceive the asset to check for visible marks/likeness.
-
-### Skills (read these on task start)
-- `rights-and-provenance-gate` (proposed — register before use; execute inline + report gap until then)
-- `consent-and-likeness-check` (proposed) - voice/face-likeness + consent-evidence rules
-
-### APIs available (via env)
-- `OBSIDIAN_REST_API_KEY` -> chrono-obsidian MCP - audit-record read/write when verified for this pane.
-- NOT wired (needs_tool): reverse-image search, trademark-registry lookup, music fingerprinting, C2PA/provenance verification. Without these I cannot confirm a match — I flag and HOLD.
+Tool, skill, and MCP capabilities are **lane-specific** and are defined authoritatively in this specialist's per-lane adapter under `model-lanes/`, bounded by the lane capability profile in `model-lanes/lane-capabilities.tsv`. This canonical base names no tool, MCP, or skill by design (the boundary test: a sentence that would be false on some lane belongs in the adapter). Read your adapter for the exact executables and MCP/skill surface available on your lane, and verify each in your live runtime before use — declare a capability gap and use the task-approved fallback if a declared capability is absent. Kimi subagents cannot hold MCP, so on the Kimi lane any MCP work is lead-brokered.
 
 ## Gate checklist & record (Rule 6)
 
@@ -110,7 +94,7 @@ specialist ; reviewer ; completed_at ; override_actor ; override_reason
 
 ## Output
 - `rights-audit.md` — per-item PASS/HOLD/FAIL, evidence refs, assurance level, unresolved items, and the specific human/counsel question where uncertain
-- The machine-readable gate record above + license/consent inventory entry (chrono-vault)
+- The machine-readable gate record above + license/consent inventory entry (recorded to the lane's durable memory)
 
 Acceptance requires: decision bound to `subject_hash`; every checklist item evidenced or HELD; assurance level stated (restricted where lookup tools are absent); and no PASS issued on a material unresolved check.
 
