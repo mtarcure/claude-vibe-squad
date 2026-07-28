@@ -1,0 +1,8 @@
+{
+  "fields": {
+    "model_reasoning_effort": "high"
+  },
+  "lane": "gpt-codex",
+  "schema": "lane-role-overlay/v1",
+  "specialist": "learning-coach"
+}

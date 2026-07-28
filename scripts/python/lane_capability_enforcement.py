@@ -1,0 +1,775 @@
+#!/usr/bin/env python3
+"""Deterministic per-role capability projection and native lane enforcement.
+
+This module contains no model calls and grants no capabilities.  It filters a
+lane's already-configured MCP servers to the exact set declared by the native
+specialist adapter plus its authenticated overlay, and emits only the native
+CLI restriction mechanism for that lane.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import tempfile
+from typing import Callable, Mapping
+
+
+SERVER_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+CLAUDE_LIVE_SERVER_RE = re.compile(
+    r"^(?:plugin:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+)$"
+)
+CLAUDE_FIRST_PARTY_SERVERS = {
+    "claude.ai Gmail": ("claude-ai-gmail", "claude_ai_Gmail"),
+    "claude.ai Google Calendar": (
+        "claude-ai-google-calendar",
+        "claude_ai_Google_Calendar",
+    ),
+    "claude.ai Google Drive": (
+        "claude-ai-google-drive",
+        "claude_ai_Google_Drive",
+    ),
+}
+TOOL_NAME_RE = re.compile(r"^[A-Za-z0-9._+-]+$")
+ROLE_CONFIG_MARKER = "__ROLE_MCP_CONFIG__"
+LANES = frozenset({"codex", "claude", "gemini", "kimi"})
+CAPABILITY_SOURCE_RELATIVE = Path(
+    "model-lanes/specialist-lane-capabilities.v1.json"
+)
+
+# ── F6: only a PATH-resolvable tool may gate a headless spawn ────────────────
+# `host-PATH` is the one evidence kind in `specialist_capability_source.py` that
+# ASSERTS "a binary spelled like this capability's id answers on the shell
+# PATH". Every other kind describes a capability reached some other way -- a
+# macOS `.app` bundle (`host-app-bundle`, launched via `open -a`), the repo venv
+# interpreter (`repo-venv-interpreter`), an MCP operation, a harness capability
+# behind a runtime-map approval, or something only an operator can install
+# (`operator-install-required`).
+#
+# The launch gate used to run `shutil.which()` over EVERY declared tool and hard
+# -deny on any miss, which made `which()` the arbiter of capabilities it can
+# never see. That silently made whole specialists undispatchable:
+# `knowledge-librarian` declares `zotero` (a GUI `.app`), so every headless
+# spawn died with exit 74 "role requires unavailable local tools: zotero" --
+# friction F6, and the same trap waits for hammerspoon/mitmproxy/Xcode roles.
+#
+# A `which()` miss is only EVIDENCE OF ABSENCE for a tool that claimed to be on
+# PATH. For anything else the miss proves nothing, so it is recorded as a
+# `capability_gap` (the adapters already instruct workers to declare a gap and
+# use the task-approved fallback) instead of denying the launch. This stays
+# fail-CLOSED: an unclassified tool, or a `host-PATH`-declared required tool
+# that is genuinely absent, still denies.
+PATH_RESOLVABLE_EVIDENCE = frozenset({"host-PATH"})
+
+
+class CapabilityDenied(RuntimeError):
+    """Role capability projection cannot be enforced without widening it."""
+
+
+@dataclass(frozen=True)
+class LaneCapabilityPlan:
+    lane: str
+    authorized_mcps: tuple[str, ...]
+    configured_mcps: tuple[str, ...]
+    disabled_mcps: tuple[str, ...]
+    brokered_mcps: tuple[str, ...]
+    authorized_tools: tuple[str, ...]
+    available_tools: tuple[str, ...]
+    missing_tools: tuple[str, ...]
+    capability_enforcement: str
+    cli_args: tuple[str, ...]
+    role_config_json: str | None
+    # Declared tools that are unresolvable on this headless spawn but must not
+    # gate it (F6). The worker is expected to declare a `capability_gap` and use
+    # the task-approved fallback rather than pretend the tool worked.
+    capability_gaps: tuple[str, ...] = ()
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError as exc:
+        raise CapabilityDenied(f"role capability source is unavailable: {exc}") from exc
+    return digest.hexdigest()
+
+
+def _declared_arrays(path: Path) -> dict[str, list[str]]:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise CapabilityDenied(f"role capability source is unavailable: {exc}") from exc
+    result = {"mcps": [], "tools": [], "skills": []}
+    aliases = {
+        "mcps": ("mcps", "capability_mcps"),
+        "tools": ("tools", "capability_tools"),
+        "skills": ("skills", "capability_skills"),
+    }
+    for canonical, keys in aliases.items():
+        for key in keys:
+            matches = re.findall(
+                rf"(?m)^[ \t]*{re.escape(key)}[ \t]*[:=][ \t]*(\[[^\r\n]*\])[ \t]*$",
+                text,
+            )
+            for match in matches:
+                try:
+                    values = json.loads(match)
+                except json.JSONDecodeError as exc:
+                    raise CapabilityDenied(
+                        f"role capability source has an invalid {key} declaration"
+                    ) from exc
+                if not isinstance(values, list) or any(
+                    not isinstance(value, str) for value in values
+                ):
+                    raise CapabilityDenied(
+                        f"role capability source has an invalid {key} declaration"
+                    )
+                result[canonical].extend(values)
+    return result
+
+
+def adapter_path_for(*, repo_root: Path, lane: str, specialist: str) -> Path:
+    """Resolve one native lane adapter without falling back across lanes."""
+
+    if lane not in LANES:
+        raise CapabilityDenied(f"unsupported capability lane: {lane!r}")
+    if not SERVER_NAME_RE.fullmatch(specialist):
+        raise CapabilityDenied("specialist name is unsafe")
+    candidates: tuple[Path, ...]
+    if lane == "codex":
+        root = repo_root / "model-lanes" / "gpt-codex" / ".codex" / "agents"
+        candidates = (
+            root / f"{specialist.replace('-', '_')}.toml",
+            root / f"{specialist}.toml",
+        )
+    elif lane == "claude":
+        candidates = (
+            repo_root / "model-lanes" / "claude" / ".claude" / "agents"
+            / f"{specialist}.md",
+        )
+    elif lane == "gemini":
+        candidates = (
+            repo_root / "model-lanes" / "gemini" / ".gemini" / "agents"
+            / f"{specialist}.md",
+        )
+    else:
+        root = repo_root / "model-lanes" / "kimi"
+        candidates = (
+            root / ".kimi" / "agents" / f"{specialist}.yaml",
+            root / "subagents" / f"{specialist}.yaml",
+        )
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    raise CapabilityDenied(
+        f"native {lane} specialist adapter is missing for {specialist!r}"
+    )
+
+
+def load_projection(
+    *,
+    lane: str,
+    specialist: str,
+    adapter_path: Path,
+    overlay_path: Path,
+) -> dict[str, object]:
+    """Load, deduplicate, validate, and hash adapter capability declarations."""
+
+    if lane not in LANES:
+        raise CapabilityDenied(f"unsupported capability lane: {lane!r}")
+    sources: list[Path] = []
+    for raw_path in (Path(adapter_path), Path(overlay_path)):
+        resolved = raw_path.resolve(strict=False)
+        if resolved not in sources:
+            sources.append(resolved)
+    projection: dict[str, object] = {
+        "schema": "role-capability-projection/v1",
+        "lane": lane,
+        "specialist": specialist,
+        "mcps": [],
+        "brokered_mcps": [],
+        "tools": [],
+        "skills": [],
+        "sources": [],
+    }
+    for source in sources:
+        declarations = _declared_arrays(source)
+        projection["sources"].append(
+            {"path": str(source), "sha256": _sha256_file(source)}
+        )
+        projection["tools"].extend(declarations["tools"])
+        projection["skills"].extend(declarations["skills"])
+        for server_name in declarations["mcps"]:
+            if server_name.startswith("lead:"):
+                projection["brokered_mcps"].append(server_name[5:])
+            else:
+                projection["mcps"].append(server_name)
+    for key in ("mcps", "brokered_mcps"):
+        values = sorted(set(projection[key]))
+        if any(not SERVER_NAME_RE.fullmatch(value) for value in values):
+            raise CapabilityDenied(f"role declares an unsafe {key} name")
+        projection[key] = values
+    tools = sorted(set(projection["tools"]))
+    if any(not TOOL_NAME_RE.fullmatch(value) for value in tools):
+        raise CapabilityDenied("role declares an unsafe local tool name")
+    projection["tools"] = tools
+    skills = sorted(set(projection["skills"]))
+    if any(not SERVER_NAME_RE.fullmatch(value) for value in skills):
+        raise CapabilityDenied("role declares an unsafe skill name")
+    projection["skills"] = skills
+    return projection
+
+
+def load_json_mcp_servers(path: Path) -> dict[str, dict[str, object]]:
+    """Load the conventional ``{"mcpServers": {...}}`` lane config shape."""
+
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise CapabilityDenied(f"lane MCP config is unreadable or invalid: {exc}") from exc
+    if (
+        not isinstance(payload, dict)
+        or not isinstance(payload.get("mcpServers"), dict)
+        or any(
+            not isinstance(name, str) or not isinstance(config, dict)
+            for name, config in payload["mcpServers"].items()
+        )
+    ):
+        raise CapabilityDenied("lane MCP config has the wrong schema")
+    result = dict(payload["mcpServers"])
+    if any(not SERVER_NAME_RE.fullmatch(name) for name in result):
+        raise CapabilityDenied("configured MCP server has an unsafe name")
+    return result
+
+
+def parse_live_mcp_listing(
+    *, lane: str, output: str
+) -> dict[str, dict[str, object]]:
+    """Parse one native CLI's live MCP inventory into adapter-facing names."""
+
+    if lane not in {"claude", "gemini"}:
+        raise CapabilityDenied(f"{lane} does not have a text MCP inventory parser")
+    if not isinstance(output, str) or "\x00" in output:
+        raise CapabilityDenied("live MCP inventory output is invalid")
+
+    lines = output.splitlines()
+    header = (
+        "Checking MCP server health…"
+        if lane == "claude"
+        else "Configured MCP servers:"
+    )
+    try:
+        header_index = next(
+            index for index, line in enumerate(lines) if line.strip() == header
+        )
+    except StopIteration as exc:
+        raise CapabilityDenied(
+            f"{lane} live MCP inventory header is missing"
+        ) from exc
+
+    result: dict[str, dict[str, object]] = {}
+    for raw_line in lines[header_index + 1 :]:
+        line = raw_line.strip()
+        if not line:
+            continue
+        if lane == "gemini" and (
+            line.startswith("Error authenticating")
+            or line.startswith("Authentication required")
+            or line.startswith("Please set GEMINI_API_KEY")
+        ):
+            # Older Gemini CLI builds could leave a non-inventory auth
+            # diagnostic on stderr even after printing a usable MCP listing.
+            # Ignore only these known diagnostics; every other residual row
+            # remains fail-closed.
+            continue
+        if lane == "claude":
+            live_name, name_separator, remainder = line.partition(": ")
+            _command, status_separator, status = remainder.rpartition(" - ")
+            if not name_separator or not status_separator or not status.strip():
+                raise CapabilityDenied(
+                    "Claude live MCP inventory contains an unparseable row"
+                )
+            status = status.strip()
+            first_party = CLAUDE_FIRST_PARTY_SERVERS.get(live_name)
+            if first_party is not None:
+                canonical_name, tool_namespace = first_party
+            elif CLAUDE_LIVE_SERVER_RE.fullmatch(live_name):
+                canonical_name = live_name.rsplit(":", 1)[-1]
+                tool_namespace = live_name.replace(":", "_")
+            else:
+                raise CapabilityDenied(
+                    "Claude live MCP inventory contains an unsafe server name"
+                )
+        else:
+            match = re.match(
+                r"^(?P<glyph>[✓✔✗✘])\s+(?P<name>[A-Za-z0-9_-]+)"
+                r"(?:\s+\(from\s+[^)]+\))?:\s+.*\s+-\s+"
+                r"(?P<status>Connected|Disconnected|Failed(?:\s+.*)?)$",
+                line,
+            )
+            if match is None:
+                raise CapabilityDenied(
+                    "Gemini live MCP inventory contains an unparseable row"
+                )
+            canonical_name = match.group("name")
+            live_name = canonical_name
+            status = match.group("status")
+
+        if not SERVER_NAME_RE.fullmatch(canonical_name):
+            raise CapabilityDenied(
+                f"{lane} live MCP inventory contains an unsafe adapter name"
+            )
+        previous = result.get(canonical_name)
+        if previous is not None and previous.get("live_name") != live_name:
+            raise CapabilityDenied(
+                f"{lane} live MCP inventory has an ambiguous server name: "
+                f"{canonical_name}"
+            )
+        if lane == "claude":
+            for record in result.values():
+                if (
+                    record.get("tool_namespace") == tool_namespace
+                    and record.get("live_name") != live_name
+                ):
+                    raise CapabilityDenied(
+                        "Claude live MCP inventory has an ambiguous tool namespace: "
+                        f"{tool_namespace}"
+                    )
+        result[canonical_name] = {
+            "live_name": live_name,
+            "status": status,
+            **(
+                {"tool_namespace": tool_namespace}
+                if lane == "claude"
+                else {}
+            ),
+        }
+    if not result:
+        raise CapabilityDenied(f"{lane} live MCP inventory is empty or unparseable")
+    return result
+
+
+def parse_claude_enabled_plugins(output: str) -> tuple[str, ...]:
+    """Return safe enabled plugin names from ``claude plugin list --json``."""
+
+    try:
+        payload = json.loads(output)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise CapabilityDenied("Claude plugin inventory returned invalid JSON") from exc
+    if not isinstance(payload, list):
+        raise CapabilityDenied("Claude plugin inventory has the wrong schema")
+    names: set[str] = set()
+    for item in payload:
+        if not isinstance(item, dict):
+            raise CapabilityDenied("Claude plugin inventory has the wrong schema")
+        if item.get("enabled") is not True:
+            continue
+        plugin_id = item.get("id")
+        if not isinstance(plugin_id, str) or "@" not in plugin_id:
+            raise CapabilityDenied("Claude plugin inventory has an invalid id")
+        name = plugin_id.split("@", 1)[0]
+        if not SERVER_NAME_RE.fullmatch(name):
+            raise CapabilityDenied("Claude plugin inventory has an unsafe name")
+        names.add(name)
+    return tuple(sorted(names))
+
+
+def parse_claude_project_plugin_dirs(output: str) -> dict[str, str]:
+    """Return safe enabled project-plugin install paths by plugin name."""
+
+    try:
+        payload = json.loads(output)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise CapabilityDenied("Claude plugin inventory returned invalid JSON") from exc
+    if not isinstance(payload, list):
+        raise CapabilityDenied("Claude plugin inventory has the wrong schema")
+    result: dict[str, str] = {}
+    for item in payload:
+        if (
+            not isinstance(item, dict)
+            or item.get("enabled") is not True
+            or item.get("scope") != "project"
+        ):
+            continue
+        plugin_id = item.get("id")
+        install_path = item.get("installPath")
+        if (
+            not isinstance(plugin_id, str)
+            or "@" not in plugin_id
+            or not isinstance(install_path, str)
+            or not install_path.startswith("/")
+            or "\x00" in install_path
+        ):
+            raise CapabilityDenied(
+                "Claude project plugin inventory has an invalid record"
+            )
+        name = plugin_id.split("@", 1)[0]
+        if not SERVER_NAME_RE.fullmatch(name):
+            raise CapabilityDenied("Claude project plugin has an unsafe name")
+        previous = result.get(name)
+        if previous is not None and previous != install_path:
+            raise CapabilityDenied(
+                f"Claude project plugin inventory is ambiguous: {name}"
+            )
+        result[name] = install_path
+    return result
+
+
+def _claude_tool_pattern(server: Mapping[str, object]) -> str:
+    """Map one validated live Claude server name to its native MCP wildcard."""
+
+    live_name = server.get("live_name")
+    tool_namespace = server.get("tool_namespace")
+    if not isinstance(live_name, str):
+        raise CapabilityDenied("Claude live MCP server name is unsafe")
+    first_party = CLAUDE_FIRST_PARTY_SERVERS.get(live_name)
+    expected_namespace = (
+        first_party[1]
+        if first_party is not None
+        else live_name.replace(":", "_")
+        if CLAUDE_LIVE_SERVER_RE.fullmatch(live_name)
+        else None
+    )
+    if (
+        expected_namespace is None
+        or not isinstance(tool_namespace, str)
+        or tool_namespace != expected_namespace
+        or not SERVER_NAME_RE.fullmatch(tool_namespace)
+    ):
+        raise CapabilityDenied("Claude live MCP tool namespace is unsafe")
+    return f"mcp__{tool_namespace}__*"
+
+
+def _canonical_role_config(
+    *,
+    authorized: tuple[str, ...],
+    configured_servers: Mapping[str, Mapping[str, object]],
+) -> str:
+    selected = {name: configured_servers[name] for name in authorized}
+    try:
+        return json.dumps(
+            {"mcpServers": selected},
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+            allow_nan=False,
+        )
+    except (TypeError, ValueError, UnicodeEncodeError) as exc:
+        raise CapabilityDenied(
+            f"selected MCP config is not canonical JSON: {exc}"
+        ) from exc
+
+
+def load_tool_classes(
+    *,
+    repo_root: Path,
+    lane: str,
+    specialist: str,
+    source_path: Path | None = None,
+) -> dict[str, dict[str, str]]:
+    """Read each declared tool's requirement/availability/evidence class.
+
+    The generated lane adapters flatten the capability source down to bare name
+    arrays (``tools: ["pdftotext","zotero"]``), which is why the launch gate had
+    no way to tell a PATH binary from a GUI app bundle. This reads the typed
+    record back out of the versioned source for the exact (specialist, lane)
+    pair. Returns ``{}`` when the source is unreadable or the pair is absent --
+    an unclassified tool then stays fail-closed in ``plan_lane``.
+    """
+
+    path = (
+        Path(source_path)
+        if source_path is not None
+        else Path(repo_root) / CAPABILITY_SOURCE_RELATIVE
+    )
+    if path.is_symlink() or not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+    entries = payload.get("entries") if isinstance(payload, dict) else None
+    if not isinstance(entries, list):
+        return {}
+    classes: dict[str, dict[str, str]] = {}
+    for entry in entries:
+        if (
+            not isinstance(entry, dict)
+            or entry.get("specialist") != specialist
+            or entry.get("lane") != lane
+        ):
+            continue
+        for tool in entry.get("tools") or ():
+            if not isinstance(tool, dict):
+                continue
+            identifier = tool.get("id")
+            if not isinstance(identifier, str) or not identifier:
+                continue
+            classes[identifier] = {
+                "requirement": str(tool.get("requirement") or ""),
+                "availability": str(tool.get("availability") or ""),
+                "evidence": str(tool.get("evidence") or ""),
+            }
+    return classes
+
+
+def _tool_gates_launch(tool_class: Mapping[str, str] | None) -> bool:
+    """True only when a `which()` miss is real evidence this role cannot run.
+
+    Fail-closed on an unknown tool (no class == the old behaviour), open only
+    for an explicitly `preferred` tool or one whose declared evidence is not a
+    PATH lookup at all. See ``PATH_RESOLVABLE_EVIDENCE``.
+    """
+
+    if tool_class is None:
+        return True
+    if str(tool_class.get("requirement") or "required") != "required":
+        return False
+    return str(tool_class.get("evidence") or "") in PATH_RESOLVABLE_EVIDENCE
+
+
+def plan_lane(
+    *,
+    lane: str,
+    projection: Mapping[str, object],
+    configured_servers: Mapping[str, Mapping[str, object]],
+    tool_lookup: Callable[[str], str | None] | None = None,
+    tool_classes: Mapping[str, Mapping[str, str]] | None = None,
+) -> LaneCapabilityPlan:
+    """Build one fail-closed, deterministic native-CLI enforcement plan."""
+
+    if lane not in LANES:
+        raise CapabilityDenied(f"unsupported capability lane: {lane!r}")
+    authorized = tuple(sorted(set(projection.get("mcps", ()))))
+    brokered = tuple(sorted(set(projection.get("brokered_mcps", ()))))
+    tools = tuple(sorted(set(projection.get("tools", ()))))
+    configured = tuple(sorted(configured_servers))
+    if any(not SERVER_NAME_RE.fullmatch(name) for name in (*authorized, *configured)):
+        raise CapabilityDenied("MCP server name is unsafe")
+    launch_available = set(configured)
+    if lane == "claude":
+        launch_available = {
+            name
+            for name, details in configured_servers.items()
+            if isinstance(details.get("status"), str)
+            and (
+                str(details["status"]).startswith("✔ Connected")
+                or str(details["status"]).startswith("Connected")
+                or (
+                    lane == "claude"
+                    and str(details["status"]).startswith("⏸ Pending approval")
+                    and isinstance(details.get("project_config"), dict)
+                )
+            )
+        }
+    elif lane == "gemini":
+        launch_available = {
+            name
+            for name, details in configured_servers.items()
+            if details.get("status") is None
+            or (
+                isinstance(details.get("status"), str)
+                and str(details["status"]).startswith("Connected")
+            )
+        }
+    absent_mcps = tuple(sorted(set(authorized) - set(configured)))
+    unhealthy_mcps = tuple(
+        sorted((set(authorized) & set(configured)) - launch_available)
+    )
+    if absent_mcps or unhealthy_mcps:
+        unavailable = [
+            *(f"{name} (absent)" for name in absent_mcps),
+            *(
+                f"{name} ({configured_servers[name].get('status', 'unhealthy')})"
+                for name in unhealthy_mcps
+            ),
+        ]
+        raise CapabilityDenied(
+            "role requires unavailable MCP servers: " + ", ".join(unavailable)
+        )
+    disabled = tuple(sorted(set(configured) - set(authorized)))
+
+    capability_gaps: tuple[str, ...] = ()
+    if lane == "gemini":
+        # Gemini adapter tools are native CLI tool names, not host executables.
+        available_tools = tools
+        missing_tools: tuple[str, ...] = ()
+    else:
+        lookup = tool_lookup or shutil.which
+        if any(not TOOL_NAME_RE.fullmatch(name) for name in tools):
+            raise CapabilityDenied("role declares an unsafe local tool name")
+        classes = tool_classes or {}
+        available_tools = tuple(name for name in tools if lookup(name))
+        missing_tools = tuple(sorted(set(tools) - set(available_tools)))
+        # F6: split a `which()` miss into "this role genuinely cannot run" and
+        # "this capability was never reachable through PATH in the first place".
+        blocking = tuple(
+            name for name in missing_tools if _tool_gates_launch(classes.get(name))
+        )
+        capability_gaps = tuple(
+            name for name in missing_tools if name not in blocking
+        )
+        if blocking:
+            raise CapabilityDenied(
+                "role requires unavailable local tools: " + ", ".join(blocking)
+            )
+
+    role_config_json: str | None = None
+    if lane == "codex":
+        arguments: list[str] = []
+        for server_name in configured:
+            if server_name in authorized:
+                arguments.extend(
+                    ("-c", f"mcp_servers.{server_name}.enabled=true")
+                )
+            else:
+                arguments.extend(
+                    (
+                        "-c",
+                        (
+                            f"mcp_servers.{server_name}="
+                            '{enabled=false,command="/usr/bin/false"}'
+                        ),
+                    )
+                )
+        tag = "codex-cli-mcp-table-replacement-overrides/v1"
+    elif lane == "claude":
+        project_servers = {
+            name: configured_servers[name]["project_config"]
+            for name in authorized
+            if isinstance(configured_servers[name].get("project_config"), dict)
+        }
+        if project_servers:
+            role_config_json = _canonical_role_config(
+                authorized=tuple(sorted(project_servers)),
+                configured_servers=project_servers,
+            )
+        denied_tool_patterns = tuple(
+            _claude_tool_pattern(configured_servers[name])
+            for name in disabled
+        )
+        arguments = []
+        if role_config_json is not None:
+            arguments.extend(("--mcp-config", ROLE_CONFIG_MARKER))
+        if denied_tool_patterns:
+            arguments.extend(
+                ("--disallowedTools", ",".join(denied_tool_patterns))
+            )
+        tag = "claude-cli-disallowed-mcp-tools/v1"
+    elif lane == "gemini":
+        arguments = ["--allowed-mcp-server-names", *authorized]
+        if tools:
+            arguments.extend(("--allowed-tools", *tools))
+        tag = "gemini-cli-allowed-mcp-names/v1"
+    else:
+        role_config_json = _canonical_role_config(
+            authorized=authorized,
+            configured_servers=configured_servers,
+        )
+        arguments = ["--mcp-config-file", ROLE_CONFIG_MARKER]
+        tag = "kimi-cli-config-scoped/v1"
+    return LaneCapabilityPlan(
+        lane=lane,
+        authorized_mcps=authorized,
+        configured_mcps=configured,
+        disabled_mcps=disabled,
+        brokered_mcps=brokered,
+        authorized_tools=tools,
+        available_tools=available_tools,
+        missing_tools=missing_tools,
+        capability_enforcement=tag,
+        cli_args=tuple(arguments),
+        role_config_json=role_config_json,
+        capability_gaps=capability_gaps,
+    )
+
+
+def materialize_role_config(
+    plan: LaneCapabilityPlan,
+    *,
+    worktree_root: Path,
+    task_id: str,
+    attempt_id: str,
+) -> Path:
+    """Atomically materialize a generated config inside one owned worktree."""
+
+    if plan.role_config_json is None:
+        raise CapabilityDenied(f"{plan.lane} does not require a role config file")
+    if not SERVER_NAME_RE.fullmatch(task_id) or not SERVER_NAME_RE.fullmatch(attempt_id):
+        raise CapabilityDenied("task or attempt id is unsafe for role config")
+    worktree = Path(worktree_root).resolve(strict=True)
+    config_dir = worktree / ".role-capabilities"
+    config_dir.mkdir(mode=0o700)
+    output = config_dir / f"{plan.lane}-{special_name(task_id)}-{attempt_id}.json"
+    if output.exists():
+        raise CapabilityDenied("role config output already exists")
+    fd, temporary_name = tempfile.mkstemp(
+        prefix=f".{output.name}.", dir=str(config_dir)
+    )
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="ascii") as stream:
+            stream.write(plan.role_config_json + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.rename(temporary_name, output)
+        directory_fd = os.open(config_dir, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    except BaseException:
+        # The packet's no-delete rule applies even to failed runtime temps.
+        # Leave the owner-only file in the isolated worktree for inspection.
+        raise
+    if (
+        os.path.commonpath((str(output.resolve(strict=True)), str(worktree)))
+        != str(worktree)
+    ):
+        raise CapabilityDenied("materialized role config escaped its worktree")
+    return output
+
+
+def special_name(value: str) -> str:
+    """Bound filenames while preserving the validated task identity."""
+
+    return value[:96]
+
+
+def cli_args_for_materialized(
+    plan: LaneCapabilityPlan, path: Path | None
+) -> tuple[str, ...]:
+    """Replace the internal config marker with an exact worktree path."""
+
+    if ROLE_CONFIG_MARKER not in plan.cli_args:
+        if path is not None:
+            raise CapabilityDenied(f"{plan.lane} plan does not accept a config file")
+        return plan.cli_args
+    if path is None or not Path(path).is_absolute():
+        raise CapabilityDenied("role config path must be absolute")
+    return tuple(
+        str(path) if value == ROLE_CONFIG_MARKER else value
+        for value in plan.cli_args
+    )
+
+
+__all__ = [
+    "CapabilityDenied",
+    "LaneCapabilityPlan",
+    "adapter_path_for",
+    "cli_args_for_materialized",
+    "load_json_mcp_servers",
+    "load_projection",
+    "materialize_role_config",
+    "parse_claude_enabled_plugins",
+    "parse_claude_project_plugin_dirs",
+    "parse_live_mcp_listing",
+    "plan_lane",
+]

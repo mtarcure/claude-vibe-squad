@@ -1,0 +1,12 @@
+version: 1
+# BEGIN SPECIALIST CAPABILITY PROJECTION
+capability_source: model-lanes/specialist-lane-capabilities.v1.json
+capability_source_sha256: da1cd88666d88fccb7d6946efca295c36dfde9d1499437a0e23b8d5ef428e6a7
+mcps: ["lead:chrono-vault","lead:sequential-thinking"]
+# END SPECIALIST CAPABILITY PROJECTION
+agent:
+  name: growth-and-search-analyst
+  extend: default
+  description: "Throughput-only deterministic metadata templating from supplied data under throughput.downshift_gated.v1."
+  system_prompt_path: ../prompts/growth-and-search-analyst.md
+  model: kimi-code/kimi-for-coding

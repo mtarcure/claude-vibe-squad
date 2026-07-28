@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0.0",
+  "content_class": "public-safe",
+  "invariants": [
+    {
+      "id": "invariant:synthetic-route-state",
+      "schema_version": "1.0.0",
+      "source_fix_ref": "fix:synthetic-change",
+      "language": "typescript",
+      "detector_engine": "semgrep",
+      "trust_boundary": "request-state",
+      "descriptor_ref": "descriptor:synthetic-route-state",
+      "detector_ref": "rule:synthetic-routing",
+      "fixture_refs": {
+        "positive": "fixture:synthetic-known-bad",
+        "negative": "fixture:synthetic-fixed"
+      },
+      "oracle_ref": "oracle:synthetic-counter",
+      "applicability_version_range": ">=1.0.0",
+      "lifecycle": "reviewed",
+      "last_validation": "valid"
+    }
+  ]
+}

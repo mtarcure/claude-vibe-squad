@@ -1,0 +1,74 @@
+specialist	character_name	anime_source	department	motif_emoji
+security-analyst	Kento Nanami	Jujutsu Kaisen	security	🔒
+scout	Killua	Hunter × Hunter	security	🔒
+reverse-engineer	Sasuke	Naruto	security	🔒
+exploit-developer	Sukuna	Jujutsu Kaisen	security	🔒
+threat-modeler	Shikamaru	Naruto	security	🔒
+detection-engineer	Hawkeye	Fullmetal Alchemist	security	🔒
+incident-responder	Levi	Attack on Titan	security	🔒
+red-team-operator	Aizen	Bleach	security	🔒
+experimental-attacker	Eren	Attack on Titan	security	🔒
+privacy-steward	Neji	Naruto	security	🔒
+impact-validator	Erwin	Attack on Titan	security	🔒
+ai-engineer	Edward Elric	Fullmetal Alchemist	coding	⚙️
+architect	Alphonse Elric	Fullmetal Alchemist	coding	⚙️
+backend-engineer	Roy Mustang	Fullmetal Alchemist	coding	⚙️
+database-engineer	Alex Louis Armstrong	Fullmetal Alchemist	coding	⚙️
+devops-engineer	Winry	Fullmetal Alchemist	coding	⚙️
+frontend-engineer	Nobara	Jujutsu Kaisen	coding	⚙️
+game-engineer	Bertholdt	Attack on Titan	coding	⚙️
+performance-optimizer	Toshiro Hitsugaya	Bleach	coding	⚙️
+product-manager	Armin	Attack on Titan	coding	⚙️
+refactor-cleaner	Scar	Fullmetal Alchemist	coding	⚙️
+site-reliability-engineer	Mikasa	Attack on Titan	coding	⚙️
+smart-contract-engineer	Ging Freecss	Hunter × Hunter	coding	⚙️
+software-supply-chain-engineer	Olivier Armstrong	Fullmetal Alchemist	coding	⚙️
+sol	Sol	None	coding	*
+systems-engineer	Reiner	Attack on Titan	coding	⚙️
+technical-artist	Deidara	Naruto	coding	⚙️
+test-engineer	Hange	Attack on Titan	coding	⚙️
+ui-engineer	Sasha	Attack on Titan	coding	⚙️
+code-reviewer	Code Reviewer	None	coding	⚙️
+scraping-engineer	Scraper	None	coding	⚙️
+bounty-researcher	Chrollo	Hunter × Hunter	research	🔬
+data-extraction-engineer	Shizuku	Hunter × Hunter	research	🔬
+large-context-analyst	Kurapika	Hunter × Hunter	research	🔬
+learning-coach	Biscuit	Hunter × Hunter	research	🔬
+research	Kite	Hunter × Hunter	research	🔬
+synthesizer	Meruem	Hunter × Hunter	research	🔬
+accessibility-engineer	Rock Lee	Naruto	content	✍️
+asset-provenance-and-rights-auditor	Kurapika (Chain)	Hunter × Hunter	content	✍️
+brand-voice	Tsunade	Naruto	content	✍️
+content-verifier	Kakashi	Naruto	content	✍️
+editor	Sakura	Naruto	content	✍️
+growth-and-search-analyst	Growth Analyst	None	content	✍️
+interactive-audio-designer	Tayuya	Naruto	content	✍️
+level-narrative-designer	Obito	Naruto	content	✍️
+localization-specialist	Minato	Naruto	content	✍️
+social-strategist	Social Strategist	None	content	✍️
+technical-writer	Technical Writer	None	content	✍️
+copywriter	Jiraiya	Naruto	content	✍️
+game-designer	Orochimaru	Naruto	content	✍️
+image-designer	Sai (Ink)	Naruto	content	✍️
+music-composer	Byakuya	Bleach	content	✍️
+sound-designer	Chad	Bleach	content	✍️
+voice-agent-builder	Konan	Naruto	content	✍️
+voice-narrator	Mayuri	Bleach	content	✍️
+video-director	Uryu	Bleach	content	✍️
+video-editor	Itachi	Naruto	content	✍️
+web-builder	Sai	Naruto	coding	✍️
+agentops	Geto	Jujutsu Kaisen	sysmgmt	🖥️
+fable	Fable	None	coding	*
+finance-analyst	Mei Mei	Jujutsu Kaisen	sysmgmt	🖥️
+harness-optimizer	Atsuya	Jujutsu Kaisen	sysmgmt	🖥️
+knowledge-librarian	Shoko	Jujutsu Kaisen	sysmgmt	🖥️
+loop-operator	Toge	Jujutsu Kaisen	sysmgmt	🖥️
+mac-ops	Maki	Jujutsu Kaisen	sysmgmt	🖥️
+memory-curator	Megumi	Jujutsu Kaisen	sysmgmt	🖥️
+personal-ops	Yuji	Jujutsu Kaisen	sysmgmt	🖥️
+planner	Shunsui	Bleach	shared	🧭
+prompt-engineer	Urahara	Bleach	shared	🧭
+skeptic	Maes Hughes	Fullmetal Alchemist	shared	🧭
+summarizer	Gon	Hunter × Hunter	shared	🧭
+triage	Yuta	Jujutsu Kaisen	shared	🧭
+vibecoding-check	Kenpachi	Bleach	shared	🧭

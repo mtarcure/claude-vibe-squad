@@ -1,0 +1,6 @@
+policy_id	family	description
+escalation.safety_floor.v1	escalation	High or heightened-risk quality floor with strongest profile and stricter review; upward signal escalation only.
+escalation.signal.v1	escalation	Deterministic signal-based upward escalation with transparent scoring and no learned router.
+failover.conservative.v1	failover	Auto-failover only on dispatch acknowledgement failure, confirmed process exit, or typed provider error; genuine safety refusals always surface.
+throughput.downshift_gated.v1	throughput	Kimi bulk only for low-safety, non-sensitive work with an explicit per-task Chrono bulk flag.
+throughput.never.v1	throughput	No throughput downshift.

@@ -1,0 +1,21 @@
+version: 1
+agent:
+  name: kimi-model-lead
+  extend: default
+  system_prompt_path: ./KIMI.md
+  subagents:
+    growth-and-search-analyst:
+      path: ./.kimi/agents/growth-and-search-analyst.yaml
+      description: "Registry-generated thin specialist adapter."
+    experimental-attacker:
+      path: ./subagents/experimental-attacker.yaml
+      description: "Authorized high-volume experimental probing. Kimi output is a lead only; Claude/Codex validation and mandatory review are required, and ranked non-primary lanes require same-name adapters before dispatch."
+    summarizer:
+      path: ./.kimi/agents/summarizer.yaml
+      description: "Registry-generated thin specialist adapter."
+    web-builder:
+      path: ./.kimi/agents/web-builder.yaml
+      description: "Operator-ratified 2026-07 K3 primary for authoring-shaped website implementation; build, deploy, and visual/e2e verification route to the Opus 5 backup."
+    large-context-analyst:
+      path: ./.kimi/agents/large-context-analyst.yaml
+      description: "Operator-ratified 2026-07 K3 256k primary for deep large-corpus synthesis; retrieval and fetch remain lead-brokered."

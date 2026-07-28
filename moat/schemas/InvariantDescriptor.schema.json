@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.com/moat/InvariantDescriptor.schema.json",
+  "title": "InvariantDescriptor",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "schema_version", "source_fix_ref", "applicability", "confidence", "review_state", "trust_boundary", "model", "expected_observations", "detector", "fixture_refs", "dynamic_oracle_ref"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^invariant:[A-Za-z0-9._/-]+$" },
+    "schema_version": { "const": "1.0.0" },
+    "source_fix_ref": { "type": "string", "pattern": "^fix:[A-Za-z0-9._/-]+$" },
+    "applicability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["language", "version_range"],
+      "properties": {
+        "language": { "enum": ["javascript", "typescript"] },
+        "version_range": { "type": "string", "minLength": 1 }
+      }
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "review_state": { "enum": ["candidate", "reviewed", "retired"] },
+    "trust_boundary": { "type": "string", "minLength": 1 },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sources", "barriers", "sinks"],
+      "properties": {
+        "sources": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "barriers": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "sinks": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "expected_observations": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "detector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["engine", "rule_ref"],
+      "properties": {
+        "engine": { "enum": ["codeql", "semgrep", "dylint"] },
+        "rule_ref": { "type": "string", "pattern": "^rule:[A-Za-z0-9._/-]+$" }
+      }
+    },
+    "fixture_refs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["positive", "negative", "content_class"],
+      "properties": {
+        "positive": { "type": "string", "pattern": "^fixture:[A-Za-z0-9._/-]+$" },
+        "negative": { "type": "string", "pattern": "^fixture:[A-Za-z0-9._/-]+$" },
+        "content_class": { "const": "public-safe" }
+      }
+    },
+    "dynamic_oracle_ref": { "type": "string", "pattern": "^oracle:[A-Za-z0-9._/-]+$" }
+  }
+}

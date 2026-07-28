@@ -1,0 +1,4 @@
+mcp>=1.27.0
+dnspython==2.7.*
+python-whois==0.9.*
+httpx>=0.27

@@ -1,0 +1,8 @@
+{
+  "fields": {
+    "model": "kimi-code/kimi-for-coding-highspeed"
+  },
+  "lane": "kimi",
+  "schema": "lane-role-overlay/v1",
+  "specialist": "experimental-attacker"
+}

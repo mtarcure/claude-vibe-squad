@@ -1,0 +1,7 @@
+{
+  "schema_version": "1.0.0",
+  "evidence_level": "L3",
+  "terminus": { "class": "code_exec" },
+  "gate": "PASS",
+  "rationale": "Self-asserted fields are invalid."
+}

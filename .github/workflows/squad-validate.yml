@@ -1,0 +1,249 @@
+name: Squad Validate
+
+# Spec 1.5 Item 10 — GitHub Actions CI
+# Remote: https://github.com/mtarcure/claude-vibe-squad.git
+# Security note: no user-controlled inputs used in run: blocks — safe from injection.
+
+"on":
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "17 10 * * *"
+  workflow_dispatch:
+
+jobs:
+  validate-capabilities:
+    name: Validate capabilities
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Run capability validator
+        run: bash bin/validate-capabilities.sh
+      - name: Run capability validator self-test
+        run: bash bin/validate-capabilities.sh --self-test
+
+  validate-specialists:
+    name: Validate specialists
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run specialist validator
+        env:
+          SQUAD_CI_HOST_INDEPENDENT: "1"
+          VAULT_ROOT: ${{ github.workspace }}
+        run: bash bin/validate-specialists.sh
+
+  shellcheck:
+    name: Shell and Python syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell syntax
+        run: bash -n bin/test bin/*.sh scripts/*.sh shared/*.sh
+      - name: Python compile
+        run: python3 -m py_compile scripts/python/*.py bin/*.py
+      - name: Install shellcheck
+        run: sudo apt-get install -y shellcheck
+      - name: Warn on bin/*.sh issues
+        run: shellcheck bin/*.sh || true
+      - name: Hard-fail on send-task.sh issues
+        run: shellcheck bin/send-task.sh
+      - name: Hard-fail on unified test runner issues
+        run: shellcheck bin/test
+
+  test-fast:
+    name: Hermetic test gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install pinned gitleaks
+        env:
+          GITLEAKS_VERSION: "8.30.1"
+          GITLEAKS_LINUX_X64_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+        run: |
+          install_dir="$(mktemp -d)"
+          archive="${install_dir}/gitleaks.tar.gz"
+          curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error \
+            --output "$archive" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          printf '%s  %s\n' "$GITLEAKS_LINUX_X64_SHA256" "$archive" | sha256sum --check --strict
+          tar -xzf "$archive" -C "$install_dir" gitleaks
+          sudo install -m 0755 "${install_dir}/gitleaks" /usr/local/bin/gitleaks
+          gitleaks version
+      - name: Install pinned Python test dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Install pinned moat dependencies
+        run: npm ci --prefix moat
+      - name: Run required hermetic suites
+        env:
+          SQUAD_CI_HOST_INDEPENDENT: "1"
+        run: bin/test
+
+  test-full:
+    name: Nightly and manual full tests
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    # The `moat` label denotes a dedicated runner with Docker available and
+    # python:3.11 preloaded; the runner never pulls an image implicitly.
+    runs-on: [self-hosted, linux, moat]
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install pinned gitleaks
+        env:
+          GITLEAKS_VERSION: "8.30.1"
+          GITLEAKS_LINUX_X64_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+        run: |
+          install_dir="$(mktemp -d)"
+          archive="${install_dir}/gitleaks.tar.gz"
+          curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error \
+            --output "$archive" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          printf '%s  %s\n' "$GITLEAKS_LINUX_X64_SHA256" "$archive" | sha256sum --check --strict
+          tar -xzf "$archive" -C "$install_dir" gitleaks
+          sudo install -m 0755 "${install_dir}/gitleaks" /usr/local/bin/gitleaks
+          gitleaks version
+      - name: Install pinned Python test dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Install pinned moat dependencies
+        run: npm ci --prefix moat
+      # The only live container test is isolated from push/PR gates. It runs
+      # without repository secrets and proves network-none canary behavior.
+      # A runner must pre-provision python:3.11; bin/test refuses an implicit
+      # image pull and reports a clear skip when that sandbox input is absent.
+      - name: Run daemon and isolated-container suites
+        run: bin/test --full
+
+  panel-status-tests:
+    name: Panel and status tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install test runner
+        run: python -m pip install "pytest>=8,<9"
+      - name: Run panel activity and status renderer tests
+        run: python -m pytest daemon/tests/test_panel_activity.py daemon/tests/test_vs_lane_status.py
+
+  dispatch-safety-checks:
+    name: Dispatch safety
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify no-delete rule in dispatch-toolkit.sh
+        run: |
+          if ! grep -q 'spec-1.5-no-delete-rule' shared/dispatch-toolkit.sh; then
+            echo "ERROR: dispatch-toolkit.sh missing Spec 1.5 no-delete rule block."
+            exit 1
+          fi
+          echo "OK: no-delete rule present."
+      - name: Validate active-tasks.json schema (if present)
+        run: |
+          if [ -f "_state/active-tasks.json" ]; then
+            python3 - <<'PY'
+          import json
+          import sys
+
+          with open("_state/active-tasks.json") as f:
+              registry = json.load(f)
+
+          required = (
+              "compatibility_namespace",
+              "to_model",
+              "specialist",
+              "source_namespace",
+              "dispatched_at",
+              "write_scope",
+              "status",
+          )
+          errors = [
+              f"{task_id} missing field: {field}"
+              for task_id, entry in registry.items()
+              for field in required
+              if field not in entry
+          ]
+          for error in errors:
+              print(f"ERROR: {error}")
+          if not errors:
+              print(f"OK: {len(registry)} entries valid.")
+          sys.exit(1 if errors else 0)
+          PY
+          else
+            echo "OK: no active-tasks.json (clean state)."
+          fi
+      - name: Validate sample active registry
+        run: |
+          python3 - <<'PY'
+          import json
+
+          with open("examples/active-tasks.sample.json") as f:
+              data = json.load(f)
+          assert isinstance(data, dict)
+          print("OK: sample active registry parses")
+          PY
+      - name: Block private runtime artifacts
+        run: |
+          bad="$(git ls-files | grep -E '(^_state/(tmux-logs|doctor-logs|cleanup-logs|morning-briefs|nightly-failures|active-tasks\.json)|^departments/[^/]+/(inbox|active|outbox)/.+\.md$|^departments/[^/]+/archive/.+\.md$|__pycache__|\.pyc$)' || true)"
+          if [ -n "$bad" ]; then
+            echo "ERROR: private/runtime files are tracked:"
+            echo "$bad"
+            exit 1
+          fi
+          echo "OK: no blocked private/runtime files tracked."
+
+  moat-boundary:
+    name: Moat Tier-A boundary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install pinned gitleaks
+        env:
+          GITLEAKS_VERSION: "8.30.1"
+          GITLEAKS_LINUX_X64_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+        run: |
+          install_dir="$(mktemp -d)"
+          archive="${install_dir}/gitleaks.tar.gz"
+          curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error \
+            --output "$archive" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          printf '%s  %s\n' "$GITLEAKS_LINUX_X64_SHA256" "$archive" | sha256sum --check --strict
+          tar -xzf "$archive" -C "$install_dir" gitleaks
+          sudo install -m 0755 "${install_dir}/gitleaks" /usr/local/bin/gitleaks
+          gitleaks version
+      - name: Install moat boundary deps
+        run: npm ci --prefix moat
+      # Data-free public Layer-1 scan. --self-check validates the WHOLE moat/
+      # Layer-1 tree (capabilities, provenance, schemas, calibrated secrets), so
+      # it inherently covers any moat/-touching change. No user-controlled input
+      # in this run: block — safe from injection. Tier-B stays private (denylist,
+      # pre-push/CI only) and is intentionally NOT wired here.
+      - name: Tier-A boundary self-check
+        run: node moat/boundary/tier-a.mjs --self-check

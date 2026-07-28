@@ -1,0 +1,80 @@
+{
+  "content_class": "public-safe",
+  "layer1_root": "moat/",
+  "approved_external_input_adapter": "adapters/external-input.mjs",
+  "approved_capability_modules": [
+    "adapters/filesystem.mjs",
+    "adapters/process.mjs"
+  ],
+  "approved_dynamic_sink_modules": [
+    "patchgraph/patch-graph.mjs"
+  ],
+  "inspection_implementation_modules": [
+    "boundary/tier-a.mjs"
+  ],
+  "forbidden_import_fragments": [
+    "_state/bounty",
+    "target-data",
+    "target_data",
+    "private-fixture",
+    "private/fixture"
+  ],
+  "restricted_node_modules": [
+    "fs",
+    "fs/promises",
+    "node:fs",
+    "node:fs/promises",
+    "net",
+    "node:net",
+    "http",
+    "node:http",
+    "https",
+    "node:https",
+    "child_process",
+    "node:child_process",
+    "dns",
+    "node:dns",
+    "dgram",
+    "node:dgram",
+    "tls",
+    "node:tls"
+  ],
+  "allowed_hosts": [
+    "localhost",
+    "example.com",
+    "example.net",
+    "example.org",
+    "host.docker.internal",
+    "github.com",
+    "nodejs.org",
+    "registry.npmjs.org",
+    "developer.mozilla.org",
+    "json-schema.org",
+    "schemas.example.com"
+  ],
+  "allowed_host_suffixes": [
+    ".example.com",
+    ".example.net",
+    ".example.org",
+    ".test",
+    ".example",
+    ".invalid"
+  ],
+  "allowed_ipv4_cidrs": [
+    "127.0.0.0/8",
+    "192.0.2.0/24",
+    "198.51.100.0/24",
+    "203.0.113.0/24"
+  ],
+  "allowed_ipv6": ["::1"],
+  "synthetic_deny_markers": [
+    "private-engagement.corp"
+  ],
+  "secret_scan_allowlist": [
+    {
+      "path": "fixtures/purity/allow/real-world-vectors.json",
+      "sha256": "3981d2f15883fc73f6905e2c1aaece09a971f104554ef5ddf4cda51d2a924af4",
+      "rule_ids": ["jwt"]
+    }
+  ]
+}

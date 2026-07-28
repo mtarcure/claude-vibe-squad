@@ -1,0 +1,7 @@
+{
+  "schema_version": "1.0.0",
+  "state": "FAIL",
+  "revision_ref": "revision:synthetic",
+  "candidate_kill_refs": [],
+  "missing_requirement_refs": []
+}

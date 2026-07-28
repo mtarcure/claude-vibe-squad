@@ -1,0 +1,9 @@
+{
+  "fields": {
+    "description": "Low-risk bulk summarization under throughput.downshift_gated.v1.",
+    "model": "kimi-code/kimi-for-coding"
+  },
+  "lane": "kimi",
+  "schema": "lane-role-overlay/v1",
+  "specialist": "summarizer"
+}

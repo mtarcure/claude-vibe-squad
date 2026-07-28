@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.com/moat/GuardAnnotation.schema.json",
+  "title": "GuardAnnotation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "schema_version", "before_predicate", "after_predicate", "sources", "barriers", "sinks", "scope_callsites", "positive_fixture_ref", "negative_fixture_ref", "candidate", "review"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^guard:[A-Za-z0-9._/-]+$" },
+    "schema_version": { "const": "1.0.0" },
+    "before_predicate": { "type": "string", "minLength": 1 },
+    "after_predicate": { "type": "string", "minLength": 1 },
+    "sources": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "barriers": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "sinks": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "scope_callsites": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "positive_fixture_ref": { "type": "string", "pattern": "^fixture:[A-Za-z0-9._/-]+$" },
+    "negative_fixture_ref": { "type": "string", "pattern": "^fixture:[A-Za-z0-9._/-]+$" },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["confidence", "location_ref"],
+      "properties": {
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "location_ref": { "type": "string", "pattern": "^location:[A-Za-z0-9._/-]+$" }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "reviewer_ref"],
+      "properties": {
+        "state": { "const": "reviewed" },
+        "reviewer_ref": { "type": "string", "pattern": "^review:[A-Za-z0-9._/-]+$" }
+      }
+    }
+  }
+}

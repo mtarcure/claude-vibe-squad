@@ -1,0 +1,43 @@
+{
+  "service": "google-model-armor",
+  "kind": "gemini-lane-gateway",
+  "activation": "blocked-on-operator-credential",
+  "operator_ask": "Provide either the absolute path to a durable least-privilege Model Armor service-account JSON key via GOOGLE_APPLICATION_CREDENTIALS, or run `gcloud auth application-default login` for the gateway identity.",
+  "audit": {
+    "task": "TASK-2026-07-19-0115-tool-wiring-finish",
+    "author_family": "openai",
+    "verdict": "ADD-WITH-CONSTRAINTS (provisioning required before any live wiring)",
+    "prereq_determination": "GCP PROJECT service, not an API-key endpoint; existing GOOGLE_API_KEY / GEMINI_API_KEY CANNOT call it",
+    "official_docs": "docs.cloud.google.com/model-armor (prereqs, IAM roles/modelarmor.user, OAuth-only, sanitizeUserPrompt/sanitizeModelResponse)"
+  },
+  "prerequisites_operator_must_provision": [
+    "GCP project (billing-enabled) + hard budget cap",
+    "gcloud services enable modelarmor.googleapis.com",
+    "dedicated service account sa-model-armor-gw with roles/modelarmor.user only (+ roles/modelarmor.calloutUser only if using the managed Agent Gateway)",
+    "region choice (data-residency) + Model Armor template (Low default; High for prompt-injection/jailbreak)",
+    "gateway identity via ADC / Workload Identity / impersonation (preferred) or a tightly-scoped off-repo key file - never injected into any model lane",
+    "confirm/recheck 2026 per-unit pricing + set spend ceiling",
+    "data-residency / egress sign-off (prompts + responses egress to Google)"
+  ],
+  "auth": {
+    "method": "OAuth2 Bearer (ADC / short-lived tokens, ~1h TTL)",
+    "api_keys_supported": false,
+    "accepted_operator_sources": [
+      "absolute off-repo service-account key path supplied through GOOGLE_APPLICATION_CREDENTIALS",
+      "Application Default Credentials created by gcloud auth application-default login"
+    ],
+    "rejected_source": "MODEL_ARMOR_API_TOKEN and other copied bearer tokens are short-lived and must not be configured",
+    "note": "no credential literal is stored here or in any cutover config"
+  },
+  "gateway_design": {
+    "flow": "Gemini-lane request -> sanitizeUserPrompt -> forward to Gemini -> sanitizeModelResponse -> return to lane",
+    "identity": "sa-model-armor-gw@PROJECT, roles/modelarmor.user only",
+    "fail_mode_input": "FAIL-CLOSED to a local fallback (LlamaFirewall PromptGuard 2 or heuristic); block if fallback also unavailable",
+    "fail_mode_output": "FAIL-OPEN with alert (operator may tighten to fail-closed for strict DLP)",
+    "posture": "defense-in-depth only; never the sole control; Gemini lane keeps its own safety settings underneath",
+    "data_residency": "prompts and responses egress to Google in the template region; do not route highly-sensitive target data/creds without operator sign-off"
+  },
+  "unverified": [
+    "Model Armor 2026 per-unit pricing (recheck at procurement)"
+  ]
+}

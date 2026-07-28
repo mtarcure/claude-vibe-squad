@@ -1,0 +1,6 @@
+{
+  "id": "guard:invalid",
+  "schema_version": "1.0.0",
+  "sources": [],
+  "review": { "state": "candidate", "reviewer_ref": "" }
+}

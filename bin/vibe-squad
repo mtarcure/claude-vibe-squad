@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Thin passthrough to bin/squad — kept for backward compat with the vibesquad symlink.
+exec "$(dirname "$0")/squad" "$@"

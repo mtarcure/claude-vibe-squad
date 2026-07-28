@@ -1,0 +1,135 @@
+#!/usr/bin/env python3
+"""Reject staged private-memory artifacts before they enter repository history.
+
+Install from the repository root:
+    ln -sf ../../scripts/hooks/pre-commit .git/hooks/pre-commit
+
+The hook examines staged index blobs, so unstaged working-tree content cannot
+hide a restricted staged version or cause a false rejection.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import subprocess
+import sys
+
+
+RESTRICTED_FIELD = re.compile(
+    rb"^[ \t]*sensitivity:[ \t]*[\"']?restricted[\"']?[ \t]*(?:#.*)?$",
+    re.IGNORECASE,
+)
+
+
+def _git(*args: str) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(
+        ["git", *args],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+
+def _restricted_frontmatter(blob: bytes) -> bool:
+    lines = blob.splitlines()
+    if not lines:
+        return False
+
+    first = lines[0]
+    if first.startswith(b"\xef\xbb\xbf"):
+        first = first[3:]
+    if first.strip() != b"---":
+        return False
+
+    for line in lines[1:]:
+        if line.strip() == b"---":
+            return False
+        if RESTRICTED_FIELD.fullmatch(line):
+            return True
+    return False
+
+
+def _path_reasons(path: str) -> list[str]:
+    normalized = path.replace("\\", "/")
+    parts = normalized.casefold().split("/")
+    basename = parts[-1]
+    reasons: list[str] = []
+
+    if any(
+        parts[index : index + 2] == ["_state", "bounty"]
+        for index in range(len(parts) - 1)
+    ):
+        reasons.append("private _state/bounty path")
+    if "${chrono_vault_root}" in parts:
+        reasons.append("literal ${CHRONO_VAULT_ROOT} phantom path")
+    if basename.startswith("kg.db"):
+        reasons.append("knowledge-graph database artifact")
+    elif basename.endswith((".db-wal", ".db-shm")):
+        reasons.append("database sidecar artifact")
+
+    return reasons
+
+
+def _staged_paths() -> list[str] | None:
+    result = _git(
+        "diff",
+        "--cached",
+        "--name-only",
+        "-z",
+        "--diff-filter=ACMRT",
+        "--no-renames",
+    )
+    if result.returncode != 0:
+        return None
+    return [os.fsdecode(raw) for raw in result.stdout.split(b"\0") if raw]
+
+
+def main() -> int:
+    paths = _staged_paths()
+    if paths is None:
+        print("pre-commit leak guard: unable to inspect staged paths; refusing commit", file=sys.stderr)
+        return 1
+
+    violations: list[tuple[str, str]] = []
+    for path in paths:
+        for reason in _path_reasons(path):
+            violations.append((path, reason))
+
+        object_type = _git("cat-file", "-t", f":{path}")
+        if object_type.returncode != 0:
+            print(
+                f"pre-commit leak guard: unable to inspect staged object {path!r}; refusing commit",
+                file=sys.stderr,
+            )
+            return 1
+        if object_type.stdout.strip() == b"commit":
+            continue
+        if object_type.stdout.strip() != b"blob":
+            print(
+                f"pre-commit leak guard: unexpected staged object {path!r}; refusing commit",
+                file=sys.stderr,
+            )
+            return 1
+
+        blob = _git("cat-file", "blob", f":{path}")
+        if blob.returncode != 0:
+            print(
+                f"pre-commit leak guard: unable to read staged blob {path!r}; refusing commit",
+                file=sys.stderr,
+            )
+            return 1
+        if _restricted_frontmatter(blob.stdout):
+            violations.append((path, "restricted sensitivity frontmatter"))
+
+    if violations:
+        print("pre-commit leak guard: COMMIT BLOCKED", file=sys.stderr)
+        for path, reason in violations:
+            print(f"  {path!r}: {reason}", file=sys.stderr)
+        return 1
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

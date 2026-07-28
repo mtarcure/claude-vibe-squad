@@ -1,0 +1,6 @@
+schema_version	record_kind	key	min_workers	default_workers	max_workers	queue_depth_cap	review_debt_cap	subagent_concurrency_cap	worker_memory_estimate_mib	global_worker_cap	reserved_review_workers	host_memory_mib	memory_high_water_mib	nudge_scan_interval_seconds	lease_timeout_seconds	heartbeat_timeout_seconds	drain_timeout_seconds	stable_window_scans	provider_budget_microusd	provider_concurrency_cap	provider_rate_limit_per_minute	default_task_cost_microusd	provider_guard
+worker-pool-policy/v1	global	global	0	0	0	24	8	0	0	6	1	16384	14336	5	300	30	600	3	0	0	0	0	none
+worker-pool-policy/v1	lane	claude	1	1	2	6	2	2	1600	0	0	0	0	0	0	0	0	0	0	2	20	0	capacity
+worker-pool-policy/v1	lane	gpt-codex	1	1	2	6	2	2	1600	0	0	0	0	0	0	0	0	0	0	2	20	0	capacity
+worker-pool-policy/v1	lane	gemini	1	1	1	6	2	1	1400	0	0	0	0	0	0	0	0	0	1000000	1	10	50000	metered
+worker-pool-policy/v1	lane	kimi	1	1	1	4	1	1	1400	0	0	0	0	0	0	0	0	0	1000000	1	6	100000	metered

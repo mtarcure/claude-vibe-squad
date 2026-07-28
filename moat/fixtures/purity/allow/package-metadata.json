@@ -1,0 +1,8 @@
+{
+  "name": "synthetic-public-package",
+  "version": "1.0.0",
+  "homepage": "https://github.com/example/public-project",
+  "repository": "https://github.com/example/public-project.git",
+  "registry_documentation": "https://registry.npmjs.org/",
+  "runtime_documentation": "https://nodejs.org/docs/latest/api/"
+}

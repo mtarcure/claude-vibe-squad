@@ -1,0 +1,346 @@
+#!/usr/bin/env python3
+"""Integration regressions for the non-model board supervisor launch seam."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+import hashlib
+import json
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+import tempfile
+import types
+import unittest
+from unittest import mock
+
+
+PYTHON_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PYTHON_ROOT))
+
+import tool_surface_attest  # noqa: E402
+from scripts.python.tests.ci_host_independence import (  # noqa: E402
+    skip_in_host_independent_ci,
+)
+from tool_surface_attest import (  # noqa: E402
+    AttestationError,
+    ReconciliationChain,
+    reconcile_result,
+)
+
+
+HASH = hashlib.sha256(b"integration-fixture").hexdigest()
+REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+class ReconciliationScopeTests(unittest.TestCase):
+    def test_recased_sibling_cannot_alias_authorized_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            authorized = root / "Allowed"
+            recased_sibling_output = root / "allowed" / "result.md"
+            chain = ReconciliationChain(
+                task_id="TASK-case-fold-regression",
+                attempt_id="d-0123456789abcdef0123456789abcdef",
+                generation=1,
+                envelope_sha256=HASH,
+                launch_attestation_sha256=HASH,
+                tool_attestation_sha256=HASH,
+                action_log_sha256=HASH,
+                artifact_bundle_sha256=HASH,
+                model_history_sha256=HASH,
+                review_subject_sha256=HASH,
+                review_family="anthropic",
+                review_state="approved",
+                outbox_sha256=HASH,
+                output_paths=(str(recased_sibling_output),),
+                sandbox_denials=(),
+            )
+
+            with self.assertRaisesRegex(AttestationError, "outside-scope output"):
+                reconcile_result(
+                    chain,
+                    expected_task_id=chain.task_id,
+                    expected_attempt_id=chain.attempt_id,
+                    expected_generation=chain.generation,
+                    expected_envelope_sha256=chain.envelope_sha256,
+                    authorized_write_scope=(str(authorized),),
+                    mandatory_review=True,
+                    author_family="openai",
+                )
+
+
+class BoardSupervisorLaunchTests(unittest.TestCase):
+    def test_unbound_raw_canary_is_not_treated_as_credential_broker(self) -> None:
+        with self.assertRaisesRegex(
+            AttestationError, "runtime authority, CredentialBroker binding, and inode re-audit"
+        ):
+            tool_surface_attest._trusted_boundary_receipt(object(), {"status": "admitted"})
+
+    def test_admitted_task_uses_fresh_boundary_launch_seam(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory) / "repo"
+            bin_directory = repository / "bin"
+            python_directory = repository / "scripts" / "python"
+            task_root = repository / "task-root"
+            bin_directory.mkdir(parents=True)
+            python_directory.mkdir(parents=True)
+            task_root.mkdir()
+            shutil.copy2(REPO_ROOT / "bin" / "board-supervisor.sh", bin_directory)
+
+            request_path = repository / "request.json"
+            runtime_context_path = repository / "runtime-context.json"
+            launch_log = repository / "launch-log.json"
+            request_path.write_text(json.dumps({"task_root": str(task_root)}), encoding="utf-8")
+            runtime_context_path.write_text(
+                json.dumps({"schema": "board-supervisor-runtime-context/v1", "log": str(launch_log)}),
+                encoding="utf-8",
+            )
+            (python_directory / "launch_hygiene.py").write_text(
+                """#!/usr/bin/env python3
+import json, sys
+if sys.argv[1] == 'validate':
+    print(json.dumps({'status': 'valid'}))
+elif sys.argv[1] == 'field':
+    request = json.load(open(sys.argv[sys.argv.index('--request') + 1]))
+    print(request['task_root'])
+else:
+    raise SystemExit('standalone preflight must not consume the retained launch')
+""",
+                encoding="utf-8",
+            )
+            (python_directory / "host_admission.py").write_text(
+                "print('{\"status\":\"admitted\",\"receipt\":\"live\"}')\n",
+                encoding="utf-8",
+            )
+            (python_directory / "tool_surface_attest.py").write_text(
+                """#!/usr/bin/env python3
+import json, pathlib, sys
+assert sys.argv[1] == 'supervisor-launch'
+def value(name): return sys.argv[sys.argv.index(name) + 1]
+assert value('--workload-class') == 'standard'
+assert json.loads(value('--admission-json'))['status'] == 'admitted'
+context = json.load(open(value('--runtime-context')))
+events = [
+    'role_context_compiled', 'runtime_envelope_sealed',
+    'stage1_boundary_retained', 'fresh_cli_launched',
+    'real_tool_operation_attested', 'reconciliation_bound',
+]
+pathlib.Path(context['log']).write_text(json.dumps(events))
+print(json.dumps({'status': 'launched', 'events': events}))
+""",
+                encoding="utf-8",
+            )
+
+            completed = subprocess.run(
+                [
+                    str(bin_directory / "board-supervisor.sh"),
+                    "prepare",
+                    str(request_path),
+                    "standard",
+                    str(runtime_context_path),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertNotIn("launch_blocked_broker_unimplemented", completed.stdout)
+            self.assertEqual(
+                json.loads(launch_log.read_text(encoding="utf-8")),
+                [
+                    "role_context_compiled",
+                    "runtime_envelope_sealed",
+                    "stage1_boundary_retained",
+                    "fresh_cli_launched",
+                    "real_tool_operation_attested",
+                    "reconciliation_bound",
+                ],
+            )
+
+    @skip_in_host_independent_ci(
+        "needs a host-canonical executable and the live supervisor launch seam"
+    )
+    def test_supervisor_launch_compiles_seals_launches_and_attests(self) -> None:
+        @dataclass
+        class Canary:
+            profile_sha256: str
+            request_sha256: str
+            scope_sha256: str
+            allowed_write: bool = True
+            denied_write: bool = True
+            exact_broker_port: bool = True
+            wrong_port_denied: bool = True
+            fd3_closed: bool = True
+
+        @dataclass
+        class Profile:
+            text: str
+            sha256: str
+
+        class Prepared:
+            def __init__(self, executable: Path) -> None:
+                self.profile = Profile(
+                    f'(allow process-exec (literal "{executable}"))\n', HASH
+                )
+                self.canary = Canary(HASH, HASH, HASH)
+                self.environment = {"PATH": "/usr/bin:/bin", "LC_ALL": "C"}
+                self.closed = False
+
+            def close(self) -> None:
+                self.closed = True
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            role_path = root / "role.md"
+            overlay_path = root / "overlay.md"
+            request_path = root / "request.json"
+            context_path = root / "runtime.json"
+            effect_path = root / "result.md"
+            executable = Path("/bin/bash")
+            role_path.write_text("# Systems engineer\n", encoding="utf-8")
+            overlay_path.write_text("# Codex overlay\n", encoding="utf-8")
+            request = {
+                "task_id": "TASK-integration-fixture",
+                "attempt_id": "d-0123456789abcdef0123456789abcdef",
+                "generation": 1,
+                "task_root": str(root),
+                "write_paths": [str(root)],
+            }
+            request_path.write_text(json.dumps(request), encoding="utf-8")
+            claims = {
+                "task_id": request["task_id"],
+                "attempt_id": request["attempt_id"],
+                "generation": request["generation"],
+                "run_id": "integration-run",
+                "lane": "claude",
+                "author_family": "anthropic",
+                "workload_class": "standard",
+                "packet_sha256": HASH,
+                "plan_sha256": HASH,
+                "authority_sha256": HASH,
+                "verification_contract_sha256": HASH,
+                "selected_model_sha256": HASH,
+                "read_scope": [],
+                "write_scope": [str(root)],
+                "network_scope": [],
+                "action_scope": ["write-result"],
+                "budgets": {"tokens": 1},
+                "expected_result_path": str(effect_path),
+                "expected_outbox_path": str(root / "response.md"),
+                "required_phase_ids": ["S0", "S1"],
+                "verification_kinds": ["project_tests"],
+                "operator_gates": [],
+            }
+            context_path.write_text(
+                json.dumps(
+                    {
+                        "schema": "board-supervisor-runtime-context/v1",
+                        "canonical_role_path": str(role_path),
+                        "lane_overlay_path": str(overlay_path),
+                        "specialist": "systems-engineer",
+                        "mode_profile": "project",
+                        "executable": str(executable),
+                        "lane_args": [],
+                        "claims": claims,
+                        "tool_evidence": {
+                            "tool": "write-result",
+                            "operation": "produce task result",
+                            "effect_path": str(effect_path),
+                            "expected_effect_sha256": hashlib.sha256(b"done").hexdigest(),
+                        },
+                        "ttl_seconds": 60,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            prepared = Prepared(executable)
+
+            def launch_if_canary_passes(canary_runner, command, **_kwargs):
+                self.assertIs(canary_runner(), prepared)
+                effect_path.write_bytes(b"done")
+                prepared.close()
+                return subprocess.CompletedProcess(command, 0, "launched", "")
+
+            fake_hygiene = types.ModuleType("launch_hygiene")
+            fake_hygiene._load_task_request = lambda _path: request
+            fake_hygiene._request_digest = lambda _request: HASH
+            fake_hygiene.audit_writable_scopes = lambda _paths: ()
+            fake_hygiene.close_writable_scopes = lambda _scopes: None
+            fake_hygiene.run_preflight_canary = lambda *_args, **_kwargs: prepared
+            fake_hygiene.launch_if_canary_passes = launch_if_canary_passes
+
+            with mock.patch.dict(sys.modules, {"launch_hygiene": fake_hygiene}), mock.patch.object(
+                tool_surface_attest,
+                "_trusted_boundary_receipt",
+                return_value={
+                    "authority_authenticated": True,
+                    "broker_healthy": True,
+                    "inode_audit_passed": True,
+                },
+            ):
+                result = tool_surface_attest._supervisor_launch(
+                    request_path,
+                    context_path,
+                    "standard",
+                    '{"status":"admitted","receipt":"test"}',
+                )
+
+            self.assertEqual(result["status"], "launched")
+            self.assertEqual(result["task_id"], request["task_id"])
+            self.assertRegex(result["envelope_sha256"], r"^[0-9a-f]{64}$")
+            self.assertRegex(result["launch_attestation_sha256"], r"^[0-9a-f]{64}$")
+            self.assertRegex(result["tool_attestation_sha256"], r"^[0-9a-f]{64}$")
+            self.assertRegex(result["reconciliation_binding_sha256"], r"^[0-9a-f]{64}$")
+
+
+class BlockReasonClassificationTests(unittest.TestCase):
+    """`failure_class` is the only typed signal a blocked dispatch gives an operator.
+
+    It is derived by substring match, and several reasons append the offending
+    file list -- so the evidence can outvote the diagnosis. A real integration
+    failure whose file list contained `memory-curator.md` was reported as
+    `memory_proof`, which sent the follow-up investigation at the wrong layer.
+    """
+
+    @staticmethod
+    def _classifier():
+        source = (REPO_ROOT / "bin" / "board-supervisor.sh").read_text(encoding="utf-8")
+        marker = "def _classify_block_reason(reason):"
+        start = source.index(marker)
+        end = source.index("\ndef ", start + len(marker))
+        namespace: dict[str, object] = {}
+        exec(compile(source[start:end], "board-supervisor.sh", "exec"), namespace)
+        return namespace["_classify_block_reason"]
+
+    def test_the_offending_file_list_cannot_outvote_the_diagnosis(self) -> None:
+        classify = self._classifier()
+        reason = (
+            "fresh lane code integration failed: worker left uncommitted in-scope "
+            "code changes: model-lanes/claude/.claude/agents/memory-curator.md, "
+            "model-lanes/claude/.claude/agents/systems-engineer.md"
+        )
+
+        self.assertEqual(classify(reason), "integration")
+
+    def test_every_supervisor_block_reason_keeps_its_intended_class(self) -> None:
+        classify = self._classifier()
+        expected = {
+            "role capability config materialization failed: boom": "capability",
+            "linked worktree commit scope derivation failed: boom": "worktree",
+            "task request validation failed: repository branch is not v2": (
+                "request_validation"
+            ),
+            'Stage-1 canary failed: {"canary": "denied"}': "launch_canary",
+            "trusted launch failed: boom": "launch",
+            "fresh lane code integration failed: boom": "integration",
+        }
+        for reason, failure_class in expected.items():
+            with self.subTest(reason=reason):
+                self.assertEqual(classify(reason), failure_class)
+
+
+if __name__ == "__main__":
+    unittest.main()

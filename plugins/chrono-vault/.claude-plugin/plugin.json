@@ -1,0 +1,35 @@
+{
+  "name": "chrono-vault",
+  "version": "0.1.0",
+  "description": "Chrono squad memory: private off-repo markdown source of truth with disposable FTS5/BM25 recall, fail-closed root resolution, and per-lane sensitivity clearance.",
+  "license": "AGPL-3.0-or-later",
+  "mcpServers": {
+    "chrono-vault": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/../../.venv/bin/python",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp_server.py"],
+      "env": {
+        "OBSIDIAN_REST_API_KEY": "${OBSIDIAN_REST_API_KEY}",
+        "OBSIDIAN_VAULT_ROOT": "${OBSIDIAN_VAULT_ROOT}",
+        "CHRONO_VAULT_ROOT": "${CHRONO_VAULT_ROOT}"
+      }
+    },
+    "chrono-kg": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/../../.venv/bin/python",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp_server.py", "--namespace", "kg"],
+      "env": {
+        "OBSIDIAN_REST_API_KEY": "${OBSIDIAN_REST_API_KEY}",
+        "OBSIDIAN_VAULT_ROOT": "${OBSIDIAN_VAULT_ROOT}",
+        "CHRONO_VAULT_ROOT": "${CHRONO_VAULT_ROOT}"
+      }
+    },
+    "chrono-obsidian": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/../../.venv/bin/python",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp_server.py", "--namespace", "obsidian"],
+      "env": {
+        "OBSIDIAN_REST_API_KEY": "${OBSIDIAN_REST_API_KEY}",
+        "OBSIDIAN_VAULT_ROOT": "${OBSIDIAN_VAULT_ROOT}",
+        "CHRONO_VAULT_ROOT": "${CHRONO_VAULT_ROOT}"
+      }
+    }
+  }
+}

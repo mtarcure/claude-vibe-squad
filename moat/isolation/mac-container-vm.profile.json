@@ -1,0 +1,36 @@
+{
+  "content_class": "public-safe",
+  "profile_version": "1.0.0",
+  "host_os": "macos",
+  "guest_os": "linux",
+  "backends": ["colima", "lima", "docker-desktop"],
+  "single_process": {
+    "network_mode": "none",
+    "loopback_oracle_location": "same-container",
+    "default_route": "forbidden"
+  },
+  "multi_process": {
+    "network_internal": true,
+    "dedicated_network": true,
+    "vm_egress_firewall": "required-for-untrusted-subjects",
+    "negative_canaries": "mandatory"
+  },
+  "hardening": {
+    "docker_socket": "forbidden",
+    "run_as_non_root": true,
+    "read_only_rootfs": true,
+    "capabilities": { "drop": ["ALL"], "add": [] },
+    "mounts": { "source": "read-only", "temporary_output": "bounded-writable-volume" },
+    "resource_limits": {
+      "pids": 128,
+      "memory_mb": 1024,
+      "cpu_count": 2,
+      "file_size_mb": 64
+    }
+  },
+  "native_macos_pf": {
+    "default": false,
+    "allowed_only_when": "subject-cannot-run-in-linux",
+    "requires_separate_reviewed_setup_and_teardown": true
+  }
+}

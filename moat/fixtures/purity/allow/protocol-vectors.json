@@ -1,0 +1,7 @@
+{
+  "content_class": "public-safe",
+  "fixture_ref": "fixture:synthetic-protocol-vector",
+  "certificate_fingerprint": "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99",
+  "base64_protocol_frame": "SGVsbG8sIHN5bnRoZXRpYyBwcm90b2NvbCB2ZWN0b3Ih",
+  "regex_source": "^[A-F0-9]{2}(?::[A-F0-9]{2})+$"
+}
