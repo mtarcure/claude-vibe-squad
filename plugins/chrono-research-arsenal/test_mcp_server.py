@@ -195,5 +195,43 @@ class FirecrawlToolsTest(unittest.TestCase):
             self.assertNotIn("headers", inspect.signature(function).parameters)
 
 
+class PerplexitySearchTest(unittest.TestCase):
+    def setUp(self) -> None:
+        _Client.calls.clear()
+
+    def test_requires_off_repo_key(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            result = server.perplexity_search("hello")
+        self.assertEqual(result, {"ok": False, "error": "PERPLEXITY_API_KEY missing"})
+
+    def test_rejects_unknown_recency(self) -> None:
+        with patch.dict(os.environ, {"PERPLEXITY_API_KEY": "secret"}, clear=True):
+            result = server.perplexity_search("hello", recency="decade")
+        self.assertFalse(result["ok"])
+        self.assertIn("unsupported recency", result["error"])
+
+    def test_ok_parses_answer_and_citations(self) -> None:
+        class _PplxResponse(_Response):
+            def json(self) -> dict[str, object]:
+                return {
+                    "choices": [{"message": {"content": "RAG combines an LLM with retrieval."}}],
+                    "citations": ["https://a.example", "https://b.example"],
+                }
+
+        class _PplxClient(_Client):
+            def post(self, url: str, **kwargs: object) -> _PplxResponse:
+                self.calls.append({"url": url, **kwargs})
+                return _PplxResponse()
+
+        with patch.dict(os.environ, {"PERPLEXITY_API_KEY": "secret"}, clear=True), patch.object(
+            server.httpx, "Client", _PplxClient
+        ):
+            result = server.perplexity_search("what is rag", recency="week")
+        self.assertTrue(result["ok"])
+        self.assertIn("RAG combines", result["answer"])
+        self.assertEqual(result["citations"], ["https://a.example", "https://b.example"])
+        self.assertEqual(_Client.calls[0]["url"], "https://api.perplexity.ai/chat/completions")
+
+
 if __name__ == "__main__":
     unittest.main()

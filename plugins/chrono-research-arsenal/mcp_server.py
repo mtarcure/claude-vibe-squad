@@ -1,7 +1,9 @@
 """chrono-research-arsenal — shared external research arsenal MCP.
 
-Tools (5): arxiv_search, xai_search, firecrawl_scrape, firecrawl_crawl, firecrawl_parse.
-(Perplexity is provided by the sibling `perplexity` MCP, not this server.)
+Tools (6): arxiv_search, xai_search, perplexity_search, firecrawl_scrape, firecrawl_crawl, firecrawl_parse.
+(perplexity_search folded in 2026-07-28 so lane spawns get a reliable Perplexity
+path via this already-enabled local server, without the sibling uvx `perplexity`
+MCP the board does not enable for worker spawns.)
 
 Used by all chrono roles needing external data (research, scout, scraping, etc).
 Rebuilt from a predecessor project's research tools using FastMCP for consistency.
@@ -352,6 +354,73 @@ def xai_search(
             "results": results[:max_results],
             "query": query,
             "endpoint": "https://api.x.ai/v1/responses",
+        }
+    except httpx.HTTPStatusError as e:
+        return {
+            "ok": False,
+            "error": f"HTTP {e.response.status_code} {e.response.reason_phrase}",
+            "query": query,
+        }
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}", "query": query}
+
+
+@mcp.tool()
+def perplexity_search(query: str, recency: str = "month") -> dict[str, Any]:
+    """Search the web via Perplexity Sonar (grounded answer + citations).
+
+    Folded into this local server (2026-07-28) so lane spawns get a reliable
+    Perplexity path — the board enables this server but not the sibling uvx
+    `perplexity` MCP. The API key is read only from ``PERPLEXITY_API_KEY``.
+
+    Args:
+      query: Free-text search query.
+      recency: One of day|week|month|year (default month) — Sonar recency filter.
+
+    Returns {ok, answer, citations, query} or {ok: False, error}. Errors surface
+    via Rule 17.1 — status_code + reason_phrase, never str(exc).
+    """
+    api_key = os.environ.get("PERPLEXITY_API_KEY")
+    if not api_key:
+        return {"ok": False, "error": "PERPLEXITY_API_KEY missing"}
+    recency = str(recency).lower()
+    if recency not in {"day", "week", "month", "year"}:
+        return {"ok": False, "error": f"unsupported recency: {recency}", "query": query}
+    try:
+        with httpx.Client(timeout=60.0) as client:
+            r = client.post(
+                "https://api.perplexity.ai/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "sonar",
+                    "messages": [{"role": "user", "content": query}],
+                    "search_recency_filter": recency,
+                },
+            )
+        r.raise_for_status()
+        data = r.json()
+        try:
+            answer = data["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError):
+            answer = ""
+        citations = data.get("citations") or []
+        if not citations:
+            citations = [
+                sr.get("url")
+                for sr in data.get("search_results", [])
+                if isinstance(sr, dict) and sr.get("url")
+            ]
+        if not answer and not citations:
+            return {"ok": False, "error": "no_results", "query": query}
+        return {
+            "ok": True,
+            "answer": answer,
+            "citations": citations,
+            "query": query,
+            "endpoint": "https://api.perplexity.ai/chat/completions",
         }
     except httpx.HTTPStatusError as e:
         return {

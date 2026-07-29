@@ -697,6 +697,52 @@ def load_solodit_api_key():
     return value
 
 
+def load_research_api_keys():
+    # Operator-approved credential widening (2026-07-28). The chrono-research-
+    # arsenal MCP (xai_search, perplexity_search) authenticates with XAI_API_KEY
+    # and PERPLEXITY_API_KEY, which live only in the off-repo secret store and are
+    # never ambient in the board process. Source them the same bounded way as the
+    # Gemini/Solodit keys, BEST-EFFORT: a missing/unreadable key is simply omitted
+    # so the tool degrades to its own "key missing"/upstream error at call time
+    # instead of failing the launch. Least-privilege: ONLY these two research
+    # search keys, and only injected for lanes that host the research arsenal.
+    home = os.environ.get("HOME", "")
+    if not home or "\x00" in home:
+        return {}
+    try:
+        completed = subprocess.run(
+            (
+                "/bin/zsh",
+                "-f",
+                "-c",
+                'source "$HOME/.config/shell/secrets.zsh" 2>/dev/null; '
+                'print -rn -- "${XAI_API_KEY:-}\t${PERPLEXITY_API_KEY:-}"',
+            ),
+            check=False,
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            env={
+                "HOME": home,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            },
+            timeout=10,
+            close_fds=True,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    if completed.returncode != 0 or "\n" in completed.stdout:
+        return {}
+    parts = completed.stdout.split("\t")
+    if len(parts) != 2:
+        return {}
+    keys = {}
+    for name, value in (("XAI_API_KEY", parts[0]), ("PERPLEXITY_API_KEY", parts[1])):
+        if value and len(value) <= 16384 and "\x00" not in value:
+            keys[name] = value
+    return keys
+
+
 GUARDED_MCP_PREFIX = "guarded-"
 
 
@@ -859,14 +905,22 @@ def trusted_worker_environment(worker_lane):
         # guarded-solodit is spawned as an MCP child of the claude/codex worker
         # and inherits this process env; its config carries no key of its own.
         # Only these two lanes host the guarded security arsenal (Gemini has no
-        # guarded wiring; Kimi subagents hold no MCP). No other ambient secret
-        # is widened. Best-effort: absent key -> guarded-solodit 401, never a
-        # blocked launch. The guarded trio is `available` in the capability
-        # registry (TASK-2026-07-26-1358), so this key is now on a live path for
+        # guarded wiring; Kimi subagents hold no MCP). Besides this key and the
+        # two research search keys below, no other ambient secret is widened.
+        # Best-effort: absent key -> guarded-solodit 401, never a blocked launch.
+        # The guarded trio is `available` in the capability registry
+        # (TASK-2026-07-26-1358), so this key is now on a live path for
         # exploit-developer / security-analyst / smart-contract-engineer.
         solodit_key = load_solodit_api_key()
         if solodit_key is not None:
             environment["SOLODIT_API_KEY"] = solodit_key
+        # Operator-approved (2026-07-28) least-privilege pass-through of the two
+        # research search credentials to the lanes that host the chrono-research-
+        # arsenal MCP. Fixes worker-side xai_search 400 (empty key) and keyless
+        # perplexity_search. Best-effort: absent key -> tool-level error, never a
+        # blocked launch.
+        for _research_name, _research_value in load_research_api_keys().items():
+            environment[_research_name] = _research_value
     if worker_lane == "codex":
         # The Codex CLI reads ONE config.toml from CODEX_HOME (default
         # ~/.codex), and the operator's live config does not declare the

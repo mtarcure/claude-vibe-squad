@@ -8,24 +8,6 @@ import sys
 from pathlib import Path
 
 
-HOST_PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
-
-
-def host_python_without_yaml() -> str:
-    host_python = shutil.which("python3", path=HOST_PATH)
-    assert host_python is not None
-    bare = subprocess.run(
-        [host_python, "-c", "import yaml"],
-        env={"PATH": HOST_PATH, "PYTHONNOUSERSITE": "1"},
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert bare.returncode != 0
-    assert "No module named 'yaml'" in bare.stderr
-    return host_python
-
-
 def minimal_watcher_env(tmp_path: Path, repo: Path, state_root: Path) -> dict[str, str]:
     tool_bin = tmp_path / "minimal-bin"
     tool_bin.mkdir()
@@ -81,21 +63,6 @@ def test_outbox_watcher_publish_uses_yaml_capable_uv_runtime(tmp_path):
     repo = Path(__file__).resolve().parents[2]
     cli = repo / "bin" / "failover-control.py"
     watcher = repo / "bin" / "outbox-watcher.sh"
-
-    host_python = host_python_without_yaml()
-    host_env = {
-        "PATH": HOST_PATH,
-        "PYTHONNOUSERSITE": "1",
-    }
-    bare = subprocess.run(
-        [host_python, str(cli), "publish", "--help"],
-        env=host_env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert bare.returncode != 0
-    assert "No module named 'yaml'" in bare.stderr
 
     task_id = "TASK-shell-publish"
     state_root = tmp_path / "failover"

@@ -21,14 +21,47 @@ if str(VERIFICATION_HELPER.parent) not in sys.path:
     sys.path.insert(0, str(VERIFICATION_HELPER.parent))
 
 from verification_contract import verification_contract_sha256  # noqa: E402
-from scripts.python.tests.ci_host_independence import (  # noqa: E402
-    skip_in_host_independent_ci,
-)
 
 
 def envelope(frontmatter: dict[str, str], body: str = "done") -> str:
     fields = "\n".join(f"{key}: {value}" for key, value in frontmatter.items())
     return f"---\n{fields}\n---\n\n{body}\n"
+
+
+def install_board_rail_fixture(root: Path) -> None:
+    for relative in (
+        "scripts/python/registry_reconciler.py",
+        "scripts/python/repo_root.py",
+    ):
+        source = REPO_ROOT / relative
+        destination = root / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+
+    context_builder = root / "scripts/python/dispatch_context_builder.py"
+    context_builder.write_text(
+        "from pathlib import Path\n"
+        "import sys\n\n"
+        "if len(sys.argv) < 2 or sys.argv[1] != 'build':\n"
+        "    raise SystemExit('fixture supports only board context build')\n"
+        "try:\n"
+        "    output = Path(sys.argv[sys.argv.index('--output') + 1])\n"
+        "except (ValueError, IndexError):\n"
+        "    raise SystemExit('missing --output')\n"
+        "output.parent.mkdir(parents=True, exist_ok=True)\n"
+        "output.write_text('{}\\n', encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+
+    supervisor = root / "bin/board-supervisor.sh"
+    supervisor.parent.mkdir(parents=True, exist_ok=True)
+    supervisor.write_text(
+        "#!/bin/sh\n"
+        "[ \"${1:-}\" = \"detached-launch\" ] || exit 64\n"
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    supervisor.chmod(0o755)
 
 
 class CapabilityDispatchSnapshotTests(unittest.TestCase):
@@ -116,9 +149,6 @@ cost_note: subscription
         self.assertEqual(allowed.returncode, 0, allowed.stderr)
         self.assertEqual(json.loads(allowed.stdout)["dispatch_decision"], "allow")
 
-    @skip_in_host_independent_ci(
-        "uses the non-dry board dispatch and registration rail"
-    )
     def test_actual_dispatch_injects_and_registers_snapshot(self) -> None:
         root = Path(tempfile.mkdtemp(prefix="capability-dispatch-"))
         self.addCleanup(shutil.rmtree, root, ignore_errors=True)
@@ -134,8 +164,9 @@ cost_note: subscription
             destination = root / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, destination)
+        install_board_rail_fixture(root)
         wrapper = root / "bin/registry-reconciler.sh"
-        wrapper.parent.mkdir(parents=True)
+        wrapper.parent.mkdir(parents=True, exist_ok=True)
         wrapper.write_text(
             f"#!/bin/sh\nexec {sys.executable} {RECONCILER} \"$@\"\n",
             encoding="utf-8",
@@ -166,6 +197,7 @@ cost_note: subscription
             encoding="utf-8",
         )
         env = {**os.environ, "VAULT_ROOT": str(root), "PYTHONDONTWRITEBYTECODE": "1"}
+        env.pop("SQUAD_DISPATCH_MODE", None)
 
         result = subprocess.run(
             [str(SEND_TASK), str(packet)],
@@ -229,6 +261,7 @@ class VerificationContractDispatchTests(unittest.TestCase):
             destination = root / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, destination)
+        install_board_rail_fixture(root)
         wrapper = root / "bin/registry-reconciler.sh"
         wrapper.parent.mkdir(parents=True, exist_ok=True)
         wrapper.write_text(
@@ -278,10 +311,12 @@ class VerificationContractDispatchTests(unittest.TestCase):
         args = [str(SEND_TASK), str(packet)]
         if dry_run:
             args.append("--dry-run")
+        env = {**os.environ, "VAULT_ROOT": str(root), "PYTHONDONTWRITEBYTECODE": "1"}
+        env.pop("SQUAD_DISPATCH_MODE", None)
         return subprocess.run(
             args,
             cwd=REPO_ROOT,
-            env={**os.environ, "VAULT_ROOT": str(root), "PYTHONDONTWRITEBYTECODE": "1"},
+            env=env,
             text=True,
             capture_output=True,
             check=False,
@@ -305,9 +340,6 @@ class VerificationContractDispatchTests(unittest.TestCase):
                 self.assertIn("dispatcher-owned field", result.stderr)
                 self.assertFalse((root / "departments/coding/inbox" / f"{task_id}.md").exists())
 
-    @skip_in_host_independent_ci(
-        "accepted cases continue through the non-dry board delivery rail"
-    )
     def test_result_type_and_run_id_admission(self) -> None:
         cases = (
             ("project normal", "project", "PRJ-NORMAL", None, True),
@@ -349,9 +381,6 @@ class VerificationContractDispatchTests(unittest.TestCase):
             (root / "departments/coding/inbox" / f"{task_id}.md").exists()
         )
 
-    @skip_in_host_independent_ci(
-        "continues through the non-dry board delivery rail"
-    )
     def test_unrelated_mode_remains_dispatchable_without_v1_contract(self) -> None:
         root = self._root()
         task_id = "TASK-2026-07-17-9698-content-untyped"

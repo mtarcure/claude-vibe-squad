@@ -226,6 +226,27 @@ else
     : > "$tracked_file"
 fi
 
+# Remote-advertised-ref audit: a public/main-only scan misses retained/disjoint
+# refs (e.g. GitHub keeps refs/pull/N/head across a clean-slate force-push).
+remote_ref_status=0
+if [[ "$PUBLIC_EXPORT" -eq 1 ]]; then
+    remote_ref_report="${TMP_DIR}/remote-ref-audit.txt"
+    if git -C "$VAULT_ROOT" remote get-url public >/dev/null 2>&1; then
+        # Operator-accepted residual (2026-07-28, remediation choice C): the
+        # retained refs/pull/1/head pre-clean-slate lineage is LOW severity
+        # (operator's own identity, 0 credentials) and was explicitly out-scoped.
+        # See _state/security-scan-2026-07-28/remote-exposure-report.md. Any NEW
+        # disjoint advertised ref is still caught (the allowlist is exact).
+        python3 "${VAULT_ROOT}/tools/export/remote_ref_audit.py" \
+            --remote public --clean-ref refs/remotes/public/main --repo "$VAULT_ROOT" \
+            --allow 'refs/pull/1/head' \
+            > "$remote_ref_report" 2>&1
+        remote_ref_status=$?
+    else
+        echo "public remote not configured — remote-ref audit skipped (nothing to publish to)" > "$remote_ref_report"
+    fi
+fi
+
 {
     if grep -RInE '45 specialists|all 45 specialists|scripts/send-req\.sh|currently has FILL placeholders|<FILL:|Department Lead|Security Lead|Research Lead|Content Lead|SysMgmt Lead|Claude Security|Claude Ops|claude-sec|claude-ops|5 compatibility Lead|5-tile sidebar|Lead coordinates specialist execution|Leads coordinate|Lead'\''s job|Lead does NOT|Claude-Lead' \
         "${VAULT_ROOT}/README.md" "${VAULT_ROOT}/CLAUDE.md" "${VAULT_ROOT}/chrono" \
@@ -304,6 +325,10 @@ fi
         if [[ -s "$content_report" ]]; then cat "$content_report"; else echo "- (no scan report)"; fi
         if [[ -s "$content_error" ]]; then sed 's/^/- error: /' "$content_error"; fi
         echo ""
+        echo "## Remote-advertised-ref audit"
+        echo "- Exit status: ${remote_ref_status}"
+        if [[ -s "$remote_ref_report" ]]; then sed 's/^/- /' "$remote_ref_report"; fi
+        echo ""
     fi
     echo "## Instruction drift"
     if [[ "$drift_count" -gt 0 ]]; then sed 's/^/- /' "$drift_file"; else echo "- (none)"; fi
@@ -318,6 +343,7 @@ fi
         echo "- Path-policy status: ${policy_status}"
         echo "- Gitleaks status: ${gitleaks_status}"
         echo "- Entropy/identifier status: ${content_status}"
+        echo "- Remote-ref audit status: ${remote_ref_status}"
     fi
 } > "$LOG"
 
@@ -326,7 +352,7 @@ echo "Log: ${LOG}"
 
 if [[ "$APPLY" -eq 0 ]]; then
     if [[ "$PUBLIC_EXPORT" -eq 1 ]]; then
-        [[ "$policy_status" -eq 0 && "$gitleaks_status" -eq 0 && "$content_status" -eq 0 && "$drift_count" -eq 0 ]] || exit 1
+        [[ "$policy_status" -eq 0 && "$gitleaks_status" -eq 0 && "$content_status" -eq 0 && "$remote_ref_status" -eq 0 && "$drift_count" -eq 0 ]] || exit 1
         exit 0
     fi
     [[ "$runtime_count" -eq 0 && "$task_count" -eq 0 && "$tracked_count" -eq 0 && "$drift_count" -eq 0 ]] || exit 1

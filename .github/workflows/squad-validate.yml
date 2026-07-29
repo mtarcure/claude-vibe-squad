@@ -97,7 +97,9 @@ jobs:
 
   test-full:
     name: Nightly and manual full tests
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'schedule' && github.repository == 'mtarcure/claude-vibe-squad-private')
     # The `moat` label denotes a dedicated runner with Docker available and
     # python:3.11 preloaded; the runner never pulls an image implicitly.
     runs-on: [self-hosted, linux, moat]
@@ -135,6 +137,8 @@ jobs:
       # A runner must pre-provision python:3.11; bin/test refuses an implicit
       # image pull and reports a clear skip when that sandbox input is absent.
       - name: Run daemon and isolated-container suites
+        env:
+          SQUAD_CI_HOST_INDEPENDENT: "1"
         run: bin/test --full
 
   panel-status-tests:
