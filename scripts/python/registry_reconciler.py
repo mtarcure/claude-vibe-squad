@@ -73,6 +73,23 @@ NEVER_LAUNCHED_GRACE = timedelta(
 )
 SETTLED_WITHOUT_ENVELOPE = "work-done-no-envelope"
 REVIEW_REQUIRED = "review-required"
+MAILBOX_NAMESPACES = frozenset(
+    {"coding", "security", "content", "sysmgmt", "research", "shared"}
+)
+INBOX_ARCHIVE_STATUSES = frozenset(
+    {
+        "complete",
+        "completed",
+        "blocked",
+        "needs_review",
+        "needs_human",
+        "cancelled",
+        "closed",
+        "superseded",
+        SETTLED_WITHOUT_ENVELOPE,
+        REVIEW_REQUIRED,
+    }
+)
 RUNTIME_MAP_PATH = VAULT_ROOT / "shared" / "specialist-runtime-map.tsv"
 DELIVERY_OPEN_STATES = frozenset({"queued", "claimed", "in-progress"})
 DELIVERY_BACKOFF_SECONDS = (2, 4, 8, 16)
@@ -129,6 +146,40 @@ def atomic_write(path: Path, content: str) -> None:
         fh.flush()
         os.fsync(fh.fileno())
     tmp.replace(path)
+
+
+def archive_inbox_packet(task_id: str, namespace: str) -> bool:
+    """Atomically move one terminal task packet into its mailbox archive."""
+
+    if (
+        namespace not in MAILBOX_NAMESPACES
+        or not re.fullmatch(r"TASK-[A-Za-z0-9][A-Za-z0-9._-]{0,127}", task_id)
+    ):
+        raise ValueError(f"cannot archive non-canonical task mailbox path: {namespace}/{task_id}")
+    source = VAULT_ROOT / "departments" / namespace / "inbox" / f"{task_id}.md"
+    destination = (
+        VAULT_ROOT / "departments" / namespace / "archive" / f"{task_id}.md"
+    )
+    if not os.path.lexists(source):
+        return False
+    if source.is_symlink() or not source.is_file():
+        raise ValueError(f"inbox packet is not a regular file: {source}")
+    if os.path.lexists(destination):
+        raise FileExistsError(f"archive packet already differs or conflicts: {destination}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.replace(source, destination)
+    except FileNotFoundError:
+        if not os.path.lexists(source):
+            return False
+        raise
+    for directory in (source.parent, destination.parent):
+        descriptor = os.open(directory, os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    return True
 
 
 @contextmanager
@@ -1689,6 +1740,34 @@ def terminal_board_receipt(
     return receipt, status, raw_status
 
 
+def auto_close_terminal_receipt(
+    entry: dict[str, Any],
+    now: datetime,
+    receipt_status: str,
+    raw_receipt_status: str,
+) -> None:
+    """Close one non-review terminal receipt using the lifecycle audit shape."""
+
+    history = entry.setdefault("closure_history", [])
+    if not isinstance(history, list):
+        raise RegistryCorruptError("task has malformed closure_history")
+    reason = f"terminal board receipt={raw_receipt_status}"
+    history.append(
+        {
+            "at": now.isoformat(),
+            "from_status": receipt_status,
+            "to_status": "closed",
+            "reason": reason,
+            "by": "registry-reconciler-auto",
+        }
+    )
+    entry["status"] = "closed"
+    entry["lifecycle_closed_at"] = now.isoformat()
+    entry["lifecycle_closed_by"] = "registry-reconciler-auto"
+    entry["closed_from_status"] = receipt_status
+    entry["closure_reason"] = reason
+
+
 def never_launched_reason(
     task_id: str,
     entry: dict[str, Any],
@@ -2379,6 +2458,12 @@ def close_task(task_id: str, reason: str, target_status: str = "superseded") -> 
                 and entry.get("closure_reason") == normalized_reason
                 and entry.get("lifecycle_closed_by") == "chrono-explicit"
             ):
+                namespace = str(
+                    entry.get("compatibility_namespace")
+                    or entry.get("source_namespace")
+                    or "coding"
+                )
+                archive_inbox_packet(task_id, namespace)
                 return False
             raise ValueError(
                 f"task is already terminal lifecycle status {current}: {task_id}"
@@ -2406,6 +2491,7 @@ def close_task(task_id: str, reason: str, target_status: str = "superseded") -> 
             or entry.get("source_namespace")
             or "coding"
         )
+    archive_inbox_packet(task_id, namespace)
     append_chrono_queue(
         f"TASK-{target_status.upper()}",
         f"{namespace}/{task_id}",
@@ -2814,6 +2900,7 @@ def reconcile_swarm_parent(
 
 def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]]:
     events: list[tuple[str, str, str, str]] = []
+    archive_requests: list[tuple[str, str]] = []
     with locked_registry() as _lock:
         registry = load_registry()
         now = datetime.now(timezone.utc)
@@ -2830,6 +2917,52 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                 # order places the controller before its members.
                 continue
             current_status = str(raw_entry.get("status", ""))
+            if current_status in {"blocked", "complete", "completed"}:
+                terminal_receipt, receipt_status, raw_receipt_status = (
+                    terminal_board_receipt(task_id, raw_entry)
+                )
+                if (
+                    terminal_receipt is not None
+                    and receipt_status in {"blocked", "complete"}
+                ):
+                    namespace = str(
+                        raw_entry.get("compatibility_namespace")
+                        or raw_entry.get("source_namespace")
+                        or "coding"
+                    )
+                    pending, _executing_lane, review_lane = (
+                        response_review_pending(raw_entry, receipt_status)
+                    )
+                    mark_delivery_terminal(
+                        raw_entry,
+                        now,
+                        f"board-receipt:{receipt_status}",
+                    )
+                    raw_entry["terminal_receipt_path"] = str(
+                        terminal_receipt.relative_to(VAULT_ROOT)
+                    )
+                    raw_entry["terminal_receipt_status"] = raw_receipt_status
+                    raw_entry["reconciled_at"] = now.isoformat()
+                    if pending:
+                        raw_entry["status"] = REVIEW_REQUIRED
+                        raw_entry["review_required_by"] = review_lane
+                        messages.append(
+                            f"review-required {task_id} -> terminal board receipt "
+                            f"{raw_receipt_status} awaits {review_lane} review"
+                        )
+                    else:
+                        auto_close_terminal_receipt(
+                            raw_entry,
+                            now,
+                            receipt_status,
+                            raw_receipt_status,
+                        )
+                        messages.append(
+                            f"auto-closed {task_id} from terminal board receipt "
+                            f"{raw_receipt_status}"
+                        )
+                    changed += 1
+                    continue
             legacy_review_open = (
                 current_status == "needs_review"
                 and response_review_pending(raw_entry, current_status)[0]
@@ -3068,23 +3201,62 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                     or raw_entry.get("source_namespace")
                     or "coding"
                 )
-                mark_delivery_terminal(
+                delivery_changed = mark_delivery_terminal(
                     raw_entry,
                     now,
                     f"board-receipt:{receipt_status}",
                 )
-                raw_entry["status"] = receipt_status
-                raw_entry["completed_at"] = datetime.fromtimestamp(
+                receipt_completed_at = datetime.fromtimestamp(
                     terminal_receipt.stat().st_mtime,
                     tz=timezone.utc,
                 ).isoformat()
-                raw_entry["reconciled_at"] = now.isoformat()
-                raw_entry["auto_reconciled_at"] = now.isoformat()
-                raw_entry["terminal_receipt_path"] = str(
-                    terminal_receipt.relative_to(VAULT_ROOT)
+                receipt_path = str(terminal_receipt.relative_to(VAULT_ROOT))
+                metadata_changed = (
+                    raw_entry.get("completed_at") != receipt_completed_at
+                    or raw_entry.get("terminal_receipt_path") != receipt_path
+                    or raw_entry.get("terminal_receipt_status") != raw_receipt_status
                 )
+                raw_entry["completed_at"] = receipt_completed_at
+                raw_entry["reconciled_at"] = now.isoformat()
+                raw_entry.setdefault("auto_reconciled_at", now.isoformat())
+                raw_entry["terminal_receipt_path"] = receipt_path
                 raw_entry["terminal_receipt_status"] = raw_receipt_status
                 raw_entry.pop("invalid_response_status", None)
+                pending, executing_lane, review_lane = response_review_pending(
+                    raw_entry, receipt_status
+                )
+                if pending:
+                    hold_changed = (
+                        current_status != REVIEW_REQUIRED
+                        or raw_entry.get("review_required_by") != review_lane
+                        or metadata_changed
+                        or delivery_changed
+                    )
+                    raw_entry["status"] = REVIEW_REQUIRED
+                    raw_entry["review_required_by"] = review_lane
+                    if hold_changed:
+                        changed += 1
+                        messages.append(
+                            f"review-required {task_id} -> terminal board receipt "
+                            f"{raw_receipt_status} awaits {review_lane} review"
+                        )
+                    if notification_due(
+                        raw_entry, task_id, REVIEW_REQUIRED, now
+                    ):
+                        if not hold_changed:
+                            changed += 1
+                        events.append(
+                            (
+                                "REVIEW-REQUIRED",
+                                f"{namespace}/{task_id}",
+                                f"terminal board receipt={raw_receipt_status}",
+                                f"REVIEW-REQUIRED: {task_id} reached terminal board "
+                                f"status {raw_receipt_status} on {executing_lane}, but "
+                                f"must be reviewed by {review_lane} before lifecycle close.",
+                            )
+                        )
+                    continue
+                raw_entry["status"] = receipt_status
                 changed += 1
                 messages.append(
                     f"reconciled {task_id} -> {receipt_status} via terminal board receipt"
@@ -3206,7 +3378,27 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                 messages.append(parent_message)
         if changed and not dry_run:
             atomic_write(REGISTRY_PATH, json.dumps(registry, indent=2, ensure_ascii=False) + "\n")
+        if not dry_run:
+            archive_requests = [
+                (
+                    candidate_id,
+                    str(
+                        candidate.get("compatibility_namespace")
+                        or candidate.get("source_namespace")
+                        or "coding"
+                    ),
+                )
+                for candidate_id, candidate in registry.items()
+                if isinstance(candidate, dict)
+                and (not task_id_filter or candidate_id == task_id_filter)
+                and str(candidate.get("status") or "") in INBOX_ARCHIVE_STATUSES
+            ]
     if not dry_run:
+        for archived_task_id, namespace in archive_requests:
+            if archive_inbox_packet(archived_task_id, namespace):
+                messages.append(
+                    f"archived inbox packet {namespace}/{archived_task_id}"
+                )
         for status, task_ref, summary, nudge in events:
             nudged = emit_event(status, task_ref, summary, nudge)
             messages.append(f"chrono-nudge {'sent' if nudged else 'queued-only'} {task_ref}")

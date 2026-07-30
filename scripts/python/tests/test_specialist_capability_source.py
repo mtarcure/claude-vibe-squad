@@ -93,7 +93,13 @@ class SpecialistCapabilitySourceTests(unittest.TestCase):
                 operations += 1
                 self.assertIn(ref.identifier, servers[ref.provided_by])
                 self.assertIn(ref.provided_by, assigned)
-        self.assertEqual(operations, 151)
+        # 160 = 151 + 9. +7: prior_art_check reclassified from a phantom local
+        # binary to the chrono-dedup MCP operation it actually is (the board
+        # denied exploit-developer launch looking for a `prior_art_check`
+        # executable that never existed). +2: exploit-developer@claude gained
+        # arxiv_search/xai_search when its 2-tool set was mirrored from the
+        # 28-tool codex set so cross-family PoC reproduction is symmetric.
+        self.assertEqual(operations, 160)
 
     def test_validator_fails_closed_on_runtime_projection_drift(self) -> None:
         entries, _payload = load_source(ROOT)

@@ -1087,6 +1087,20 @@ def source_existence_diagnostics(
                     and which(ref.identifier) is not None
                 ):
                     issues.append(diagnostic("source-existence", SOURCE_RELATIVE.as_posix(), f"{specialist}:{lane}:{ref.identifier}", "capability is marked platform-unavailable but is present on PATH", kind=kind))
+                # The inverse drift: a capability whose evidence *claims* the
+                # host PATH while the binary is absent. `host-PATH` asserts a
+                # fact that is cheap to re-derive, so re-derive it rather than
+                # trusting the label — a stale claim silently arms a worker
+                # with a tool that is not there. Only `host-PATH` evidence is
+                # checked; `installed-or-shared-authored`, `lane-inventory`,
+                # and the MCP-provided kinds assert something other than PATH.
+                if (
+                    kind == "tools"
+                    and ref.availability == "available"
+                    and ref.evidence == "host-PATH"
+                    and which(ref.identifier) is None
+                ):
+                    issues.append(diagnostic("source-existence", SOURCE_RELATIVE.as_posix(), f"{specialist}:{lane}:{ref.identifier}", "capability claims host-PATH evidence but is absent from PATH", kind=kind))
                 if ref.availability == "mcp-operation":
                     provider = ref.evidence
                     if provider not in inventory[lane]["mcps"] and provider not in registry[lane]["mcps"]:

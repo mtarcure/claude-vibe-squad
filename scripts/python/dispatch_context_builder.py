@@ -88,6 +88,12 @@ _PROVEN_LANE_MODELS = {
 }
 
 
+def timeout_budget_for_mode(mode: str) -> int:
+    """Return the bounded backstop; short modes keep ``"timeout_seconds": 1800``."""
+
+    return 3600 if mode == "bounty" else 1800
+
+
 class DispatchContextError(ValueError):
     """A packet or bridge operation cannot be represented safely."""
 
@@ -288,6 +294,7 @@ def build_board_fanout_members(
 
 @dataclass(frozen=True)
 class PreparedWorktreeOutputs:
+    task_id: str
     result_relative: str
     outbox_relative: str
     result_bytes: bytes
@@ -836,7 +843,7 @@ def build_context(
             # Chrono supervises live (dashboard stall visibility) and cancels a stuck
             # spawn. Real tasks finish well within this; the backstop only catches an
             # infinite loop so it can't burn unbounded.
-            "timeout_seconds": 1800
+            "timeout_seconds": timeout_budget_for_mode(mode)
         },
         "expected_result_path": return_artifact,
         "expected_outbox_path": expected_outbox,
@@ -1264,12 +1271,30 @@ def _parse_response_envelope(data: bytes) -> tuple[dict[str, str], str]:
     return fields, summary
 
 
+def _is_board_blocked_stub(data: bytes, task_id: str) -> bool:
+    """Match only the exact controller-authored blocked-artifact format."""
+
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return False
+    return re.fullmatch(
+        (
+            r"blocked\n\n"
+            rf"# Board dispatch blocked — {re.escape(task_id)}\n\n"
+            r"Controller reason: [^\r\n]{1,2000}\n"
+        ),
+        text,
+    ) is not None
+
+
 def _validate_destination(
     repo_root: Path,
     relative: str,
     data: bytes,
     *,
     label: str,
+    reclaim_board_blocked_stub_for: str | None = None,
 ) -> Path:
     root = repo_root.resolve(strict=True)
     safe_relative = _safe_relative(relative, field=label)
@@ -1285,10 +1310,18 @@ def _validate_destination(
         destination.resolve(strict=False).relative_to(root)
     except ValueError as exc:
         raise DispatchContextError(f"{label} destination escapes repository") from exc
-    if destination.exists() and (
-        not destination.is_file() or destination.read_bytes() != data
-    ):
-        raise DispatchContextError(f"{label} destination already differs")
+    if destination.exists():
+        if not destination.is_file():
+            raise DispatchContextError(f"{label} destination already differs")
+        existing = destination.read_bytes()
+        if existing != data and not (
+            reclaim_board_blocked_stub_for
+            and _is_board_blocked_stub(
+                existing,
+                reclaim_board_blocked_stub_for,
+            )
+        ):
+            raise DispatchContextError(f"{label} destination already differs")
     return destination
 
 
@@ -1298,12 +1331,14 @@ def _safe_destination(
     data: bytes,
     *,
     label: str,
+    reclaim_board_blocked_stub_for: str | None = None,
 ) -> Path:
     destination = _validate_destination(
         repo_root,
         relative,
         data,
         label=label,
+        reclaim_board_blocked_stub_for=reclaim_board_blocked_stub_for,
     )
     root = repo_root.resolve(strict=True)
     current = root
@@ -1319,17 +1354,31 @@ def _atomic_publish(
     data: bytes,
     *,
     label: str,
+    reclaim_board_blocked_stub_for: str | None = None,
 ) -> tuple[Path, bool]:
     destination = _safe_destination(
         repo_root,
         relative,
         data,
         label=label,
+        reclaim_board_blocked_stub_for=reclaim_board_blocked_stub_for,
     )
+    reclaim_blocked_stub = False
     if destination.exists():
-        if not destination.is_file() or destination.read_bytes() != data:
+        if not destination.is_file():
             raise DispatchContextError(f"{label} destination already differs")
-        return destination, True
+        existing = destination.read_bytes()
+        if existing == data:
+            return destination, True
+        reclaim_blocked_stub = bool(
+            reclaim_board_blocked_stub_for
+            and _is_board_blocked_stub(
+                existing,
+                reclaim_board_blocked_stub_for,
+            )
+        )
+        if not reclaim_blocked_stub:
+            raise DispatchContextError(f"{label} destination already differs")
     fd, temporary_name = tempfile.mkstemp(
         prefix=f".{destination.name}.bridge.",
         dir=str(destination.parent),
@@ -1340,13 +1389,27 @@ def _atomic_publish(
             stream.write(data)
             stream.flush()
             os.fsync(stream.fileno())
-        try:
-            os.link(temporary_name, destination)
-        except FileExistsError as exc:
-            raise DispatchContextError(
-                f"{label} destination appeared concurrently"
-            ) from exc
-        os.unlink(temporary_name)
+        if reclaim_blocked_stub:
+            if (
+                destination.is_symlink()
+                or not destination.is_file()
+                or not _is_board_blocked_stub(
+                    destination.read_bytes(),
+                    str(reclaim_board_blocked_stub_for),
+                )
+            ):
+                raise DispatchContextError(
+                    f"{label} destination changed during blocked-stub reclaim"
+                )
+            os.replace(temporary_name, destination)
+        else:
+            try:
+                os.link(temporary_name, destination)
+            except FileExistsError as exc:
+                raise DispatchContextError(
+                    f"{label} destination appeared concurrently"
+                ) from exc
+            os.unlink(temporary_name)
         directory_fd = os.open(destination.parent, os.O_RDONLY)
         try:
             os.fsync(directory_fd)
@@ -1488,6 +1551,7 @@ def prepare_worktree_outputs(
         result_relative,
         result_bytes,
         label="return artifact",
+        reclaim_board_blocked_stub_for=task_id,
     )
     _validate_destination(
         Path(repo_root),
@@ -1496,6 +1560,7 @@ def prepare_worktree_outputs(
         label="response envelope",
     )
     return PreparedWorktreeOutputs(
+        task_id=task_id,
         result_relative=result_relative,
         outbox_relative=outbox_relative,
         result_bytes=result_bytes,
@@ -1532,6 +1597,7 @@ def publish_prepared_worktree_outputs(
         prepared.result_relative,
         prepared.result_bytes,
         label="return artifact",
+        reclaim_board_blocked_stub_for=prepared.task_id,
     )
     envelope_path, envelope_idempotent = _atomic_publish(
         Path(repo_root),

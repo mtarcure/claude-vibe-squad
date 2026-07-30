@@ -7,10 +7,10 @@ model: inherit
 max_turns: 30
 ---
 
-<!-- generated_by=lane-capability-registry/v1 registry_sha256=9ef0062bc54f046084c442e7c41093a7ce80a3e562c053a6928a4fe84dca1042
+<!-- generated_by=lane-capability-registry/v1 registry_sha256=268b6f90a9c6eb271bab4d6099c584332059c6b21404bece9775ccc25de296d6
 # BEGIN SPECIALIST CAPABILITY PROJECTION
 capability_source: model-lanes/specialist-lane-capabilities.v1.json
-capability_source_sha256: da1cd88666d88fccb7d6946efca295c36dfde9d1499437a0e23b8d5ef428e6a7
+capability_source_sha256: 5b64ee29f4f33255a6454a810742cf8d1b8a19c1f1d6b5a0bee98d4f5010efd9
 capability_skills: ["accessible-media-authoring","wcag-conformance-audit"]
 capability_mcps: ["chrono-vault","sequential-thinking"]
 # END SPECIALIST CAPABILITY PROJECTION

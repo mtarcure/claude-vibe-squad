@@ -2151,16 +2151,556 @@
    "lane": "gpt-codex",
    "coverage": "partial",
    "limitations": [
-    "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+    "best-effort non-primary route; the mirrored arsenal is available for Codex validation and PoC work but required primary execution remains anchored to Kimi",
+    "board workers are network-isolated: prior_art_check reaches only chrono-vault locally, while web sources and metered research operations require a Chrono-side invocation with an explicit budget",
+    "gdb is limited to offline binary parsing on this host; brakeman still needs an operator install; eslint-security and litesvm are target-project dependencies rather than host executables",
+    "active scanners and exploit tooling remain bounded by target scope, rules of engagement, and the offensive_execution operator gate"
    ],
-   "skills": [],
-   "tools": [],
+   "skills": [
+    {
+     "id": "agentic-safety-audit",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "chain-construct",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "chain-construct-smart-contract",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "cosmos-sdk-audit-checklist",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "cross-chain-bridge-audit",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "defi-invariant-check",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "dependency-health-triage",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "evm-audit-flow",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "findings-filter",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "gptscan-prompt-templates",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "known-advisory-backport-check",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "multi-stance-audit-fanout",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "osint-platform-audit",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "pre-audit-threat-model",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "review-severity-ladder",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "security-ownership-map",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "security-threat-model",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "semgrep-rule-author",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "solana-audit-flow",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "supply-chain-audit",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "systematic-attacking",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "systematic-bug-hunting",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "variant-analysis",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "vulnhunter-solana",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    }
+   ],
+   "tools": [
+    {
+     "id": "aderyn",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "amass",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "anchor",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "angr",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "anvil",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "arxiv_search",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "installed-or-shared-authored"
+    },
+    {
+     "id": "bandit",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "brakeman",
+     "requirement": "preferred",
+     "availability": "needs-operator-install",
+     "evidence": "operator-install-required"
+    },
+    {
+     "id": "cargo-audit",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "cargo-fuzz",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "cargo-geiger",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "cast",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "chisel",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "curl",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "dnsx",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "echidna",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "eslint-security",
+     "requirement": "preferred",
+     "availability": "project-dependency",
+     "evidence": "project-dependency"
+    },
+    {
+     "id": "ffuf",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "forge",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "gau",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "gdb",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "ghidra",
+     "requirement": "preferred",
+     "availability": "uninstalled",
+     "evidence": "host-PATH:absent"
+    },
+    {
+     "id": "gitleaks",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "golangci-lint",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "gosec",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "gowitness",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "grype",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "halmos",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "hardhat",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "httpx",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "interactsh-client",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "katana",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "libfuzzer",
+     "requirement": "preferred",
+     "availability": "uninstalled",
+     "evidence": "host-PATH:absent"
+    },
+    {
+     "id": "litesvm",
+     "requirement": "preferred",
+     "availability": "project-dependency",
+     "evidence": "project-dependency"
+    },
+    {
+     "id": "medusa",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "myth",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "naabu",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "nikto",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "nmap",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "nuclei",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "osv-scanner",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "perplexity_search_web",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "installed-or-shared-authored"
+    },
+    {
+     "id": "playwright",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "prior_art_check",
+     "requirement": "preferred",
+     "availability": "mcp-operation",
+     "evidence": "chrono-dedup",
+     "provided_by": "chrono-dedup"
+    },
+    {
+     "id": "pwntools",
+     "requirement": "preferred",
+     "availability": "uninstalled",
+     "evidence": "host-PATH:absent"
+    },
+    {
+     "id": "radare2",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "semgrep",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "slither",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "snyk",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "solana",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "sqlmap",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "staticcheck",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "subfinder",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "trident",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "trivy",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "trufflehog",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "waybackurls",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "WebFetch",
+     "requirement": "preferred",
+     "availability": "harness-only",
+     "evidence": "runtime-map:requires_approval"
+    },
+    {
+     "id": "xai_search",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "installed-or-shared-authored"
+    }
+   ],
    "mcps": [
     {
-     "id": "chrono-vault",
+     "id": "chrono-dedup",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "installed-or-shared-authored"
+    },
+    {
+     "id": "chrono-recon",
      "requirement": "preferred",
      "availability": "available",
      "evidence": "lane-inventory"
+    },
+    {
+     "id": "chrono-research-arsenal",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "lane-inventory"
+    },
+    {
+     "id": "chrono-vault",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "lane-inventory"
+    },
+    {
+     "id": "guarded-semgrep",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "verified-registry:guarded-mcp"
+    },
+    {
+     "id": "guarded-slither",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "verified-registry:guarded-mcp"
+    },
+    {
+     "id": "guarded-solodit",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "verified-registry:guarded-mcp"
     },
     {
      "id": "sequential-thinking",
@@ -2175,34 +2715,517 @@
    "lane": "kimi",
    "coverage": "full",
    "limitations": [
-    "prior_art_check is lead-brokered; board workers are network-isolated and only the local chrono-vault source is expected to succeed, while web sources including Solodit require Chrono-side invocation"
+    "all shared authored audit and exploit-construction skills are live on this lane, but Kimi exposes no shell or local executable surface; every host CLI is tracked as lane-not-wired and intentionally omitted from the live adapter projection",
+    "research MCP operations are lead-brokered and unavailable inside Kimi subagents; the tracked operation ids require a Kimi-lead or Chrono handoff rather than a direct child tool call",
+    "prior_art_check remains lead-brokered; board workers are network-isolated and only the local chrono-vault source is expected to succeed, while web sources including Solodit require Chrono-side invocation",
+    "WebFetch remains harness-only, and active scanners or exploit execution remain bounded by target scope, rules of engagement, and the offensive_execution operator gate"
    ],
    "skills": [
     {
+     "id": "agentic-safety-audit",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "chain-construct",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "chain-construct-smart-contract",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "cosmos-sdk-audit-checklist",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "cross-chain-bridge-audit",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "defi-invariant-check",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "dependency-health-triage",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "evm-audit-flow",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "findings-filter",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "gptscan-prompt-templates",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "known-advisory-backport-check",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "multi-stance-audit-fanout",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "osint-platform-audit",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "pre-audit-threat-model",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "review-severity-ladder",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "security-ownership-map",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "security-threat-model",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "semgrep-rule-author",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "solana-audit-flow",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "supply-chain-audit",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
      "id": "systematic-attacking",
      "requirement": "required",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "systematic-bug-hunting",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "variant-analysis",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "vulnhunter-solana",
+     "requirement": "preferred",
      "availability": "available",
      "evidence": "shared-registry:authored"
     }
    ],
    "tools": [
     {
-     "id": "prior_art_check",
+     "id": "aderyn",
      "requirement": "preferred",
      "availability": "available",
-     "evidence": "installed-or-shared-authored"
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "amass",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "anchor",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "angr",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "anvil",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "arxiv_search",
+     "requirement": "preferred",
+     "availability": "uninstalled",
+     "evidence": "host-PATH:absent"
+    },
+    {
+     "id": "bandit",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "brakeman",
+     "requirement": "preferred",
+     "availability": "needs-operator-install",
+     "evidence": "operator-install-required"
+    },
+    {
+     "id": "cargo-audit",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "cargo-fuzz",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "cargo-geiger",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "cast",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "chisel",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "curl",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "dnsx",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "echidna",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "eslint-security",
+     "requirement": "preferred",
+     "availability": "project-dependency",
+     "evidence": "project-dependency"
+    },
+    {
+     "id": "ffuf",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "forge",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "gau",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "gdb",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "ghidra",
+     "requirement": "preferred",
+     "availability": "uninstalled",
+     "evidence": "host-PATH:absent"
+    },
+    {
+     "id": "gitleaks",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "golangci-lint",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "gosec",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "gowitness",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "grype",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "halmos",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "hardhat",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "httpx",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "interactsh-client",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "katana",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "libfuzzer",
+     "requirement": "preferred",
+     "availability": "uninstalled",
+     "evidence": "host-PATH:absent"
+    },
+    {
+     "id": "litesvm",
+     "requirement": "preferred",
+     "availability": "project-dependency",
+     "evidence": "project-dependency"
+    },
+    {
+     "id": "medusa",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "myth",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "naabu",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "nikto",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "nmap",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "nuclei",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "osv-scanner",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "perplexity_search_web",
+     "requirement": "preferred",
+     "availability": "uninstalled",
+     "evidence": "host-PATH:absent"
+    },
+    {
+     "id": "playwright",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "prior_art_check",
+     "requirement": "preferred",
+     "availability": "uninstalled",
+     "evidence": "host-PATH:absent"
+    },
+    {
+     "id": "pwntools",
+     "requirement": "preferred",
+     "availability": "uninstalled",
+     "evidence": "host-PATH:absent"
+    },
+    {
+     "id": "radare2",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "semgrep",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "slither",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "snyk",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "solana",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "sqlmap",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "staticcheck",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "subfinder",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "trident",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "trivy",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "trufflehog",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "waybackurls",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
     },
     {
      "id": "WebFetch",
      "requirement": "preferred",
      "availability": "harness-only",
      "evidence": "runtime-map:requires_approval"
+    },
+    {
+     "id": "xai_search",
+     "requirement": "preferred",
+     "availability": "uninstalled",
+     "evidence": "host-PATH:absent"
     }
    ],
    "mcps": [
     {
      "id": "lead:chrono-dedup",
-     "requirement": "required",
+     "requirement": "preferred",
      "availability": "available",
      "evidence": "installed-or-shared-authored"
     },
@@ -2235,10 +3258,40 @@
      "evidence": "installed-skill-root"
     },
     {
+     "id": "chain-construct",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "chain-construct-smart-contract",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "cosmos-sdk-audit-checklist",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "cross-chain-bridge-audit",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
      "id": "fuzzing-campaign-flow",
      "requirement": "preferred",
      "availability": "available",
      "evidence": "installed-skill-root"
+    },
+    {
+     "id": "known-advisory-backport-check",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
     },
     {
      "id": "pwntools-exploit-authoring",
@@ -2253,6 +3306,12 @@
      "evidence": "installed-skill-root"
     },
     {
+     "id": "systematic-bug-hunting",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
      "id": "xbow-benchmark-runner",
      "requirement": "preferred",
      "availability": "available",
@@ -2261,13 +3320,177 @@
    ],
    "tools": [
     {
+     "id": "aderyn",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "afl",
+     "requirement": "preferred",
+     "availability": "uninstalled",
+     "evidence": "host-PATH:absent"
+    },
+    {
+     "id": "angr",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "anvil",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "arxiv_search",
+     "requirement": "preferred",
+     "availability": "mcp-operation",
+     "evidence": "chrono-research-arsenal",
+     "provided_by": "chrono-research-arsenal"
+    },
+    {
+     "id": "burp",
+     "requirement": "preferred",
+     "availability": "uninstalled",
+     "evidence": "host-PATH:absent"
+    },
+    {
+     "id": "cast",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "chisel",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "curl",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "echidna",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "forge",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
      "id": "gdb",
      "requirement": "preferred",
      "availability": "available",
      "evidence": "host-PATH"
     },
     {
+     "id": "ghidra",
+     "requirement": "preferred",
+     "availability": "uninstalled",
+     "evidence": "host-PATH:absent"
+    },
+    {
+     "id": "halmos",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "hardhat",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "ida",
+     "requirement": "preferred",
+     "availability": "uninstalled",
+     "evidence": "host-PATH:absent"
+    },
+    {
+     "id": "libfuzzer",
+     "requirement": "preferred",
+     "availability": "uninstalled",
+     "evidence": "host-PATH:absent"
+    },
+    {
+     "id": "medusa",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "mitmproxy",
+     "requirement": "preferred",
+     "availability": "needs-operator-install",
+     "evidence": "operator-install-required"
+    },
+    {
+     "id": "myth",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
      "id": "perplexity_search_web",
+     "requirement": "preferred",
+     "availability": "mcp-operation",
+     "evidence": "chrono-research-arsenal",
+     "provided_by": "chrono-research-arsenal"
+    },
+    {
+     "id": "playwright",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "prior_art_check",
+     "requirement": "preferred",
+     "availability": "uninstalled",
+     "evidence": "host-PATH:absent"
+    },
+    {
+     "id": "pwntools",
+     "requirement": "preferred",
+     "availability": "uninstalled",
+     "evidence": "host-PATH:absent"
+    },
+    {
+     "id": "radare2",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "semgrep",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "slither",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "WebFetch",
+     "requirement": "preferred",
+     "availability": "harness-only",
+     "evidence": "runtime-map:requires_approval"
+    },
+    {
+     "id": "xai_search",
      "requirement": "preferred",
      "availability": "mcp-operation",
      "evidence": "chrono-research-arsenal",
@@ -2322,6 +3545,36 @@
    ],
    "skills": [
     {
+     "id": "chain-construct",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "chain-construct-smart-contract",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "cosmos-sdk-audit-checklist",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "cross-chain-bridge-audit",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "known-advisory-backport-check",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
      "id": "sandbox-provision-discipline",
      "requirement": "required",
      "availability": "available",
@@ -2329,6 +3582,12 @@
     },
     {
      "id": "systematic-attacking",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "systematic-bug-hunting",
      "requirement": "required",
      "availability": "available",
      "evidence": "shared-registry:authored"
@@ -2405,8 +3664,8 @@
     {
      "id": "ghidra",
      "requirement": "preferred",
-     "availability": "available",
-     "evidence": "host-PATH"
+     "availability": "uninstalled",
+     "evidence": "host-PATH:absent"
     },
     {
      "id": "halmos",
@@ -2429,8 +3688,8 @@
     {
      "id": "libfuzzer",
      "requirement": "preferred",
-     "availability": "available",
-     "evidence": "host-PATH"
+     "availability": "uninstalled",
+     "evidence": "host-PATH:absent"
     },
     {
      "id": "medusa",
@@ -2466,14 +3725,15 @@
     {
      "id": "prior_art_check",
      "requirement": "preferred",
-     "availability": "available",
-     "evidence": "installed-or-shared-authored"
+     "availability": "mcp-operation",
+     "evidence": "chrono-dedup",
+     "provided_by": "chrono-dedup"
     },
     {
      "id": "pwntools",
      "requirement": "preferred",
-     "availability": "available",
-     "evidence": "host-PATH"
+     "availability": "uninstalled",
+     "evidence": "host-PATH:absent"
     },
     {
      "id": "radare2",
@@ -2510,7 +3770,7 @@
    "mcps": [
     {
      "id": "chrono-dedup",
-     "requirement": "required",
+     "requirement": "preferred",
      "availability": "available",
      "evidence": "installed-or-shared-authored"
     },
@@ -3469,8 +4729,9 @@
     {
      "id": "prior_art_check",
      "requirement": "preferred",
-     "availability": "available",
-     "evidence": "installed-or-shared-authored"
+     "availability": "mcp-operation",
+     "evidence": "chrono-dedup",
+     "provided_by": "chrono-dedup"
     },
     {
      "id": "WebFetch",
@@ -3489,7 +4750,7 @@
    "mcps": [
     {
      "id": "chrono-dedup",
-     "requirement": "required",
+     "requirement": "preferred",
      "availability": "available",
      "evidence": "installed-or-shared-authored"
     },
@@ -4572,8 +5833,8 @@
     {
      "id": "pip",
      "requirement": "preferred",
-     "availability": "available",
-     "evidence": "host-PATH"
+     "availability": "uninstalled",
+     "evidence": "host-PATH:absent"
     },
     {
      "id": "pipx",
@@ -4962,8 +6223,8 @@
     {
      "id": "line_profiler",
      "requirement": "preferred",
-     "availability": "available",
-     "evidence": "host-PATH"
+     "availability": "uninstalled",
+     "evidence": "host-PATH:absent"
     },
     {
      "id": "perf",
@@ -5068,8 +6329,8 @@
     {
      "id": "line_profiler",
      "requirement": "preferred",
-     "availability": "available",
-     "evidence": "host-PATH"
+     "availability": "uninstalled",
+     "evidence": "host-PATH:absent"
     },
     {
      "id": "perf",
@@ -5618,8 +6879,9 @@
     {
      "id": "prior_art_check",
      "requirement": "preferred",
-     "availability": "available",
-     "evidence": "installed-or-shared-authored"
+     "availability": "mcp-operation",
+     "evidence": "chrono-dedup",
+     "provided_by": "chrono-dedup"
     },
     {
      "id": "WebFetch",
@@ -5631,7 +6893,7 @@
    "mcps": [
     {
      "id": "chrono-dedup",
-     "requirement": "required",
+     "requirement": "preferred",
      "availability": "available",
      "evidence": "installed-or-shared-authored"
     },
@@ -5709,8 +6971,8 @@
     {
      "id": "clippy",
      "requirement": "preferred",
-     "availability": "available",
-     "evidence": "host-PATH"
+     "availability": "uninstalled",
+     "evidence": "host-PATH:absent"
     },
     {
      "id": "comby",
@@ -5827,8 +7089,8 @@
     {
      "id": "clippy",
      "requirement": "preferred",
-     "availability": "available",
-     "evidence": "host-PATH"
+     "availability": "uninstalled",
+     "evidence": "host-PATH:absent"
     },
     {
      "id": "comby",
@@ -6129,6 +7391,12 @@
    "skills": [],
    "tools": [
     {
+     "id": "angr",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
      "id": "gdb",
      "requirement": "preferred",
      "availability": "available",
@@ -6171,6 +7439,12 @@
    ],
    "skills": [],
    "tools": [
+    {
+     "id": "angr",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
     {
      "id": "gdb",
      "requirement": "preferred",
@@ -6323,8 +7597,9 @@
     {
      "id": "prior_art_check",
      "requirement": "preferred",
-     "availability": "available",
-     "evidence": "installed-or-shared-authored"
+     "availability": "mcp-operation",
+     "evidence": "chrono-dedup",
+     "provided_by": "chrono-dedup"
     },
     {
      "id": "subfinder",
@@ -6335,8 +7610,8 @@
     {
      "id": "waybackmachine",
      "requirement": "preferred",
-     "availability": "available",
-     "evidence": "host-PATH"
+     "availability": "uninstalled",
+     "evidence": "host-PATH:absent"
     },
     {
      "id": "WebFetch",
@@ -6361,7 +7636,7 @@
     },
     {
      "id": "chrono-dedup",
-     "requirement": "required",
+     "requirement": "preferred",
      "availability": "available",
      "evidence": "installed-or-shared-authored"
     },
@@ -6640,10 +7915,34 @@
      "evidence": "installed-skill-root"
     },
     {
+     "id": "cosmos-sdk-audit-checklist",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "cross-chain-bridge-audit",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "defi-invariant-check",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
      "id": "dependency-health-triage",
      "requirement": "required",
      "availability": "available",
      "evidence": "installed-skill-root"
+    },
+    {
+     "id": "evm-audit-flow",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
     },
     {
      "id": "findings-filter",
@@ -6652,10 +7951,34 @@
      "evidence": "installed-skill-root"
     },
     {
+     "id": "gptscan-prompt-templates",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "known-advisory-backport-check",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "multi-stance-audit-fanout",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
      "id": "osint-platform-audit",
      "requirement": "required",
      "availability": "available",
      "evidence": "installed-skill-root"
+    },
+    {
+     "id": "pre-audit-threat-model",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
     },
     {
      "id": "review-severity-ladder",
@@ -6682,6 +8005,12 @@
      "evidence": "installed-skill-root"
     },
     {
+     "id": "solana-audit-flow",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
      "id": "supply-chain-audit",
      "requirement": "required",
      "availability": "available",
@@ -6694,15 +8023,33 @@
      "evidence": "shared-registry:authored"
     },
     {
+     "id": "systematic-bug-hunting",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
      "id": "variant-analysis",
      "requirement": "required",
      "availability": "available",
      "evidence": "installed-skill-root"
+    },
+    {
+     "id": "vulnhunter-solana",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
     }
    ],
    "tools": [
     {
      "id": "aderyn",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "anchor",
      "requirement": "required",
      "availability": "available",
      "evidence": "host-PATH"
@@ -6733,6 +8080,24 @@
      "evidence": "operator-install-required"
     },
     {
+     "id": "cargo-audit",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "cargo-fuzz",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "cargo-geiger",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
      "id": "cast",
      "requirement": "required",
      "availability": "available",
@@ -6757,10 +8122,34 @@
      "evidence": "host-PATH"
     },
     {
+     "id": "golangci-lint",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "gosec",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "grype",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
      "id": "halmos",
      "requirement": "required",
      "availability": "available",
      "evidence": "host-PATH"
+    },
+    {
+     "id": "litesvm",
+     "requirement": "preferred",
+     "availability": "project-dependency",
+     "evidence": "project-dependency"
     },
     {
      "id": "medusa",
@@ -6814,6 +8203,24 @@
     {
      "id": "snyk",
      "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "solana",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "staticcheck",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "trident",
+     "requirement": "required",
      "availability": "available",
      "evidence": "host-PATH"
     },
@@ -6897,8 +8304,32 @@
      "evidence": "shared-registry:authored"
     },
     {
+     "id": "cosmos-sdk-audit-checklist",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "cross-chain-bridge-audit",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "defi-invariant-check",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
      "id": "dependency-health-triage",
      "requirement": "required",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "evm-audit-flow",
+     "requirement": "preferred",
      "availability": "available",
      "evidence": "shared-registry:authored"
     },
@@ -6909,8 +8340,32 @@
      "evidence": "shared-registry:authored"
     },
     {
+     "id": "gptscan-prompt-templates",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "known-advisory-backport-check",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "multi-stance-audit-fanout",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
      "id": "osint-platform-audit",
      "requirement": "required",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "pre-audit-threat-model",
+     "requirement": "preferred",
      "availability": "available",
      "evidence": "shared-registry:authored"
     },
@@ -6939,6 +8394,12 @@
      "evidence": "shared-registry:authored"
     },
     {
+     "id": "solana-audit-flow",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
      "id": "supply-chain-audit",
      "requirement": "required",
      "availability": "available",
@@ -6951,8 +8412,20 @@
      "evidence": "shared-registry:authored"
     },
     {
+     "id": "systematic-bug-hunting",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
      "id": "variant-analysis",
      "requirement": "required",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "vulnhunter-solana",
+     "requirement": "preferred",
      "availability": "available",
      "evidence": "shared-registry:authored"
     }
@@ -6960,6 +8433,12 @@
    "tools": [
     {
      "id": "aderyn",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "anchor",
      "requirement": "required",
      "availability": "available",
      "evidence": "host-PATH"
@@ -6990,6 +8469,24 @@
      "evidence": "operator-install-required"
     },
     {
+     "id": "cargo-audit",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "cargo-fuzz",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "cargo-geiger",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
      "id": "cast",
      "requirement": "required",
      "availability": "available",
@@ -7014,10 +8511,34 @@
      "evidence": "host-PATH"
     },
     {
+     "id": "golangci-lint",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "gosec",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "grype",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
      "id": "halmos",
      "requirement": "required",
      "availability": "available",
      "evidence": "host-PATH"
+    },
+    {
+     "id": "litesvm",
+     "requirement": "preferred",
+     "availability": "project-dependency",
+     "evidence": "project-dependency"
     },
     {
      "id": "medusa",
@@ -7071,6 +8592,24 @@
     {
      "id": "snyk",
      "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "solana",
+     "requirement": "required",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "staticcheck",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "host-PATH"
+    },
+    {
+     "id": "trident",
+     "requirement": "required",
      "availability": "available",
      "evidence": "host-PATH"
     },
@@ -7203,6 +8742,12 @@
      "requirement": "required",
      "availability": "available",
      "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "systematic-bug-hunting",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
     }
    ],
    "tools": [
@@ -7235,7 +8780,14 @@
    "limitations": [
     "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
    ],
-   "skills": [],
+   "skills": [
+    {
+     "id": "systematic-bug-hunting",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    }
+   ],
    "tools": [],
    "mcps": [
     {
@@ -7265,6 +8817,12 @@
      "requirement": "preferred",
      "availability": "authored:stub",
      "evidence": "shared-skills:stub"
+    },
+    {
+     "id": "defensive-pattern-discovery",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
     },
     {
      "id": "evm-audit-flow",
@@ -7363,8 +8921,9 @@
     {
      "id": "prior_art_check",
      "requirement": "preferred",
-     "availability": "available",
-     "evidence": "installed-or-shared-authored"
+     "availability": "mcp-operation",
+     "evidence": "chrono-dedup",
+     "provided_by": "chrono-dedup"
     },
     {
      "id": "slither",
@@ -7389,7 +8948,7 @@
    "mcps": [
     {
      "id": "chrono-dedup",
-     "requirement": "required",
+     "requirement": "preferred",
      "availability": "available",
      "evidence": "installed-or-shared-authored"
     },
@@ -7438,7 +8997,14 @@
    "limitations": [
     "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
    ],
-   "skills": [],
+   "skills": [
+    {
+     "id": "defensive-pattern-discovery",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    }
+   ],
    "tools": [
     {
      "id": "aderyn",
@@ -8636,10 +10202,28 @@
      "evidence": "installed-skill-root"
     },
     {
+     "id": "cosmos-sdk-audit-checklist",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "cross-chain-bridge-audit",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
      "id": "interface-ambiguity-check",
      "requirement": "required",
      "availability": "available",
      "evidence": "installed-skill-root"
+    },
+    {
+     "id": "known-advisory-backport-check",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
     },
     {
      "id": "pre-audit-threat-model",
@@ -8662,6 +10246,12 @@
     {
      "id": "systematic-attacking",
      "requirement": "required",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "systematic-bug-hunting",
+     "requirement": "preferred",
      "availability": "available",
      "evidence": "shared-registry:authored"
     },
@@ -8690,8 +10280,9 @@
     {
      "id": "prior_art_check",
      "requirement": "preferred",
-     "availability": "available",
-     "evidence": "installed-or-shared-authored"
+     "availability": "mcp-operation",
+     "evidence": "chrono-dedup",
+     "provided_by": "chrono-dedup"
     },
     {
      "id": "WebFetch",
@@ -8710,7 +10301,7 @@
    "mcps": [
     {
      "id": "chrono-dedup",
-     "requirement": "required",
+     "requirement": "preferred",
      "availability": "available",
      "evidence": "installed-or-shared-authored"
     },
@@ -8741,7 +10332,32 @@
    "limitations": [
     "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
    ],
-   "skills": [],
+   "skills": [
+    {
+     "id": "cosmos-sdk-audit-checklist",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "cross-chain-bridge-audit",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "known-advisory-backport-check",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    },
+    {
+     "id": "systematic-bug-hunting",
+     "requirement": "preferred",
+     "availability": "available",
+     "evidence": "shared-registry:authored"
+    }
+   ],
    "tools": [],
    "mcps": [
     {

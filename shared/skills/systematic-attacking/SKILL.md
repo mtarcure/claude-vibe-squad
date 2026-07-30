@@ -13,7 +13,7 @@ Offensive work fails in two characteristic ways: it strays **outside authorized 
 really proven** — reachability dressed as impact, a pile of lows dressed as a high, a known
 composite dressed as novel. This skill is the one method that blocks both failures.
 
-**This is the only offensive skill.** Experimental / novel-vector work is a *phase* inside it
+**This is the only offensive _lifecycle_ skill.** It alone owns scope, severity, lead→finding promotion, and submission authority. `systematic-bug-hunting` is a subordinate, zero-authority bench-craft layer nested inside Phases 2–5: it generates candidates, holds no scope or severity, and refuses to start without a Phase 0 scope lock. Experimental / novel-vector work is a *phase* inside it
 (Phase 3b), not a sibling skill — a second file would duplicate this safety lifecycle, and the
 looser copy would become the bypass path. `systematic-debugging` guards the *fix*; this skill
 guards the *claim* — and adds a scope law because attacking, unlike debugging, can hurt a real

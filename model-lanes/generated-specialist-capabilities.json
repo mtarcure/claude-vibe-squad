@@ -1781,20 +1781,155 @@
       "known_unavailable": {
         "mcps": [],
         "skills": [],
-        "tools": []
+        "tools": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "brakeman",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "project-dependency",
+            "evidence": "project-dependency",
+            "id": "eslint-security",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "ghidra",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "libfuzzer",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "project-dependency",
+            "evidence": "project-dependency",
+            "id": "litesvm",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-dedup",
+            "id": "prior_art_check",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "pwntools",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
       },
       "lane": "gpt-codex",
       "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+        "best-effort non-primary route; the mirrored arsenal is available for Codex validation and PoC work but required primary execution remains anchored to Kimi",
+        "board workers are network-isolated: prior_art_check reaches only chrono-vault locally, while web sources and metered research operations require a Chrono-side invocation with an explicit budget",
+        "gdb is limited to offline binary parsing on this host; brakeman still needs an operator install; eslint-security and litesvm are target-project dependencies rather than host executables",
+        "active scanners and exploit tooling remain bounded by target scope, rules of engagement, and the offensive_execution operator gate"
       ],
       "mcps": [
+        "chrono-dedup",
+        "chrono-recon",
+        "chrono-research-arsenal",
         "chrono-vault",
+        "guarded-semgrep",
+        "guarded-slither",
+        "guarded-solodit",
         "sequential-thinking"
       ],
       "primary_plan": [],
-      "skills": [],
+      "skills": [
+        "agentic-safety-audit",
+        "chain-construct",
+        "chain-construct-smart-contract",
+        "cosmos-sdk-audit-checklist",
+        "cross-chain-bridge-audit",
+        "defi-invariant-check",
+        "dependency-health-triage",
+        "evm-audit-flow",
+        "findings-filter",
+        "gptscan-prompt-templates",
+        "known-advisory-backport-check",
+        "multi-stance-audit-fanout",
+        "osint-platform-audit",
+        "pre-audit-threat-model",
+        "review-severity-ladder",
+        "security-ownership-map",
+        "security-threat-model",
+        "semgrep-rule-author",
+        "solana-audit-flow",
+        "supply-chain-audit",
+        "systematic-attacking",
+        "systematic-bug-hunting",
+        "variant-analysis",
+        "vulnhunter-solana"
+      ],
       "specialist": "experimental-attacker",
-      "tools": []
+      "tools": [
+        "aderyn",
+        "amass",
+        "anchor",
+        "angr",
+        "anvil",
+        "arxiv_search",
+        "bandit",
+        "cargo-audit",
+        "cargo-fuzz",
+        "cargo-geiger",
+        "cast",
+        "chisel",
+        "curl",
+        "dnsx",
+        "echidna",
+        "ffuf",
+        "forge",
+        "gau",
+        "gdb",
+        "gitleaks",
+        "golangci-lint",
+        "gosec",
+        "gowitness",
+        "grype",
+        "halmos",
+        "hardhat",
+        "httpx",
+        "interactsh-client",
+        "katana",
+        "medusa",
+        "myth",
+        "naabu",
+        "nikto",
+        "nmap",
+        "nuclei",
+        "osv-scanner",
+        "perplexity_search_web",
+        "playwright",
+        "radare2",
+        "semgrep",
+        "slither",
+        "snyk",
+        "solana",
+        "sqlmap",
+        "staticcheck",
+        "subfinder",
+        "trident",
+        "trivy",
+        "trufflehog",
+        "waybackurls",
+        "xai_search"
+      ]
     },
     {
       "adapter": "model-lanes/kimi/.kimi/agents/experimental-attacker.yaml",
@@ -1804,16 +1939,79 @@
         "skills": [],
         "tools": [
           {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "brakeman",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "project-dependency",
+            "evidence": "project-dependency",
+            "id": "eslint-security",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "ghidra",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "libfuzzer",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "project-dependency",
+            "evidence": "project-dependency",
+            "id": "litesvm",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "perplexity_search_web",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "prior_art_check",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "pwntools",
+            "requirement": "preferred"
+          },
+          {
             "availability": "harness-only",
             "evidence": "runtime-map:requires_approval",
             "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "xai_search",
             "requirement": "preferred"
           }
         ]
       },
       "lane": "kimi",
       "limitations": [
-        "prior_art_check is lead-brokered; board workers are network-isolated and only the local chrono-vault source is expected to succeed, while web sources including Solodit require Chrono-side invocation"
+        "all shared authored audit and exploit-construction skills are live on this lane, but Kimi exposes no shell or local executable surface; every host CLI is tracked as lane-not-wired and intentionally omitted from the live adapter projection",
+        "research MCP operations are lead-brokered and unavailable inside Kimi subagents; the tracked operation ids require a Kimi-lead or Chrono handoff rather than a direct child tool call",
+        "prior_art_check remains lead-brokered; board workers are network-isolated and only the local chrono-vault source is expected to succeed, while web sources including Solodit require Chrono-side invocation",
+        "WebFetch remains harness-only, and active scanners or exploit execution remain bounded by target scope, rules of engagement, and the offensive_execution operator gate"
       ],
       "mcps": [
         "lead:chrono-dedup",
@@ -1827,7 +2025,7 @@
           "id": "chrono-dedup",
           "kind": "mcps",
           "provider_lane": "kimi",
-          "requirement": "required",
+          "requirement": "preferred",
           "resolution": "local"
         },
         {
@@ -1850,11 +2048,81 @@
         }
       ],
       "skills": [
-        "systematic-attacking"
+        "agentic-safety-audit",
+        "chain-construct",
+        "chain-construct-smart-contract",
+        "cosmos-sdk-audit-checklist",
+        "cross-chain-bridge-audit",
+        "defi-invariant-check",
+        "dependency-health-triage",
+        "evm-audit-flow",
+        "findings-filter",
+        "gptscan-prompt-templates",
+        "known-advisory-backport-check",
+        "multi-stance-audit-fanout",
+        "osint-platform-audit",
+        "pre-audit-threat-model",
+        "review-severity-ladder",
+        "security-ownership-map",
+        "security-threat-model",
+        "semgrep-rule-author",
+        "solana-audit-flow",
+        "supply-chain-audit",
+        "systematic-attacking",
+        "systematic-bug-hunting",
+        "variant-analysis",
+        "vulnhunter-solana"
       ],
       "specialist": "experimental-attacker",
       "tools": [
-        "prior_art_check"
+        "aderyn",
+        "amass",
+        "anchor",
+        "angr",
+        "anvil",
+        "bandit",
+        "cargo-audit",
+        "cargo-fuzz",
+        "cargo-geiger",
+        "cast",
+        "chisel",
+        "curl",
+        "dnsx",
+        "echidna",
+        "ffuf",
+        "forge",
+        "gau",
+        "gdb",
+        "gitleaks",
+        "golangci-lint",
+        "gosec",
+        "gowitness",
+        "grype",
+        "halmos",
+        "hardhat",
+        "httpx",
+        "interactsh-client",
+        "katana",
+        "medusa",
+        "myth",
+        "naabu",
+        "nikto",
+        "nmap",
+        "nuclei",
+        "osv-scanner",
+        "playwright",
+        "radare2",
+        "semgrep",
+        "slither",
+        "snyk",
+        "solana",
+        "sqlmap",
+        "staticcheck",
+        "subfinder",
+        "trident",
+        "trivy",
+        "trufflehog",
+        "waybackurls"
       ]
     },
     {
@@ -1865,9 +2133,75 @@
         "skills": [],
         "tools": [
           {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "afl",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "burp",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "ghidra",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "ida",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "libfuzzer",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "mitmproxy",
+            "requirement": "preferred"
+          },
+          {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
             "id": "perplexity_search_web",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "prior_art_check",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "pwntools",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
             "requirement": "preferred"
           }
         ]
@@ -1887,14 +2221,36 @@
       "primary_plan": [],
       "skills": [
         "binary-re-pipeline",
+        "chain-construct",
+        "chain-construct-smart-contract",
+        "cosmos-sdk-audit-checklist",
+        "cross-chain-bridge-audit",
         "fuzzing-campaign-flow",
+        "known-advisory-backport-check",
         "pwntools-exploit-authoring",
         "scope-gate",
+        "systematic-bug-hunting",
         "xbow-benchmark-runner"
       ],
       "specialist": "exploit-developer",
       "tools": [
-        "gdb"
+        "aderyn",
+        "angr",
+        "anvil",
+        "cast",
+        "chisel",
+        "curl",
+        "echidna",
+        "forge",
+        "gdb",
+        "halmos",
+        "hardhat",
+        "medusa",
+        "myth",
+        "playwright",
+        "radare2",
+        "semgrep",
+        "slither"
       ]
     },
     {
@@ -1925,7 +2281,19 @@
           {
             "availability": "uninstalled",
             "evidence": "host-PATH:absent",
+            "id": "ghidra",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
             "id": "ida",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "libfuzzer",
             "requirement": "preferred"
           },
           {
@@ -1938,6 +2306,18 @@
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
             "id": "perplexity_search_web",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-dedup",
+            "id": "prior_art_check",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "pwntools",
             "requirement": "preferred"
           },
           {
@@ -1969,21 +2349,21 @@
       ],
       "primary_plan": [
         {
-          "capability_id": "chrono-dedup",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-dedup",
-          "kind": "mcps",
-          "provider_lane": "gpt-codex",
-          "requirement": "required",
-          "resolution": "local"
-        },
-        {
           "capability_id": "chrono-vault",
           "evidence": "capsource-generated-runtime-tool-summary",
           "id": "chrono-vault",
           "kind": "mcps",
           "provider_lane": "gpt-codex",
           "requirement": "required",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "chrono-dedup",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "chrono-dedup",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "requirement": "preferred",
           "resolution": "local"
         },
         {
@@ -2033,8 +2413,14 @@
         }
       ],
       "skills": [
+        "chain-construct",
+        "chain-construct-smart-contract",
+        "cosmos-sdk-audit-checklist",
+        "cross-chain-bridge-audit",
+        "known-advisory-backport-check",
         "sandbox-provision-discipline",
-        "systematic-attacking"
+        "systematic-attacking",
+        "systematic-bug-hunting"
       ],
       "specialist": "exploit-developer",
       "tools": [
@@ -2046,15 +2432,11 @@
         "curl",
         "echidna",
         "forge",
-        "ghidra",
         "halmos",
         "hardhat",
-        "libfuzzer",
         "medusa",
         "myth",
         "playwright",
-        "prior_art_check",
-        "pwntools",
         "radare2",
         "semgrep",
         "slither"
@@ -2866,6 +3248,12 @@
             "requirement": "preferred"
           },
           {
+            "availability": "mcp-operation",
+            "evidence": "chrono-dedup",
+            "id": "prior_art_check",
+            "requirement": "preferred"
+          },
+          {
             "availability": "harness-only",
             "evidence": "runtime-map:requires_approval",
             "id": "WebFetch",
@@ -2891,21 +3279,21 @@
       ],
       "primary_plan": [
         {
-          "capability_id": "chrono-dedup",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-dedup",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "required",
-          "resolution": "local"
-        },
-        {
           "capability_id": "chrono-vault",
           "evidence": "capsource-generated-runtime-tool-summary",
           "id": "chrono-vault",
           "kind": "mcps",
           "provider_lane": "claude",
           "requirement": "required",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "chrono-dedup",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "chrono-dedup",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "requirement": "preferred",
           "resolution": "local"
         },
         {
@@ -2937,9 +3325,7 @@
         "systematic-attacking"
       ],
       "specialist": "impact-validator",
-      "tools": [
-        "prior_art_check"
-      ]
+      "tools": []
     },
     {
       "adapter": "model-lanes/gpt-codex/.codex/agents/impact-validator.toml",
@@ -3787,6 +4173,12 @@
             "requirement": "preferred"
           },
           {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "pip",
+            "requirement": "preferred"
+          },
+          {
             "availability": "harness-only",
             "evidence": "runtime-map:requires_approval",
             "id": "WebFetch",
@@ -3854,7 +4246,6 @@
         "launchctl",
         "npm",
         "osascript",
-        "pip",
         "pipx",
         "shortcuts",
         "tmux",
@@ -4126,6 +4517,12 @@
             "requirement": "preferred"
           },
           {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "line_profiler",
+            "requirement": "preferred"
+          },
+          {
             "availability": "platform-unavailable",
             "evidence": "platform-incompatible",
             "id": "perf",
@@ -4196,7 +4593,6 @@
       "tools": [
         "chrome-devtools",
         "dtrace",
-        "line_profiler",
         "pprof",
         "py-spy"
       ]
@@ -4230,6 +4626,12 @@
             "availability": "needs-operator-install",
             "evidence": "operator-install-required",
             "id": "instruments",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "line_profiler",
             "requirement": "preferred"
           },
           {
@@ -4272,7 +4674,6 @@
       "specialist": "performance-optimizer",
       "tools": [
         "dtrace",
-        "line_profiler",
         "pprof",
         "py-spy"
       ]
@@ -4740,6 +5141,12 @@
         "skills": [],
         "tools": [
           {
+            "availability": "mcp-operation",
+            "evidence": "chrono-dedup",
+            "id": "prior_art_check",
+            "requirement": "preferred"
+          },
+          {
             "availability": "harness-only",
             "evidence": "runtime-map:requires_approval",
             "id": "WebFetch",
@@ -4763,7 +5170,7 @@
           "id": "chrono-dedup",
           "kind": "mcps",
           "provider_lane": "gpt-codex",
-          "requirement": "required",
+          "requirement": "preferred",
           "resolution": "local"
         },
         {
@@ -4787,9 +5194,7 @@
       ],
       "skills": [],
       "specialist": "red-team-operator",
-      "tools": [
-        "prior_art_check"
-      ]
+      "tools": []
     },
     {
       "adapter": "model-lanes/claude/.claude/agents/refactor-cleaner.md",
@@ -4821,6 +5226,12 @@
             "availability": "project-dependency",
             "evidence": "project-dependency",
             "id": "babel",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "clippy",
             "requirement": "preferred"
           },
           {
@@ -4917,7 +5328,6 @@
       ],
       "specialist": "refactor-cleaner",
       "tools": [
-        "clippy",
         "comby",
         "pylint",
         "ruff"
@@ -4940,6 +5350,12 @@
             "availability": "project-dependency",
             "evidence": "project-dependency",
             "id": "babel",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "clippy",
             "requirement": "preferred"
           },
           {
@@ -5005,7 +5421,6 @@
       "skills": [],
       "specialist": "refactor-cleaner",
       "tools": [
-        "clippy",
         "comby",
         "pylint",
         "ruff"
@@ -5191,6 +5606,7 @@
       "skills": [],
       "specialist": "reverse-engineer",
       "tools": [
+        "angr",
         "gdb",
         "radare2"
       ]
@@ -5241,6 +5657,7 @@
       "skills": [],
       "specialist": "reverse-engineer",
       "tools": [
+        "angr",
         "gdb",
         "radare2"
       ]
@@ -5289,6 +5706,18 @@
             "requirement": "preferred"
           },
           {
+            "availability": "mcp-operation",
+            "evidence": "chrono-dedup",
+            "id": "prior_art_check",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "waybackmachine",
+            "requirement": "preferred"
+          },
+          {
             "availability": "harness-only",
             "evidence": "runtime-map:requires_approval",
             "id": "WebFetch",
@@ -5326,15 +5755,6 @@
           "resolution": "local"
         },
         {
-          "capability_id": "chrono-dedup",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-dedup",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "required",
-          "resolution": "local"
-        },
-        {
           "capability_id": "chrono-research-arsenal",
           "evidence": "capsource-generated-runtime-tool-summary",
           "id": "chrono-research-arsenal",
@@ -5350,6 +5770,15 @@
           "kind": "mcps",
           "provider_lane": "claude",
           "requirement": "required",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "chrono-dedup",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "chrono-dedup",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "requirement": "preferred",
           "resolution": "local"
         },
         {
@@ -5395,9 +5824,7 @@
         "httpx",
         "nmap",
         "nuclei",
-        "prior_art_check",
-        "subfinder",
-        "waybackmachine"
+        "subfinder"
       ]
     },
     {
@@ -5605,6 +6032,12 @@
             "requirement": "preferred"
           },
           {
+            "availability": "project-dependency",
+            "evidence": "project-dependency",
+            "id": "litesvm",
+            "requirement": "preferred"
+          },
+          {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
             "id": "perplexity_search_web",
@@ -5640,25 +6073,43 @@
       "primary_plan": [],
       "skills": [
         "agentic-safety-audit",
+        "cosmos-sdk-audit-checklist",
+        "cross-chain-bridge-audit",
+        "defi-invariant-check",
         "dependency-health-triage",
+        "evm-audit-flow",
         "findings-filter",
+        "gptscan-prompt-templates",
+        "known-advisory-backport-check",
+        "multi-stance-audit-fanout",
         "osint-platform-audit",
+        "pre-audit-threat-model",
         "review-severity-ladder",
         "security-ownership-map",
         "security-threat-model",
         "semgrep-rule-author",
+        "solana-audit-flow",
         "supply-chain-audit",
         "systematic-attacking",
-        "variant-analysis"
+        "systematic-bug-hunting",
+        "variant-analysis",
+        "vulnhunter-solana"
       ],
       "specialist": "security-analyst",
       "tools": [
         "aderyn",
+        "anchor",
         "anvil",
         "bandit",
+        "cargo-audit",
+        "cargo-fuzz",
+        "cargo-geiger",
         "cast",
         "echidna",
         "forge",
+        "golangci-lint",
+        "gosec",
+        "grype",
         "halmos",
         "medusa",
         "myth",
@@ -5668,6 +6119,9 @@
         "semgrep",
         "slither",
         "snyk",
+        "solana",
+        "staticcheck",
+        "trident",
         "trivy"
       ]
     },
@@ -5694,6 +6148,12 @@
             "availability": "project-dependency",
             "evidence": "project-dependency",
             "id": "eslint-security",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "project-dependency",
+            "evidence": "project-dependency",
+            "id": "litesvm",
             "requirement": "preferred"
           },
           {
@@ -5796,25 +6256,43 @@
       ],
       "skills": [
         "agentic-safety-audit",
+        "cosmos-sdk-audit-checklist",
+        "cross-chain-bridge-audit",
+        "defi-invariant-check",
         "dependency-health-triage",
+        "evm-audit-flow",
         "findings-filter",
+        "gptscan-prompt-templates",
+        "known-advisory-backport-check",
+        "multi-stance-audit-fanout",
         "osint-platform-audit",
+        "pre-audit-threat-model",
         "review-severity-ladder",
         "security-ownership-map",
         "security-threat-model",
         "semgrep-rule-author",
+        "solana-audit-flow",
         "supply-chain-audit",
         "systematic-attacking",
-        "variant-analysis"
+        "systematic-bug-hunting",
+        "variant-analysis",
+        "vulnhunter-solana"
       ],
       "specialist": "security-analyst",
       "tools": [
         "aderyn",
+        "anchor",
         "anvil",
         "bandit",
+        "cargo-audit",
+        "cargo-fuzz",
+        "cargo-geiger",
         "cast",
         "echidna",
         "forge",
+        "golangci-lint",
+        "gosec",
+        "grype",
         "halmos",
         "medusa",
         "myth",
@@ -5824,6 +6302,9 @@
         "semgrep",
         "slither",
         "snyk",
+        "solana",
+        "staticcheck",
+        "trident",
         "trivy"
       ]
     },
@@ -5935,7 +6416,8 @@
         }
       ],
       "skills": [
-        "systematic-attacking"
+        "systematic-attacking",
+        "systematic-bug-hunting"
       ],
       "specialist": "skeptic",
       "tools": []
@@ -5957,7 +6439,9 @@
         "sequential-thinking"
       ],
       "primary_plan": [],
-      "skills": [],
+      "skills": [
+        "systematic-bug-hunting"
+      ],
       "specialist": "skeptic",
       "tools": []
     },
@@ -6000,6 +6484,12 @@
             "requirement": "preferred"
           },
           {
+            "availability": "mcp-operation",
+            "evidence": "chrono-dedup",
+            "id": "prior_art_check",
+            "requirement": "preferred"
+          },
+          {
             "availability": "harness-only",
             "evidence": "runtime-map:requires_approval",
             "id": "WebFetch",
@@ -6033,7 +6523,7 @@
           "id": "chrono-dedup",
           "kind": "mcps",
           "provider_lane": "claude",
-          "requirement": "required",
+          "requirement": "preferred",
           "resolution": "local"
         },
         {
@@ -6092,6 +6582,7 @@
         }
       ],
       "skills": [
+        "defensive-pattern-discovery",
         "evm-audit-flow",
         "solana-audit-flow",
         "vulnhunter-solana"
@@ -6106,7 +6597,6 @@
         "hardhat",
         "medusa",
         "myth",
-        "prior_art_check",
         "slither"
       ]
     },
@@ -6162,7 +6652,9 @@
         "sequential-thinking"
       ],
       "primary_plan": [],
-      "skills": [],
+      "skills": [
+        "defensive-pattern-discovery"
+      ],
       "specialist": "smart-contract-engineer",
       "tools": [
         "aderyn",
@@ -7155,6 +7647,12 @@
             "requirement": "preferred"
           },
           {
+            "availability": "mcp-operation",
+            "evidence": "chrono-dedup",
+            "id": "prior_art_check",
+            "requirement": "preferred"
+          },
+          {
             "availability": "harness-only",
             "evidence": "runtime-map:requires_approval",
             "id": "WebFetch",
@@ -7180,21 +7678,21 @@
       ],
       "primary_plan": [
         {
-          "capability_id": "chrono-dedup",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-dedup",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "required",
-          "resolution": "local"
-        },
-        {
           "capability_id": "chrono-vault",
           "evidence": "capsource-generated-runtime-tool-summary",
           "id": "chrono-vault",
           "kind": "mcps",
           "provider_lane": "claude",
           "requirement": "required",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "chrono-dedup",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "chrono-dedup",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "requirement": "preferred",
           "resolution": "local"
         },
         {
@@ -7218,17 +7716,19 @@
       ],
       "skills": [
         "agentic-safety-audit",
+        "cosmos-sdk-audit-checklist",
+        "cross-chain-bridge-audit",
         "interface-ambiguity-check",
+        "known-advisory-backport-check",
         "pre-audit-threat-model",
         "security-ownership-map",
         "security-threat-model",
         "systematic-attacking",
+        "systematic-bug-hunting",
         "threat-model-loop"
       ],
       "specialist": "threat-modeler",
-      "tools": [
-        "prior_art_check"
-      ]
+      "tools": []
     },
     {
       "adapter": "model-lanes/gpt-codex/.codex/agents/threat-modeler.toml",
@@ -7247,7 +7747,12 @@
         "sequential-thinking"
       ],
       "primary_plan": [],
-      "skills": [],
+      "skills": [
+        "cosmos-sdk-audit-checklist",
+        "cross-chain-bridge-audit",
+        "known-advisory-backport-check",
+        "systematic-bug-hunting"
+      ],
       "specialist": "threat-modeler",
       "tools": []
     },
@@ -8049,5 +8554,5 @@
   "policy_sha256": "e10b87591263969484a337f2f32c5c183b9f7115261250a9da48ba53c85f6ed7",
   "schema": "specialist-adapter-capability-index/v2",
   "source": "model-lanes/specialist-lane-capabilities.v1.json",
-  "source_sha256": "da1cd88666d88fccb7d6946efca295c36dfde9d1499437a0e23b8d5ef428e6a7"
+  "source_sha256": "5b64ee29f4f33255a6454a810742cf8d1b8a19c1f1d6b5a0bee98d4f5010efd9"
 }

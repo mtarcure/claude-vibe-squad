@@ -53,6 +53,7 @@ USABLE_AVAILABILITY_STATES = frozenset(
 REQUIREMENT_LEVELS = ("preferred", "required")
 COVERAGE_LEVELS = ("full", "partial")
 EVIDENCE_KINDS = {
+    "chrono-dedup",
     "chrono-media-studio",
     "chrono-research-arsenal",
     "claude-plugin:legacy-manifest",

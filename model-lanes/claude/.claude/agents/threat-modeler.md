@@ -6,9 +6,8 @@ generated_by: lane-capability-registry/v1
 capability_registry_sha256: 83bf08d4eb6d20c92f79809010e2930e2332b1371c1e68b8de6143697c1187ac
 # BEGIN SPECIALIST CAPABILITY PROJECTION
 capability_source: model-lanes/specialist-lane-capabilities.v1.json
-capability_source_sha256: da1cd88666d88fccb7d6946efca295c36dfde9d1499437a0e23b8d5ef428e6a7
-skills: ["agentic-safety-audit","interface-ambiguity-check","pre-audit-threat-model","security-ownership-map","security-threat-model","systematic-attacking","threat-model-loop"]
-tools: ["prior_art_check"]
+capability_source_sha256: 5b64ee29f4f33255a6454a810742cf8d1b8a19c1f1d6b5a0bee98d4f5010efd9
+skills: ["agentic-safety-audit","cosmos-sdk-audit-checklist","cross-chain-bridge-audit","interface-ambiguity-check","known-advisory-backport-check","pre-audit-threat-model","security-ownership-map","security-threat-model","systematic-attacking","systematic-bug-hunting","threat-model-loop"]
 mcps: ["chrono-dedup","chrono-research-arsenal","chrono-vault","sequential-thinking"]
 # END SPECIALIST CAPABILITY PROJECTION
 ---

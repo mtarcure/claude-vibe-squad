@@ -2,10 +2,10 @@
 # bin/squad-monitor.sh — Squad pathology detector.
 #
 # Three detectors (run every 2 min via launchd/cron):
-#   1. Stuck task    — a pending task's to_model executing-lane pane is idle >5m
-#                      with no response yet. Task-aware: binds to the packet's
-#                      `to_model` (not the namespace default lead), reports age
-#                      from the registry `dispatched_at`, keys dedup by task+lane.
+#   1. Stuck task    — a pending task has no registry activity for >5m and no
+#                      response yet. Task-aware: binds to the packet's `to_model`
+#                      for diagnostics, but computes idle and age from that task's
+#                      registry timestamps and keys dedup by task+lane.
 #                      ALERT-ONLY by design — there is NO automated re-nudge;
 #                      recovery is Chrono-in-the-loop after it verifies pane activity.
 #   2. Stale active  — namespace active task has no response in >30m
@@ -93,15 +93,31 @@ packet_created_epoch() {
     [[ -n "$iso" && "$iso" != "none" ]] && iso_to_epoch "$iso"
 }
 
-# Idle seconds for a lane's pane, keyed by canonical window name. Empty = untracked.
-lane_idle_secs() {
-    local key ts_file ts
-    key=$(runtime_window_name "$1")
-    ts_file="${STATE_DIR}/lane-${key}-pane.ts"
-    [[ -f "$ts_file" ]] || { echo ""; return; }
-    ts=$(cat "$ts_file" 2>/dev/null)
-    [[ -z "$ts" ]] && { echo ""; return; }
-    echo $(( now - ts ))
+# Idle seconds for one task, measured from its newest registry activity field.
+# dispatched_at is always a candidate, so idle can never exceed task age.
+task_idle_secs() {
+    [[ -f "$REGISTRY" ]] || return
+    local field iso epoch latest=""
+    for field in \
+        last_activity_at heartbeat_observed_at started_at claimed_at \
+        delivery_last_attempt_at enqueued_at dispatched_at
+    do
+        iso=$(jq -r --arg t "$1" --arg f "$field" '.[$t][$f] // empty' "$REGISTRY" 2>/dev/null)
+        [[ -n "$iso" ]] || continue
+        epoch=$(iso_to_epoch "$iso") || continue
+        if [[ -z "$latest" || $epoch -gt $latest ]]; then
+            latest="$epoch"
+        fi
+    done
+    [[ -n "$latest" ]] || return
+    [[ $latest -gt $now ]] && latest="$now"
+    echo $(( now - latest ))
+}
+
+# Registry lifecycle status for stale/awaiting-review classification.
+task_registry_status() {
+    [[ -f "$REGISTRY" ]] || return
+    jq -r --arg t "$1" '.[$t].status // empty' "$REGISTRY" 2>/dev/null
 }
 
 # Hash all 4 model-lane panes once per run; reset the idle timestamp on change.
@@ -205,8 +221,8 @@ board_spawn_live() {
 detect_stuck() {
     # Task-aware stall detector. For each pending inbox packet in this namespace,
     # bind to the packet's to_model executing lane (NOT the namespace default lead)
-    # and alert when that lane's pane has been idle >= STUCK_THRESHOLD with the task
-    # still un-responded. Age is reported from the registry dispatched_at.
+    # for diagnostics and alert when the task's own registry activity has been idle
+    # >= STUCK_THRESHOLD with the task still un-responded.
     local namespace="$1"
     local inbox_dir="${VAULT_ROOT}/departments/${namespace}/inbox"
     local outbox_dir="${VAULT_ROOT}/departments/${namespace}/outbox"
@@ -226,11 +242,11 @@ detect_stuck() {
         lane=$(runtime_window_name "$to_model")
         pane="${SESSION}:${lane}"
 
-        # Is that lane's pane idle long enough? (idle time is tracked per lane.)
+        # Has this task's own registry record been inactive long enough?
         local idle_secs
-        idle_secs=$(lane_idle_secs "$to_model")
-        [[ -z "$idle_secs" ]] && continue                 # lane pane not running/tracked
-        [[ $idle_secs -lt $STUCK_THRESHOLD ]] && continue # lane still actively moving
+        idle_secs=$(task_idle_secs "$task_id")
+        [[ -z "$idle_secs" ]] && continue                 # task has no usable timestamp
+        [[ $idle_secs -lt $STUCK_THRESHOLD ]] && continue # task still actively moving
 
         # Dedup: at most one alert per task+lane episode (cleared on completion).
         local alerted_file="${STATE_DIR}/stuck-task-${task_id}-${lane}-alerted"
@@ -258,6 +274,7 @@ detect_stuck() {
         local disp_epoch age_min="?"
         disp_epoch=$(task_dispatched_epoch "$task_id")
         [[ -z "$disp_epoch" ]] && disp_epoch=$(packet_created_epoch "$task_file")
+        [[ -n "$disp_epoch" && $disp_epoch -gt $now ]] && disp_epoch="$now"
         [[ -n "$disp_epoch" ]] && age_min=$(( ( now - disp_epoch ) / 60 ))
         local idle_min=$(( idle_secs / 60 ))
 
@@ -285,19 +302,28 @@ detect_stale_active() {
     while IFS= read -r task_file; do
         [[ -z "$task_file" ]] && continue
 
-        local task_name
+        local task_name task_id status
         task_name=$(basename "$task_file")
+        task_id="${task_name%.md}"
         local mtime
         mtime=$(stat -f '%m' "$task_file" 2>/dev/null || echo "$now")
         local age=$(( now - mtime ))
 
         [[ $age -lt $STALE_THRESHOLD ]] && continue
 
+        status=$(task_registry_status "$task_id")
+        case "$status" in
+            needs_review|review-required)
+                echo "[$(date -u +%H:%M:%SZ)] INFO: ${namespace}/${task_name} awaiting review (${status}); not stale"
+                continue
+                ;;
+        esac
+
         local alerted_file="${STATE_DIR}/${namespace}-stale-${task_name}-alerted"
         [[ -f "$alerted_file" ]] && continue
 
         # Board-native guard: don't flag a task that's a live detached board spawn.
-        board_spawn_live "${task_name%.md}" && continue
+        board_spawn_live "$task_id" && continue
 
         local age_min=$(( age / 60 ))
         send_alert "${namespace} namespace has stale active task (${task_name}, ${age_min}m old)"
@@ -411,8 +437,7 @@ if [[ "${FAILOVER_CONTROL_ENABLED:-0}" == "1" || -f "${VAULT_ROOT}/_state/failov
     fi
 fi
 
-# Track per-lane pane idle time once up front, so detect_stuck can bind each
-# pending task to its real to_model executing pane (not the namespace default).
+# Keep per-lane pane snapshots for diagnostics; task idle comes from the registry.
 update_lane_hashes
 
 for namespace in "${COMPATIBILITY_NAMESPACES[@]}"; do

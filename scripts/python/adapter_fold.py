@@ -104,7 +104,7 @@ _KIMI_MODELS = frozenset(
 # These are the ONLY substitutions prove_normalized_parity() may grant —
 # never a pattern that would also match an unaudited or malicious value.
 _AUDITED_REGISTRY_SHA_OLD = "83bf08d4eb6d20c92f79809010e2930e2332b1371c1e68b8de6143697c1187ac"
-_AUDITED_REGISTRY_SHA_NEW = "9ef0062bc54f046084c442e7c41093a7ce80a3e562c053a6928a4fe84dca1042"
+_AUDITED_REGISTRY_SHA_NEW = "268b6f90a9c6eb271bab4d6099c584332059c6b21404bece9775ccc25de296d6"
 _REGISTRY_SHA_PATTERN = re.compile(
     r'(?:registry_sha256=|capability_registry_sha256:\s*|capability_registry_sha256\s*=\s*")([0-9a-f]{64})'
 )

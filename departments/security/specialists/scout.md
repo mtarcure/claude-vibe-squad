@@ -68,6 +68,8 @@ When security namespace invokes `scout` at Phase 3 via `Task` tool with `subagen
 
 Drive template-driven scanning, subdomain enumeration, port/service discovery, visual screenshotting, URL/parameter discovery, and historical-URL mining. The exact executables for each on your lane are named in your per-lane adapter; verify each in the live runtime before use.
 
+**Authed bounty-platform recon (HackenProof / Immunefi / etc.) — use the operator's RUNNING authed browser, never a fresh one.** The platform is logged in ONLY in the operator's live Chrome, which exposes a local CDP endpoint. **Chrono supplies that endpoint in the task packet** (or via the `CHRONO_CDP_ENDPOINT` env var); it is deliberately not written into this brief. Do NOT use the `chrome-devtools` or `playwright` MCP for authed-platform reads: those launch their OWN fresh, unauthenticated Chrome (config drift), so every authed page/API comes back logged-out and useless. Instead attach via **raw CDP**: `GET <cdp-endpoint>/json/list` to find the platform tab, open its `webSocketDebuggerUrl`, and `Runtime.evaluate` a `fetch(url,{credentials:"include"})` against the platform's authed API from that tab's context (this is how the scope / `opportunities` endpoints return real data). **READ-ONLY: never open a new tab and never navigate the operator's existing tabs.** If the CDP endpoint is unreachable or the session is logged out, STOP and surface it — do NOT fall back to a fresh MCP Chrome.
+
 ## Offensive recon posture (bounty)
 
 At the S1 frame step I set up the engagement to the operator depth standard so downstream effort lands on classes that pay:

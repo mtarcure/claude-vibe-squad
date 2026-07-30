@@ -7,7 +7,7 @@ Your current specialist roster is in `../ROSTER.md`.
 Task packets are not stored under this directory. They live under:
 
 ```text
-${VAULT_ROOT}/departments/<compatibility_namespace>/inbox/TASK-*.md
+<vault-root>/departments/<compatibility_namespace>/inbox/TASK-*.md
 ```
 
 When nudged with an absolute task path, open that exact file. If no path is

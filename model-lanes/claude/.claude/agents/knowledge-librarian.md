@@ -4,7 +4,7 @@ description: "Vault organization, links, and durable knowledge hygiene; Google D
 model: inherit
 # BEGIN SPECIALIST CAPABILITY PROJECTION
 capability_source: model-lanes/specialist-lane-capabilities.v1.json
-capability_source_sha256: da1cd88666d88fccb7d6946efca295c36dfde9d1499437a0e23b8d5ef428e6a7
+capability_source_sha256: 5b64ee29f4f33255a6454a810742cf8d1b8a19c1f1d6b5a0bee98d4f5010efd9
 skills: ["binary-doc-to-markdown","harness-baseline-audit","instinct-prune-loop","kg-vault-health-check","stale-knowledge-purge"]
 tools: ["pdftotext","zotero"]
 mcps: ["chrono-obsidian","chrono-research-arsenal","chrono-vault","sequential-thinking"]

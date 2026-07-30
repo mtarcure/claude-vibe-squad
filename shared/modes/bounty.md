@@ -64,11 +64,12 @@ Phases 0–8); the skill is assigned on the primary lane of every offensive owne
 
 | Phase | Name | Owner specialist(s) | Hard gate |
 |---|---|---|---|
+| **−1** | **Target-EV & Stop-Loss** | Chrono (operator picks the target) | **PAYABILITY GATE 1** — a *written* go/no-go before any hunt: saturation (hackers / reports / total paid), prior-audit count + recency, remediated-finding count, reward tier vs our realistic yield, and an explicit stop-loss. A picked-over program is a ~1% converter; **if the EV is not written down, the campaign does not start.** |
 | **0** | Authorization & Scope Lock | Chrono + `threat-modeler` | **Law 1** — in-scope set + forbidden set written; ambiguous scope STOPS; no action beyond authorized until operator target-engage |
-| **1** | Research & Prior-Art (**dedup**) | `research`, `bounty-researcher`, `large-context-analyst` | target's prior audits, disclosed bugs, CVE/known-issue DBs, program history, **and our own vault** searched *before* effort; refreshed before submission |
+| **1** | Research & Prior-Art (**dedup**) | `research`, `bounty-researcher`, `large-context-analyst` | target's prior audits, disclosed bugs, CVE/known-issue DBs, program history, **the vendor's own git history** (`git log --grep` for advisory ids / `[REPORTED]` / fix markers), **and our own vault** searched *before* effort; refreshed before submission |
 | **2** | Synthesis → Attack-Surface & Impact Model | `threat-modeler`, `security-analyst` | pre-register the impact bar — write the HIGH/CRIT terminus thresholds *before* generating hypotheses |
 | **3** | Hypothesis Generation (2 lanes) | `security-analyst` (known-class) · `experimental-attacker` (discovery) | emits **leads/primitives only**, never findings; discovery earns no laxer verification |
-| **4** | Chaining (**chain-strike v2**) | `exploit-developer` (Chrono aggregates the primitive pool) | impact-first path to a HIGH/CRIT terminus; below-bar/out-of-scope/prior-art paths pruned |
+| **4** | Chaining (**chain-strike v2**) | `exploit-developer` (Chrono aggregates the primitive pool) | impact-first path to a HIGH/CRIT terminus; below-bar/out-of-scope/prior-art paths pruned. **PAYABILITY GATE 2 (scope-orphan)** — name the *single* program whose scope contains **both** the flaw **and** the realized impact. If none does, **STOP**: it is unpayable regardless of technical merit. |
 | **5** | Proof & Negative Control | `exploit-developer`, `test-engineer` | **Law 2 pt.1** — runnable PoC in sandbox/read-only fork against the *real* oracle; link- and chain-level causal negative controls; operator gate before any live/mutating action |
 | **6** | Impact Bar & Cross-Family Reproduction | `impact-validator` + a different-family lane | **Law 2 pt.2** — G1–G4; a *different model family* reproduces the written procedure; CVSS v4 scored **once**, from the realized terminus, only here |
 | **7** | Skeptic (adversarial verification) | `skeptic` | verifies *soundness*, not just results; kills harness/mock/flaky/oracle errors; refutes prior art |
@@ -106,12 +107,14 @@ until the full chain reproduces; CVSS is re-derived from the realized terminus, 
 Specialists have shell access and MUST use it, not just grep:
 - **Go:** `gosec -severity=medium`, `staticcheck`, `golangci-lint`, `semgrep --config=p/gosec --config=p/golang`, `osv-scanner --lockfile go.mod`, `go test -race`, `go test -fuzz`.
 - **EVM:** `slither`, `aderyn`, **`myth`** (Mythril — NOT `mythril`), `semgrep`, Foundry (`forge`/`cast`/`anvil`/`chisel` fork-and-replay + auth-fuzz), `echidna`, `medusa`, `halmos`, **ItyFuzz** (pinned Linux container `vibe-ityfuzz:nightly`; native Apple-Silicon build fails on Z3), **solodit-mcp** (Cyfrin Solodit precedent DB — guarded, live after operator relaunch). Skips: Manticore (archived); HexStrike (dedicated-VM-only). **Mock harnesses are BLIND to valuation — fork the REAL oracle/registry.** Halmos/Z3 can't prove staking/recursive-valuation math (fuzz those).
-- **Rust/Solana:** `cargo-audit`, `clippy`, `cargo-geiger`, `cargo-fuzz`, `anchor`, `solana`.
+- **Rust/Solana:** `cargo-audit`, `clippy`, `cargo-geiger`, `cargo-fuzz`, `anchor`, `trident` (Anchor IDL-driven fuzzer), `solana`, plus `litesvm` (dev-crate for in-process SVM tests). NOTE: in the board sandbox `anchor build` may network-bootstrap `agave-install` — pre-provision before an empirical Solana PoC; static review + `trident`/`cargo-fuzz` work offline. There is **no** slither-Solana detector — do not cite one.
 - **General:** `trivy`, `grype`, `gitleaks`/`trufflehog` (secret scan is operator-gated for a target org).
 
-**Apply the domain audit-checklist skills on task start** (they encode the classes that convert):
-- Blockchain L1 / bridge / appchain → domain branch `blockchain-l1`; skills `cross-chain-bridge-audit`, `cosmos-sdk-audit-checklist`, `known-advisory-backport-check`.
-- Solidity/Rust contracts → domain branch `smart-contract`; skills `solana-anchor-audit-checklist` (Solana/Anchor), `known-advisory-backport-check` (forked deps).
+**Apply the domain audit-checklist + audit-flow skills on task start** (they encode the classes that convert):
+- **Every contract/chain target (cross-cutting):** `pre-audit-threat-model` (entry-point / actor / invariant x-ray), `gptscan-prompt-templates` (reusable LLM-audit prompt shapes), `multi-stance-audit-fanout` (Chrono-orchestrated N-stance fan-out + `Contract|function|bug-class` dedup — workers never self-spawn; the specialist surfaces the fan-out as a need).
+- **Solidity / EVM** → domain branch `smart-contract`; skills `evm-audit-flow` (slither→myth→echidna/medusa→halmos→forge via native CLIs + guarded-slither/guarded-semgrep), `defi-invariant-check` (token-conservation / k-invariant / oracle-flash-loan / CEI), `known-advisory-backport-check` (forked deps). Exploit PoC scaffolds: `chain-construct-smart-contract` (exploit-developer).
+- **Solana / Anchor** → domain branch `smart-contract`; skills `solana-audit-flow` (anchor/trident/cargo-fuzz/litesvm — the fabricated slither-solana static step is removed), `vulnhunter-solana` (owner/signer/discriminator/CPI-signer/SPL-math/PDA-collision manual patterns), `solana-anchor-audit-checklist`.
+- **Blockchain L1 / bridge / appchain** → domain branch `blockchain-l1`; skills `cross-chain-bridge-audit`, `cosmos-sdk-audit-checklist`, `known-advisory-backport-check`.
 - Chaining/terminus discipline is provided by `systematic-attacking`'s chain-strike v2 reference (the old `chain-impact-rescore` skill is folded into it).
 
 **Dynamic testing is mandatory for logic/nonce/reorg/concurrency bugs** — extract the logic into a hermetic
@@ -148,6 +151,35 @@ reviewed candidates to `verified` rather than creating parallel memory.
 
 ## Gates
 
+### PAYABILITY GATE 1 — Target-EV & Stop-Loss (before Phase 0)
+
+**Write it down before hunting. If it is not written, the campaign does not start.** Target *selection* is the operator's call; this gate is Chrono's arithmetic on the operator's pick.
+
+Record, per program: hackers competing · reports filed · **total paid to date** · number and recency of prior formal audits · count of already-remediated findings in-repo · reward tier · realistic yield vs that tier · **an explicit stop-loss** (what result, or what elapsed effort, ends the campaign).
+
+Hard signals that a program is a poor converter — any two mean *do not start* without an explicit operator override:
+- a large report count with **$0 paid**
+- a recent formal audit, or many findings already remediated in-repo
+- commodity SAST returning **zero** high-signal on the target
+- a Critical-only reward tier where our realistic finding is a High
+
+Evidence this gate is needed: our lifetime rate is **1 paid finding in 21 submissions**. The Push Chain engagement ran four programs to exhaustion for zero submittable Criticals; Core Contracts alone carried **39 already-remediated findings** and slither fired **zero** high-signal detectors. Vault memory had *already measured* picked-over targets at ~1% convert, and target selection never consumed it. Both independent pipeline reviews (`gpt-codex` and `claude`, identical briefs) ranked this the **single highest-value change** to the pipeline.
+
+### PAYABILITY GATE 2 — Scope-Orphan check (before Phase 4/5 spend)
+
+Name the **single program** whose scope contains **both** the flaw **and** the realized impact.
+
+**If no single program contains both, STOP.** The finding is technically real and commercially worthless. Do not "borrow" scope across sibling audits of the same protocol: the triager for program A treats program B's component as a trusted external, and program B's triager sees no in-scope impact. The finding falls between them and neither pays.
+
+**Tell-tale to treat as a STOP, not as an open question:** an auditor's own write-up offering two CVSS vectors — *"≈6.9 High as-implemented (`PR:H`) vs ≈9.2 Critical if X counts as untrusted input"* — is already reporting a scope/trust-model orphan.
+
+Evidence: the same orphan was re-derived **three times** on Push Chain — the original finality double-spend (shelved "GO-AFTER-VAULT"), then H-F (reproduced, then killed as a vendor-commit duplicate *and* for lacking an attacker-controlled trigger), then the kill-audit B1 chain. Each re-derivation cost campaign effort and none could ever have paid: the unprivileged trigger lived in the L1 program while the fund loss realized in the Gateway program's Vault.
+
+### Prior-art dedup is necessary but NOT sufficient
+
+`chrono-dedup prior_art_check` returning `verdict: novel` with `best_similarity: 0` and zero hits is a **non-signal**, not evidence of novelty — its corpora structurally cannot index a vendor's own git commit messages, which is exactly where the decisive prior art lived for H-F. Always pair it with **vendor fix-commit archaeology** (Phase 1): `git log --grep='CVE-\|F-20\|REPORTED\|security\|vulnerab' -i --oneline` at the pinned commit. An acknowledged-and-mitigated class means our finding in that class is a duplicate unless we prove the mitigation fails on a *distinct* path.
+
+
 - Operator approval before engaging a target, touching authenticated scope, contacting a program, or writing
   private bounty details to durable public-facing files.
 - **Submission gate (operator-ratified 2026-07-14):** Chrono/specialists MAY drive the full submission
@@ -165,6 +197,12 @@ reviewed candidates to `verified` rather than creating parallel memory.
   **multiple models must concur** (the cross-family reproducer + `skeptic` + `impact-validator`). Chrono
   coordinates the fan-out and reads the verdicts — Chrono does NOT run the PoC itself. A PoC only counts as
   reproduced when ≥2 model families have independently run it and agreed it proves the claim.
+  **The reproducer must be a TOOLED specialist on the opposite family** — `security-analyst` or
+  `exploit-developer` (both carry `forge`/`cast`/`anvil`/`echidna`/`halmos` on claude *and* gpt-codex).
+  `impact-validator` and `skeptic` supply judgment and adjudication and carry **no execution toolchain**;
+  assigning either the reproduction step yields a review that cannot run anything, which has silently
+  happened before. Before dispatching a reproduction, confirm the chosen specialist×lane actually declares
+  the tools the PoC needs — capability is per specialist *and* per lane, and a blank pair fails silently.
 - Mandatory multi-model review for exploitability, impact, privacy, auth, and final report claims.
 - No destructive testing, rate-limit abuse, persistence, credential use, or out-of-scope probing.
 - Run `vibecoding-check` before the final operator summary.

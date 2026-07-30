@@ -30,6 +30,7 @@ Generated adapters, stale handoffs, old specs, and runtime logs are not source o
 6. Deletes, credential changes, public release changes, cleanup actions, live outreach/email sends, paid media generation, and production mutations (mutating a live production system that is not itself a public release; operator-ratified 2026-07-13) require explicit operator approval.
 7. Write shared state atomically with temp + fsync/sync + rename.
 8. Verify before claiming done. No fabricated citations or unverifiable provider claims. Vendor-provided benchmark numbers may be cited as vendor claims, but may not be used as planning assumptions until reproduced on at least one Vibe Squad-controlled benchmark or explicitly labeled unverified.
+9. **Capability is proven by a live probe, never by a config file.** Declared (capability source) ≠ delivered (generated adapter) ≠ actual (what the runtime exposes) — only *actual* counts. Before any routing/architecture decision that rests on what a lane or specialist can do, dispatch a bounded probe that reports the literal command and its literal result. Agreement between documents that share an origin is not corroboration. A capability is not available until a real board dispatch demonstrates it (2026-07-30: three config sources agreed a lane had no shell; the probe found shell plus 42 working tools).
 
 ## Session Resume
 

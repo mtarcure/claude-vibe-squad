@@ -70,8 +70,9 @@ if [[ "${1:-}" == "detached-launch" ]]; then
 
   set +e
   exec 4>>"$log_path"
+  # Legacy short wrapper was: "$timeout_bin" --kill-after=30 1860
   TRUSTED_HOST_PATH="$trusted_host_path" BOARD_TRANSCRIPT_FD=4 \
-    "$timeout_bin" --kill-after=30 1860 \
+    "$timeout_bin" --kill-after=30 3660 \
     "$repo_root/bin/board-supervisor.sh" trusted-launch "$context_file" \
     >"$receipt_path" 2>&1
   supervisor_rc=$?
@@ -889,6 +890,13 @@ def trusted_worker_environment(worker_lane):
     environment["PATH"] = _validated_trusted_host_path()
     environment["GIT_TERMINAL_PROMPT"] = "0"
     environment["NO_COLOR"] = "1"
+    # Provide a CA trust store so TLS-using bounty tools in the worker have
+    # anchors (the semgrep OCaml OTel client aborts exit 2 on "empty trust
+    # anchors" without one). SSL_CERT_FILE is already in the allowlist above.
+    for _ca_bundle in ("/etc/ssl/cert.pem", "/opt/homebrew/etc/ca-certificates/cert.pem"):
+        if os.path.exists(_ca_bundle):
+            environment["SSL_CERT_FILE"] = _ca_bundle
+            break
     for key in (
         "ANTHROPIC_API_KEY",
         "OPENAI_API_KEY",
@@ -1403,7 +1411,13 @@ if board_dispatch_context:
         or set(budgets) != {"timeout_seconds"}
         or isinstance(budgets["timeout_seconds"], bool)
         or not isinstance(budgets["timeout_seconds"], int)
-        or not 30 <= budgets["timeout_seconds"] <= 1800
+        or not (
+            30 <= budgets["timeout_seconds"] <= 1800
+            or (
+                authority["mode_profile"] == "bounty"
+                and 1800 < budgets["timeout_seconds"] <= 3600
+            )
+        )
     ):
         deny("authenticated launch budget is invalid")
     launch_timeout = float(budgets["timeout_seconds"])
