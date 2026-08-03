@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = ["rig", "targets/svm-gateway"]
+exclude = ["canary", "fuzz"]
+
+[workspace.dependencies]
+mollusk-svm = "0.14"
+solana-account = "4.4"
+solana-instruction = "3.5"
+solana-pubkey = "4.3"
+solana-sdk-ids = "3"
+arbitrary = { version = "1", features = ["derive"] }
+sha3 = "0.10"
+sha2 = "0.10"
+libsecp256k1 = "0.7"
+ed25519-dalek = "2"

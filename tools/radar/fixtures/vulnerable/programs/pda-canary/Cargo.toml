@@ -1,0 +1,13 @@
+[package]
+name = "pda-canary-vulnerable"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "pda_canary_vulnerable"
+
+[dependencies]
+anchor-lang = "0.30.1"
+anchor-spl = "0.30.1"
+

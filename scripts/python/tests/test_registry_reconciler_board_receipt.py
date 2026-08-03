@@ -210,5 +210,121 @@ class BoardReceiptSettlementTests(unittest.TestCase):
             )
 
 
+class ReceiptFailureDiagnosticsTests(unittest.TestCase):
+    """A terminal receipt's failure_class must survive into the registry.
+
+    Ten distinct failure classes exist on disk (launch, request_validation,
+    memory_proof, worktree, ...) and every one of them reached the registry as
+    an undifferentiated ``blocked``, so a toolchain gate and a policy denial
+    were indistinguishable without opening the receipt JSON by hand.
+    """
+
+    def _write(self, payload: object) -> Path:
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: None)
+        receipt = tmp / "receipt.json"
+        receipt.write_text(json.dumps(payload), encoding="utf-8")
+        return receipt
+
+    def test_extracts_failure_class_reason_and_returncode(self) -> None:
+        receipt = self._write(
+            {
+                "failure_class": "launch",
+                "reason": "trusted launch failed:\n  Command 'codex exec'",
+                "returncode": 74,
+            }
+        )
+        self.assertEqual(
+            reconciler.receipt_failure_diagnostics(receipt),
+            {
+                "failure_class": "launch",
+                # Newlines and runs of whitespace collapse so the registry
+                # stays single-line readable.
+                "reason": "trusted launch failed: Command 'codex exec'",
+                "returncode": 74,
+            },
+        )
+
+    def test_reason_is_capped(self) -> None:
+        receipt = self._write({"reason": "x" * 5000})
+        diagnostics = reconciler.receipt_failure_diagnostics(receipt)
+        self.assertEqual(
+            len(diagnostics["reason"]),
+            reconciler.RECEIPT_DIAGNOSTIC_REASON_LIMIT,
+        )
+
+    def test_absent_and_malformed_fields_are_omitted_not_guessed(self) -> None:
+        # `returncode: None` is the common real shape and must not become 0;
+        # a bool must not pass the int check.
+        receipt = self._write(
+            {"failure_class": "  ", "reason": "", "returncode": None}
+        )
+        self.assertEqual(reconciler.receipt_failure_diagnostics(receipt), {})
+        self.assertEqual(
+            reconciler.receipt_failure_diagnostics(
+                self._write({"returncode": True})
+            ),
+            {},
+        )
+
+    def test_fails_open_on_unreadable_or_non_dict_receipt(self) -> None:
+        # Diagnostics are a convenience; losing them must never block a
+        # reconcile, which is the operation that frees write_scope.
+        self.assertEqual(
+            reconciler.receipt_failure_diagnostics(Path("/nonexistent/x.json")),
+            {},
+        )
+        self.assertEqual(
+            reconciler.receipt_failure_diagnostics(self._write(["not", "dict"])),
+            {},
+        )
+        bad = self._write({})
+        bad.write_text("{not json", encoding="utf-8")
+        self.assertEqual(reconciler.receipt_failure_diagnostics(bad), {})
+
+    def test_apply_reports_change_only_when_values_move(self) -> None:
+        # Site 2 gates the registry write on this bool: if it lies, the
+        # diagnostics are computed and then silently dropped.
+        entry: dict[str, object] = {}
+        self.assertTrue(
+            reconciler.apply_receipt_diagnostics(entry, {"failure_class": "launch"})
+        )
+        self.assertEqual(entry["terminal_receipt_failure_class"], "launch")
+        self.assertFalse(
+            reconciler.apply_receipt_diagnostics(entry, {"failure_class": "launch"})
+        )
+        self.assertTrue(
+            reconciler.apply_receipt_diagnostics(entry, {"failure_class": "worktree"})
+        )
+
+    def test_closure_reason_names_the_failure_class(self) -> None:
+        entry: dict[str, object] = {}
+        reconciler.auto_close_terminal_receipt(
+            entry,
+            datetime(2026, 8, 2, tzinfo=timezone.utc),
+            "blocked",
+            "blocked",
+            {"failure_class": "request_validation", "returncode": 1, "reason": "bad packet"},
+        )
+        self.assertEqual(
+            entry["closure_reason"],
+            "terminal board receipt=blocked failure_class=request_validation "
+            "rc=1: bad packet",
+        )
+        self.assertEqual(entry["status"], "closed")
+
+    def test_closure_reason_unchanged_when_receipt_carries_nothing(self) -> None:
+        # 33 receipts on disk have no failure_class; those must keep the
+        # original string so existing consumers see no drift.
+        entry: dict[str, object] = {}
+        reconciler.auto_close_terminal_receipt(
+            entry,
+            datetime(2026, 8, 2, tzinfo=timezone.utc),
+            "blocked",
+            "blocked",
+        )
+        self.assertEqual(entry["closure_reason"], "terminal board receipt=blocked")
+
+
 if __name__ == "__main__":
     unittest.main()

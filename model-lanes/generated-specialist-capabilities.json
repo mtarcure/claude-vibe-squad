@@ -1776,12 +1776,18 @@
       "tools": []
     },
     {
-      "adapter": "model-lanes/gpt-codex/.codex/agents/experimental-attacker.toml",
+      "adapter": "model-lanes/claude/.claude/agents/experimental-attacker.md",
       "coverage": "partial",
       "known_unavailable": {
         "mcps": [],
         "skills": [],
         "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
           {
             "availability": "needs-operator-install",
             "evidence": "operator-install-required",
@@ -1814,7 +1820,13 @@
           },
           {
             "availability": "mcp-operation",
-            "evidence": "chrono-dedup",
+            "evidence": "chrono-research-arsenal",
+            "id": "perplexity_search_web",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
             "id": "prior_art_check",
             "requirement": "preferred"
           },
@@ -1829,15 +1841,19 @@
             "evidence": "runtime-map:requires_approval",
             "id": "WebFetch",
             "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
           }
         ]
       },
-      "lane": "gpt-codex",
+      "lane": "claude",
       "limitations": [
-        "best-effort non-primary route; the mirrored arsenal is available for Codex validation and PoC work but required primary execution remains anchored to Kimi",
-        "board workers are network-isolated: prior_art_check reaches only chrono-vault locally, while web sources and metered research operations require a Chrono-side invocation with an explicit budget",
-        "gdb is limited to offline binary parsing on this host; brakeman still needs an operator install; eslint-security and litesvm are target-project dependencies rather than host executables",
-        "active scanners and exploit tooling remain bounded by target scope, rules of engagement, and the offensive_execution operator gate"
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan",
+        "declares only capabilities already proven on the claude lane by an existing claude entry; anything the codex route carries but claude has not demonstrated is treated as lane-not-wired rather than assumed"
       ],
       "mcps": [
         "chrono-dedup",
@@ -1854,6 +1870,7 @@
         "agentic-safety-audit",
         "chain-construct",
         "chain-construct-smart-contract",
+        "chain-impact-rescore",
         "cosmos-sdk-audit-checklist",
         "cross-chain-bridge-audit",
         "defi-invariant-check",
@@ -1883,7 +1900,168 @@
         "anchor",
         "angr",
         "anvil",
-        "arxiv_search",
+        "bandit",
+        "cargo-audit",
+        "cargo-fuzz",
+        "cargo-geiger",
+        "cast",
+        "chisel",
+        "curl",
+        "echidna",
+        "forge",
+        "gdb",
+        "golangci-lint",
+        "gosec",
+        "gowitness",
+        "grype",
+        "halmos",
+        "hardhat",
+        "httpx",
+        "medusa",
+        "myth",
+        "nikto",
+        "nmap",
+        "nuclei",
+        "osv-scanner",
+        "playwright",
+        "radare2",
+        "semgrep",
+        "slither",
+        "snyk",
+        "solana",
+        "staticcheck",
+        "subfinder",
+        "trident",
+        "trivy"
+      ]
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/experimental-attacker.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "brakeman",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "project-dependency",
+            "evidence": "project-dependency",
+            "id": "eslint-security",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "ghidra",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "libfuzzer",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "project-dependency",
+            "evidence": "project-dependency",
+            "id": "litesvm",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "perplexity_search_web",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-dedup",
+            "id": "prior_art_check",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "uninstalled",
+            "evidence": "host-PATH:absent",
+            "id": "pwntools",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; the mirrored arsenal is available for Codex validation and PoC work but required primary execution remains anchored to Kimi",
+        "board workers are network-isolated: prior_art_check reaches only chrono-vault locally, while web sources and metered research operations require a Chrono-side invocation with an explicit budget",
+        "gdb is limited to offline binary parsing on this host; brakeman still needs an operator install; eslint-security and litesvm are target-project dependencies rather than host executables",
+        "active scanners and exploit tooling remain bounded by target scope, rules of engagement, and the offensive_execution operator gate"
+      ],
+      "mcps": [
+        "chrono-dedup",
+        "chrono-recon",
+        "chrono-research-arsenal",
+        "chrono-vault",
+        "guarded-semgrep",
+        "guarded-slither",
+        "guarded-solodit",
+        "sequential-thinking"
+      ],
+      "primary_plan": [],
+      "skills": [
+        "agentic-safety-audit",
+        "chain-construct",
+        "chain-construct-smart-contract",
+        "chain-impact-rescore",
+        "cosmos-sdk-audit-checklist",
+        "cross-chain-bridge-audit",
+        "defi-invariant-check",
+        "dependency-health-triage",
+        "evm-audit-flow",
+        "findings-filter",
+        "gptscan-prompt-templates",
+        "known-advisory-backport-check",
+        "multi-stance-audit-fanout",
+        "osint-platform-audit",
+        "pre-audit-threat-model",
+        "review-severity-ladder",
+        "security-ownership-map",
+        "security-threat-model",
+        "semgrep-rule-author",
+        "solana-audit-flow",
+        "supply-chain-audit",
+        "systematic-attacking",
+        "systematic-bug-hunting",
+        "variant-analysis",
+        "vulnhunter-solana"
+      ],
+      "specialist": "experimental-attacker",
+      "tools": [
+        "aderyn",
+        "amass",
+        "anchor",
+        "angr",
+        "anvil",
         "bandit",
         "cargo-audit",
         "cargo-fuzz",
@@ -1914,7 +2092,6 @@
         "nmap",
         "nuclei",
         "osv-scanner",
-        "perplexity_search_web",
         "playwright",
         "radare2",
         "semgrep",
@@ -1927,8 +2104,7 @@
         "trident",
         "trivy",
         "trufflehog",
-        "waybackurls",
-        "xai_search"
+        "waybackurls"
       ]
     },
     {
@@ -2051,6 +2227,7 @@
         "agentic-safety-audit",
         "chain-construct",
         "chain-construct-smart-contract",
+        "chain-impact-rescore",
         "cosmos-sdk-audit-checklist",
         "cross-chain-bridge-audit",
         "defi-invariant-check",
@@ -2223,6 +2400,7 @@
         "binary-re-pipeline",
         "chain-construct",
         "chain-construct-smart-contract",
+        "chain-impact-rescore",
         "cosmos-sdk-audit-checklist",
         "cross-chain-bridge-audit",
         "fuzzing-campaign-flow",
@@ -2415,6 +2593,7 @@
       "skills": [
         "chain-construct",
         "chain-construct-smart-contract",
+        "chain-impact-rescore",
         "cosmos-sdk-audit-checklist",
         "cross-chain-bridge-audit",
         "known-advisory-backport-check",
@@ -8554,5 +8733,5 @@
   "policy_sha256": "e10b87591263969484a337f2f32c5c183b9f7115261250a9da48ba53c85f6ed7",
   "schema": "specialist-adapter-capability-index/v2",
   "source": "model-lanes/specialist-lane-capabilities.v1.json",
-  "source_sha256": "5b64ee29f4f33255a6454a810742cf8d1b8a19c1f1d6b5a0bee98d4f5010efd9"
+  "source_sha256": "585d42615757d63d998fb325e50cead8dd269d9c729dde30eb4e95d71be375af"
 }

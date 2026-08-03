@@ -142,11 +142,30 @@ def _read_last_ledger_entry(path: Path) -> dict[str, object] | None:
         lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
         if not lines:
             return None
-        entry = json.loads(lines[-1])
+        # The ledger is append-only and carries two record kinds: projection
+        # records (which own `public_tip`) and publish records (`event`:
+        # "publish", which own `published_tip`). Only projection records
+        # describe the rail this check verifies, so scan back past any publish
+        # records rather than assuming the last line is a projection.
+        entry = None
+        for line in reversed(lines):
+            candidate = json.loads(line)
+            if not isinstance(candidate, dict):
+                continue
+            # Publish records name the tip they pushed as `published_tip`;
+            # projection records name the tip they projected onto as
+            # `public_tip`. Both describe where the public rail stood, so the
+            # continuity check honours whichever kind is most recent. Reading
+            # only projection records silently ignores every publish since.
+            tip = candidate.get("public_tip") or candidate.get("published_tip")
+            if isinstance(tip, str):
+                entry = dict(candidate)
+                entry["public_tip"] = tip
+                break
+        if entry is None:
+            return None
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise ProjectorError(f"cannot read export ledger {path}: {error}") from error
-    if not isinstance(entry, dict) or not isinstance(entry.get("public_tip"), str):
-        raise ProjectorError(f"last export-ledger entry is malformed: {path}")
     return entry
 
 

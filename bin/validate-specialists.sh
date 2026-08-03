@@ -476,7 +476,10 @@ for route_file in "${ROUTE_FILES[@]}"; do
         [[ -n "$ref" ]] || continue
         canonical="${ref//_/-}"
         specialist_exists "$canonical" || route_issues+=("missing-at-reference:${ref}")
-    done < <(grep -oE '@[a-z][a-z0-9-]+' "$route_file" 2>/dev/null | tr -d '@' | sort -u)
+    # An @-reference is a dispatch target only when the '@' starts a word. Without the
+    # leading-boundary guard this also matches the tail of pin and address notations --
+    # `repo@sha`, `pkg@version`, `user@host` -- and reports them as missing specialists.
+    done < <(grep -oE '(^|[^A-Za-z0-9_])@[a-z][a-z0-9-]+' "$route_file" 2>/dev/null | sed -E 's/.*@//' | sort -u)
 
     if [ ${#route_issues[@]} -gt 0 ]; then
         issues_json=$(printf '"%s",' "${route_issues[@]}" | sed 's/,$//')

@@ -6,6 +6,29 @@ status: authored
 
 # Systematic Bug Hunting
 
+## Phase numbering — three schemes exist, and they are NOT the same
+
+Numeric phase references in this skill, in specialist briefs, in `shared/modes/bounty.md`, and in
+`scripts/python/verification_contract.py` use **different numbering**. A reference like "Phase 3"
+is ambiguous unless you know which scheme it belongs to. Resolve with this table before acting on any
+numeric phase label:
+
+| This skill (0–8) | Mode v3 (1–7) | Contract stage | What it actually is |
+|---|---|---|---|
+| Phase 0 | Phase 1 | `S0` | Scope lock, program truth, facts |
+| Phase 1–2 | Phase 1–2 | `S1`–`S2` | Prior-art exclusion, planning, measured index |
+| **Phase 3 / 3a / 3b** | **Phase 3** | `S3` | **Hypothesis generation and hunting — 3b is invention** |
+| Phase 4 | Phase 4 | `S4` | Chaining / composition |
+| Phase 5 | Phase 5 | `S5` | Proof, PoC, negative controls |
+| Phase 6–7 | Phase 5 | `S6`–`S7` | Impact bar, cross-family reproduction, skeptic |
+| Phase 8 | Phase 6 | — | Package, de-AI, operator submit gate |
+| — | Phase 7 | — | Teardown |
+
+**When a packet and a document disagree on a phase number, the packet wins and you report the
+conflict.** Do not silently renumber, and do not assume "Phase 3" in a brief means the same stage as
+"Phase 3" in the mode.
+
+
 ## Overview
 
 `systematic-debugging` guards the *fix*. `systematic-attacking` guards the *claim* and the
@@ -43,6 +66,20 @@ written, operator target-engage obtained), **STOP**. Ambiguous scope is not a gr
 is never re-shopped through this file.
 
 **REQUIRED GOVERNING METHOD:** `systematic-attacking`. Read it before using this skill.
+
+## When a packet contradicts this skill
+
+**Say so; do not resolve it silently.** The dispatching packet still wins — that is the design.
+But if a packet instruction contradicts this skill, emit a `## PACKET OVERRODE SKILL` section in
+your response naming both sides.
+
+This is not hypothetical. H2 below states that a primitive **carries capability, not severity**,
+and that an inert primitive is *labelled*, never deleted. For five consecutive audits Chrono's
+Phase-3 packets instead demanded an impact-bar verdict per idea. Lanes obeyed the packet, killed
+their own primitives, and the Chaining phase starved for want of a pool — silently, because nothing
+made the contradiction visible.
+
+No gate is added here. A reporting duty is enough: the failure was invisibility, not permissiveness.
 
 ## The Two Iron Laws
 
@@ -89,9 +126,9 @@ written down, revised in the open.
 |---|---|---|---|
 | **H1** | Surface & impact map | Entry points, trust boundaries, and the **payout termini** written down *before* hunting | Phase 2 |
 | **H2** | Primitive discovery (intensive) | Arsenal actually run + manual read of every trust boundary; **every** deviation catalogued, including inert ones | Phase 3a |
-| **H3** | Hypothesis & invention | Known classes exhausted **and** the invention operators applied; hypotheses are falsifiable and written | Phase 3a / 3b |
+| **H3** | Hypothesis & invention | The invention operators applied **and** the known-class pass run — **independently, not in sequence**; hypotheses are falsifiable and written | Phase 3a / 3b |
 | **H4** | Chaining | A concrete link ordering from an attacker-controlled head to a terminus, with every precondition satisfiable | Phase 4 |
-| **H5** | Proof | Runnable PoC asserting the **terminus predicate**, link + chain negative controls, ≥ 0.85 confidence | Phase 5 |
+| **H5** | Proof | Runnable PoC asserting the **terminus predicate**, link + chain negative controls, all four observable predicates | Phase 5 |
 | **H6** | Hand back | Evidence bundle handed to the campaign; dedup refreshed; **this skill stops here** | Phases 6–8 |
 
 ### H1 — Surface & impact map
@@ -144,8 +181,12 @@ written. No ledger, no hunt.
 
 ### H3 — Hypothesis & invention
 
-Known classes are the **FLOOR, not the ceiling.** Work them first — they are cheap and they
-dedup fast — then push past them.
+Known classes are the **FLOOR, not the ceiling.** They are cheap and they dedup fast — but
+**invention does not queue behind them.** On a post-remediation pin (the audit's own "post
+audit changes" commit, which is a common bounty target) the known-class pass is **barren by
+construction**: every class the vendor imagined has been fixed, so a lane that spends its
+hour there reaches invention with nothing left. Run the two **independently**; if the target
+is a remediated pin, run invention **first**.
 
 **Known-class pass.** Apply the domain checklist set routed from `systematic-attacking`'s domain
 table, plus the current palette (SC: ERC-1271 revert-data confusion, precompile-shadow signature
@@ -200,7 +241,10 @@ floor. This is where the moat compounds — not in owning scanners everyone owns
 
 **Gate:** known classes exhausted, all twelve operators applied against the ledger, hypotheses
 written as falsifiable statements ("if X, then observable Y"), each tagged with its target
-terminus. Hypotheses with no terminus are dropped here, not carried.
+terminus. Hypotheses with no terminus are **banked with `terminus: unknown`**, not dropped — a capability
+whose terminus has not been found is exactly what Phase 4 composes. Only a hypothesis that has been
+*shown* to have no reachable terminus is closed, and it is closed as a dated `dedup-dead`/`no-terminus`
+disposition that reopens if the assumption is contradicted.
 
 ### H4 — Chaining
 
@@ -234,7 +278,7 @@ you also wrote.
 - **Negative controls, link and chain level** — per `chain-strike-v2` §4. Without a control, a
   passing PoC shows correlation, not causation.
 - **Stability** — repeat from a clean snapshot. One success is an anecdote.
-- **Confidence ≥ 0.85** per `multi-agent-evidence-gating`, scored from concrete signals (oracle
+- **All four observable predicates hold** per `multi-agent-evidence-gating`, scored from concrete signals (oracle
   match, control separation, repeat stability, harness fidelity to prod) — not from conviction.
 - **Any live, mutating, or credential-using step STOPS for the operator gate.** No exceptions,
   including "it's read-only in practice."
@@ -279,6 +323,91 @@ Rules that make the floor real:
   parser-differential probe) — inside scope and inside the operator gates.
 - **Never a substitute for reading.** The arsenal is the floor of the hunt, not the hunt.
 
+## Evidence that survives review
+
+Learned the expensive way across four a bridge target audits. Every item below is a real result this
+pipeline got **wrong and confidently** — a passing engine, a clean census, or a reproduced exploit
+that dissolved on inspection. Apply these to your own output before anyone else has to.
+
+### Every engine needs a deliberately-false twin
+
+A passing property is indistinguishable from a vacuous one. For each engine you run, also run a
+**twin that must fail** — same harness, one assumption inverted. If the twin passes, your real
+result means nothing and you must say so.
+
+- `halmos` reporting `paths: 2` looks identical whether it proved something or explored nothing.
+- A custody lane ran **five** false twins; all five failed as required, which is the only reason
+  its 98,304-call negative was trustworthy.
+
+### Fuzz campaigns need a non-vacuity gate
+
+**Report `successfulCalls`, not just the call count.** A lane reported **6.2M and 12.3M passing
+calls** with `successfulCalls == 0` — nothing was ever exercised. Two causes, both easy to hit:
+
+- `vm.prank` rewrites `msg.sender` but **not the source of `msg.value`**, so every value-carrying
+  branch reverts and the campaign silently does nothing.
+- A non-vacuity check written as `invariant_` is evaluated at **depth 0**, before the campaign runs,
+  so it always passes. Put it in **`afterInvariant`**.
+
+**A call count without a non-vacuity gate is not evidence.**
+
+### The #1 false positive is a privileged prank
+
+Before promoting any PoC, run a **`msg.sender`-only swap control**: byte-identical calldata, only
+the caller changed, asserting the unprivileged caller **reverts**. A "Critical" that drained a
+victim's balance this campaign turned out to work only because the harness pranked `TSS_ROLE`.
+A control that varies the *payload* does not catch this.
+
+### Symbolic counterexamples are hypotheses
+
+- `halmos` models `keccak256` as **uninterpreted with no injectivity axiom**, so any property
+  phrased over **digests** is vacuously satisfiable and emits counterexamples that cannot exist
+  on-chain. Phrase properties over **preimages**.
+- `--loop` defaults to **2** and truncates silently. Set it explicitly and state what you used.
+- **Reproduce every symbolic counterexample as a concrete test before believing it.**
+
+### Settle "these are all the X" claims by census, not by reading
+
+A source reader enumerates the paths they thought of. For any completeness claim — all value
+exits, all external entrypoints, all delegatecall sites — census the **compiled runtime bytecode**
+for the relevant opcodes (`CALL`, `DELEGATECALL`, `CALLCODE`, `CREATE`, `CREATE2`, `SELFDESTRUCT`)
+and attribute each site to a source line via the compiler's source map. It is exhaustive by
+construction and takes ~10 minutes.
+
+**Mandatory step: stop at the CBOR metadata boundary.** Solidity appends a metadata trailer whose
+bytes decode as opcodes and will produce phantom `SELFDESTRUCT`/`CALL` hits. A census that skips
+this **invents findings**.
+
+### Check call-site provenance before weaponising
+
+For any dangerous-looking parameter, answer three questions **before** building a PoC:
+
+1. Who actually calls this? (`grep` the call sites across all in-scope repos, and read the tests.)
+2. Is the dangerous parameter attacker-controlled at **every** call site, or hardcoded / registry-sourced?
+3. **Which program owns the call site?**
+
+Twice this campaign a real, severe primitive was unreachable because its sole caller hardcoded the
+dangerous argument — and once the only thing preventing exploitation lived in a **sibling bounty
+program**, making a perfect exploit unpayable. Minutes of tracing, hours saved.
+
+### A tool's issue count is not a signal
+
+"The tool runs" and "the tool found something" are different claims. **Filter generated code**
+(`*.pb.go`, `*.g.dart`, ABI bindings, macro expansions) before quoting any number: a reported
+"182 gosec issues" was **182 of 182** generated-protobuf `G115` noise, zero in hand-written code.
+Quote the surviving count, or quote nothing.
+
+### Dedup against sources that actually bind
+
+Before spending a lane on a lead, in cheapness order:
+
+1. **Our own prior submissions** for that exact program, from the platform's authenticated report
+   API — a campaign re-derived two findings we had already filed and had rejected.
+2. **The vendor's own threat model / docs**, grepped for the lead's **own words** — one lead was
+   named verbatim in `THREAT_MODELLING_DOC.md` and asserted by a vendor test, so it was excluded
+   before it was technically wrong.
+3. **Our prior campaign runs** on the same commit. **Zero submissions is not zero prior work.**
+
 ## Red flags — STOP
 
 | Thought | What it actually means | Do this instead |
@@ -321,7 +450,7 @@ Rules that make the floor real:
 - [ ] H3: known classes + `known-advisory-backport-check` worked; **all twelve invention operators** applied.
 - [ ] H3: hypotheses falsifiable, each tagged to a terminus; novelty is a dated dedup verdict.
 - [ ] H4: link ordering head → terminus, every precondition satisfiable; inert rows re-walked; **no severity arithmetic**.
-- [ ] H5: PoC asserts the **terminus predicate** against the real oracle; link + chain negative controls pass; stable on repeat; ≥ 0.85.
+- [ ] H5: PoC asserts the **terminus predicate** against the real oracle; link + chain negative controls pass; stable on repeat; all four observable predicates.
 - [ ] H5: operator gate cleared before any live / mutating / credential-using step.
 - [ ] H6: bundle handed back; **no self-scoring, no self-dedup verdict, no submission** from this skill.
 - [ ] Any surviving new technique: named, written up, recorded.

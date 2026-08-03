@@ -1,0 +1,3 @@
+# Control: a decline whose citation resolves. Must be honoured.
+technique_id	reason	citation_path	citation_quote
+symbolic-execution	No Solana/SBF symbolic executor exists in our runtime; EVM solvers are not valid substitutes for an Anchor claim.	declined/gaps.md	No Solana-native symbolic executor or SBF solver was present

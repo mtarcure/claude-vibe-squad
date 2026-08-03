@@ -199,10 +199,17 @@ def recall(
 ) -> dict[str, Any]:
     """Recall ranked, quoted memory from the canonical FTS5 index.
 
-    Filters: target, attack_class, component, type, keywords, status, and
-    max_sensitivity ("internal" or "restricted"). max_sensitivity narrows
-    results to that tier and below — useful when recalling on behalf of a
-    lower-clearance destination — and can never widen this server's clearance.
+    Filters: target, attack_class, component, type, keywords, status,
+    written_before, and max_sensitivity ("internal" or "restricted").
+
+    max_sensitivity narrows results to that tier and below — useful when
+    recalling on behalf of a lower-clearance destination — and can never
+    widen this server's clearance.
+
+    written_before takes an ISO-8601 timestamp or epoch seconds and excludes
+    notes written at or after it. Use it to compartment a campaign: recalling
+    with the campaign's start time keeps a later phase from inheriting an
+    earlier phase's conclusions as if they were prior knowledge.
     """
     return recall_notes(query=query, filters=filters, limit=limit)
 

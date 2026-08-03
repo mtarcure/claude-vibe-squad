@@ -21,10 +21,14 @@ class TestChronoResume(unittest.TestCase):
         with (
             mock.patch.object(
                 resume,
-                "load_active",
-                return_value=[
-                    {"id": "TASK-9", "state": "blocked", "next_action": "retry"}
-                ],
+                "registry_view",
+                return_value={
+                    "live": [
+                        {"id": "TASK-9", "state": "blocked", "next_action": "retry"}
+                    ],
+                    "deferred": [],
+                    "unclassified": {},
+                },
             ),
             mock.patch.object(
                 resume,
@@ -47,15 +51,19 @@ class TestChronoResume(unittest.TestCase):
             mock.patch.object(resume, "active_decisions", return_value=[]),
             mock.patch.object(
                 resume,
-                "load_active",
-                return_value=[
-                    {
-                        "id": f"TASK-{i}",
-                        "state": "running",
-                        "next_action": "x" * 200,
-                    }
-                    for i in range(50)
-                ],
+                "registry_view",
+                return_value={
+                    "live": [
+                        {
+                            "id": f"TASK-{i}",
+                            "state": "running",
+                            "next_action": "x" * 200,
+                        }
+                        for i in range(50)
+                    ],
+                    "deferred": [],
+                    "unclassified": {},
+                },
             ),
         ):
             cap = resume.render_capsule(

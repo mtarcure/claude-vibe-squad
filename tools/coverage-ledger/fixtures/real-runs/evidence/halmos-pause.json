@@ -1,0 +1,16 @@
+{
+    "exitcode": 0,
+    "test_results": {
+        "test/Pause.t.sol:PauseHalmos": [
+            {
+                "name": "check_pauseReachesTerminal(bool)",
+                "exitcode": 0,
+                "num_models": 0,
+                "models": [],
+                "num_paths": [3, 2, 0],
+                "time": [0.10198358306661248, 0.10196545789949596, 1.529185101389885e-05],
+                "num_bounded_loops": 0
+            }
+        ]
+    }
+}

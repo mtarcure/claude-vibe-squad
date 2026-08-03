@@ -10,6 +10,7 @@ import re
 import sqlite3
 import stat
 import uuid
+from datetime import datetime, timezone
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
@@ -27,6 +28,7 @@ ALL_STATUSES = frozenset(
 NOTE_TYPES = frozenset({"attempt", "finding", "learning"})
 FILTER_FIELDS = frozenset(
     {
+        "written_before",
         "target",
         "attack_class",
         "component",
@@ -198,6 +200,26 @@ def _validate_filters(
         if field == "type" and value not in NOTE_TYPES:
             raise RecallError(f"filter type must be one of {sorted(NOTE_TYPES)}")
         structured[field] = value
+
+    if "written_before" in filters:
+        raw = filters["written_before"]
+        if isinstance(raw, (int, float)):
+            cutoff_ns = int(raw * 1_000_000_000) if raw < 10_000_000_000 else int(raw)
+        elif isinstance(raw, str) and raw.strip():
+            try:
+                parsed = datetime.fromisoformat(raw.strip().replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise RecallError(
+                    "filter written_before must be an ISO-8601 timestamp or epoch seconds"
+                ) from exc
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            cutoff_ns = int(parsed.timestamp() * 1_000_000_000)
+        else:
+            raise RecallError(
+                "filter written_before must be an ISO-8601 timestamp or epoch seconds"
+            )
+        structured["written_before_ns"] = cutoff_ns
 
     raw_statuses = filters.get("status", DEFAULT_STATUSES)
     if isinstance(raw_statuses, str):
@@ -445,6 +467,9 @@ def recall(query: str, filters: dict = None, limit: int = 8) -> dict[str, Any]:
             if field in structured:
                 clauses.append(clause)
                 parameters.append(structured[field])
+        if "written_before_ns" in structured:
+            clauses.append("m.mtime_ns < ?")
+            parameters.append(structured["written_before_ns"])
         if "keywords" in structured:
             clauses.append(
                 "instr(char(10) || notes_fts.keywords || char(10), "

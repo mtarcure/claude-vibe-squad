@@ -63,17 +63,8 @@ tmux set-hook -t "${SESSION}" window-resized "run-shell 'bash ${VAULT_ROOT}/bin/
 # Guarded by pane id so ONLY the swarm pane reacts; every other pane keeps tmux's
 # default double-click (word select) via the if-shell else-branch. The handler maps
 # the click to a card through the per-frame hit-map. See bin/vs-open-spawn.sh.
-SIDEBAR_PANE="$(tmux display-message -p -t "${SESSION}:chrono.1" '#{pane_id}' 2>/dev/null)"
-if [[ -n "${SIDEBAR_PANE}" ]]; then
-    # single-click on the swarm pane → toggle the recent-spawns dropdown (easy, it's a log)
-    tmux bind-key -T root MouseUp1Pane if-shell -F "#{==:#{mouse_pane},${SIDEBAR_PANE}}" \
-        "run-shell \"bash ${VAULT_ROOT}/bin/vs-open-spawn.sh #{mouse_y} #{mouse_x} history\"" \
-        "send-keys -M" 2>/dev/null || true
-    # double-click a card → open that spawn's live CLI view
-    tmux bind-key -T root DoubleClick1Pane if-shell -F "#{==:#{mouse_pane},${SIDEBAR_PANE}}" \
-        "run-shell \"bash ${VAULT_ROOT}/bin/vs-open-spawn.sh #{mouse_y} #{mouse_x} card\"" \
-        "select-pane -t = ; send-keys -M" 2>/dev/null || true
-fi
+# Bindings live in one place so a live session can repair them without a restart.
+bash "${VAULT_ROOT}/bin/vs-ensure-bindings.sh" "${SESSION}" >/dev/null 2>&1 || true
 
 # Focus stays on chrono main pane
 tmux select-pane -t "${SESSION}:chrono.0"

@@ -30,7 +30,8 @@ LEGACY_RUNTIME_HEADER = RUNTIME_HEADER[:-1]
 PROFILE_HEADER = ["profile_id", "lane", "model_id", "effort", "flags", "usage"]
 POLICY_HEADER = ["policy_id", "family", "description"]
 TOOL_HEADER = ["name", "record_kind", "type", "path_or_source", "lanes", "invocation",
-               "verified_state", "cost_tier", "evidence", "notes"]
+               "verified_state", "cost_tier", "evidence", "notes",
+               "purpose", "hunting_type", "target_class"]
 LANE_POLICY_HEADER = ["record_kind", "subject", "value", "scope", "notes"]
 REQUIRED_SECTIONS = (
     "## Tools available to me", "## When to fan out", "## When to escalate",
@@ -81,6 +82,12 @@ def bracket_list(value: str) -> list[str] | None:
 def json_line(finding: Finding) -> str:
     return json.dumps({"file": finding.file, "status": finding.status,
                        "issues": finding.issues}, separators=(",", ":"))
+
+
+def _strip_code(text: str) -> str:
+    """Remove fenced blocks and inline code spans so prose-only checks skip syntax examples."""
+    without_fences = re.sub(r"```.*?```", " ", text, flags=re.S)
+    return re.sub(r"`[^`\n]*`", " ", without_fences)
 
 
 def section(text: str, heading_pattern: str, level: str = "###") -> str:
@@ -595,11 +602,64 @@ class Validator:
                 canonical = ref.replace("_", "-")
                 if canonical not in self.specialist_names:
                     issues.append(f"missing-subagent-reference:{ref}")
-            for ref in sorted(set(re.findall(r"@([a-z][a-z0-9-]+)", text))):
+            # Scan prose only. A doc that writes `repo@sha` or `user@host` inside a code
+            # span is describing syntax, not referencing a specialist -- treating it as
+            # one produced a false `missing-at-reference:sha` that failed CI and was
+            # "fixed" once by rewording the document, leaving the regex to reoffend on
+            # the next doc. Strip fenced blocks and inline code before matching.
+            prose = _strip_code(text)
+            # Two independent guards, both needed. The leading word-boundary stops pin and
+            # address notations (`repo@sha`, `pkg@version`, `user@host`) from matching their
+            # tail; _strip_code() stops anything inside a code span, including `@name` where
+            # the "@" does start the span. Either alone leaves a false-positive class open.
+            for ref in sorted(set(re.findall(r"(?:^|[^A-Za-z0-9_])@([a-z][a-z0-9-]+)", prose))):
                 if ref not in self.specialist_names:
                     issues.append(f"missing-at-reference:{ref}")
             if issues:
                 self.add(path, "fail", *issues)
+
+    def validate_mode_phase_refs(self) -> None:
+        """Reject references to mode phases that do not exist.
+
+        Mode phases are positional and the mode owns them, so a brief that hardcodes a phase NUMBER
+        silently rots the next time the mode is renumbered. One retirement (10 phases -> 7) left 21
+        dead references across 10 specialist briefs — including a threat-modeler line instructing the
+        exact ranked output the mode exists to withhold. Refer to phases by name; this holds the line.
+        """
+        phases = self.mode_phase_numbers()
+        if not phases:
+            return
+        paths = list(self.root.glob("departments/*/specialists/*.md"))
+        paths.extend(self.root.glob("shared/specialists/*.md"))
+        paths.extend(self.root.glob("shared/modes/*.md"))
+        paths.extend(self.root.glob("departments/*/NAMESPACE.md"))
+        for path in sorted(set(paths), key=str):
+            text = path.read_text(encoding="utf-8")
+            issues: list[str] = []
+            for mode_name, phase_numbers in phases.items():
+                pattern = rf"{re.escape(mode_name)}\s+[Mm]ode,?\s+Phase\s+(\d+)"
+                pattern_alt = rf"Phase\s+(\d+)\s+of\s+{re.escape(mode_name)}\s+[Mm]ode"
+                found = set(re.findall(pattern, text)) | set(re.findall(pattern_alt, text))
+                for ref in sorted(found, key=int):
+                    if int(ref) not in phase_numbers:
+                        issues.append(f"stale-mode-phase:{mode_name}:{ref}")
+            if issues:
+                self.add(path, "fail", *issues)
+
+    def mode_phase_numbers(self) -> dict[str, set[int]]:
+        """Phase numbers each mode actually defines, read from shared/modes/*.md headings."""
+        if getattr(self, "_mode_phases", None) is None:
+            self._mode_phases: dict[str, set[int]] = {}
+            for mode_path in sorted((self.root / "shared/modes").glob("*.md")):
+                nums = {
+                    int(m)
+                    for m in re.findall(
+                        r"^#{1,3}\s+Phase\s+(\d+)", mode_path.read_text(encoding="utf-8"), re.M
+                    )
+                }
+                if nums:
+                    self._mode_phases[mode_path.stem.capitalize()] = nums
+        return self._mode_phases
 
     def run(self) -> tuple[list[Finding], str, int]:
         self.validate_registries()
@@ -607,6 +667,7 @@ class Validator:
         self.validate_specialists()
         self.validate_adapters()
         self.validate_routes()
+        self.validate_mode_phase_refs()
         failed = sum(item.status == "fail" for item in self.findings)
         warnings = sum(item.status == "warn" for item in self.findings)
         summary = (f"Total: {self.total}  Passed: {self.passed}  Failed: {failed}  "

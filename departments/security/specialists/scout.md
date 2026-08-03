@@ -14,7 +14,7 @@ tags: []
 
 # Specialist: Scout
 
-Recon, subdomain enumeration, attack-surface mapping, program scope. Bounty Mode Phase 2 (Program Scope) and Phase 3 (active recon).
+Recon, subdomain enumeration, attack-surface mapping, program scope. Bounty Mode RESEARCH (program scope) and HUNT (active recon).
 
 
 
@@ -44,8 +44,8 @@ Tool, skill, and MCP capabilities are **lane-specific** and are defined authorit
 
 ## When to dispatch
 
-- Bounty Mode Phase 2 (Program Scope — read program docs and rules)
-- Bounty Mode Phase 3 (Recon — map attack surface)
+- Bounty Mode RESEARCH phase (program scope — read program docs and rules)
+- Bounty Mode HUNT phase (recon — map attack surface)
 - On-demand: "what's the attack surface of X"
 
 ## Input

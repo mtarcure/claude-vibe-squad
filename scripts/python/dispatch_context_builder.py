@@ -378,6 +378,13 @@ def _safe_relative(value: str, *, field: str) -> str:
         or "\\" in value
         or Path(value).is_absolute()
     ):
+        # A read-only verdict role (write_scope: []) legitimately has no
+        # return_artifact -- its verdict lives in the outbox envelope. Rejecting
+        # the empty string here made that role, which send-task.sh explicitly
+        # exempts from mandatory_review to avoid an infinite review regress,
+        # undispatchable: it passed validation and then died in the builder.
+        if field == "return_artifact" and value == "":
+            return ""
         raise DispatchContextError(f"{field} contains an unsafe path: {value!r}")
     path = PurePosixPath(value)
     if any(part in {"", ".", ".."} for part in path.parts):
@@ -713,7 +720,12 @@ def build_context(
         raise DispatchContextError(f"trusted lane executable is unavailable: {executable}")
 
     write_scope = parse_scope(fields.get("write_scope", ""), field="write_scope")
-    if not any(_contains(scope, return_artifact) for scope in write_scope):
+    # A read-only verdict role declares no artifact and an empty write_scope;
+    # `any()` over an empty scope is always False, so this containment check
+    # rejected it unconditionally. Nothing to contain means nothing to check.
+    if return_artifact and not any(
+        _contains(scope, return_artifact) for scope in write_scope
+    ):
         raise DispatchContextError("return_artifact is outside packet write_scope")
     if canary_autoclean and (
         not task_id.endswith("-board-inventory-canary")
@@ -1673,7 +1685,12 @@ def publish_blocked_completion(
         "---\n\n"
         f"Board dispatch was blocked by the controller: {reason_line}\n"
     ).encode("utf-8")
-    if artifact_relative == outbox_relative:
+    if not artifact_relative or artifact_relative == outbox_relative:
+        # `not artifact_relative` is the read-only verdict role (write_scope: []
+        # and no return_artifact): there is no artifact to publish, so the
+        # envelope alone IS the result. Without this the blocked path tried to
+        # publish to '' and died on the unsafe-path guard, which made a blocked
+        # verdict task unsettleable.
         # The common packet shape declares the outbox response path as its own
         # return_artifact. Writing the bare artifact there first and then the
         # envelope aims two different payloads at one file, so the envelope

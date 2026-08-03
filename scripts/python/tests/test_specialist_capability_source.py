@@ -46,7 +46,11 @@ class SpecialistCapabilitySourceTests(unittest.TestCase):
             for lane in validator.routed_lanes(row)
         }
         self.assertEqual(set(entries), expected)
-        self.assertEqual(len(entries), 163)
+        # 164 = 163 + 1: experimental-attacker gained the claude lane so the
+        # experimental role can run on Fable as well as Kimi (a251c9c). The set
+        # assertion above is the real invariant -- this count is the tripwire
+        # that forces a routing change to be acknowledged here.
+        self.assertEqual(len(entries), 164)
         self.assertEqual(
             sum(entry["coverage"] == "full" for entry in entries.values()), 73
         )
@@ -99,7 +103,11 @@ class SpecialistCapabilitySourceTests(unittest.TestCase):
         # executable that never existed). +2: exploit-developer@claude gained
         # arxiv_search/xai_search when its 2-tool set was mirrored from the
         # 28-tool codex set so cross-family PoC reproduction is symmetric.
-        self.assertEqual(operations, 160)
+        # 166 = 160 + 6: three research tools were declared as phantom local
+        # binaries on codex and were reclassified to the chrono-research-arsenal
+        # MCP operations they actually are (32f6a15). Each is counted once per
+        # entry that declares it, so three declarations move the total by six.
+        self.assertEqual(operations, 166)
 
     def test_validator_fails_closed_on_runtime_projection_drift(self) -> None:
         entries, _payload = load_source(ROOT)

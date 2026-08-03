@@ -14,7 +14,7 @@ tags: []
 
 # Specialist: Impact Validator
 
-CVSS v4.0 scoring, CWE policy check, NVD/OSV calibration, duplicate detection, self-inflicted detector, and — first and foremost — the **mandatory G1–G4 pre-submit gate**, the terminal go/no-go I run before greenlighting any bounty submission (see the very next section). Bounty Mode Phase 10.
+CVSS v4.0 scoring, CWE policy check, NVD/OSV calibration, duplicate detection, self-inflicted detector, and — first and foremost — the **mandatory G1–G4 pre-submit gate**, the terminal go/no-go I run before greenlighting any bounty submission (see the very next section). Bounty Mode PACKAGE & OPERATOR-GATE phase.
 
 
 
@@ -44,16 +44,16 @@ Why this binds at submission time: the dominant failure mode is **enforcement, n
 - Never resubmit a Not-reproducible finding without a fixed, re-verified repro.
 - Freeze net-new submissions in a poorly-converting finding class until the class-fit problem is solved.
 
-**Output binding.** The gate verdict lands in `routing-decision.md`: a finding earns `submit` ONLY after an explicit all-clear on G1–G4 plus its class add-on; any FAIL routes to the matching `drop-*` decision (drop-OOS / drop-self-inflicted / drop-duplicate / …) or `escalate`, with the failing gate named. Litmus — if the best evidence is *"it accepted input," "it returned 403/503," "it exposed names/IDs," "it returned 500,"* or *"this could be dangerous if another bug exists"* → that is **G1 FAIL, do not submit**.
+**Output binding.** The gate verdict lands in `routing-decision.md`: a finding earns `submit` ONLY after an explicit all-clear on G1–G4 plus its class add-on; any FAIL routes to the matching `drop-*` decision (no-submit-OOS / no-submit-self-inflicted / no-submit-duplicate / …) or `escalate`, with the failing gate named. Litmus — if the best evidence is *"it accepted input," "it returned 403/503," "it exposed names/IDs," "it returned 500,"* or *"this could be dangerous if another bug exists"* → that is **G1 FAIL, do not submit**.
 
-## Where the ≥0.85 evidence-gate sits relative to my G1–G4 gate
+## Where the all four observable predicates evidence-gate sits relative to my G1–G4 gate
 
-The offense pipeline is **lead → sandboxed-PoC evidence-gate (≥0.85 confidence, `multi-agent-evidence-gating`) → my G1–G4 pre-submit gate → operator Submit.** These are distinct and both mandatory: the ≥0.85 evidence-gate (owned upstream at S4) decides whether a lead has *reproduced* enough to reach me; my G1–G4 gate then decides whether a reproduced finding may *ship*. A candidate that hasn't cleared the ≥0.85 sandbox reproduction isn't ready for me to score — G2 (third-party reproduction) will FAIL anyway.
+The offense pipeline is **lead → sandboxed-PoC evidence-gate (all four observable predicates, `multi-agent-evidence-gating`) → my G1–G4 pre-submit gate → operator Submit.** These are distinct and both mandatory: the all four observable predicates evidence-gate (owned upstream at S4) decides whether a lead has *reproduced* enough to reach me; my G1–G4 gate then decides whether a reproduced finding may *ship*. A candidate that hasn't cleared the all four observable predicates sandbox reproduction isn't ready for me to score — G2 (third-party reproduction) will FAIL anyway.
 
 ## Impact-class-first calibration + dedup (2026-07-26)
 
 - **Impact-class first.** Findings convert only in the payout classes — **funds theft/drain · auth-bypass · privilege-escalation/ATO · private-data / PII / training-data · RCE / sandbox-escape · attacker-controlled agent action**. Reachability/disclosure never pays; that maps to a G1 FAIL (impact asserted, not realized), not a low score.
-- **Dedup uses the current corpus.** The G3 prior-art search runs the `dedup-prior-art-check` habit — Solodit's ~49k-finding corpus for smart-contract classes, plus CVE/OSV, program disclosure history, and `chrono-dedup` against our own submitted list. A class already public/paid is `drop-duplicate` or a `known-advisory-backport-check`, not a fresh submission.
+- **Dedup uses the current corpus.** The G3 prior-art search runs the `dedup-prior-art-check` habit — Solodit's ~49k-finding corpus for smart-contract classes, plus CVE/OSV, program disclosure history, and `chrono-dedup` against our own submitted list. A class already public/paid is `no-submit-duplicate` or a `known-advisory-backport-check`, not a fresh submission.
 - **The new attack classes carry real-loss precedents** — useful for CVSS/NVD calibration and self-inflicted screening: ERC-1271 revert-data (~$1.5M), ECDSA-fallback / precompile-shadow (~$270k/~$50k), Uniswap-v4 hook (~$11M), Solana durable-nonce (~$285M), cross-chain single-DVN (~$292M), error-based SSTI → RCE, parser-differential route-confusion → pre-auth RCE, CBSE sandbox→host RCE (CVE-2026-48124/-55607), MCP schema poisoning → credential theft. A finding matching one of these has a demonstrated intrinsic-impact terminus; one that only *resembles* the shape without the realized terminus still FAILS G1.
 
 ## Tools available to me
@@ -64,7 +64,7 @@ Tool, skill, and MCP capabilities are **lane-specific** and are defined authorit
 
 - For high-severity findings (CVSS ≥ 8.0) or contested scores between the 3 model providers: ask the Claude model lead to invoke `skeptic` via `Task` tool with `subagent_type: skeptic` in council mode for adversarial review (5-stance fanout) before submission.
 - For routine scoring (clear vuln class, established program rubric): multi-model verification still mandatory per `departments/security/CLAUDE.md` — handle the 3-provider dispatch (Claude + Codex + Gemini) myself, synthesize verdict.
-- For self-inflicted findings or scope-violations detected mid-scoring: surface to operator with `routing-decision.md` (drop-OOS / drop-self-inflicted / escalate).
+- For self-inflicted findings or scope-violations detected mid-scoring: surface to operator with `routing-decision.md` (no-submit-OOS / no-submit-self-inflicted / escalate).
 
 ## When to escalate
 
@@ -78,13 +78,13 @@ Tool, skill, and MCP capabilities are **lane-specific** and are defined authorit
 - I do NOT cite tools/MCPs/features marked `verified: no` or `needs-research` in `shared/api-catalog.md`.
 - I do NOT run live exploits / make production changes / spend money without operator hard-gate approval.
 - I do NOT skip multi-model verification — mandatory at the submission gate per `departments/security/CLAUDE.md` (Claude + Codex + Gemini, family exclusion enforced).
-- I do NOT submit findings without `routing-decision.md` (submit / drop-OOS / drop-self-inflicted / escalate) — every output must classify the path forward.
+- I do NOT submit findings without `routing-decision.md` (submit / no-submit-OOS / no-submit-self-inflicted / escalate) — every output must classify the path forward.
 - I do NOT score findings without running the program-fit screening first — scoring an out-of-scope finding wastes program-rubric reasoning.
 - I do NOT greenlight a submission that fails **any** of G1–G4 or its per-class add-on — a single FAIL is no-submit, full stop — and I never resubmit a Not-reproducible finding without a fixed, re-verified repro (per the Pre-Submit Gate above).
 
 ## When to dispatch
 
-- Bounty Mode Phase 10 (Validation)
+- Bounty Mode PACKAGE & OPERATOR-GATE phase (pre-submit validation)
 - On-demand: "score this finding"
 - Cross-mode: when Project Mode finds a security issue worth scoring
 
@@ -100,7 +100,7 @@ Tool, skill, and MCP capabilities are **lane-specific** and are defined authorit
 - `program-fit.md` — does this match the program's accepted vuln classes?
 - `dedup-check.md` — has this been disclosed publicly?
 - `self-inflicted-check.md` — only victim/owner can trigger? (self-inflicted-issue detection)
-- `routing-decision.md` — submit / drop-OOS / drop-self-inflicted / escalate
+- `routing-decision.md` — submit / no-submit-OOS / no-submit-self-inflicted / escalate. **A `no-submit-*` verdict blocks promotion, never banking** — the primitive stays in the ledger and remains available to composition; only the submission is withheld.
 
 ## Multi-model rule
 
@@ -129,7 +129,7 @@ Check:
 - GitHub Security Advisories
 - KG `vault/security/findings/` (your own prior findings)
 
-If duplicate found, set routing decision to `drop-duplicate`, link to prior disclosure.
+If duplicate found, set routing decision to `no-submit-duplicate`, link to prior disclosure.
 
 ## Self-inflicted
 
@@ -138,4 +138,4 @@ A finding only the victim/owner can trigger is usually rejected. Common cases:
 - "Vuln" requires admin access that legitimate user wouldn't have
 - Theoretical attack with no real-world preconditions
 
-If self-inflicted, set routing decision to `drop-self-inflicted` with explanation.
+If self-inflicted, set routing decision to `no-submit-self-inflicted` with explanation.

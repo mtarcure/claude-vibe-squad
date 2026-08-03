@@ -256,10 +256,19 @@ def derive_verification_contract(admission: dict[str, object]) -> dict[str, obje
                 "empty_findings",
                 "kill_or_negative_evidence",
                 "no_submit_evidence",
+                "primitive_ledger",
             ],
         }
         required_phase_ids = list(REQUIRED_PHASE_IDS)
-        memory_policy = {"recall": "required", "record": "required"}
+        # `recall` is OPTIONAL in bounty mode, deliberately. A cold lane cannot both call
+        # recall and stay uncontaminated: no filter excludes prior *runs*, because
+        # `written_before` compartments only same-run notes and so includes every earlier
+        # campaign. Four lanes on one run received a sealed run's kill conclusions this
+        # way despite never opening the quarantined directory, and one leaked claim was
+        # also factually wrong. Requiring the call mandated the contamination. Recording
+        # stays required: writing findings biases nobody. If a lane does call recall, the
+        # mode requires it to disclose verbatim what came back.
+        memory_policy = {"recall": "optional", "record": "required"}
         plan_review_policy = {
             "required": True,
             "anti_affinity": "author_family",
@@ -455,10 +464,19 @@ def derive_verification_contract_unchecked(admission: dict[str, object]) -> dict
                 "empty_findings",
                 "kill_or_negative_evidence",
                 "no_submit_evidence",
+                "primitive_ledger",
             ],
         }
         required_phase_ids = list(REQUIRED_PHASE_IDS)
-        memory_policy = {"recall": "required", "record": "required"}
+        # `recall` is OPTIONAL in bounty mode, deliberately. A cold lane cannot both call
+        # recall and stay uncontaminated: no filter excludes prior *runs*, because
+        # `written_before` compartments only same-run notes and so includes every earlier
+        # campaign. Four lanes on one run received a sealed run's kill conclusions this
+        # way despite never opening the quarantined directory, and one leaked claim was
+        # also factually wrong. Requiring the call mandated the contamination. Recording
+        # stays required: writing findings biases nobody. If a lane does call recall, the
+        # mode requires it to disclose verbatim what came back.
+        memory_policy = {"recall": "optional", "record": "required"}
         plan_review_policy = {
             "required": True,
             "anti_affinity": "author_family",

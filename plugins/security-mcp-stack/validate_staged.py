@@ -180,7 +180,11 @@ def main() -> int:
     ):
         semgrep = servers.get("guarded-semgrep")
         if isinstance(semgrep, dict) and semgrep.get("env", {}).get("SEMGREP_APP_TOKEN") == "":
-            empty_env_warnings.append(
+            # Fatal, not advisory. An empty value SHADOWS the inherited
+            # token, so it is strictly worse than omitting the key: every
+            # registry-backed ruleset then fails auth. This shipped as a
+            # warning nobody read while all four configs carried it.
+            issues.append(
                 f"{label}:guarded-semgrep:empty-SEMGREP_APP_TOKEN-overrides-inherited-auth"
             )
     context_servers = context_db.get("servers") if isinstance(context_db, dict) else None

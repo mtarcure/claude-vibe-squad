@@ -86,8 +86,16 @@ No unrelated work.
 
     def add_tool(self, name: str, *, lanes: str = "codex", state: str = "yes",
                  record_type: str = "mcp-tool") -> None:
-        self.tool_rows.append([name, "tool", record_type, "fixture", lanes, "invoke",
-                               state, "none", "fixture", "fixture"])
+        row = [name, "tool", record_type, "fixture", lanes, "invoke",
+               state, "none", "fixture", "fixture",
+               "hunting", "—", "any"]
+        # Width is derived from TOOL_HEADER, not hardcoded. Adding purpose,
+        # hunting_type and target_class to the registry left these rows at ten
+        # fields against a thirteen-field header, and the resulting
+        # `wrong-registry-column-count` cascaded: zero rows indexed as tools, so
+        # every specialist tool reference became unresolvable and CI reported
+        # seven failures whose single cause was one column count.
+        self.tool_rows.append((row + ["—"] * len(TOOL_HEADER))[:len(TOOL_HEADER)])
 
     def flush(self) -> None:
         self.write("shared/specialist-runtime-map.tsv", line(self.runtime_header) + line(self.row))

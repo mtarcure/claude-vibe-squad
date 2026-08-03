@@ -1,27 +1,19 @@
 ---
 name: bounty
-version: 2.0
+version: 3.0
 primary_mode_namespace: security
 status: active
-phases: 9
+phases: 7
 ---
 
 # Mode: Bounty
 
-For authorized bug bounty and vulnerability research. Chrono owns target selection, safety gates, dispatch,
-review, and operator-facing decisions. Bounty is one of the two work modes; its offensive domains are the
-four `bounty/*` Capability cards, and its working method is the single authoritative offensive skill,
-**`systematic-attacking`**.
+For authorized bug bounty and vulnerability research. Chrono owns target selection, dispatch, and
+operator-facing decisions. Offensive method runs through **`systematic-attacking`**
+(`shared/skills/systematic-attacking/SKILL.md`) and its chaining reference `chain-strike-v2`; the four
+`bounty/*` capability cards are its domain branches.
 
-## The one offensive skill + two iron laws
-
-All offensive work runs through **`systematic-attacking`** — the registered offensive skill at
-`shared/skills/systematic-attacking/SKILL.md` (skill-tool-registry row: `skill · authored`; read-on-start).
-It is one target-agnostic skill that finds highest-value (High/Critical) bugs across every domain, chains
-primitives to catastrophic impact, and stops submitting duplicates. Experimental/novel work is a **phase
-inside** it, never a looser sibling skill (a second file becomes the bypass path). The four `bounty/*` cards
-are its domain branches and cite it at their S2 (attack-surface) and S4 (chaining/impact) steps. Two co-equal
-iron laws:
+## Two iron laws
 
 ```
 IRON LAW 1 (safety): NO OFFENSIVE ACTION OUTSIDE AUTHORIZED, VERIFIED SCOPE.
@@ -29,202 +21,677 @@ IRON LAW 2 (rigor):  NO FINDING WITHOUT A REPRODUCED, NEGATIVE-CONTROLLED,
                      INTRINSIC-IMPACT PROOF.
 ```
 
-**One vocabulary — never redefined downstream:**
-- **primitive** — a bounded attacker capability or environmental fact. Carries *capability, not severity*.
-- **lead** — "there may be exploitable impact here." No CVSS, never submitted.
-- **candidate** — a lead/primitive-path whose PoC + negative control pass in a sandbox.
-- **finding** — a candidate reproduced end-to-end, negative-controlled, clearing the impact bar, passing
-  cross-family reproduction. **Only findings carry CVSS and may be submitted.**
+**Law 2 was never the problem — the missing vocabulary was.** `finding` is deliberately the
+*verified* type, and Law 2 guards it. What went wrong is that lanes with no other word for their
+output treated "no finding without proof" as "do not record what you cannot yet prove," and threw
+away the material composition needs. The types below fix that; the law stays as written.
 
-**Finding = intrinsic impact only** (operator-locked): proven, reproducible loss of user/platform funds,
-RCE / attacker-controlled execution, direct damage to users or services, cross-tenant data compromise at
-material scale, privileged/control-plane takeover, or a realized malicious capability. **Reachability,
-disclosure, "could-lead-to" are NOT findings.**
+## Evidence vocabulary — the pipeline's type system
 
-## Capabilities (the four offensive domain branches)
+Four states, and only the last one is gated by Law 2:
 
-`capability_state` is **derived** and machine-checked by `bin/validate-capabilities.sh` (not hand-set), so
-this index stays honest by construction. Cards live in `shared/capabilities/bounty/`. All are
-heightened-risk and gated on operator target-engage + a per-report final-Submit "go".
-`systematic-attacking` **routes into** these cards for its domain checklists — it never copies them.
-
-| Capability | State | When |
+| State | Means | Gate |
 |---|---|---|
-| [Web API / HTTP-surface vulnerability research](../capabilities/bounty/web-api-saas.md) | `live` | authorized research against an HTTP API / SAST-accessible web surface |
-| [Smart-contract / web3 vulnerability research](../capabilities/bounty/smart-contract-web3.md) | `live` | authorized research against EVM / Solana / Cosmos contracts |
-| [LLM / AI-system vulnerability research](../capabilities/bounty/ai-llm-system.md) | `live` | authorized LLM/AI research — attack design + offline analysis |
-| [Binary / malware / firmware vulnerability research](../capabilities/bounty/binary-firmware.md) | `needs_tool` | binary/malware/firmware — RE/emulation toolchain not cataloged; isolation required |
+| **primitive** | A capability: what an attacker gains, what privilege it needs, where it lands. Severity irrelevant. | none — **bank freely, below-bar expected** |
+| **lead** | A primitive plus a hypothesis about how it reaches impact | none |
+| **candidate** | A composed chain that reaches a pre-registered terminus | none |
+| **finding** | A candidate that is reproduced, negative-controlled, and impact-measured | **Law 2** |
 
-## Phase lifecycle (recovers Research + Skeptic; each phase names its owner + hard gate)
+Never call a primitive a finding, and never withhold a primitive because it is not one. A lane that
+has no word for unproven work will either inflate it or discard it, and both have cost us campaigns.
 
-This lifecycle **is** the offensive spine of `systematic-attacking` (`shared/skills/systematic-attacking/SKILL.md`,
-Phases 0–8); the skill is assigned on the primary lane of every offensive owner in the capsource
-(`exploit-developer`, `experimental-attacker`, `security-analyst`, `threat-modeler`, `impact-validator`,
-`skeptic`). Each phase below maps to the same-numbered skill phase.
+**Negative claims are typed too, and for exactly the same reason.** A lane with no word for a partial
+refutation will report it as a complete one:
 
-| Phase | Name | Owner specialist(s) | Hard gate |
-|---|---|---|---|
-| **−1** | **Target-EV & Stop-Loss** | Chrono (operator picks the target) | **PAYABILITY GATE 1** — a *written* go/no-go before any hunt: saturation (hackers / reports / total paid), prior-audit count + recency, remediated-finding count, reward tier vs our realistic yield, and an explicit stop-loss. A picked-over program is a ~1% converter; **if the EV is not written down, the campaign does not start.** |
-| **0** | Authorization & Scope Lock | Chrono + `threat-modeler` | **Law 1** — in-scope set + forbidden set written; ambiguous scope STOPS; no action beyond authorized until operator target-engage |
-| **1** | Research & Prior-Art (**dedup**) | `research`, `bounty-researcher`, `large-context-analyst` | target's prior audits, disclosed bugs, CVE/known-issue DBs, program history, **the vendor's own git history** (`git log --grep` for advisory ids / `[REPORTED]` / fix markers), **and our own vault** searched *before* effort; refreshed before submission |
-| **2** | Synthesis → Attack-Surface & Impact Model | `threat-modeler`, `security-analyst` | pre-register the impact bar — write the HIGH/CRIT terminus thresholds *before* generating hypotheses |
-| **3** | Hypothesis Generation (2 lanes) | `security-analyst` (known-class) · `experimental-attacker` (discovery) | emits **leads/primitives only**, never findings; discovery earns no laxer verification |
-| **4** | Chaining (**chain-strike v2**) | `exploit-developer` (Chrono aggregates the primitive pool) | impact-first path to a HIGH/CRIT terminus; below-bar/out-of-scope/prior-art paths pruned. **PAYABILITY GATE 2 (scope-orphan)** — name the *single* program whose scope contains **both** the flaw **and** the realized impact. If none does, **STOP**: it is unpayable regardless of technical merit. |
-| **5** | Proof & Negative Control | `exploit-developer`, `test-engineer` | **Law 2 pt.1** — runnable PoC in sandbox/read-only fork against the *real* oracle; link- and chain-level causal negative controls; operator gate before any live/mutating action |
-| **6** | Impact Bar & Cross-Family Reproduction | `impact-validator` + a different-family lane | **Law 2 pt.2** — G1–G4; a *different model family* reproduces the written procedure; CVSS v4 scored **once**, from the realized terminus, only here |
-| **7** | Skeptic (adversarial verification) | `skeptic` | verifies *soundness*, not just results; kills harness/mock/flaky/oracle errors; refutes prior art |
-| **8** | Package & Operator-Gate | Chrono, `technical-writer`, `vibecoding-check` | de-AI/researcher-voice pass on frozen evidence; the final Submit stays a per-report operator "go" — the skill drives up to it, never through it |
+| State | Means | Gate |
+|---|---|---|
+| **unexamined** | nobody has tested it | none |
+| **bounded** | a guard was found and quoted, but it only kills a *narrower* claim than the one asked | none — **stays in the pool** |
+| **refuted** | the claim **as stated** is killed by a quoted production guard or program rule | **Law 3** |
 
-**Domain branching (Phase 3):** the hypothesis lane selects a domain checklist set — web/SaaS ·
-smart-contract/DeFi · infra/cloud · LLM/AI · mobile — by routing into the four `bounty/*` cards plus the
-existing audit-checklist skills. The verification back-end (Phases 4–8) is identical across domains.
+**Never call a bounded result a refutation, and never withhold a primitive because it is bounded.**
+Only `refuted` removes an item, and only `impact-validator` or `skeptic` may assign it — the same
+single-owner rule that governs CVSS. Three kills in one campaign were `bounded` reported as `refuted`:
+*"finalized ballots are removed"* became *"ballots do not accumulate"*; *"the signer must be bonded"*
+became *"the head is privileged"* (the attacker was the event emitter, not the signer); *"no gas
+terminus as posed"* became *"no volume attack"* when the absent gas limit was the enabling condition.
 
-**Chaining = chain-strike v2** (the Phase-4 reference inside `systematic-attacking`): inventory typed
-*primitives* (not "findings"), including environmental free-edges (flash loans, permissionless deploy,
-public mempool, open self-signup, public buckets, unauth deeplinks); build a **typed dependency graph**
-(each edge names a falsifiable proof obligation — `REQUIRES`/`SUPPLIES`/`CROSSES_BOUNDARY`/`CHANGES_STATE`/
-`AMPLIFIES`/`INVALIDATES_GUARD`/`REACHES_TERMINUS`); search **impact-first bidirectional** (backward from an
-authorized HIGH/CRIT terminus + forward from observed primitives → shortest reliable intersection); prove
-**link- and chain-level causal negative controls**; run **chain-level dedup** (a known/reported/patched
-*composite* is a duplicate even when the individual bugs look novel); stop once the shortest path realizes a
-program-recognized HIGH/CRIT unless an added link proves *materially greater realized blast radius*. No CVSS
-until the full chain reproduces; CVSS is re-derived from the realized terminus, **never summed**;
-`[new discovery] N/A` links are forbidden.
+**Law 3 — a refutation carries `claim_as_stated` (verbatim from the packet) and `guard` (the
+production code or program rule, quoted).** Missing either, it is `bounded`.
+CVSS is assigned **once**, at the candidate→finding transition, by `impact-validator` — never earlier
+and never by the discoverer.
 
-## Bounty tooling (fail-closed by construction)
+## Why v3 exists
 
-- **Authenticated platforms → CDP browser-harness.** Authed recon/scope on bounty platforms drives the
-  operator's already-authenticated Chrome over the raw CDP port (attach to the existing session; read open
-  tabs only — never spawn fresh tabs/Chromes, never route through chrome-devtools-mcp/playwright-mcp which
-  launch their own browsers).
-- **SAST → docker-isolated.** Untrusted-target static analysis runs in isolated containers; the local CLI
-  toolchain (below) is run against clones/forks, never against a live target's control plane.
-- **Scope → fail-closed `scope_gate` + `exact_target_allowlist`.** Ambiguous scope STOPS (Phase 0); a hop
-  onto an out-of-scope asset is scope-laundering (Law 1 + legal) and is pruned, never bridged.
+**v2 accumulated 24 gates and 49 kill mechanisms, five of them before any hunting began.** Five
+audits produced zero submissions. The operator's diagnosis — that the pre-hunt phases were generating
+bias and kills rather than bugs — is what this version acts on.
 
-### Local CLI toolchain (use by default — do not rediscover)
+**The evidence is suggestive, not conclusive, and it is worth stating the confound plainly** because
+two independent reviews caught it and any future rewrite will be tempted by the same shortcut:
 
-Specialists have shell access and MUST use it, not just grep:
-- **Go:** `gosec -severity=medium`, `staticcheck`, `golangci-lint`, `semgrep --config=p/gosec --config=p/golang`, `osv-scanner --lockfile go.mod`, `go test -race`, `go test -fuzz`.
-- **EVM:** `slither`, `aderyn`, **`myth`** (Mythril — NOT `mythril`), `semgrep`, Foundry (`forge`/`cast`/`anvil`/`chisel` fork-and-replay + auth-fuzz), `echidna`, `medusa`, `halmos`, **ItyFuzz** (pinned Linux container `vibe-ityfuzz:nightly`; native Apple-Silicon build fails on Z3), **solodit-mcp** (Cyfrin Solodit precedent DB — guarded, live after operator relaunch). Skips: Manticore (archived); HexStrike (dedicated-VM-only). **Mock harnesses are BLIND to valuation — fork the REAL oracle/registry.** Halmos/Z3 can't prove staking/recursive-valuation math (fuzz those).
-- **Rust/Solana:** `cargo-audit`, `clippy`, `cargo-geiger`, `cargo-fuzz`, `anchor`, `trident` (Anchor IDL-driven fuzzer), `solana`, plus `litesvm` (dev-crate for in-process SVM tests). NOTE: in the board sandbox `anchor build` may network-bootstrap `agave-install` — pre-provision before an empirical Solana PoC; static review + `trident`/`cargo-fuzz` work offline. There is **no** slither-Solana detector — do not cite one.
-- **General:** `trivy`, `grype`, `gitleaks`/`trufflehog` (secret scan is operator-gated for a target org).
+| | EVM Gateway | a bridge target L1 |
+|---|---|---|
+| Pre-hunt material handed to lanes | 850-line exclusion list, burn map, terminus register | 89-line facts sheet |
+| Primitives banked | 115 | ~70 |
+| Candidates reaching an in-scope terminus | 0, across four searches | 4, each corroborated cross-family |
 
-**Apply the domain audit-checklist + audit-flow skills on task start** (they encode the classes that convert):
-- **Every contract/chain target (cross-cutting):** `pre-audit-threat-model` (entry-point / actor / invariant x-ray), `gptscan-prompt-templates` (reusable LLM-audit prompt shapes), `multi-stance-audit-fanout` (Chrono-orchestrated N-stance fan-out + `Contract|function|bug-class` dedup — workers never self-spawn; the specialist surfaces the fan-out as a need).
-- **Solidity / EVM** → domain branch `smart-contract`; skills `evm-audit-flow` (slither→myth→echidna/medusa→halmos→forge via native CLIs + guarded-slither/guarded-semgrep), `defi-invariant-check` (token-conservation / k-invariant / oracle-flash-loan / CEI), `known-advisory-backport-check` (forked deps). Exploit PoC scaffolds: `chain-construct-smart-contract` (exploit-developer).
-- **Solana / Anchor** → domain branch `smart-contract`; skills `solana-audit-flow` (anchor/trident/cargo-fuzz/litesvm — the fabricated slither-solana static step is removed), `vulnhunter-solana` (owner/signer/discriminator/CPI-signer/SPL-math/PDA-collision manual patterns), `solana-anchor-audit-checklist`.
-- **Blockchain L1 / bridge / appchain** → domain branch `blockchain-l1`; skills `cross-chain-bridge-audit`, `cosmos-sdk-audit-checklist`, `known-advisory-backport-check`.
-- Chaining/terminus discipline is provided by `systematic-attacking`'s chain-strike v2 reference (the old `chain-impact-rescore` skill is folded into it).
+**Read honestly, that table does not say what a first draft of this document claimed.** 115 versus
+70 means the gated run had *higher* raw primitive count, so the failure was **composition, not
+recall** — and a composition failure is not fixed by feeding composition more input. Worse, the two
+campaigns are not a controlled comparison: the Gateway ran before commit `e164be8`, which had already
+diagnosed the real cause (*"Phase 4 can be skipped entirely and no field is empty, because Phase 4
+has no field"*) and fixed it by adding `primitive_ledger` to the verification contract.
 
-**Dynamic testing is mandatory for logic/nonce/reorg/concurrency bugs** — extract the logic into a hermetic
-harness (mock RPC + latest/safe/finalized heads), run `-race`, include a negative control. Static
-isolation-review misses shared-predicate and concurrency bugs (it wrongly killed a real finalized-nonce bug
-for 5 waves until dynamic testing caught it).
+So the defensible claim is narrower than "gates cost us the campaigns":
 
-## Phase 8 — Capture Learnings
+- **What the gates demonstrably cost:** a Phase 1 artifact that sincerely declared *"this document
+  contains NO ranking"* and was measured by cross-family review to be a pre-composition filter
+  anyway. Ranked prior-art materially biased where lanes looked.
+- **What they did not cost:** raw recall, which was higher under the gated pipeline.
+- **What actually starved Phase 4:** a missing contract field, already fixed.
 
-After final review, Chrono records through chrono-vault `record`: every verified finding whether submitted
-or not, each KILL and why that attack class did not pan out, and reusable process learnings. All
-bounty-derived notes use `sensitivity: restricted` and retain source-task and evidence provenance. Outbox
-auto-capture ingests response verdicts as `candidate` notes; this phase deduplicates and curates, promoting
-reviewed candidates to `verified` rather than creating parallel memory.
+v3 therefore keeps every safety, dedup and evidence control, removes **rankings** specifically, and
+adds the facts sheet and the planning phase. It is a narrowing, not a demolition.
 
-## Dispatch Notes
+## The reframe that does the work
 
-- Bounty work does not imply one model lead. Chrono dispatches each specialist per
-  `shared/specialist-runtime-map.tsv` on capability; see `shared/routing.md` for the model.
-- PoC and harness mechanics route to codex (`gpt-5.6-sol`) with claude (`claude-fable-5`) review;
-  judgment/security-reasoning (`security-analyst`, `threat-modeler`, `impact-validator`, `scout`) is
-  claude-primary with codex backup.
-- Grounded prior-audit / historical-exploit / weakness-taxonomy research routes to **Gemini**
-  (`bounty-researcher`, Google Search grounding). Kimi is not a bounty-research primary (its only primary is
-  the allowlisted `experimental-attacker`); it takes research work only as throughput/backup.
-- Report wording routes to the assigned writer's lane (`technical-writer` = claude/Fable).
-- **`panel` / `swarm` / `triage` are dispatch mechanics, not modes** — invoke any under this mode when the
-  work shape calls for it (mechanics described in `shared/routing.md`).
-- **Safety-refusal invariant:** a genuine safety refusal on any lane surfaces to the operator and is NEVER
-  cross-family re-dispatched in either direction. The offensive specialists here (`security-analyst`,
-  `exploit-developer`, `scout`, `impact-validator`, `smart-contract-engineer`, `threat-modeler`,
-  `experimental-attacker`, `reverse-engineer`) run under heightened-risk defaults — a refused request is
-  never shopped to a more permissive lane.
+v2 asked **"should this be killed?"** v3 asks **"what does this need to be submittable?"** Same
+information, opposite direction:
 
-## Gates
+| v2 | v3 |
+|---|---|
+| impact not measured ⇒ kill | impact not measured ⇒ **measure it** |
+| may duplicate a prior report ⇒ no-submit | may duplicate ⇒ **differentiate it in the report** |
+| terminus lands out of scope ⇒ discard | out of scope ⇒ **bank it; composition may find an in-scope terminus** |
+| below the impact bar ⇒ drop | below bar ⇒ **bank it; composition is a later phase's job** |
+| prior art exists here ⇒ avoid the surface | prior art here ⇒ **the ground is FRAGILE; hunt it harder** |
 
-### PAYABILITY GATE 1 — Target-EV & Stop-Loss (before Phase 0)
+**If a check cannot produce an action that moves a finding toward submission, it does not belong
+before the hunt.**
 
-**Write it down before hunting. If it is not written, the campaign does not start.** Target *selection* is the operator's call; this gate is Chrono's arithmetic on the operator's pick.
+## Control spine — invariant across every phase, and machine-enforced
 
-Record, per program: hackers competing · reports filed · **total paid to date** · number and recency of prior formal audits · count of already-remediated findings in-repo · reward tier · realistic yield vs that tier · **an explicit stop-loss** (what result, or what elapsed effort, ends the campaign).
+These are not phase steps; they hold for the whole campaign and the verification contract checks
+them. **A rewrite of the phase structure must not move or drop these** — the mode doc and
+`scripts/python/verification_contract.py` are a coupled pair, and drifting them apart makes every
+dispatch fail its own contract at settlement.
 
-Hard signals that a program is a poor converter — any two mean *do not start* without an explicit operator override:
-- a large report count with **$0 paid**
-- a recent formal audit, or many findings already remediated in-repo
-- commodity SAST returning **zero** high-signal on the target
-- a Critical-only reward tier where our realistic finding is a High
-
-Evidence this gate is needed: our lifetime rate is **1 paid finding in 21 submissions**. The Push Chain engagement ran four programs to exhaustion for zero submittable Criticals; Core Contracts alone carried **39 already-remediated findings** and slither fired **zero** high-signal detectors. Vault memory had *already measured* picked-over targets at ~1% convert, and target selection never consumed it. Both independent pipeline reviews (`gpt-codex` and `claude`, identical briefs) ranked this the **single highest-value change** to the pipeline.
-
-### PAYABILITY GATE 2 — Scope-Orphan check (before Phase 4/5 spend)
-
-Name the **single program** whose scope contains **both** the flaw **and** the realized impact.
-
-**If no single program contains both, STOP.** The finding is technically real and commercially worthless. Do not "borrow" scope across sibling audits of the same protocol: the triager for program A treats program B's component as a trusted external, and program B's triager sees no in-scope impact. The finding falls between them and neither pays.
-
-**Tell-tale to treat as a STOP, not as an open question:** an auditor's own write-up offering two CVSS vectors — *"≈6.9 High as-implemented (`PR:H`) vs ≈9.2 Critical if X counts as untrusted input"* — is already reporting a scope/trust-model orphan.
-
-Evidence: the same orphan was re-derived **three times** on Push Chain — the original finality double-spend (shelved "GO-AFTER-VAULT"), then H-F (reproduced, then killed as a vendor-commit duplicate *and* for lacking an attacker-controlled trigger), then the kill-audit B1 chain. Each re-derivation cost campaign effort and none could ever have paid: the unprivileged trigger lived in the L1 program while the fund loss realized in the Gateway program's Vault.
-
-### Prior-art dedup is necessary but NOT sufficient
-
-`chrono-dedup prior_art_check` returning `verdict: novel` with `best_similarity: 0` and zero hits is a **non-signal**, not evidence of novelty — its corpora structurally cannot index a vendor's own git commit messages, which is exactly where the decisive prior art lived for H-F. Always pair it with **vendor fix-commit archaeology** (Phase 1): `git log --grep='CVE-\|F-20\|REPORTED\|security\|vulnerab' -i --oneline` at the pinned commit. An acknowledged-and-mitigated class means our finding in that class is a duplicate unless we prove the mitigation fails on a *distinct* path.
+- **`scope_gate` + `exact_target_allowlist`** — exact assets, exact pins, verified against the target
+  rather than read off the program page. No scope laundering: a chain may not borrow authority or
+  impact from a sibling program. **An ambiguous scope STOPS**, and an orphan is a stop, not advice.
+- **`no_self_inflicted`** — attacker-funded, attacker-donated, and self-seeded harness balances are
+  not impact.
+- **Safety and refusal rails travel in the packet.** A detached lane executes without reading this
+  document; the rule must be at the point of action. **A refusal is a correct outcome, not a lane
+  failure** — never re-dispatch to shop for a permissive answer. Re-dispatch is Chrono's act, so this
+  binds Chrono.
+- **Typed evidence states** (above) and **CVSS assigned once**, at the impact gate, by
+  `impact-validator`.
+- **Exclusion is `impact-validator`'s act at G1–G4, so this binds Chrono.** Chrono routes, sequences
+  and records; **Chrono does not exclude.** A Chrono-authored kill is a process defect and is
+  reportable as one. Hunting and chaining lanes do not exclude either — they bank, and they name the
+  missing edge. The four exclusion grounds (out of scope · no runnable PoC · fails a stated minimum
+  requirement · already known) are applied **once, at the end**, by the role that owns them.
+- **Named owners** — reproduction goes to a *tool-capable* lane in the opposite family;
+  `impact-validator` owns G1–G4, program fit, dedup and self-inflicted screening; `skeptic` attacks
+  soundness and replaces neither.
+- **Early durable write.** The board kills workers on a wall clock and promotes only artifacts that
+  already exist. Write within the first ten minutes and append continuously, or a useful lane dies
+  with its conclusion in a log.
+- **Packet/skill conflict is reported, never resolved silently.** Packets are authoritative at
+  execution time, so a lane that finds a packet contradicting the skill says so in its output.
+  Silent precedence institutionalises drift.
+- **Memory bookends** — recall at start, record at close, with restricted provenance on bounty
+  detail. Negative results are recorded with dated assumptions, never erased.
+- **Recall is PROHIBITED on cold-hunt and pool-blind lanes**, and the packet must say so. During a
+  campaign, `recall` returns that same campaign's own output — so a lane denied the primitive pool
+  or the terminus register gets handed it anyway through memory. This has been observed twice:
+  a pool-blind chainer received prohibited material and a cold Phase-3 lane received the withheld
+  terminus register; both quarantined it only because they happened to be watching. Any lane whose
+  value depends on **not** having seen something must be told to skip the recall call entirely and
+  to report the omission, and any lane that does recall must **report what came back and whether it
+  applied it** — otherwise contamination is invisible.
+- **`stopped` ≠ `exhausted`.** Report coverage, residual surface, and consciously deprioritised
+  paths. A bounded campaign is not evidence about the target's quality.
 
 
-- Operator approval before engaging a target, touching authenticated scope, contacting a program, or writing
-  private bounty details to durable public-facing files.
-- **Submission gate (operator-ratified 2026-07-14):** Chrono/specialists MAY drive the full submission
-  workflow — navigate the authed platform session, fill the report form, attach the PoC, stage everything —
-  up to but NOT including the final Submit click. The **final Submit click is a hard per-report gate
-  requiring explicit operator "go"** (irreversible; costs a submission fee + reputation). Staging the form
-  without submitting needs no separate approval.
-- **Pre-submit G1–G4 gate (`impact-validator` owns it):** no finding is submitted unless it clears G1
-  impact-realized · G2 third-party-reproduced · G3 dedup'd · G4 in-scope defended-boundary, plus its
-  per-class add-on — any FAIL is no-submit. Full gate: `departments/security/specialists/impact-validator.md`
-  → "Pre-Submit Gate (G1–G4)".
-- **PoC reproduction gate (before ANY submission):** the PoC author is not the validator. A
-  **different-model-family agent** must independently **reproduce the runnable PoC from scratch** (clone/run
-  fresh, confirm it passes AND that the harness faithfully maps to the real in-scope code file:line), and
-  **multiple models must concur** (the cross-family reproducer + `skeptic` + `impact-validator`). Chrono
-  coordinates the fan-out and reads the verdicts — Chrono does NOT run the PoC itself. A PoC only counts as
-  reproduced when ≥2 model families have independently run it and agreed it proves the claim.
-  **The reproducer must be a TOOLED specialist on the opposite family** — `security-analyst` or
-  `exploit-developer` (both carry `forge`/`cast`/`anvil`/`echidna`/`halmos` on claude *and* gpt-codex).
-  `impact-validator` and `skeptic` supply judgment and adjudication and carry **no execution toolchain**;
-  assigning either the reproduction step yields a review that cannot run anything, which has silently
-  happened before. Before dispatching a reproduction, confirm the chosen specialist×lane actually declares
-  the tools the PoC needs — capability is per specialist *and* per lane, and a blank pair fails silently.
-- Mandatory multi-model review for exploitability, impact, privacy, auth, and final report claims.
-- No destructive testing, rate-limit abuse, persistence, credential use, or out-of-scope probing.
-- Run `vibecoding-check` before the final operator summary.
+---
 
-## Swarm / sub-swarm mechanics (proven — `--subswarm-directive`)
+## Phase 0 — ADMISSION (Chrono, inline, before more than two lanes)
 
-Big-swarm it: a lead spawns native structured subagents *within one dispatch* via
-`bin/send-task.sh --subswarm-directive <core.json> --subswarm-assignment '<lane>:subNN=<objective>' …`
-(per-dispatch, no relaunch). **The lead alone seals one `swarm-member-bundle/v1` and decomposes it
-exhaustively into `subswarm-review-subjects/v1`** — one `subswarm-review-item/v1` per member, every declared
-member present, no sampling. **Chrono / the reconciler then coordinates the per-subject cross-family review**
-(one `finding-review/v1` verdict per subject) and settlement. Every security/divergent sub-finding is a
-mandatory review subject; a bundle that hides or samples one is rejected.
+**Target selection is the binding constraint on this system's output, not hunt quality.** That is a
+measured conclusion, not a caution: four campaigns, nineteen-plus hunt lanes on one of them, four
+model families, max-effort profiles, executable primitives, cross-family adversarial review —
+**zero paid findings.** An outside-family diagnosis of the whole record
+(`docs/proposals/2026-08-05-why-we-find-nothing.md`) traced it past hunt quality to what we agreed to
+hunt in the first place.
 
-- **Lane status:** subagent-orchestration is **proven-runnable today only on gpt-codex**; supported but not
-  yet exercised end-to-end on Claude/Gemini; **Kimi is single-lane / lead-brokered** (its subagents hold no
-  MCP — route Kimi's MCP work through the main lane). Do **not** claim a Kimi sub-swarm.
-- **Role architecture:** **Kimi = experimental-attacker** (bold, high-volume, everything-is-a-LEAD);
-  **Gemini = bounty-researcher** (grounded); **Claude + Codex = heavy hitters + independent
-  validation/skeptic**. Same-family subagents are coverage, not independent corroboration — cross-family
-  independence lives between leads/lanes. A Kimi- or Gemini-only result is never a validated finding until a
-  heavy hitter independently confirms it and the mandatory review settles the frozen bundle.
-- **Cross-lane `--swarm`** (independent lane children + deterministic `swarm_diff` alignment, not a vote)
-  remains the mechanism for genuine cross-family corroboration on the *same* objective. Namespace is only the
-  mailbox; each specialist routes to its best-fit model per `shared/routing.md`.
+**Write a one-page admission receipt before dispatching more than two reconnaissance lanes.** A full
+campaign needs every limb below answered, or an explicit operator override recorded with its reason.
+
+1. **Deployment identity resolves.** You can name the live addresses/program IDs and — for a proxy —
+   the implementation actually behind it, read from its storage slot rather than from source.
+2. **Meaningful live value or activity exists.**
+3. **An unprivileged actor controls a value-moving entry**, or can acquire the required bearer artifact
+   by an observable path. **This is the limb that killed three consecutive campaigns.** Every exit was
+   role- or signature-gated and no outsider-to-role edge existed; we proved the code was reachable and
+   the value was not.
+4. **Flaw and impact land in the same scope.** A defect whose loss materialises in a sibling program is
+   a scope orphan and pays nothing.
+5. **Either a deployed value-moving change post-dates the last professional audit, or the surface is
+   genuinely unsaturated.** *Prior audit count is a negative weight. A recent unaudited deployed delta
+   is the strongest positive signal available.* "Bridge" and "complex code" are neither.
+6. **The program pays at the severity plausible for that surface**, not only at a remote ceiling.
+
+**The combination that should stop a campaign, stated exactly:**
+
+> Critical-only is **not** an automatic rejection. Critical-only **plus** mature audit saturation
+> **plus** role/TSS-only exits **plus** unresolved deployment state **is**.
+
+That sentence describes three programs we spent four campaigns on. Applied earlier it would have
+rejected them before the first lane.
+
+**Two boundaries.** The operator owns program selection and timing — Chrono produces the receipt with
+evidence attached and does not decide what to hunt. And a failed admission is a *cheap* result: a page
+of reasoning against a campaign's worth of lanes.
+
+---
+
+## Phase 1 — RESEARCH (Chrono, inline, ~30 minutes)
+
+**Read the program record from its authed JSON API, and read our own closed reports END TO END.**
+Both, before anything else. The rendered page shows a fraction of the record, and the program's real
+grading policy may exist **only** in a triage comment on a report we already filed. Measured: a rule
+reading *"only Critical-severity vulnerabilities are in scope"* appeared in neither `focus_area`,
+`program_rules`, `scopes` nor the asset list — it was quoted in the triage comments of two of our own
+closed reports, and it re-graded an entire eight-item candidate set. A defect graded **High closes at
+$0** on such a program, so **"would this grade Critical?" is a gating question, not a scoring one.**
+Record verbatim: focus area, program rules, eligibility, assets, submission requirements (runnable
+PoC? suggested fix?), and the contest counters. Where two fields conflict, record the tension to flag
+in the report — never resolve it by dropping candidates.
+
+One short `FACTS.md`. Its entire purpose is to stop a lane wasting a day on the wrong tree.
+
+**Contains:** where the code is and at what commit, verified with `rev-parse` — never read off the
+page · **a build canary, not a build description** (below) · what is genuinely in scope, verified
+against the pin, since program scope text has been wrong on every target we have audited ·
+handwritten vs generated LOC · **the payout rules quoted verbatim**.
+
+**Canary the build before anything is dispatched.** Describing the toolchain is not knowing it: run
+the build and require an **observable only a real success produces** — the compiled object, the
+generated IDL, a non-zero finding count on a known-positive input. Never `--version`, never a config
+file. Measured on an Anchor/Solana target: `anchor` exited 1 ("cannot activate Solana 2.1.0") and
+`cargo-build-sbf` exited 101 (absent), because a Homebrew `solana` shadowed the Agave install that
+carried the matching platform tools. One `PATH` line fixed both, and the proof was a 594 KB `.so` and
+a 92 KB IDL appearing on disk. **On a program that mandates a runnable PoC, a broken harness means
+nothing found can be submitted** — so this gate outranks every hunting decision, and four lanes were
+already in flight before it was checked.
+
+**The quarantine does not cover `recall`, and no filter fixes it.** Sealing prior-run artifacts on
+disk stops nothing, because the memory layer serves the same conclusions from a different store.
+`filters.written_before` is the obvious fix and it is **backwards** — it compartments only *same-run*
+notes and therefore includes every earlier campaign, which is exactly the quarantined material. Four
+lanes on one run received a sealed run's kill conclusions this way without ever opening the directory,
+and one leaked claim was also factually wrong.
+
+So bounty mode sets `memory_policy.recall: optional` — requiring the call mandated the contamination.
+`record` stays required; writing findings biases nobody. **A lane that does call `recall` must
+disclose verbatim what came back and treat every item as a claim to test, not a fact to inherit.** A
+leak that is disclosed is recoverable; one absorbed in silence is the bias this mode exists to remove.
+
+**Does NOT contain** a burn map, ranked leads, "top surfaces", class-wide kills, or prior-campaign
+kill lists. Those are the bias and they do not exist in this mode. Note the distinction that took two
+independent reviews to get right: **rankings** are removed, **exact collision checks and unranked
+terminus predicates are not** — see below.
+
+**Quote rules, never paraphrase, and read every limb of every list.** The headline eligibility
+sentence is not the rule set. Hunt interpretation-sensitive pairs where a broad exclusion abuts a
+narrower carve-in — the canonical one, present in most programs: *"rogue privileged users"* are
+excluded, but an attack **is** admitted where *"a mechanism allows the attacker to gain control over a
+privileged entity ... if the vulnerability permits privilege escalation."* Collapsing those empties
+the paying set on any protocol whose value exits are role-gated. A reading that **widens** the paying
+set must resolve to quoted text; a reading that narrows it should be resisted.
+
+**Prior reports are fragility evidence, not exclusions.** If a researcher landed a bug in some
+machinery, that machinery *yields* bugs — hunt it harder. Only the identical bug is a duplicate.
+Check our own filing history via the authed reports API, and read the **label and attachment, not the
+state string**: platforms record duplicates under states like `out_of_scope`, and misreading that
+inverts "we were second" into "we were wrong."
+
+**Exact-collision dedup, before any expensive proof.** Our own filed reports, the vendor's fix
+commits, known composites, and current public disclosures. This is *exact* matching — not a class-wide
+kill and not a burn map. `chain-strike-v2` explicitly permits a dedup-dead primitive to serve as an
+inner link, so dedup removes it from the **active candidate queue** without erasing it from history or
+hiding it from the chainer.
+
+**Pre-register the terminus predicates — UNRANKED.** Enumerate the accepted-impact end-states the
+program actually pays for, quoted from its own text. The ranking was the bias; the *set* is
+load-bearing: a PoC needs a predeclared success predicate, backward search needs a root set, and
+coverage needs a denominator. Never order them, never mark one promising, and never present them as
+the squad's view of where bugs are — they are the program's constraint, not our answer.
+
+**One pre-hunt question, and only one: is the scope self-contained?** Name the single program whose
+scope holds both a plausible flaw and its accepted impact. A program that scopes the executor but not
+the authority, or the money but not the trust boundary, makes every good attack an orphan by
+construction. This is the only check that has ever paid for itself — it correctly said *don't* run a
+target where four later searches composed nothing, and *do* run one that produced four candidates.
+It is a **target-selection question for the operator**, not a gate on the hunt.
+
+## Phase 2 — PLANNING (Chrono, inline)
+
+**Decide and write down who hunts what, with which tools, in which frame.** This was previously
+implicit in Chrono's head, which is how surfaces got missed, how the same specialist ran 18 of 45
+dispatches, and how lanes were handed a toolchain they had no write scope to use.
+
+Produce a short dispatch plan naming, per lane:
+
+1. **Surface** — partition a large target so lanes collectively cover everything without overlapping.
+   Partitioning is parallelisation, not a burn map: nothing is deprioritised, nothing excluded. State
+   explicitly which surfaces are covered by nobody, if any.
+2. **Specialist** — pick the role for the *work*, not the default. **Read the brief before naming
+   it.** Selection by name-plausibility is the actual failure mode, and it recurs: one campaign ran
+   `security-analyst` 9 of 17 times; the next, told to fix that, ran four `security-analyst` lanes in
+   its opening wave and never dispatched `scout`, `impact-validator` or `privacy-steward` at all —
+   while its own closure notes listed unfinished scope-dedup (scout's job), self-adjudicated
+   payability (impact-validator's **mandatory** pre-submit gate), and an API key sitting exposed in
+   the session (privacy-steward's named concern). Every one of those was a role whose brief says it
+   handles exactly that, chosen against by someone who had not read it.
+
+   So: `ls` the specialist directory, read the one-line purpose of each candidate, and write down why
+   the one you picked beats the two nearest alternatives. That costs a minute and is the only thing
+   that reliably breaks the habit. `security-analyst` is not the answer
+   to every question: judgment roles (`impact-validator`, `skeptic`) carry no execution toolchain, so a
+   harness-building task sent there returns an opinion instead of a measurement; `red-team-operator`,
+   `exploit-developer` and `reverse-engineer` carry the tools. An arsenal audit found `impact-validator`,
+   `skeptic` and `reverse-engineer` had **never once run**.
+3. **Family and frame** — model diversity is not information diversity when models inherit the same
+   map. Assign frames deliberately: known-class, unconstrained (forbidden any map), absence
+   ("what does this lack that its sibling has?"), invention (`fable`), and unprimed discovery
+   (`experimental-attacker`, kimi-pure).
+4. **The tool map** — a probed inventory of everything available for *this* target class, written down
+   **before** lanes are assigned, so lanes are assigned *from* it rather than from memory. See below.
+5. **Toolchain gates** — pin versions where a wrong default silently disables analysis, and record the
+   exact incantation (a `PATH` line, an env var, a pinned toolchain) that Phase 1's canary proved.
+6. **Known lane defects** — adapters that fail on an unconfigured MCP, lanes that inherit no MCP,
+   interactive startup gates. Probe capability rather than trusting a config file: declared ≠ delivered
+   ≠ actual, and a probe once found shell plus 42 working tools on a lane three config sources called
+   toolless.
+
+### The tool map
+
+**A tool map is not a burn map.** The distinction is the same one that governs everything else in
+this mode: a tool map says *what you are able to do*, a burn map says *where we already looked*. The
+first is enablement and belongs in every hunt packet; the second is the bias and belongs nowhere.
+Handing a lane a richer arsenal cannot narrow its search — only telling it where to point can.
+
+Write the map as a table with four columns — **tool · what class of question it answers · liveness ·
+which lane exercises it** — covering:
+
+- **CLI**: build, test, static analysis, fuzzers, symbolic engines, coverage, dependency advisories.
+- **Skills and plugins.** Enumerate the *installed* marketplace, do not recall it — and enumerate it
+  **whole**. Measured failure: the map was built by grepping the plugin list for one vendor, which
+  silently excluded everything else and missed three usable capabilities on a campaign that needed
+  them. Read the full `plugin list`, then ask of each entry "could this answer a question I have?"
+
+  Four sub-rules, each from a specific miss:
+
+  - **Include the disabled ones.** A disabled plugin is a capability you can switch on, not an absent
+    one. A campaign fought a static-analyser's limitations through its raw CLI for a whole run while
+    the vendor's own plugin for that analyser sat installed-but-disabled and unconsidered.
+  - **Enumerate the subcommands of tools you already have.** The cheapest capability in an arsenal is
+    the one already installed under a name nobody read. Measured: a lane was dispatched to decide
+    whether to install six EVM reverse-engineering tools for bytecode ABI recovery, while
+    `cast selectors` — EVMole, vendored into Foundry, already on the box — recovered 76 selectors from
+    the target's runtime bytecode **with argument types and state mutability**, in one command. Nothing
+    was missing; the inventory stopped at binary names. Run the `--help` of every tool the map lists
+    and read its subcommand list, especially for multi-tool suites (`cast`, `forge`, `solana`,
+    `anchor`, `slither --print`), where whole analyses hide one level down.
+  - **Include the language servers.** For any typed-language target there is usually an LSP plugin
+    (`rust-analyzer-lsp`, `gopls-lsp`, `pyright-lsp`, `typescript-lsp`, `clangd-lsp`, `jdtls-lsp`,
+    `csharp-lsp`, `php-lsp`). These give *semantic* navigation — real call hierarchies, type-aware
+    references, go-to-definition across a workspace — which is exactly what an auditor does by hand
+    with grep, badly. A whole campaign audited a Rust target without once loading the Rust language
+    server.
+  - **Include the general security plugins**, not only the audit-specific ones.
+
+  Record for each: **which lane can invoke it** (see below), and whether it is enabled.
+- **Language and ecosystem reality check.** Ask explicitly whether tooling exists for this target's
+  ecosystem at all, and write the answer down. One campaign confirmed **zero** Solana/Anchor plugins
+  across seventeen marketplaces — that is a real finding about the arsenal, not a gap in the search,
+  and it means the ecosystem's capability is entirely CLI and must be probed as such. Measured: twelve
+  Trail of Bits plugins were installed and available — including an entry-point/access-control census,
+  call-graph blast-radius and taint, variant analysis against known fixes, and twin differential
+  review — and **none was used, because nobody looked before dispatching.**
+- **Harness routes** — every distinct way to actually run a PoC, since the mandatory-PoC programs make
+  this the binding constraint.
+- **What is absent**, named explicitly. An absent tool is a bounded gap; a tool nobody checked for is
+  an unbounded one.
+
+**Liveness is proven, never assumed** — the same rule as the Phase 1 build canary. `--version`
+succeeding is not liveness; a real invocation returning a real result on real target code is.
+
+**And liveness is per LANE, not global.** A plugin your own session can invoke may not exist in the
+lane you dispatch to. Measured: the Trail of Bits skills are **Claude prompt plugins, not
+executables**, so a codex lane invoking `differential-review` or `trailmark` gets **exit 127**, and
+Trailmark's Python backend is absent entirely. Twelve of them were listed as "installed" in a tool map
+and assigned across families without re-probing. Record liveness as *"invoked successfully on lane
+X"*, never as *"installed"*, and route plugin-dependent work to the family that can actually run it.
+Tell every lane that a missing tool must be reported as its **literal error plus a
+positive-controlled manual fallback, labelled as the fallback** — one lane loaded the plugin's
+*method* and applied it by hand with a control, which is the correct behaviour; another let it read
+as a clean scan, which is not.
+
+Then **pair tools to the program's own gating question.** This is where the map earns its cost: on a
+program paying only for what an *unprivileged* actor can reach, a mechanical access-control census
+over every entry point *is* the paying-surface filter, and it is a plugin invocation rather than a
+week of reading. Where a target ships a prior audit's remediation commits, variant analysis against
+those fixes is the highest-expected-value mechanical work available, because a fix applied in one
+place and missed in its twin is in scope and nobody re-checks it.
+
+**A durable tool must be built under a TRACKED path.** `_state/**` is gitignored, so a rig built
+into `_state/bounty/rigs/` is destroyed at worktree cleanup: git promotion moves the artifact and the
+envelope, never the ignored files. Four rigs were built there in one wave and survived only because a
+single lane noticed and said so in its report — the other three would have gone silently. Point a
+build packet's `write_scope` at `tools/<rig-name>/`, and when a lane reports a deliverable, confirm
+its path is tracked (`git check-ignore -v <path>`) **before** removing any worktree.
+`send-task.sh` already warns on a gitignored `write_scope` (`warn_unpromoted_write_scope`), and the
+recovery counterpart — sweeping a worktree for stranded paths before settling — is in Phase 7.
+
+**A tool a lane cannot write a harness for is a tool it does not have.** Grant every armed lane a
+scratch harness directory **inside the target** and confirm the grant is inside it — four lanes were
+once dispatched with the scratch directory pointed outside the target tree, which silently reduced
+them to reading lanes on a program that required runnable proof.
+
+**Then decide who receives the planning analysis, and write that down too.** Planning cheaply
+produces factual enumerations — an access-control census, a diff of paired contract variants, a map
+of paths the project's own tests never execute. Deciding their distribution is part of the plan, not
+an afterthought, and leaving it implicit is the same failure this phase exists to fix.
+
+The trap is that one artifact is being asked to do two incompatible jobs: **accelerate search, and
+measure whether search was independent. It cannot do both in the same lane at the same time.** On a
+pool that pays only for unique issues, an artifact handed to every lane becomes a common cause of
+convergence — and cross-family agreement then evidences shared priming rather than independent
+discovery. Withholding it from everyone is no better: it burns the budget on rediscovery and still
+cannot separate *clean* from *never examined*.
+
+So split the roles rather than the difference:
+
+- **Discovery lanes get none of it** — repo at the pin, scope and payout rules, their frame, their
+  tools, a scratch directory. No census, no diff, no gap map, no "start here". Their packet simply
+  omits it; this needs no enforcement machinery.
+- **Exactly one coverage lane gets all of it**, with an exhaustive known-class sweep as its mandate.
+  Prefer a different family from whoever authored the artifacts — the author is primed by their own
+  measurements and cannot audit that from the inside.
+- **Chrono holds the artifacts as the hidden denominator**, to answer afterwards which surfaces went
+  unexamined. Measuring coverage is not the same as directing it.
+- **Bound the blind pass** — roughly the first third of hunting time. Reserve the rest for the PoC,
+  which is what actually pays. Then disclose only the *named uncovered anchors* to a gap closer:
+  no scores, no rationale, no "promising" labels, and leave the blind lanes' outputs frozen.
+- **Convergence after disclosure is artifact-conditioned, not independent** — label it that way.
+- **A receipt is a `file:line` anchor, not a claim.** "I looked at it" is not coverage, for the same
+  reason a self-reported reproduction is not a reproduction.
+
+The cost if this is wrong is not duplicated analysis — it is a unique finding that only surfaces
+when one of those artifacts meets one particular lane's reasoning, and the pool share with it. That
+is the risk being accepted, deliberately, in exchange for search independence. *(Adopted 2026-08-02
+on an unbiased advisory; field-testing — revisit against what the campaign actually produced.)*
+
+Plans are cheap and dispatches are not. **Write the plan, then dispatch it — do not improvise lanes
+mid-hunt.**
+
+## Phase 3 — HUNT (the main event)
+
+Every lane gets the whole repo and the FACTS sheet. **Lanes are not blind, and must not be.**
+
+The line is between **the program's constraints and our conclusions**:
+
+| Lanes GET — the rules of the game | Lanes DO NOT GET — our conclusions about it |
+|---|---|
+| The in-scope asset list, verified at the pin | An exclusion list we built |
+| The payout rules and impact limbs, quoted | A burn map or ranked surfaces |
+| The program's own published exclusions | Prior campaign kill lists |
+| The attacker model (what privilege is admitted) | A pre-registered terminus set |
+| The quantified floor, and what a duplicate is | Another lane's live conclusions |
+
+A lane that does not know the scope hunts out-of-scope ground and wastes the run; a lane that does not
+know what pays banks primitives against the wrong terminus. **Withholding the rules is not
+neutrality, it is negligence.** What biases a hunt is not the constraints — it is being handed
+somebody else's *answers*.
+
+The test for any document before it goes in a hunt packet: **does it describe the game, or does it
+describe where we already looked?** The first is enablement. The second is the bias.
+
+- **Partition by surface** when the target is too large to read exhaustively, so lanes collectively
+  cover everything without overlapping. Partitioning is parallelisation, not a burn map: nothing is
+  deprioritised, nothing excluded.
+- **Vary family and frame.** Model diversity is not information diversity when models inherit the same
+  map. Include at minimum a known-class lane (`security-analyst`), an **unconstrained** lane forbidden
+  any map, an **absence** lane ("what does this lack that its sibling has?"), and **two
+  `experimental-attacker` lanes bound to different model families** — one kimi-pure unprimed
+  discovery lane, one on `claude.fable.max` for invention.
+
+  **Dispatch the specialist you want and pass the model as a parameter.** `to_model` selects the
+  lane and the runtime map's matching route supplies the profile; a lane absent from all four route
+  columns is not dispatchable at all. Never substitute a persona-specialist (`fable`, `sol`) to
+  obtain a model — that buys the model by discarding the specialist's entire brief, tools and
+  skills, which is the opposite of what a specialist is for. If the model you want is unreachable,
+  fix the routing row, do not route around it. **Work convergences and
+  divergences first** — agreement across disjoint frames is the strongest signal available, and a lane
+  that kills what two others banked is usually answering an adjacent question.
+- **Every lane is armed.** `write_scope` must include a scratch harness directory inside the target,
+  or the toolchain you granted is decoration. **`dry_run` restricts the RESULT TYPE, not the method** —
+  no findings claimed and no submission attempted; it never means "don't execute."
+- **Verification serves discovery, and is ordered after it.** Every campaign accumulates harness
+  caveats — measured traps that fabricate evidence — and they are worth carrying. But they are
+  *quality control on a finding*, not a reason to expect none. Two consequences. **Order them after
+  the arming and the hunt instruction, never before:** a lane that reads six ways its evidence might
+  lie before it reads what tools it has will hunt timidly. And **when a control fails, the standing
+  instruction is rebuild, not downgrade** — a broken harness is a fixable harness, and the mechanism
+  may be entirely real. A verification rule that a lane satisfies by softening its claim has become a
+  null-generator, which is the opposite of its purpose.
+- **Bank everything; kill nothing.** The deliverable is a primitive ledger: what the attacker gains,
+  what privilege it needs, where the effect lands, whether it composes. **Capability, not severity.**
+  Below-bar is expected. Anything a lane would discard goes in `## Wild — recorded, not filtered` with
+  its weakness written in. *A filter applied before composition guarantees an empty composition.*
+- **Attack, do not theorize.** A Phase 3 primitive is a **behaviour that was executed and observed**,
+  not one that was reasoned about. Every banked entry carries the literal command and its literal
+  output; anything asserted from reading alone is labelled `read` and is a *hypothesis owing an
+  experiment*, never a primitive. Strategy talk is legitimate **only** as the plan immediately before
+  an attack, and its worth is settled by running it. A lane that returns an essay has failed the
+  phase, however insightful — unreproducible output is the single largest waste in this pipeline,
+  because the cost lands later, in the phase that tries to build on it.
+- **Do not review this stage.** Adjudicating an unranked ledger forces a severity verdict — the
+  kill-at-hunt failure this mode exists to prevent.
+
+## Phase 4 — CHAINING
+
+Run **`chain-strike-v2`** as written: typed dependency graph, impact-first bidirectional search, and a
+coverage map over the terminus set with a **named missing edge** for every gap. Do not hand-roll the
+method in a packet — the skill is reviewed and your paragraph is not.
+
+Run the two directions in **different families**, and keep the backward lane **pool-blind**: two
+chainers sharing one pool share one frame. Memory recall is a contamination channel for a pool-blind
+lane — forbid the files *and* quarantine recall.
+
+**Put the pool-blind lane's required reading in a SEPARATE DIRECTORY from the pool.** A blind lane
+must read the FACTS sheet, and if that sheet sits beside the forbidden artifacts then merely locating
+it lists them — leaking the pool's *topic surface* before the lane has done anything. Measured: a
+backward chainer disclosed exactly this at roughly minute three, having seen 37 pool filenames while
+`ls`-ing for its own required file. Keep facts at `_state/bounty/<campaign>/facts/FACTS.md` and the
+pool one level up. Naming the forbidden globs in the packet does not help — the glob itself tells the
+lane what the pool is about.
+
+Also note the toolkit boilerplate asks every lane to call `recall`. A pool-blind packet contradicts
+it, and **the packet wins at execution time** — say so explicitly in the packet so the lane declares
+the deviation rather than resolving it the wrong way.
+
+Composition is where a banked primitive becomes a finding. An orphan is a capability whose terminus
+was wrong; a de-minimis primitive is one whose value was small *alone*. Both belong here.
+
+**Partition the pool first: chainable primitives, and standalone candidates.** A primitive that is a
+finding on its own is **not a chain input** — promote it directly to Phase 5 and do not wait on a
+composition it never needed. Chaining consumes the first set; it must never be the only route out of
+Phase 3. Measured cost of getting this wrong: two standalone in-scope defects sat untouched through an
+entire chaining phase because every lane was composing.
+
+## Phase 5 — VERIFY
+
+Only on candidates we actually found. **Every item is a task, not a veto.**
+
+- **Reproduce independently in a different family** (`poc_reproduction`), from scratch rather than
+  from the discoverer's harness. Most programs require this anyway, and the contract checks it.
+- **Measure the impact; do not argue it.** "Mechanism measured, terminus argued" is the state hunts
+  usually leave a candidate in, and closing that gap is what makes a report land.
+- **Evidence discipline** (`negative_control`) — non-negotiable *for a submission*: a **false twin**
+  the harness is shown to catch; a **signer-only control** for anything privileged (a harness that grants itself the role
+  proves the role can do it, not an attacker); and for any fuzz or invariant claim a **non-zero
+  successful-call count** plus a **reachable-set census** (`covered N of M`, read from deployed
+  bytecode, uncovered named). A green run over 1-of-3 entry points prints identically to one over
+  3-of-3, and `reverts: 0` is not evidence of reach.
+- **Differentiate, don't veto.** Where a candidate shares an entry point or impact class with a known
+  report, state the difference — entry point, code path, root cause, the specific missing line — **in
+  the report**, and let the triager judge. We cannot read other researchers' reports; asserting
+  novelty and asserting duplication are equally unfounded.
+- **Skeptic pass** — `skeptic` verifies *soundness*, not just results: harness errors, mocks that
+  diverge from the real implementation, flaky oracles, and prior art. This is the one adversarial step
+  that belongs here, because by now there is something real to be adversarial about.
+Phase 5 ends with a candidate that is reproduced, measured and sound — **not** with a written report.
+
+## Phase 6 — PACKAGE & OPERATOR-GATE (Chrono · `technical-writer` · `vibecoding-check`)
+
+Evidence is **frozen** before this phase starts. Packaging never revises a claim; if packaging reveals
+a claim needs revising, it goes back to Phase 5.
+
+- **Write the report**: a runnable PoC, reproduction steps a triager can run **cold** on a clean
+  checkout, the **suggested fix** (mandatory on most programs — a report without one gets closed), and
+  impact stated against the program's **own enumerated impact limbs**, quoted.
+- **Differentiate against known reports here**, in the report body — entry point, code path, root
+  cause, the specific missing line. Let the triager judge; we cannot read other researchers' reports.
+- **De-AI pass — `vibecoding-check` over the finished report.** Strip phase references, task IDs, temp
+  paths, internal lane names, hedging scaffolds and AI tells. Researcher voice throughout. Several
+  programs state outright that *"AI-generated reports without runable PoC are not accepted"*, and a
+  report that reads as machine-generated invites that judgement regardless of quality.
+- **Platform constraints, measured before writing, not after**: character limits, upload allowlists,
+  the vulnerability taxonomy the form actually offers, and any content filtering on the submission
+  path — inline command strings and header literals have tripped WAFs on `submit`/`PATCH`.
+- **Stage the submission fully** — navigate the authed session, fill the form, attach the PoC, and
+  stop. Staging needs no approval.
+- **The final Submit click is a hard per-report operator "go".** Irreversible, costs a submission fee
+  and reputation. Chrono drives the entire workflow up to it and never through it.
+
+## Phase 7 — TEARDOWN (Chrono)
+
+Runs only after the operator closes the program **and every lane is terminal**.
+
+**Verify no artifact is unpromoted before pruning anything** — a `blocked` task never promotes its
+own, and a naive prune once destroyed a 577-line artifact. Then prune board worktrees, truncate
+`_state/tmux-logs` and `_state/board-dispatch` to a tail, and drop regenerable build output.
+
+**Keep target clones and campaign artifacts — while the program is LIVE.** They are rerun targets and
+dedup input, and they are usually the largest directories, so the temptation is to delete exactly the
+wrong thing.
+
+**Once a program is CLOSED, that inverts.** A target clone pinned to a commit is **re-fetchable**;
+the artifact and the technique note are not. So at close, after findings and reusable technique notes
+are promoted per `shared/mode-cleanup.md`:
+
+| Tier | Examples | At program close |
+|---|---|---|
+| **durable** | ledgers, verification artifacts, submission narratives, technique notes, the burn/dedup record | keep, and record the pin so the clone can be re-fetched |
+| **re-derivable** | target repo clones, build output, CodeQL databases, fuzz corpora, tool source trees whose built artifact is retained | prune — record `repo@sha` in the artifact first |
+| **cache** | toolchain caches (`GOCACHE`, `uv`, `solana`, npm/pip), transcription caches, per-attempt worktrees | prune freely once no lane is running |
+
+**Never prune a cache a running lane is using** — check mtime, not just the name. `GOCACHE` being
+written *right now* means a wipe forces every in-flight lane to rebuild inside its 61-minute budget.
+Measured: a campaign filled a 228 GB volume to 100%, every Go link failed silently for hours, two
+lanes burned full budgets, and one returned `UNDETERMINED` for a reason unrelated to the target.
+`bin/send-task.sh` now warns below 2 GB free.
+
+Report free space before and after, and check `~/.colima` and `~/Library/Caches` **by size, not by
+tool report**: 33 GB of orphaned VM disk was once invisible to `docker system df`, `colima list` and
+`limactl disk list` alike, and only `du` found it.
+
+---
+
+## Standing rules
+
+**Operator gates.** Approval before engaging a target, touching authenticated scope, or contacting a
+program. **The final Submit click is a hard per-report operator "go"** — Chrono may drive the whole
+submission workflow up to but not through it. Staging a form without submitting needs no approval.
+
+**A question is not authorisation.** "Should we do X next?" is a question. Do not dispatch on it.
+
+**An empty result is a signal, not a conclusion.** These are audits: a codebase of this size is
+expected to yield findings. **If a phase ends with zero candidates, re-audit every refutation against
+Law 3 before reporting empty** — check whether each killed the claim *as stated* or a narrower cousin.
+Report the re-audit outcome either way. (The sibling rule for an empty Phase 3 is: report and ask,
+never auto-rerun and never auto-close.)
+
+**Review only where it changes a decision** — findings, submissions, and exclusion work. Never review
+the hunt stage; never review a review.
+
+**One adjudication, opposite family, and that is the whole review layer.** The review that counts is a
+single pass by **`skeptic` or `impact-validator` running on a different model family from the author**
+of the work being judged. Both roles are routable on either family and hold adapters on both, so the
+opposite one is always available — pick it explicitly with `to_model` rather than accepting the map's
+default, and state the author's family in the packet so the reviewer can confirm it is anti-affine.
+
+Do **not** stack reviews on top of that. Per-task `mandatory_review` on a high-safety specialist is
+**settlement bookkeeping**, not adjudication — it exists so a task can close, and it does not license
+a second opinion pass, a review of the adjudication, or a third family "to be sure". A campaign that
+reviews its hunt lanes, then reviews the chainers, then reviews the adjudicator has not become more
+rigorous; it has spent its budget on process and taught every lane that its output will be overturned.
+
+Two corollaries worth stating because both cost us a lane this run:
+
+- **An adjudicator must not run below the tier of the work it judges.** `skeptic` and
+  `impact-validator` carry max-tier profiles on both families for this reason.
+- **If the assigned reviewer's family authored any item under review, it is not anti-affine** —
+  re-route that adjudication rather than accepting it. The reviewer should say so if Chrono misses it.
+
+**Timing is the operator's.** A short window means fewer targets done properly, never the same target
+done thinly.
+
+**Report coverage and residual; ask rather than auto-close.** An empty hunt is reported with what was
+covered and what remains. Never auto-rerun, never auto-close.
+
+**Only `return_artifact` is promoted from a worktree.** Every other `write_scope` path is silently
+stranded, and because `_state/**` is gitignored the failure is invisible rather than an error. This
+stranded a PoC, a harness suite, a sealed cross-check file and a program record in a single session.
+**After any lane with more than one `write_scope` entry, sweep its worktree before settling** —
+`find _state/board-worktrees/<attempt>/ -newer <packet>` — and promote by hand what the board did not.
+
+**A retry must use a FRESH `return_artifact` path.** A blocked settlement writes a stub to the
+packet's return path; the next attempt then fails completion prevalidation with *"return artifact
+destination already differs"* even under a new task id. Either use a new path or move the stub aside
+first — moving it is safe, since the same information lives in the response envelope.
+
+**Read a block's `failure_class` before diagnosing it.** The registry flattens launch timeouts,
+prevalidation failures and genuine config faults all to `blocked`. The receipt in
+`_state/board-dispatch/<task>.<attempt>.log` carries `failure_class`, `reason` and `returncode`;
+a `launch` class under high load means the machine could not fork a child, not that the packet is
+wrong.
+
+**Attach a waiter at dispatch time.** A background Chrono receives no board alerts — they target a
+tmux pane it does not own. Poll for the response file and let its exit re-invoke the session, rather
+than ending a turn with a promise to report later.
+
+## Domain routing
+
+Lanes select a domain checklist set — web/SaaS · smart-contract/DeFi · infra/cloud · LLM/AI · mobile —
+through the four `bounty/*` capability cards and the audit-checklist skills. The verification back-end
+is identical across domains.
+
+## Removed in v3, and why
+
+- **Prior-art exclusion lists** — the largest single bias source. A cross-family review proved an
+  artifact that declared *"this document contains NO ranking"* was nonetheless a pre-composition
+  filter, and its author could not see it.
+- **Terminus pre-registration** — became a constraint on what counted as a win before anyone had
+  looked.
+- **The "do not start" EV gate** — survives only as an EV *note* for operator target selection, never
+  as a block on hunting.
+- **G1–G4 as a veto** — retained as a submission checklist in Phase 5.
+- **Prior kill lists carried between campaigns** — a kill made under the old machinery is not evidence
+  about the code. If it matters, re-derive it.

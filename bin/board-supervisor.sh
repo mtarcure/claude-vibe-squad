@@ -124,13 +124,32 @@ print(status)
 PYEOF
   )"
   if [[ "$capture_rc" -ne 0 || "$sync_rc" -ne 0 || "$supervisor_rc" -ne 0 || "$supervisor_status" != "launched" ]]; then
+    # The receipt already records WHY the launch failed. Without lifting it here the
+    # envelope only said "status blocked exit N; inspect <log>", so every block cost a
+    # round trip into the log to learn whether the packet was too large, the mode
+    # unknown, return_artifact missing, or the response envelope malformed -- four
+    # distinct causes that presented identically. Fail-open: an unreadable receipt
+    # falls back to the previous generic line rather than breaking dispatch.
+    blocked_detail="$(
+      "$python_bin" - "$receipt_path" <<'PYBLOCKED' 2>/dev/null || true
+import json, sys
+try:
+    with open(sys.argv[1], encoding="utf-8") as fh:
+        receipt = json.load(fh)
+except Exception:
+    raise SystemExit(0)
+reason = receipt.get("reason")
+if isinstance(reason, str) and reason.strip():
+    print(" ".join(reason.split())[:600])
+PYBLOCKED
+    )"
     if ! "$python_bin" "$context_builder" blocked \
       --repo-root "$vault_root" \
       --task-id "$task_id" \
       --lane "$lane" \
       --return-artifact "$return_artifact" \
       --compatibility-namespace "$compatibility_namespace" \
-      --reason "detached board supervisor status ${supervisor_status:-invalid} exit ${supervisor_rc}; inspect ${log_path}"; then
+      --reason "${blocked_detail:+${blocked_detail} | }detached board supervisor status ${supervisor_status:-invalid} exit ${supervisor_rc}; inspect ${log_path}"; then
       printf "blocked completion publication failed\n" >"$failure_marker"
       exit 70
     fi
@@ -950,6 +969,34 @@ def trusted_worker_environment(worker_lane):
             environment["CODEX_HOME"] = str(
                 repo_path / "_state" / "board-codex-homes" / attempt_id
             )
+    # Per-attempt scratch root, so build caches die with the attempt that made
+    # them. Previously every lane inherited the ambient TMPDIR and pointed
+    # GOCACHE/CARGO_TARGET_DIR at a fresh /tmp path that nothing ever reclaimed.
+    # Measured 2026-08-06: 88 GB in /tmp, 52 GB of it in 32 GOCACHE-shaped
+    # directories, one per finished Go/Cosmos lane. macOS only auto-purges /tmp
+    # after 3 untouched days, which an active campaign keeps resetting.
+    #
+    # Deliberately /tmp/vs/<attempt>, NOT _state/board-scratch/<attempt>: a unix
+    # socket path caps near 104 bytes and the _state form already consumes 97,
+    # leaving 7 for a socket name. The /tmp form uses 43 and leaves 61.
+    #
+    # GOMODCACHE and the cargo registry are deliberately NOT scoped here. They
+    # are download caches that dedup across lanes; per-attempt copies would
+    # re-fetch every dependency on every dispatch.
+    #
+    # Best-effort by design: scratch that cannot be created falls back to the
+    # ambient TMPDIR. A disk-hygiene optimisation must never block a dispatch.
+    scratch_root = Path("/tmp/vs") / attempt_id if attempt_id else None
+    if scratch_root is not None:
+        try:
+            (scratch_root / "gocache").mkdir(parents=True, exist_ok=True)
+            (scratch_root / "cargo-target").mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
+        else:
+            environment["TMPDIR"] = str(scratch_root)
+            environment["GOCACHE"] = str(scratch_root / "gocache")
+            environment["CARGO_TARGET_DIR"] = str(scratch_root / "cargo-target")
     return environment
 
 

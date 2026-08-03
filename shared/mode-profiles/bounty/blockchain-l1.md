@@ -6,7 +6,7 @@ status: active
 
 # Bounty Profile: Blockchain L1 / Appchain / Cross-Chain Bridge
 
-For auditing an L1/L2 node, appchain, or cross-chain interoperability protocol — Cosmos-SDK/CometBFT chains, Go/Rust node implementations, EVM/SVM gateways, TSS/MPC bridges, universal executors. (Push Chain, Osmosis-style appchains, bridge protocols.) This is NOT a Solidity-contract audit (`smart-contract.md`) nor a crypto-library review (`crypto-protocol.md`) — it's the node/protocol/interop layer.
+For auditing an L1/L2 node, appchain, or cross-chain interoperability protocol — Cosmos-SDK/CometBFT chains, Go/Rust node implementations, EVM/SVM gateways, TSS/MPC bridges, universal executors. (a bridge target, Osmosis-style appchains, bridge protocols.) This is NOT a Solidity-contract audit (`smart-contract.md`) nor a crypto-library review (`crypto-protocol.md`) — it's the node/protocol/interop layer.
 
 ## Auto-detection signals
 - Scope repos are a node implementation (`x/` Cosmos modules, `app/app.go`, `go.mod` with cosmos-sdk/cometbft, a Substrate runtime, a Go/Rust L1)

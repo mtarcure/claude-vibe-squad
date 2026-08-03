@@ -1,0 +1,52 @@
+# Applicability matrix: which techniques are demanded per target class, and which
+# instruments can satisfy each. `n_a` rows are never demanded and never counted as
+# MISSED -- this is what stops the ledger asking for halmos on Anchor.
+#
+# A technique with applicability=applies and NO available instrument still applies.
+# That is deliberate: the absence of an instrument is a gap worth a recorded reason,
+# not a reason to silently drop the row. Decline it; do not hide it.
+target_class	technique_id	applicability	instruments	rationale
+evm-solidity	source-review	applies	source-citation	Solidity sources are available for every EVM program in scope.
+evm-solidity	static-pattern-scan	applies	slither,semgrep,aderyn,mythril	Mature Solidity detector suites exist and are installed.
+evm-solidity	property-fuzzing	applies	echidna,medusa,forge-invariant	Three independent property fuzzers target Solidity; any one satisfies the technique.
+evm-solidity	coverage-guided-fuzzing	applies	ityfuzz	ItyFuzz is the only coverage-guided EVM fuzzer we hold; pinned Linux container only.
+evm-solidity	symbolic-execution	applies	halmos,mythril	Halmos runs directly on Foundry tests; Mythril does symbolic bytecode analysis.
+evm-solidity	concrete-harness	applies	forge-test	Foundry is the native EVM test runner.
+evm-solidity	differential-variant	applies	differential-harness	Sibling/twin contracts and upgrade pairs are the common EVM shape.
+evm-solidity	bytecode-census	applies	cast-selectors,opcode-census,radare2	Deployed bytecode yields ABI, payability, and value-opcode enumeration.
+evm-solidity	deployed-state	applies	cast-deployed,fork-rpc	Public RPC exposes storage, code, and forkable real state.
+evm-solidity	economic-composition	applies	econ-artifact	Value flows and attacker cycle costs must be modeled explicitly.
+evm-solidity	supply-chain	applies	npm-audit,forge-deps,cargo-audit	Solidity projects vendor libraries whose provenance is in scope.
+solana-anchor	source-review	applies	source-citation	Rust/Anchor sources are available for programs in scope.
+solana-anchor	static-pattern-scan	applies	radar,semgrep,clippy	Radar is Anchor-aware; Semgrep takes custom Rust rules; clippy is a weak third.
+solana-anchor	property-fuzzing	applies	trident,mollusk-harness	Trident is the Anchor property fuzzer; a Mollusk arbitrary-session runner is the fallback.
+solana-anchor	coverage-guided-fuzzing	applies	cargo-fuzz	cargo-fuzz/libfuzzer-sys is the Rust coverage-guided path.
+solana-anchor	symbolic-execution	applies		No Solana/SBF symbolic executor exists in our runtime. The technique still applies; the gap is declined with a reason, never silently dropped. EVM solvers are not substitutes.
+solana-anchor	concrete-harness	applies	mollusk,cargo-test,anchor-test	Mollusk executes the exact ELF against local accounts.
+solana-anchor	differential-variant	applies	differential-harness	Program twins, forged-ID twins, and version diffs are the common Anchor shape.
+solana-anchor	bytecode-census	applies	radare2	The SBF ELF is the shipped artifact; source alone does not settle enumeration.
+solana-anchor	deployed-state	applies	solana-rpc	Live program accounts, upgrade authority, and config are readable over RPC.
+solana-anchor	economic-composition	applies	econ-artifact	Rent, fees, and CPI composition change what an exit is worth.
+solana-anchor	supply-chain	applies	cargo-audit,cargo-geiger	Crate provenance and unsafe surface are in scope.
+cosmos-go	source-review	applies	source-citation	Go sources are available for modules in scope.
+cosmos-go	static-pattern-scan	applies	gosec,semgrep,staticcheck	Go has mature static analysers; filter generated protobuf before quoting counts.
+cosmos-go	property-fuzzing	applies	go-fuzz	Go native fuzzing covers property campaigns.
+cosmos-go	coverage-guided-fuzzing	applies	go-fuzz	Go native fuzzing is coverage-guided by construction.
+cosmos-go	symbolic-execution	applies		No Go symbolic executor is held. Applies; must be declined with a reason.
+cosmos-go	concrete-harness	applies	go-test	Go test is the native runner.
+cosmos-go	differential-variant	applies	differential-harness	Fork/version divergence is the common Cosmos shape.
+cosmos-go	bytecode-census	n_a		Go modules ship as source in scope; no separate compiled artifact is adjudicated.
+cosmos-go	deployed-state	applies	cosmos-rpc	Chain state and module params are readable over RPC.
+cosmos-go	economic-composition	applies	econ-artifact	Gas, fees, and inter-module composition govern impact.
+cosmos-go	supply-chain	applies	go-audit	Module provenance and pinned toolchain are in scope.
+generic	source-review	applies	source-citation	Always applicable where source exists.
+generic	static-pattern-scan	applies	semgrep	Semgrep is language-agnostic enough to always apply.
+generic	property-fuzzing	n_a		Without a declared property surface this cannot be demanded generically.
+generic	coverage-guided-fuzzing	n_a		Requires a harnessable entry point that a generic target may not have.
+generic	symbolic-execution	n_a		No general-purpose solver path for arbitrary targets.
+generic	concrete-harness	applies	generic-harness	Any reproduction attempt counts.
+generic	differential-variant	applies	differential-harness	Version and sibling comparison always applies.
+generic	bytecode-census	n_a		No compiled artifact is assumed.
+generic	deployed-state	applies	deployed-probe	The live instance is usually reachable.
+generic	economic-composition	n_a		Impact model is target-specific and cannot be demanded generically.
+generic	supply-chain	applies	generic-audit	Dependency provenance always applies.

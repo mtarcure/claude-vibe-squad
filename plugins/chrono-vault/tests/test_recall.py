@@ -262,5 +262,49 @@ class RecallTests(unittest.TestCase):
         self.assertIn("RestrictedToken", visible["results"][0]["snippet"])
 
 
+class WrittenBeforeCutoffTests(unittest.TestCase):
+    """Campaign compartment: recall must not return notes written after a cutoff.
+
+    A pool-blind lane is denied the primitive pool by its packet; without this
+    filter `recall` hands the same material back through memory, which was
+    observed twice on the 2026-08 campaign.
+    """
+
+    def setUp(self) -> None:
+        # These call recall() directly, which resolves CHRONO_VAULT_ROOT. Without
+        # an isolated root they pass only where the developer's shell happens to
+        # export one and raise VaultRootError everywhere else, including CI.
+        self.vault_root = Path(
+            os.path.realpath(tempfile.mkdtemp(prefix="chrono-cutoff-test-"))
+        )
+        self.addCleanup(shutil.rmtree, self.vault_root, ignore_errors=True)
+        (self.vault_root / ".chrono-vault").write_text(
+            json.dumps({"vault_id": "cutoff-test", "schema_version": 1}),
+            encoding="utf-8",
+        )
+        self.env = mock.patch.dict(
+            os.environ,
+            {"CHRONO_VAULT_ROOT": str(self.vault_root)},
+        )
+        self.env.start()
+        self.addCleanup(self.env.stop)
+
+    def test_past_cutoff_excludes_everything(self) -> None:
+        out = vault_recall.recall("token", filters={"written_before": "2000-01-01T00:00:00Z"})
+        self.assertEqual(out["results"], [], "a deep-past cutoff must exclude all notes")
+
+    def test_future_cutoff_does_not_exclude_on_time_grounds(self) -> None:
+        import time
+        out = vault_recall.recall("token", filters={"written_before": time.time() + 86_400})
+        self.assertIsInstance(out["results"], list)
+
+    def test_garbage_cutoff_is_rejected(self) -> None:
+        with self.assertRaises(vault_recall.RecallError):
+            vault_recall.recall("token", filters={"written_before": "not-a-date"})
+
+    def test_unknown_filter_still_rejected(self) -> None:
+        with self.assertRaises(vault_recall.RecallError):
+            vault_recall.recall("token", filters={"written_after": "2026-01-01"})
+
 if __name__ == "__main__":
     unittest.main()

@@ -49,7 +49,7 @@ Try dedicated tools FIRST — synthesized+cited search, real-time web/news searc
 ## When to dispatch
 
 - After any multi-model fan-out where N specialists produced N analyses
-- `bounty` mode, Phase 8 — synthesizing specialist outputs into the final findings list
+- `bounty` mode, VERIFY phase — synthesizing specialist outputs into the final findings list
 - `project` mode, research family — cross-source synthesis
 - `project` mode, Flow S5 (Review) — review consolidation
 

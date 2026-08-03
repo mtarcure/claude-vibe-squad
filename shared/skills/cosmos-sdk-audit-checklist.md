@@ -1,3 +1,9 @@
+---
+name: cosmos-sdk-audit-checklist
+description: Use when auditing a Cosmos-SDK / CometBFT chain or appchain — custom modules (x/*), app wiring (app/), and the ante chain. Covers the classes that halt chains or move funds, starting with non-determinism in consensus code.
+status: authored
+---
+
 # cosmos-sdk-audit-checklist
 
 Known critical-bug classes for Cosmos-SDK / CometBFT chains and appchains. Run every item against custom modules (`x/*`), the app wiring (`app/`), and the ante chain. These are the classes that halt chains or move funds.

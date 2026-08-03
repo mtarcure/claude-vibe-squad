@@ -1,0 +1,5 @@
+INFO:Detectors:
+Reentrancy in Gateway.withdraw() (contracts/Gateway.sol#210-244):
+	External calls:
+	- token.transfer(to,amount) (contracts/Gateway.sol#231)
+INFO:Slither:. analyzed (65 contracts with 101 detectors), 9 result(s) found

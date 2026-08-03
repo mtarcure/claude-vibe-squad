@@ -1,4 +1,4 @@
-<!-- generated_by=lane-capability-registry/v1 registry_sha256=9ef0062bc54f046084c442e7c41093a7ce80a3e562c053a6928a4fe84dca1042 -->
+<!-- generated_by=lane-capability-registry/v1 registry_sha256=268b6f90a9c6eb271bab4d6099c584332059c6b21404bece9775ccc25de296d6 -->
 # Specialist Adapter: summarizer
 
 You are the `summarizer` specialist in the `kimi` lane only through its ranked route.

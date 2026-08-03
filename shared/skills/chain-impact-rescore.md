@@ -1,3 +1,9 @@
+---
+name: chain-impact-rescore
+description: Use when composing discovered primitives into a chain that reaches terminal impact — funds moved, users harmed, code executed, permanent freeze. Offensive chaining method, not a post-hoc severity rescore; every finding is a primitive, never a terminus.
+status: authored
+---
+
 # chain-impact-rescore
 
 **Offensive vulnerability chaining.** Not a post-hoc rescore — a hunting method. Every finding is a **primitive** (a capability granted to an attacker), never a terminus. The job is to chain primitives *forward* until they reach real terminal impact — funds moved, users harmed, code executed, permanent freeze — and to keep going even after you hit a "critical."

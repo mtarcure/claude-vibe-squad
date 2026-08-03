@@ -1,0 +1,2 @@
+deployment	proxy	implementation
+fixture-vulnerable	src/StorageFixtures.sol:VulnerableProxy	src/StorageFixtures.sol:VulnerableImplementation

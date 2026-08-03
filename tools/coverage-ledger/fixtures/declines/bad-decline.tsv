@@ -1,0 +1,4 @@
+# Control: a decline whose quoted text appears nowhere in the cited artifact.
+# The ledger must refuse it and leave the technique MISSED.
+technique_id	reason	citation_path	citation_quote
+symbolic-execution	We considered symbolic execution and decided against it.	bad-decline/gaps.md	a Solana symbolic executor was evaluated and rejected on cost grounds

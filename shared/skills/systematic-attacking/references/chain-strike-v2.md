@@ -203,7 +203,9 @@ asset** through the host Phase-1 prior-art path (disclosed bugs, program history
 DBs, and **our own vault**):
 
 - A **known / reported / patched composite** — even one assembled from links that look novel in
-  isolation — **is a duplicate.** Kill it or record it dedup-dead.
+  isolation — **is a duplicate.** Record it `dedup-dead` — do not delete it. A `dedup-dead` composite is still a
+  legal inner link, and erasing it removes chaining ammunition while hiding the dedup decision from
+  audit.
 - Conversely, a chain built entirely from **individually dedup-dead** primitives can still be
   novel — **the novelty lives in the composition and the terminus**, not the parts. Dedup the
   *composite*, not just the links.

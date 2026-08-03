@@ -1,9 +1,15 @@
+---
+name: known-advisory-backport-check
+description: Use when a target forks or pins a dependency (a forked cosmos/evm, an old cosmos-sdk/cometbft, a vendored library) — enumerate pinned versions, pull the upstream advisory set, and find known vulnerabilities the target failed to backport. Cheapest high-value pass on any fork.
+status: authored
+---
+
 # known-advisory-backport-check
 
 For any target that **forks** or **pins** a dependency (a forked cosmos/evm, an old cosmos-sdk/cometbft, a vendored library): known upstream vulnerabilities the target failed to patch are reachable, low-effort findings. Run this early — it's the cheapest high-value pass and it's what the 52-competitor crowd's `osv-scan` finds first.
 
 ## Steps
-1. **Enumerate pinned versions.** Read `go.mod`/`Cargo.toml`/`package.json` including `replace`/`=>` directives (the replace wins — audit the ACTUAL resolved version, e.g. `cosmos/evm => pushchain/evm v1.0.0-rc2...`).
+1. **Enumerate pinned versions.** Read `go.mod`/`Cargo.toml`/`package.json` including `replace`/`=>` directives (the replace wins — audit the ACTUAL resolved version, e.g. `cosmos/evm => a bridge target/evm v1.0.0-rc2...`).
 2. **Pull the advisory set.** `osv-scanner --lockfile <lock>` for the dep graph; `gh api repos/<upstream>/security-advisories` for published GHSAs; the upstream `SECURITY.md` / release notes / advisory index (Hacken, Cosmos ASA, etc.).
 3. **For each Critical/High advisory:** get `affected` + `first_patched_version` (`gh api /advisories/<GHSA>`), compare to the pinned version. Behind the fix = candidate.
 4. **Reachability + config.** Is the vulnerable module/function actually WIRED and reachable at no privilege in THIS target's config? (e.g. is `x/group` registered + in EndBlock? is the ICS20 precompile activated? is the affected code path called?) A vuln in an unused code path doesn't pay.

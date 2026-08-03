@@ -1,0 +1,98 @@
+name: radar-canary-task-2026-08-04
+
+# Derived from Auditware/radar docker-compose.yml at
+# 2327887cd47a2bcc71b7a6d0f88f60c9db026436. Host port publication and the
+# global container_name values are intentionally removed for task isolation.
+services:
+  controller:
+    image: ghcr.io/auditware/radar-controller:main
+    platform: linux/amd64
+    environment:
+      DJANGO_HOST: api
+      DJANGO_HOST_LOCAL: api
+      DJANGO_PORT: "8000"
+    depends_on:
+      api:
+        condition: service_healthy
+    volumes:
+      - radar_data:/radar_data
+
+  api:
+    image: ghcr.io/auditware/radar-api:main
+    platform: linux/amd64
+    environment: &api_environment
+      DEBUG: "false"
+      POSTGRES_DB: radar
+      POSTGRES_USER: radar
+      POSTGRES_PASSWORD: radar-local-canary-only
+      POSTGRES_HOST: postgres
+      POSTGRES_HOST_LOCAL: postgres
+      POSTGRES_PORT: "5432"
+      DJANGO_SUPERUSER_USERNAME: radar
+      DJANGO_SUPERUSER_PASSWORD: radar-local-canary-only
+      SECRET_KEY: radar-local-canary-not-for-production
+      RABBITMQ_USER: radar
+      RABBITMQ_PASSWORD: radar-local-canary-only
+      CELERY_BROKER_HOST: rabbitmq
+      CELERY_BROKER_HOST_LOCAL: rabbitmq
+      CELERY_BROKER_PORT: "5672"
+    volumes:
+      - radar_data:/radar_data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 6<> /dev/tcp/localhost/8000'"]
+      start_period: 15s
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  celeryworker:
+    image: ghcr.io/auditware/radar-api:main
+    platform: linux/amd64
+    command: poetry run celery -A api worker -l info
+    restart: on-failure
+    volumes:
+      - radar_data:/radar_data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment: *api_environment
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: radar
+      POSTGRES_USER: radar
+      POSTGRES_PASSWORD: radar-local-canary-only
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U radar -d radar"]
+      interval: 3s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-alpine
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: radar
+      RABBITMQ_DEFAULT_PASS: radar-local-canary-only
+    restart: on-failure
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics check_port_connectivity"]
+      start_period: 15s
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  postgres_data:
+  radar_data:
+

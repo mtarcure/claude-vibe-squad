@@ -1,0 +1,25 @@
+# Positive-control expectations.
+#
+# The load-bearing pair is `real-runs` and `mentions-only`. They differ in exactly one
+# respect: whether the tools actually ran. `mentions-only` names every fuzzer, solver
+# and scanner in an arsenal table and a dispatch plan, exactly as a real campaign brief
+# does, and must score MISSED across the board. `real-runs` contains captured output
+# from the same tools and must score USED at tier 1.
+#
+# `real-runs` also asserts MISSED for two techniques it genuinely did not exercise.
+# An extractor that reports everything used and one that reports nothing used both
+# print confidently; only a fixture that demands BOTH answers at once separates them.
+fixture	target_class	technique_id	expected_status	expected_max_tier	rationale
+real-runs	evm-solidity	property-fuzzing	USED	1	Echidna worker/coverage output is present.
+real-runs	evm-solidity	symbolic-execution	USED	1	Halmos JSON result schema is present.
+real-runs	evm-solidity	concrete-harness	USED	1	Foundry suite result lines are present.
+real-runs	evm-solidity	static-pattern-scan	USED	1	Slither run summary is present.
+real-runs	evm-solidity	deployed-state	MISSED		No live-state read happened; the extractor must not invent one.
+real-runs	evm-solidity	coverage-guided-fuzzing	MISSED		ItyFuzz never ran; property fuzzing must not be credited to it.
+mentions-only	evm-solidity	property-fuzzing	MISSED		Echidna and Medusa are named in the arsenal only.
+mentions-only	evm-solidity	symbolic-execution	MISSED		Halmos is named in the arsenal only.
+mentions-only	evm-solidity	static-pattern-scan	MISSED		Slither and Semgrep are named in the arsenal only.
+mentions-only	evm-solidity	concrete-harness	MISSED		Foundry is named in the arsenal only.
+mentions-only	evm-solidity	source-review	MISSED		A plan that cites no file:line has not read the source.
+declined	solana-anchor	symbolic-execution	DECLINED		A verifiable citation records why no SBF solver ran.
+bad-decline	solana-anchor	symbolic-execution	MISSED		The decline quotes text that does not exist; it must not be honoured.

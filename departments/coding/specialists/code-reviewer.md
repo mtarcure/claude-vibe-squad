@@ -48,7 +48,7 @@ Tool, skill, and MCP capabilities are **lane-specific** and are defined authorit
 - Phase 5 of Project Mode (review before test/ship)
 - After any non-trivial code change
 - On-demand via `code-reviewer` request
-- Bounty Mode Phase 5 (exploit-development) — adversarial review of proposed PoC
+- Bounty Mode VERIFY phase — adversarial review of a proposed PoC
 
 ## Multi-model verification rule
 

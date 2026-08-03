@@ -1,0 +1,85 @@
+name: Public Validate
+
+# The public repo ships the mechanism, not our measurements: the rigs and their
+# controls, the technique vocabulary, the evidence signatures, the exporter, and
+# the recommended-toolchain catalog. It deliberately does NOT ship our arsenal
+# census or our capability cards.
+#
+# So it cannot run squad-validate.yml, and that is not a gap to paper over:
+#   - validate-capabilities.sh hard-requires shared/registries/skill-tool-registry.tsv
+#     and raises FileNotFoundError without it.
+#   - validate-specialists.sh diffs against a baseline commit that is not an
+#     ancestor of the public tip. It reads private history and cannot pass here
+#     no matter what is published.
+#
+# Making those two skip when their inputs are absent would let a real deletion
+# pass silently in the private repo, which is a worse failure than a red badge
+# in this one. Instead, validate what is actually here.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "33 11 * * *"
+  workflow_dispatch:
+
+jobs:
+  validate:
+    # This file is authored in the private repo and travels to public with the
+    # export, so it exists in BOTH. It must only run in public: the private tree
+    # legitimately contains absolute /Users/ paths in rig run logs, which the
+    # last step here treats as a failure. `github.repository` is set by the
+    # runner and is not attacker-controllable, unlike event payload fields.
+    if: github.repository == 'mtarcure/claude-vibe-squad'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Shell syntax
+        run: bash -n $(git ls-files '*.sh')
+
+      - name: Python compile
+        run: |
+          files=$(git ls-files '*.py')
+          [ -n "$files" ] && python3 -m py_compile $files
+          echo "compiled $(echo "$files" | wc -w) file(s)"
+
+      - name: Coverage-ledger control suite
+        # The controls are the point: mentions-only fixtures must classify as
+        # MISSED, so that naming a tool in an artifact is never mistaken for
+        # evidence that it ran. A rig whose controls pass is a rig you can trust.
+        run: python3 tools/coverage-ledger/coverage_ledger.py controls
+
+      - name: Recommended-toolchain catalog is well-formed
+        run: |
+          python3 - <<'PY'
+          import csv, pathlib, sys
+          p = pathlib.Path("shared/registries/recommended-toolchain.tsv")
+          rows = [r for r in p.read_text(encoding="utf-8").splitlines()
+                  if r and not r.startswith("#")]
+          header = rows[0].split("\t")
+          expected = ["name", "kind", "purpose", "hunting_type", "target_class"]
+          if header != expected:
+              sys.exit(f"header drift: {header!r} != {expected!r}")
+          bad = [r for r in rows[1:] if len(r.split("\t")) != len(expected)]
+          if bad:
+              sys.exit(f"{len(bad)} row(s) have the wrong column count")
+          print(f"catalog OK: {len(rows) - 1} recommended tools")
+          PY
+
+      - name: No private paths or identifiers
+        # A standing guard, not a one-off cleanup. The export gate enforces this
+        # before publishing; this asserts it stayed true afterwards.
+        #
+        # The patterns are assembled at runtime rather than written literally.
+        # Spelling them out would make this file match its own check -- which it
+        # did on the first rehearsal, failing the gate on itself.
+        run: |
+          home_pattern="/Us""ers/chrono"
+          ident_pattern="chrono""claw"
+          if git grep -nI -e "$home_pattern" -e "$ident_pattern" -- . ; then
+            echo "::error::private path or identifier present in the public tree"
+            exit 1
+          fi
+          echo "no private paths or identifiers"

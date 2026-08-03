@@ -1,0 +1,11 @@
+# Cargo build output. Each of the rig's four crates (root, canary/, rig/, fuzz/)
+# produces its own target/, and the canary alone is ~465MB after one release
+# build. Nothing here was ignored before, so a `git add -A` in this directory
+# would have tried to commit all of it.
+target/
+**/target/
+
+# cargo-fuzz corpora and artifacts: regenerable, and large.
+fuzz/corpus/
+fuzz/artifacts/
+fuzz/coverage/

@@ -52,7 +52,7 @@ Try dedicated tools FIRST — synthesized+cited search, real-time web/news searc
 - Reading 100+ files across a codebase to surface cross-file relationships
 - Multi-repo analysis (e.g., comparing two libraries)
 - Long PDF / paper-stack synthesis (10+ papers in one prompt)
-- Phase 5 of Bounty Mode (chain construction across many findings)
+- CHAINING phase of Bounty Mode (composition across many primitives)
 - Research Mode when source corpus is genuinely large
 
 ## Input

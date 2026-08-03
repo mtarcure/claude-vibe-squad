@@ -1,0 +1,11 @@
+[2026-08-02 14:00:51.17] Compiling `test/Accounting.sol`... Done! (8.267944s)
+Analyzing contract: test/Accounting.sol:AccountingHarness
+Loaded 0 transaction sequences from corpus/reproducers
+[2026-08-02 14:01:07.05] [Worker 3] New coverage: 4189 instr, 5 contracts, 1 seqs in corpus
+[2026-08-02 14:01:07.05]  Saved reproducer to corpus/coverage/1599982557985321441.txt
+[2026-08-02 14:01:07.14] [Worker 0] New coverage: 4239 instr, 5 contracts, 5 seqs in corpus
+[2026-08-02 14:01:07.38] [Worker 2] Test limit reached. Stopping.
+echidna_usage_matches_accepted: passing
+echidna_actor_has_no_admin_role: passing
+Unique instructions: 5789
+Total calls: 20090

@@ -1,0 +1,2 @@
+deployment	proxy	implementation
+fixture-eip1967-good	src/StorageFixtures.sol:GoodEip1967Proxy	src/StorageFixtures.sol:GoodImplementation

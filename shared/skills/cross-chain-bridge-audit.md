@@ -1,3 +1,9 @@
+---
+name: cross-chain-bridge-audit
+description: Use when auditing a cross-chain bridge, interoperability L1, cross-chain executor, or message-passing protocol (observe -> attest -> execute). Maps the trust/value pipeline and walks the bug classes that actually pay before declaring a surface clean.
+status: authored
+---
+
 # cross-chain-bridge-audit
 
 Checklist for auditing a cross-chain bridge / interoperability L1 (observe→attest→execute). Apply on ANY bridge, cross-chain executor, or message-passing protocol. These are the classes that pay; run every one against the code before declaring a surface clean.

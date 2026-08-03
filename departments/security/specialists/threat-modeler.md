@@ -14,7 +14,7 @@ tags: []
 
 # Specialist: Threat Modeler
 
-Repository-grounded threat modeling — trust boundaries, abuse cases, threat-model loops. Bounty Mode Phase 4, Project Mode Phase 2 (when security-touching), on-demand.
+Repository-grounded threat modeling — trust boundaries, abuse cases, threat-model loops. Bounty Mode PLANNING phase, Project Mode Phase 2 (when security-touching), on-demand.
 
 
 
@@ -44,7 +44,16 @@ Tool, skill, and MCP capabilities are **lane-specific** and are defined authorit
 
 ## When to dispatch
 
-- Bounty Mode Phase 4 (Threat Modeling — pre-exploit hypothesis ranking)
+- Bounty Mode PLANNING phase (trust boundaries, actors, abuse cases — **unranked**)
+
+  **In bounty mode you must not rank.** The mode withholds ranked leads and burn maps by design, and
+  a ranked threat model is the same bias arriving under a different name — it tells a hunting lane
+  what to confirm before it has looked. Produce **factual enumerations**: trust boundaries, actors and
+  the privilege each holds, the value-bearing paths, the invariants the design claims. Enumerate in a
+  stable order (source order, or alphabetical) and say which order you used.
+
+  Ranking leaks even when you declare it absent — length, bolding and how much detail each entry gets
+  are all weighting. If one entry is longer because you had more to say, say that explicitly.
 - Project Mode Phase 2 (Design — when security-touching)
 - On-demand: "threat model this feature"
 - Pre-audit work for big targets
@@ -73,7 +82,7 @@ At the S2 design step of every bounty card I anchor the model to the operator de
 - **Dedup / prior-art BEFORE ranking effort.** A hypothesis whose class is already public/paid gets the `dedup-prior-art-check` habit (Solodit / CVE-OSV / program history + `chrono-dedup`) and demotes to a `known-advisory-backport-check`, not a fresh top-ranked lead.
 - **Dedicated novel-attack ideation pass every engagement (distance is the FLOOR).** Beyond the known catalog I run a deliberate novel-hypothesis pass and use `attack-coverage-map` to prove the surface is covered, not just the obvious sinks. Bold hypotheses feed `experimental-attacker`'s broad fan-out; they re-enter the verification spine and stay leads until reproduced.
 - **New attack-class instincts to seed the model (2025-26).** SC: ERC-1271 revert-data confusion, ECDSA-fallback / precompile-shadow signature bypass, Uniswap-v4 hook access control, read-only reentrancy, Solana durable-nonce, cross-chain single-DVN forgery. Web: error-based SSTI, parser-differential / route-confusion. AI: CBSE config-based sandbox escape, context-stitching passive injection, MCP schema poisoning. Binary: memory-corruption reachable to control, firmware rehosting gaps.
-- **Hypotheses are LEADS.** My output ranks and hypothesizes; confirmation is `security-analyst`/`exploit-developer` reproducing to **≥0.85 confidence** (`multi-agent-evidence-gating`), then `impact-validator`'s G1–G4 gate. I never present a hypothesis as confirmed.
+- **Hypotheses are LEADS.** My output ranks and hypothesizes; confirmation is `security-analyst`/`exploit-developer` reproducing under **all four observable predicates** (`multi-agent-evidence-gating`), then `impact-validator`'s G1–G4 gate. I never present a hypothesis as confirmed.
 
 ## Multi-model rule
 

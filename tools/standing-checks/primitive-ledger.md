@@ -1,0 +1,12 @@
+# Primitive ledger
+
+This build task produced detector primitives, not bounty findings.
+
+| id | bounded capability / observation | exact preconditions | state changed | observed by | inert alone? | relevant terminus | disposition |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| P-001 | Identify a public Solidity proof verifier whose leaf index, proof emptiness, and root/count binding are all unchecked. | Function signature exposes proof, leaf index/count, root, and commitment. | None; static source result. | `proof-verifier-bounds/check.py fixtures/solidity/vulnerable` | yes | forged membership/proof acceptance | Detector fires `FAIL`; fixture only. |
+| P-002 | Identify the same missing-guard shape in Rust/Anchor without relying on Semgrep field-access analysis. | Public Rust function exposes proof, leaf index/count, root, and commitment. | None; static source result. | Positive-controlled `rg` census plus local function analysis on `fixtures/rust/vulnerable` | yes | forged membership/proof acceptance | Detector fires `FAIL`; fixture only. |
+| P-003 | Identify overlapping packed proxy/implementation byte ranges at slots 0 and 1. | Both contracts compile under Forge and are paired in the manifest. | None; compiler layout result. | `forge inspect ... storage-layout` on `fixtures/vulnerable.tsv` | yes | initializer reset / storage corruption | Detector fires on three overlaps; fixture only. |
+| P-004 | The pinned EVM proxy stores implementation/admin in hashed EIP-1967 slots rather than declared slots 0/1. | Declared pair really deploys OpenZeppelin `TransparentUpgradeableProxy`. | None; source/layout observation. | Empty proxy Forge layout plus `ERC1967Utils.sol:21,47,57,83` | yes | collision class bounded for declared pairs | Narrow overlap claim refuted; deployment-history claims remain open. |
+| P-005 | No application-owned proof verifier entry point matched the controlled census in either pinned source root. | Default dependency/test exclusions and current pins. | None; census result. | `proof-verifier-bounds/reports/pinned-targets.md` | yes | unknown | Banked as `EMPTY`; not a kill and not a whole-target negative. |
+| P-006 | Interprocedural guards, macros/modifiers, state-derived counts, namespaced storage, assembly slots, historical bytecode, and undeclared deployments remain outside these lexical/compiler-local checks. | Any target using those patterns. | None. | README known-limits review | yes | unknown | Explicit coverage gap; requires follow-on tools/manual review before a target-wide verdict. |

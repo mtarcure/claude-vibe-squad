@@ -1697,6 +1697,57 @@ def landed_response(
     return None, ""
 
 
+RECEIPT_DIAGNOSTIC_REASON_LIMIT = 240
+
+
+def receipt_failure_diagnostics(receipt: Path) -> dict[str, Any]:
+    """Lift a terminal receipt's triage fields into registry-shaped keys.
+
+    ``status`` alone cannot tell a toolchain gate from a policy denial from a
+    launch crash: ten distinct ``failure_class`` values all reach the registry
+    as ``blocked``. The receipt records the distinction, so triage currently
+    means opening JSON by hand and usually does not happen. Fail-open -- a
+    missing or malformed receipt costs diagnostics, never a reconcile.
+    """
+
+    try:
+        payload = json.loads(receipt.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    diagnostics: dict[str, Any] = {}
+    failure_class = payload.get("failure_class")
+    if isinstance(failure_class, str) and failure_class.strip():
+        diagnostics["failure_class"] = failure_class.strip()
+    reason = payload.get("reason")
+    if isinstance(reason, str) and reason.strip():
+        # Receipt reasons embed whole argv lines; collapse and cap so the
+        # registry stays readable.
+        diagnostics["reason"] = " ".join(reason.split())[
+            :RECEIPT_DIAGNOSTIC_REASON_LIMIT
+        ]
+    returncode = payload.get("returncode")
+    if isinstance(returncode, int) and not isinstance(returncode, bool):
+        diagnostics["returncode"] = returncode
+    return diagnostics
+
+
+def apply_receipt_diagnostics(
+    entry: dict[str, Any],
+    diagnostics: dict[str, Any],
+) -> bool:
+    """Write diagnostics onto the entry; report whether anything changed."""
+
+    changed = False
+    for key, value in diagnostics.items():
+        field = f"terminal_receipt_{key}"
+        if entry.get(field) != value:
+            entry[field] = value
+            changed = True
+    return changed
+
+
 def terminal_board_receipt(
     task_id: str,
     entry: dict[str, Any],
@@ -1745,6 +1796,7 @@ def auto_close_terminal_receipt(
     now: datetime,
     receipt_status: str,
     raw_receipt_status: str,
+    diagnostics: dict[str, Any] | None = None,
 ) -> None:
     """Close one non-review terminal receipt using the lifecycle audit shape."""
 
@@ -1752,6 +1804,13 @@ def auto_close_terminal_receipt(
     if not isinstance(history, list):
         raise RegistryCorruptError("task has malformed closure_history")
     reason = f"terminal board receipt={raw_receipt_status}"
+    diagnostics = diagnostics or {}
+    if diagnostics.get("failure_class"):
+        reason += f" failure_class={diagnostics['failure_class']}"
+    if diagnostics.get("returncode") is not None:
+        reason += f" rc={diagnostics['returncode']}"
+    if diagnostics.get("reason"):
+        reason += f": {diagnostics['reason']}"
     history.append(
         {
             "at": now.isoformat(),
@@ -2942,6 +3001,10 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                         terminal_receipt.relative_to(VAULT_ROOT)
                     )
                     raw_entry["terminal_receipt_status"] = raw_receipt_status
+                    receipt_diagnostics = receipt_failure_diagnostics(
+                        terminal_receipt
+                    )
+                    apply_receipt_diagnostics(raw_entry, receipt_diagnostics)
                     raw_entry["reconciled_at"] = now.isoformat()
                     if pending:
                         raw_entry["status"] = REVIEW_REQUIRED
@@ -2956,6 +3019,7 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                             now,
                             receipt_status,
                             raw_receipt_status,
+                            receipt_diagnostics,
                         )
                         messages.append(
                             f"auto-closed {task_id} from terminal board receipt "
@@ -3211,10 +3275,18 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                     tz=timezone.utc,
                 ).isoformat()
                 receipt_path = str(terminal_receipt.relative_to(VAULT_ROOT))
+                receipt_diagnostics = receipt_failure_diagnostics(terminal_receipt)
+                # Diagnostics must join change-detection: on a re-reconcile where
+                # nothing else moved, `changed` stays 0, the registry is never
+                # written, and the fields would be silently dropped.
+                diagnostics_changed = apply_receipt_diagnostics(
+                    raw_entry, receipt_diagnostics
+                )
                 metadata_changed = (
                     raw_entry.get("completed_at") != receipt_completed_at
                     or raw_entry.get("terminal_receipt_path") != receipt_path
                     or raw_entry.get("terminal_receipt_status") != raw_receipt_status
+                    or diagnostics_changed
                 )
                 raw_entry["completed_at"] = receipt_completed_at
                 raw_entry["reconciled_at"] = now.isoformat()

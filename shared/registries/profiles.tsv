@@ -15,3 +15,4 @@ gemini.pro.deep	gemini	gemini-3.1-pro-preview	deep	preview	escalation
 kimi.k2.7.bulk	kimi	kimi-code/kimi-for-coding-highspeed	default	highspeed	throughput-only
 kimi.k3.256k	kimi	kimi-code/k3-256k	high	thinking	primary
 kimi.k3.high	kimi	kimi-code/k3	high	thinking	primary
+kimi.k3.max	kimi	kimi-code/k3	max	thinking	primary

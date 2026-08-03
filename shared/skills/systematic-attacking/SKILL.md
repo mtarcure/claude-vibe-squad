@@ -22,6 +22,20 @@ system.
 **Violating the letter of this process is violating the spirit of it.** An empty gate is a
 skipped gate; a skipped gate is lab noise, not a finding.
 
+## When a packet contradicts this skill
+
+**Say so; do not resolve it silently.** The dispatching packet still wins — that is the design.
+But if a packet instruction contradicts this skill, emit a `## PACKET OVERRODE SKILL` section in
+your response naming both sides.
+
+This is not hypothetical. H2 below states that a primitive **carries capability, not severity**,
+and that an inert primitive is *labelled*, never deleted. For five consecutive audits Chrono's
+Phase-3 packets instead demanded an impact-bar verdict per idea. Lanes obeyed the packet, killed
+their own primitives, and the Chaining phase starved for want of a pool — silently, because nothing
+made the contradiction visible.
+
+No gate is added here. A reporting duty is enough: the failure was invisibility, not permissiveness.
+
 ## The Two Iron Laws
 
 Two co-equal laws. Neither is negotiable, and neither substitutes for the other.
@@ -57,60 +71,41 @@ damage to users or services · cross-tenant data compromise at material scale ·
 control-plane takeover · a realized malicious capability. **Reachability, disclosure,
 "could-lead-to" are NOT findings.** They are, at most, leads.
 
-## The lifecycle — Phase 0 (preflight) + Phases 1–8
+## The lifecycle — owned by the MODE, not by this skill
 
-**Phase 0 is a preflight authorization gate; Phases 1–8 are the working stages** (Phase 3 splits into
-3a known-class / 3b experimental) — nine stages total. Each phase names its **owner** and its **hard
-gate**. Most owners are specialists; **Phase 8's owner is Chrono** — coordination + the operator
-submission gate, *not* a specialist role. You MUST clear a phase's gate before the next phase. All
-coordination is Chrono-brokered (see [Primitive pool](#primitive-pool)).
+**`shared/modes/bounty.md` owns the phase list.** This skill previously restated Phases 0-8
+verbatim, which made three documents claim authority over one process — and a restated process
+loses to whichever copy is most recent, which is always the packet. What follows is what this
+skill uniquely owns; for phase definitions, gates and owners, read the mode.
 
-| # | Phase | Owner specialist(s) | Hard gate |
+**This skill's job is METHOD**: how to discover primitives, how to compose them, and what
+evidence survives review. It is target-agnostic. Target-class specifics live in their own
+checklists (`cross-chain-bridge-audit`, `cosmos-sdk-audit-checklist`,
+`solana-anchor-audit-checklist`, `known-advisory-backport-check`); campaign process lives in the
+mode; this lane's task lives in the packet.
+
+## Phase numbering — three schemes exist, and they are NOT the same
+
+Numeric phase references in this skill, in specialist briefs, in `shared/modes/bounty.md`, and in
+`scripts/python/verification_contract.py` use **different numbering**. A reference like "Phase 3"
+is ambiguous unless you know which scheme it belongs to. Resolve with this table before acting on any
+numeric phase label:
+
+| This skill (0–8) | Mode v3 (1–7) | Contract stage | What it actually is |
 |---|---|---|---|
-| **0** | Authorization & Scope Lock | `threat-modeler` (Chrono holds the operator gate) | **Law 1** — in-scope set + forbidden set written; ambiguous scope STOPS; no action beyond authorized until operator target-engage |
-| **1** | Research & Prior-Art (**dedup**) | `research` / `large-context-analyst` | Prior audits, disclosed bugs, known-issue/CVE DBs, program history, **and our own vault** searched *before* effort — via the `chrono-dedup` plugin; refreshed pre-submit |
-| **2** | Attack-Surface & Impact Model | `threat-modeler` | Pre-register the impact bar: write the HIGH/CRIT terminus thresholds *before* generating hypotheses |
-| **3a** | Hypothesis Generation — known-class | `security-analyst` | Emits **leads / primitives only**, never findings |
-| **3b** | Hypothesis Generation — experimental discovery | `experimental-attacker` | Emits **leads only**; earns **no** laxer verification than 3a |
-| **4** | Chaining (→ `references/chain-strike-v2.md`) | `exploit-developer` (Chrono aggregates the pool) | Impact-first path to a HIGH/CRIT terminus; below-bar / out-of-scope / prior-art paths pruned |
-| **5** | Proof & Negative Control | `exploit-developer` | **Law 2 pt.1** — runnable PoC in sandbox / read-only fork against the *real* oracle; link- and chain-level causal negative controls; operator gate before any live/mutating action |
-| **6** | Impact Bar & Cross-Family Reproduction | `impact-validator` + a different-family lane | **Law 2 pt.2** — G1–G4; a *different model family* reproduces the written end-to-end procedure; CVSS v4 scored **once**, from the realized terminus, only here |
-| **7** | Skeptic (adversarial verification) | `skeptic` | Verifies *soundness*, not just results; kills harness / mock / flaky / oracle errors; refutes prior art |
-| **8** | Package & Operator-Gate | `Chrono` | De-AI / researcher-voice pass on frozen evidence; the final Submit stays a per-report operator "go" — the skill drives **up to** it, never through it |
+| Phase 0 | Phase 1 | `S0` | Scope lock, program truth, facts |
+| Phase 1–2 | Phase 1–2 | `S1`–`S2` | Prior-art exclusion, planning, measured index |
+| **Phase 3 / 3a / 3b** | **Phase 3** | `S3` | **Hypothesis generation and hunting — 3b is invention** |
+| Phase 4 | Phase 4 | `S4` | Chaining / composition |
+| Phase 5 | Phase 5 | `S5` | Proof, PoC, negative controls |
+| Phase 6–7 | Phase 5 | `S6`–`S7` | Impact bar, cross-family reproduction, skeptic |
+| Phase 8 | Phase 6 | — | Package, de-AI, operator submit gate |
+| — | Phase 7 | — | Teardown |
 
-### Phase notes
+**When a packet and a document disagree on a phase number, the packet wins and you report the
+conflict.** Do not silently renumber, and do not assume "Phase 3" in a brief means the same stage as
+"Phase 3" in the mode.
 
-- **Phase 0 — Authorization & Scope Lock.** Write two explicit sets: the in-scope target
-  allowlist and the forbidden set. Ambiguous or unstated scope is not a green light — it STOPS.
-  Nothing beyond passive, authorized reasoning happens before the operator's target-engage.
-- **Phase 1 — Research & Prior-Art / dedup.** Search *before* spending effort, not after. Run the
-  target-scoped prior-art check through the **`chrono-dedup` plugin** (HackerOne, Immunefi, GHSA,
-  CVE, OSV, program history, and our own `chrono-vault`). A `duplicate` / `likely-duplicate`
-  verdict kills or demotes the lead early. This is refreshed immediately before submission.
-- **Phase 2 — Attack-Surface & Impact Model.** Enumerate the surface and **pre-register** the
-  HIGH/CRIT termini thresholds. Writing the impact bar *before* hypotheses is what lets Phase 4's
-  search prune below-bar paths instead of scoring them after the fact.
-- **Phase 3 — Hypothesis Generation (two lanes).** 3a (`security-analyst`) works the known vuln
-  classes for the domain; 3b (`experimental-attacker`) generates novel / non-catalogued vectors.
-  **Both lanes emit leads/primitives only.** 3b's outputs are *not* held to a lower bar — they
-  re-enter the identical Phase 4–8 verification spine. This is the discipline that makes a second
-  "experimental" skill unnecessary and unsafe.
-- **Phase 4 — Chaining.** The owner runs [`references/chain-strike-v2.md`](references/chain-strike-v2.md)
-  over the aggregated primitive pool: typed primitives (incl. environmental free edges) → a typed
-  directed dependency graph → impact-first bidirectional search to the **shortest reliable** path.
-  No CVSS or severity arithmetic anywhere in this phase.
-- **Phase 5 — Proof & Negative Control.** Build a runnable PoC in a sandbox, synthetic replica, or
-  read-only fork against the **real** oracle (not a mock). Run the link-level and chain-level
-  causal negative controls from chain-strike-v2 §4. **Any** live/mutating/credential-using step
-  STOPS for the operator gate.
-- **Phase 6 — Impact Bar & Cross-Family Reproduction.** `impact-validator` runs the G1–G4 impact
-  bar; a **different model family** independently reproduces the written procedure. CVSS v4 is
-  derived **once**, from the realized terminus — never summed across links.
-- **Phase 7 — Skeptic.** Adversarial verification of *soundness*: is the oracle real, is the
-  harness faithful to prod, is the result stable, is the prior-art refutation honest? Kills
-  flaky / mock / model-mismatch results before packaging.
-- **Phase 8 — Package & Operator-Gate.** De-AI / researcher-voice pass on the frozen evidence, fit
-  to the program's submission form, then hand to the operator. **The skill never clicks Submit.**
 
 ## Domain branching (Phase 3) — route, never copy
 
@@ -155,7 +150,7 @@ and lab noise.
 - **Phase 5** → `poc_reproduction`, `negative_control`, `no_self_inflicted` (verified)
 - **Phase 6** → `cvss_v4`, `cross_family_reproduction`, G1–G4
 
-## Anti-patterns (kill any chain exhibiting these)
+## Anti-patterns (do NOT PROMOTE any chain exhibiting these — banking is unaffected)
 
 Inherited from chain-strike v1: **forced chains** · **theoretical chains** · **duplicate-root-cause**.
 Added (each blocks a characteristic false-submit): **severity laundering** (naming lows/mediums ≠ a

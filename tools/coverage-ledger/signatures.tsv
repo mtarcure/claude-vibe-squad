@@ -1,0 +1,109 @@
+# Evidence signatures. An instrument counts as USED only when one of these matches.
+#
+# tier 1 tool_output        literal native output a real run emits. A lane cannot write
+#                           "[Worker 3] New coverage: 4189 instr" without running echidna.
+# tier 2 artifact_footprint files or directories only a real run creates.
+# tier 3 action_log         a structured action-log record carrying BOTH a command and an
+#                           exit code. Lane-attested, so it is the weakest tier and is
+#                           labeled as such in every report.
+#
+# There is deliberately NO tier that matches a bare tool name in prose. That is structural,
+# not a blocklist: an arsenal list in a dispatch plan contains no tool output, creates no
+# corpus directory, and carries no exit code, so it cannot match anything here. The control
+# suite pins that property with a fixture that names all three fuzzers and must score MISSED.
+#
+# kind: line_regex (file contents) | path_regex (campaign-relative path) | cmd_regex (action-log command)
+# flags: i = case-insensitive, empty = case-sensitive
+instrument_id	tier	kind	flags	pattern	note
+echidna	1	line_regex		\[Worker \d+\] New coverage: \d+ instr	Per-worker coverage line from a live echidna campaign.
+echidna	1	line_regex		Test limit reached\. Stopping\.	Campaign termination line.
+echidna	1	line_regex		echidna_\w+: (passing|failed|fuzzing)	Per-property verdict line.
+echidna	1	line_regex		Unique instructions: \d+	Terminal summary counter.
+echidna	1	line_regex		Saved reproducer to	Reproducer persistence line.
+echidna	2	path_regex		echidna[^/]*(corpus|coverage)/	Corpus/coverage directory echidna creates.
+echidna	2	path_regex		covered\.\d+\.(txt|lcov|html)$	Timestamped coverage export.
+echidna	3	cmd_regex		(^|[\s/])echidna\s	Invocation recorded in an action log.
+medusa	2	path_regex		medusa[^/]*corpus/	Corpus directory medusa creates.
+medusa	2	path_regex		\.medusa-artifact-hash$	Compilation-artifact hash medusa writes.
+medusa	2	path_regex		medusa[^/]*corpus/coverage/coverage_report\.html$	Medusa LCOV/HTML coverage export.
+medusa	3	cmd_regex		(^|[\s/])medusa\s+(fuzz|init)	Invocation recorded in an action log.
+halmos	1	line_regex		\[(PASS|FAIL)\][^\n]*\(paths: \d+	Per-property result with explored path count.
+halmos	1	line_regex		"num_bounded_loops"	Halmos JSON result schema key.
+halmos	1	line_regex		"num_paths"	Halmos JSON result schema key.
+halmos	2	path_regex		halmos[^/]*\.(json|txt)$	Halmos JSON/coverage output file.
+halmos	3	cmd_regex		(^|[\s/])halmos\s	Invocation recorded in an action log.
+forge-test	1	line_regex		Suite result: (ok|FAILED)\.	Foundry per-suite result line.
+forge-test	1	line_regex		Ran \d+ tests? for 	Foundry per-suite header.
+forge-test	1	line_regex		Ran \d+ test suites? in 	Foundry run summary.
+forge-test	2	path_regex		cache/test-failures$	Foundry test-failure cache written only by forge test.
+forge-test	3	cmd_regex		forge\s+test	Invocation recorded in an action log.
+forge-invariant	1	line_regex		\[PASS\] invariant_\w+	Foundry invariant campaign result.
+forge-invariant	1	line_regex		invariant_\w+\(\) \(runs: \d+	Foundry invariant run counter.
+forge-invariant	3	cmd_regex		forge\s+test[^\n]*invariant	Invariant-scoped forge invocation.
+slither	1	line_regex		analyzed \(\d+ contracts with \d+ detectors\)	Slither run summary.
+slither	1	line_regex		INFO:(Detectors|Slither)	Slither logger output.
+slither	2	path_regex		slither[^/]*\.(json|stderr|log)$	Slither captured output.
+slither	3	cmd_regex		(^|[\s/])slither\s	Invocation recorded in an action log.
+semgrep	1	line_regex		"check_id":	Semgrep JSON finding schema key.
+semgrep	1	line_regex		Ran \d+ rules on \d+ files	Semgrep run summary.
+semgrep	2	path_regex		semgrep[^/]*\.json$	Semgrep captured output.
+semgrep	3	cmd_regex		(^|[\s/])semgrep\s	Invocation recorded in an action log.
+aderyn	1	line_regex		aderyn[^\n]*report	Aderyn report emission.
+aderyn	3	cmd_regex		(^|[\s/])aderyn\s	Invocation recorded in an action log.
+mythril	1	line_regex		The analysis was completed successfully	Mythril completion line.
+mythril	3	cmd_regex		(^|[\s/])myth\s+analyze	Mythril invocation (binary is `myth`, not `mythril`).
+ityfuzz	3	cmd_regex		(^|[\s/])ityfuzz\s	ItyFuzz invocation; pinned container only.
+cargo-fuzz	1	line_regex		#\d+\s+(INITED|NEW|REDUCE|pulse)\s+cov:	libFuzzer progress line.
+cargo-fuzz	1	line_regex		Done \d+ runs in \d+ second	libFuzzer completion line.
+cargo-fuzz	2	path_regex		fuzz/(artifacts|corpus)/	cargo-fuzz corpus or crash artifacts.
+cargo-fuzz	3	cmd_regex		cargo\s+(\+\S+\s+)?fuzz\s+run	Invocation recorded in an action log.
+trident	3	cmd_regex		(^|[\s/])trident\s+fuzz	Trident invocation.
+mollusk	1	line_regex		compute units consumed	Mollusk/SVM execution counter.
+mollusk	1	line_regex		Program \w{6,} invoke	SVM program invocation log line.
+mollusk	3	cmd_regex		mollusk	Invocation recorded in an action log.
+mollusk-harness	1	line_regex	i	(\d+ successful calls|successfulCalls[\"']?\s*[:=]\s*\d+)	Arbitrary-session runner reachability counter.
+mollusk-harness	3	cmd_regex		mollusk-canary	Canary runner invocation.
+cargo-test	1	line_regex		test result: (ok|FAILED)\. \d+ passed	Rust test-runner summary.
+cargo-test	3	cmd_regex		cargo\s+test	Invocation recorded in an action log.
+anchor-test	3	cmd_regex		anchor\s+test	Anchor test invocation.
+cargo-build-sbf	1	line_regex		To deploy this program	SBF build completion hint.
+cargo-build-sbf	3	cmd_regex		(cargo-build-sbf|cargo\s+build-sbf|anchor\s+build)	SBF/Anchor build invocation.
+clippy	1	line_regex		\d+ warnings? emitted	Clippy/rustc diagnostic summary.
+clippy	3	cmd_regex		cargo\s+clippy	Invocation recorded in an action log.
+radar	2	path_regex		radar[^/]*/(evidence|findings|out)/	Radar scan output directory.
+radar	3	cmd_regex		(scan-local\.sh|auditware.?radar)	Sanctioned Radar entry point.
+radare2	1	line_regex		^(class|arch|bintype)\s+\S+	radare2 iI header fields.
+radare2	3	cmd_regex		(^|[\s/])(radare2|r2)\s+-	Invocation recorded in an action log.
+cast-selectors	1	line_regex		^0x[0-9a-fA-F]{8}\s+\w+\(	Selector-to-signature row from cast selectors.
+cast-selectors	3	cmd_regex		cast\s+(selectors|4byte|disassemble)	ABI/opcode recovery invocation.
+opcode-census	2	path_regex		(opcode|selector)[^/]*census[^/]*\.(json|md|txt|tsv)$	Committed census artifact.
+opcode-census	1	line_regex	i	opcode census	Named census result in an artifact.
+cast-deployed	1	line_regex		eth_getStorageAt	Raw storage read against a live node.
+cast-deployed	3	cmd_regex		cast\s+(storage|code|call)\s	Deployed-state read invocation.
+fork-rpc	1	line_regex		--fork-url\s+\S+	Forked-state test invocation captured in output.
+fork-rpc	3	cmd_regex		--fork-url	Fork-mode invocation recorded in an action log.
+solana-rpc	3	cmd_regex		(solana\s+(account|program\s+show)|getAccountInfo|getProgramAccounts)	Live Solana state read.
+cosmos-rpc	3	cmd_regex		(cosmos|gaiad|simd)\s+(query|q)\s	Live Cosmos state read.
+deployed-probe	3	cmd_regex		(curl|httpx)\s[^\n]*https?://	Live instance probe.
+source-citation	1	line_regex		\S+\.(sol|rs|go)[:#]L?\d+	A citation into target source with a concrete line number.
+differential-harness	1	line_regex		\[(PASS|FAIL)\][^\n]*([Dd]ifferential|[Ss]ibling|[Pp]arity|[Tt]win)	Differential test result line.
+differential-harness	1	line_regex		check_\w*([Pp]arity|[Dd]ivergence)	Differential property name in tool output.
+differential-harness	2	path_regex		([Dd]ifferential|[Ss]ibling|divergence)[^/]*\.(sol|rs|md|json)$	Committed differential harness or report.
+econ-artifact	2	path_regex		(money-flow|econ|economic|payout|cost-model)[^/]*\.(md|json)$	Committed economic analysis artifact.
+econ-artifact	1	line_regex	i	(attacker cycle|cost to attack|net profit|money flow|value flow)	Explicit economic modeling language in an artifact.
+cargo-audit	1	line_regex		(\d+ vulnerabilit(y|ies) found|No vulnerable packages found)	cargo-audit verdict line.
+cargo-audit	3	cmd_regex		cargo\s+audit	Invocation recorded in an action log.
+cargo-geiger	3	cmd_regex		cargo\s+geiger	Unsafe-surface census invocation.
+npm-audit	1	line_regex		\d+ vulnerabilities \(	npm/yarn audit summary.
+npm-audit	3	cmd_regex		(npm|yarn|pnpm)\s+audit	Invocation recorded in an action log.
+forge-deps	3	cmd_regex		forge\s+(install|update|tree)	Dependency provenance invocation.
+gosec	1	line_regex		Issues\s*:\s*\d+	gosec run summary.
+gosec	3	cmd_regex		(^|[\s/])gosec\s	Invocation recorded in an action log.
+staticcheck	3	cmd_regex		(^|[\s/])staticcheck\s	Invocation recorded in an action log.
+go-fuzz	1	line_regex		fuzz: elapsed: \S+, execs: \d+	Go native fuzzing progress line.
+go-fuzz	3	cmd_regex		go\s+test[^\n]*-fuzz	Go fuzzing invocation.
+go-test	1	line_regex		^(ok|FAIL)\s+\S+\s+\d+\.\d+s	Go test package result line.
+go-test	3	cmd_regex		go\s+test	Invocation recorded in an action log.
+go-audit	3	cmd_regex		(govulncheck|go\s+list\s+-m)	Go dependency provenance invocation.
+generic-harness	1	line_regex	i	(reproduc(ed|tion) confirmed|poc (succeeded|reproduced))	Explicit reproduction statement tied to a run.
+generic-audit	3	cmd_regex		(pip-audit|npm\s+audit|cargo\s+audit|govulncheck)	Generic dependency audit invocation.

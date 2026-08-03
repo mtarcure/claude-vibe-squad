@@ -47,7 +47,7 @@ Tool, skill, and MCP capabilities are **lane-specific** and are defined authorit
 
 - Maintenance Mode permission audits
 - Project Mode Phase 7 (Validation — when feature touches user data)
-- Bounty Mode Phase 10 (Validation — when finding involves PII/secrets)
+- Bounty Mode PACKAGE & OPERATOR-GATE phase (when a finding involves PII/secrets)
 - On-demand: "audit this for privacy / data leak"
 
 ## Input

@@ -503,6 +503,13 @@ fi
 echo "Creating tmux session: ${SESSION}"
 echo ""
 
+# Regenerate the resume capsule BEFORE the chrono pane exists, so the first thing
+# Chrono reads at session start is derived from the live registry rather than from
+# whenever it was last written. Non-fatal: a stale capsule must never block a launch.
+if ! "${VAULT_ROOT}/bin/chrono-resume-capsule.sh" >/dev/null 2>&1; then
+    echo "WARNING: resume capsule regeneration failed; chrono/resume.md may be stale" >&2
+fi
+
 # Create the coordinator session FIRST so the tmux server exists, THEN style.
 # (The chrono pane is populated further below, once PATH/AUTH prefixes are set.)
 tmux new-session -d -s "${SESSION}" -n "chrono" -c "${VAULT_ROOT}/chrono"

@@ -1,0 +1,20 @@
+predicate	family	unifies
+auth.role_required	authority	onlyOwner; onlyRole(X); require(msg.sender == admin); has_one = authority; Signer<'info> constrained to a stored pubkey
+auth.role_grantable	authority	grantRole reachable; setAdmin reachable; set_authority reachable by a non-admin path
+auth.caller_unconstrained	authority	no msg.sender check; AccountInfo without is_signer; permissionless entrypoint
+auth.signature_required	authority	ECDSA/ed25519 recover-and-compare; TSS threshold signature; is_signer enforced on the payer
+state.one_shot	state	isExecuted[id] set once and never cleared; executed_sub_tx marker; nonce burned; replay marker PDA never closed
+state.value_unbound	state	attacker-chosen field reaching a sink unvalidated; stored_ix_data unchecked; req.token unvalidated
+state.domain_split	state	two stores that must agree but are written independently; vault vs gateway marker in separate accounts; two entrypoints sharing one #[derive(Accounts)]
+state.record_absent	state	expected account/entry missing rather than zeroed; uninitialised PDA treated as valid; mapping default read as truth
+state.slot_unset	state	proxy/implementation storage slot never written; EIP-1967 slot empty; uninitialised implementation
+capital.pooled	capital	shared vault balance; omnibus account; protocol-owned liquidity reachable by many callers
+capital.attacker_funded	capital	attacker supplies the principal; flash-loaned; self-funded deposit that is later recovered
+capital.net_zero	capital	round-trip leaves attacker balance unchanged; fee-only surplus; griefing without extraction
+timing.unbounded	timing	no deadline; no staleness check; no expiry on a signature or quote
+timing.window_open	timing	bounded but reachable window; oracle staleness period; challenge period still open
+timing.same_tx	timing	atomic composition required; single-transaction reentrancy; same-slot CPI chain
+timing.ordering	timing	sequence-dependent; front-runnable; relies on relayer ordering; unordered message delivery
+cap.move	capability	transfer/withdraw/mint value out; move tokens to an attacker-controlled account
+cap.forge	capability	fabricate an authenticated artefact; forge a proof, signature, or message accepted as genuine
+cap.deny	capability	permanently block a legitimate operation; lock funds; revert-or-rescue denied for that id

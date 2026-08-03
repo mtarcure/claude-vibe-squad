@@ -1,0 +1,12 @@
+technique_id	name	description
+source-review	Source reading and threat modeling	Reading target source and citing concrete file:line locations for guards, authority, and money paths.
+static-pattern-scan	Static pattern and dataflow scanning	Rule-driven scanners over source: pattern matches, taint, detector suites.
+property-fuzzing	Property and invariant fuzzing	Stateful campaigns that call the target repeatedly and assert declared properties or invariants.
+coverage-guided-fuzzing	Coverage-guided byte fuzzing	libFuzzer/AFL-style mutation fuzzing driven by instrumentation coverage, distinct from property fuzzing.
+symbolic-execution	Symbolic execution and SMT proving	Path exploration with a solver, producing paths, models, or counterexamples rather than samples.
+concrete-harness	Concrete execution harness	Hand-written executable tests or PoC harnesses that run the target and assert concrete outcomes.
+differential-variant	Differential and variant analysis	Comparing siblings, twins, versions, or forks to surface divergence; hunting variants of a known shape.
+bytecode-census	Compiled-artifact census	Enumeration over compiled output rather than source: opcodes, selectors, ABI recovery, ELF sections.
+deployed-state	Deployed-state reconstruction	Reading the live deployment: storage slots, deployed bytecode, on-chain config, forked real state.
+economic-composition	Economic and composition modeling	Costing the full attacker cycle and reasoning across contract/program boundaries and value flows.
+supply-chain	Dependency and toolchain provenance	Auditing dependencies, lockfiles, build reproducibility, and the provenance of the analyzed artifact.

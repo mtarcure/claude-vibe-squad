@@ -570,11 +570,14 @@ class FoldDepartmentRealRepoTests(unittest.TestCase):
                 else:
                     exception_count += 1
         self.assertEqual(failures, [], "\n".join(failures))
-        self.assertEqual(sum(results.values()), 71 + 73 + 14 + 5)  # claude, gpt-codex, gemini, kimi = 163
+        # claude, gpt-codex, gemini, kimi = 164. claude moved 71 -> 72 when
+        # experimental-attacker gained the claude lane (a251c9c); it now routes
+        # claude/gpt-codex/kimi, keeping codex on escalate.
+        self.assertEqual(sum(results.values()), 72 + 73 + 14 + 5)
         # Recompute the split from the live corpus rather than pinning a
         # historical number that changed when Gemini's strict-schema fix made
         # all Gemini files raw-identical.
-        self.assertEqual(byte_identical_count + exception_count, 163)
+        self.assertEqual(byte_identical_count + exception_count, 164)
         self.assertGreater(byte_identical_count, 0)
         self.assertGreater(exception_count, 0)
 

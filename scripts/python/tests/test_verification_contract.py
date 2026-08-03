@@ -98,10 +98,17 @@ class VerificationContractTests(unittest.TestCase):
                     "empty_findings",
                     "kill_or_negative_evidence",
                     "no_submit_evidence",
+                    "primitive_ledger",
                 ],
             }
             required_phase_ids = [f"S{i}" for i in range(8)]
-            memory_policy = {"recall": "required", "record": "required"}
+            # Bounty deliberately diverges from project here: `recall` is OPTIONAL.
+            # A cold lane cannot both call recall and stay uncontaminated, because no
+            # filter excludes prior *runs* -- `written_before` compartments only
+            # same-run notes. Requiring the call mandated the contamination. `record`
+            # stays required; writing findings biases nobody. Project mode above keeps
+            # `recall: required`, so this asymmetry is intentional, not drift.
+            memory_policy = {"recall": "optional", "record": "required"}
             plan_review_policy = {
                 "required": True,
                 "anti_affinity": "author_family",

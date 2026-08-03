@@ -1,0 +1,78 @@
+REJECTED — DO NOT APPLY.
+
+I drafted this patch, tested it, and it is wrong. Kept as the record of a
+refuted hypothesis, because the refutation is the useful part.
+
+THE HYPOTHESIS
+  warn_unpromoted_write_scope() excludes `return_artifact` from its
+  check (`extra = [p for p in paths if p and p != ret]`). Promotion of
+  other write_scope paths runs through commit_worker_residue(), which
+  enumerates residue with:
+      git status --porcelain=v1 -z --untracked-files=all
+  and no --ignored, so it cannot see a gitignored file. I inferred that a
+  gitignored `return_artifact` would therefore also be dropped silently,
+  unguarded, and that the exemption was an oversight.
+
+WHY IT IS WRONG
+  Two measurements killed it.
+
+  1. The exemption is not reachable as a defect, because the NORMAL
+     artifact path is already gitignored for every board task:
+       $ git check-ignore -v departments/shared/outbox/TASK-...-response.md
+       .gitignore:26:departments/*/outbox/*.md  departments/shared/outbox/...
+       $ git ls-files 'departments/*/outbox/*' | wc -l
+       0
+     Applied to a copy, this patch fired on all four fixtures including
+     the clean positive control. It is not a guard, it is a constant.
+
+  2. The artifact never goes through git at all. bin/board-supervisor.sh
+     promotes it with publish_prepared_worktree_outputs() (line 2177) — a
+     direct file bridge — and passes both output paths as exclude_paths to
+     commit_worker_residue() and integrate_worktree_commits()
+     (lines ~2145-2165):
+         exclude_paths=(
+             authority["expected_result_path"],
+             authority["expected_outbox_path"],
+         )
+     So the artifact's ignore status is irrelevant by construction. The
+     exemption in warn_unpromoted_write_scope is CORRECT BY DESIGN: the one
+     path git cannot carry is precisely the one the bridge carries instead.
+
+STANDING CONCLUSION
+  No change to bin/send-task.sh is warranted. The guard is right as written.
+  tools/wsguard/verify.sh C5 now asserts this exemption rather than treating
+  it as a gap, and C6 pins the supervisor exclusion that justifies it.
+
+---------------- the rejected patch, for the record ----------------
+
+--- a/bin/send-task.sh
++++ b/bin/send-task.sh
+@@ warn_unpromoted_write_scope
+ extra = [p for p in paths if p and p != ret]
++
++def is_ignored(p):
++    try:
++        return subprocess.run(
++            ["git", "check-ignore", "-q", p], cwd=root, capture_output=True
++        ).returncode == 0
++    except Exception:
++        return False
++
++if ret and is_ignored(ret):
++    print(
++        f"predispatch WARNING: return_artifact `{ret}` is gitignored, so worktree "
++        "promotion cannot see it and the task will settle as if the lane produced "
++        "nothing. Choose a tracked path (departments/*/outbox/... is the norm)."
++    )
++
+ if not extra:
+     sys.exit(0)
+-ignored = []
+-for p in extra:
+-    try:
+-        r = subprocess.run(["git", "check-ignore", "-q", p], cwd=root, capture_output=True)
+-        if r.returncode == 0:
+-            ignored.append(p)
+-    except Exception:
+-        pass
++ignored = [p for p in extra if is_ignored(p)]

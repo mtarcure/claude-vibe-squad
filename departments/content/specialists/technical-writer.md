@@ -45,7 +45,7 @@ Tool, skill, and MCP capabilities are **lane-specific** and are defined authorit
 ## When to dispatch
 
 - Project Mode Phase 8 (Release — write PR description, changelog, deploy notes)
-- Bounty Mode Phase 10 (Report drafting)
+- Bounty Mode PACKAGE & OPERATOR-GATE phase (report drafting)
 - On-demand: "write docs for X"
 - Bounty Mode handoff support (writing submission narrative)
 

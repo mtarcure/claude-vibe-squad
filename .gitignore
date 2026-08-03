@@ -118,3 +118,9 @@ model-lanes/*/.gemini/settings.json
 # board worktree runtime artifacts (never commit to repo root)
 .trusted-launch-request.json
 .trusted-task-overlay.md
+
+# Rig control fixtures are never runtime debris. A generic rule (*.log at :109)
+# silently dropped tools/coverage-ledger/fixtures/real-runs/evidence/echidna-run.log,
+# so the control suite passed only on the machine that authored it and reported
+# 12/13 everywhere else. Fixtures are the evidence a rig discriminates; keep them.
+!tools/**/fixtures/**

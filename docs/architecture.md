@@ -105,6 +105,12 @@ Window 5 hosts the watcher fleet and status readouts: `bin/inbox-watcher.sh` and
 
 Dispatch is asynchronous: senders do not block on specialist work (see `shared/protocol.md` § Async Rule). `SQUAD_DISPATCH_MODE` defaults to `board`; the legacy `pane` transport still exists behind that variable but is not the shipped path.
 
+**Admission control at step 5.** `bin/send-task.sh` refuses to launch onto a saturated machine, because a lane that lands on an overloaded host does not fail — it runs slowly and gets killed at the 61-minute cap with no artifact. Defaults: 6 concurrent lanes globally, 2 per model for `claude`/`codex`, 1 for `gemini`/`kimi`. Override with `SEND_TASK_MAX_LANES`, `SEND_TASK_MAX_PER_LANE` (`model=N,model=N`), or bypass with `SEND_TASK_SKIP_CAPACITY=1`. The check **fails open**: an unreadable or corrupt registry admits the dispatch rather than blocking the board.
+
+**Promotion is `return_artifact` only.** Every other `write_scope` path stays in the attempt worktree, and because `_state/**` is gitignored the omission is silent — the file simply never appears where it was expected. `bin/send-task.sh` warns at dispatch time naming the paths that will need a manual sweep. Writing harnesses into a gitignored tree is legitimate; assuming they come back is the defect.
+
+**Terminal receipts carry a failure class.** When a lane ends without a promoted response, `bin/registry-reconciler.sh` settles from `_state/board-dispatch/<task>.<attempt>.receipt.json`. The receipt's `failure_class` (`launch`, `request_validation`, `worktree`, `memory_proof`, `integration`, `launch_canary`, `missing_envelope`, `cancelled`, `other`), `reason` and `returncode` are lifted onto the entry as `terminal_receipt_*` and named in `closure_reason`, so a toolchain gate is distinguishable from a policy denial without opening the receipt JSON.
+
 ## Review gates
 `mandatory_review: true` is a dispatch-time contract, not auto-firing automation (`shared/protocol.md` § Mandatory Review Behavior). High-safety specialists must carry a `review_model`; same-family reviews run inside the specialist's own attempt before it declares done, and cross-family reviews are dispatched by Chrono as a separate attempt after the response lands. Reviewers are read-only unless Chrono serializes a later write packet.
 

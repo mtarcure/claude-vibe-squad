@@ -27,6 +27,14 @@ retired KG. Start from `pre-audit-threat-model` if an x-ray does not already exi
    `delegatecall`, storage writes. Author rules with `semgrep-rule-author`; a reachable sink
    with no realized impact is a lead, not a finding.
 
+   **Pass `code_files[].path` as a RELATIVE path.** An absolute path is rejected with
+   `Untrusted path must be relative`. The sibling tool `semgrep_scan` takes the opposite
+   convention (absolute only) and then fails anyway -- it fetches its ruleset from the
+   registry and 401s -- so treat `semgrep_scan_with_custom_rule` as the only working MCP
+   entry point, with the `semgrep` CLI as the fallback. Both failure modes return an empty
+   result that reads as a clean scan, so **confirm your rule fires on a known positive
+   before believing a zero.** (Measured 2026-08-02.)
+
 3. **Symbolic execution.** Run `myth analyze <contract> --execution-timeout 600` on every
    contract flagged HIGH by step 1, plus any contract with external calls, `delegatecall`, or
    `selfdestruct`. Surface: integer overflow, unchecked return values, `tx.origin`

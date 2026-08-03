@@ -1,0 +1,18 @@
+version: 0.1.0
+author: forefy
+accent: anchor
+name: PDA Sharing
+description: Reuse of a PDA across multiple authority domains can lead to unauthorized data or funds access.
+severity: Low
+certainty: Low
+vulnerable_example: https://github.com/Auditware/radar/blob/main/api/tests/mocks/pda_sharing/bad/src/lib.rs#L13-L17
+rule: |
+  for source, nodes in ast:
+      try:
+          transfer_nodes = nodes.find_chained_calls("transfer").exit_on_none()
+          nodes.find_macro_attribute_by_names("seeds", "bump").exit_on_value()
+          for transfer_node in transfer_nodes:
+              print(transfer_node.first().to_result())
+      except:
+          continue
+

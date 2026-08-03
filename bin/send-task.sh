@@ -580,6 +580,54 @@ validate_native_adapter() {
         || die "predispatch blocked: adapter violates the ${model} lane capability registry for specialist '${specialist}'"
 }
 
+# Concurrency admission: refuse to launch onto a saturated machine.
+# board_router's capacity system governs batch/fan-out scheduling, but single
+# dispatches declare no resource claims, so N sequential dispatches all launch.
+# Observed 2026-08-02: seven concurrent lanes drove load to 56 and an eighth
+# failed with "trusted launch failed: child timed out after 5s" -- recorded as
+# `blocked`, indistinguishable in the registry from a config fault.
+#
+# FAILS OPEN by design: any error in this check must never block dispatch.
+# A blind gate on the critical path once broke every board dispatch, and only a
+# live launch canary caught it.
+check_launch_capacity() {
+    local target_model="$1"
+    [[ -n "${SEND_TASK_SKIP_CAPACITY:-}" ]] && return 0
+    local global_max="${SEND_TASK_MAX_LANES:-6}"
+    local lane_max
+    case "$target_model" in
+        claude|gpt-codex) lane_max="${SEND_TASK_MAX_PER_LANE:-2}" ;;
+        gemini|kimi)      lane_max=1 ;;
+        *)                lane_max=2 ;;
+    esac
+    local counts
+    counts="$(python3 - "$VAULT_ROOT" "$target_model" <<'PYCAP' 2>/dev/null
+import json, sys
+from pathlib import Path
+root, model = sys.argv[1], sys.argv[2]
+try:
+    data = json.loads(Path(root, "_state/active-tasks.json").read_text())
+except Exception:
+    sys.exit(0)                      # fail open: unreadable registry never blocks
+live = {"in-flight", "dispatched", "queued", "claimed"}
+rows = [v for v in data.values() if isinstance(v, dict) and v.get("status") in live]
+print(f"{len(rows)} {sum(1 for v in rows if v.get('to_model') == model)}")
+PYCAP
+)"
+    [[ -z "$counts" ]] && return 0    # fail open
+    local total lane
+    total="${counts%% *}"; lane="${counts##* }"
+    [[ "$total" =~ ^[0-9]+$ ]] || return 0
+    [[ "$lane"  =~ ^[0-9]+$ ]] || return 0
+    if (( total >= global_max )); then
+        die "predispatch blocked: ${total} lanes already in flight (limit ${global_max}). Wait for lanes to settle, or set SEND_TASK_MAX_LANES / SEND_TASK_SKIP_CAPACITY to override. Launching onto a saturated machine fails as a 5s launch timeout recorded as 'blocked'."
+    fi
+    if (( lane >= lane_max )); then
+        die "predispatch blocked: ${lane} ${target_model} lanes already in flight (per-lane limit ${lane_max}). Wait, or set SEND_TASK_MAX_PER_LANE / SEND_TASK_SKIP_CAPACITY to override."
+    fi
+    return 0
+}
+
 validate_task_capabilities() {
     local task_file="$1" target_model="$2" latest_audit
     latest_audit="$(find "${VAULT_ROOT}/_state/audit-logs" -maxdepth 1 -name '*-mcp-audit.md' -type f -print 2>/dev/null | sort | tail -1 || true)"
@@ -924,6 +972,18 @@ esac
 case "$REVIEW_MODEL" in
     gpt-codex|claude|gemini|kimi|none) ;;
     *) die "invalid review_model '${REVIEW_MODEL}'. Expected gpt-codex|claude|gemini|kimi|none." ;;
+esac
+# Advisory only -- never fatal. An unrecognised mode derives no verification contract,
+# so --dry-run passes and the launch then fails with the misleading
+# "missing required frontmatter field: verification_contract", after a blocked registry
+# entry already exists. Three advisory packets were lost to that in one session.
+# This warns rather than blocks: modes were consolidated 10 -> 2, but `advisory`, `build`,
+# `research` and others ran historically and this script is not the place to decide they
+# are retired. Chrono reads the warning and chooses.
+case "$MODE" in
+    bounty|project) ;;
+    "") printf 'WARNING: task packet has no mode; expected bounty|project. No verification contract will be derived and the launch will fail.\n' >&2 ;;
+    *) printf 'WARNING: mode %s is not bounty|project. If no verification contract is derived, the launch fails with a misleading "missing verification_contract" error.\n' "$MODE" >&2 ;;
 esac
 case "$SOURCE_NAMESPACE" in
     coding|security|content|sysmgmt|research|shared|chrono) ;;
@@ -1272,6 +1332,72 @@ if $SWARM_ENABLED; then
     done
 else
     validate_task_capabilities "$TASK_FILE" "$TO_MODEL" || die "task references unavailable or unverified live capability"
+fi
+
+# Promotion expectation: only `return_artifact` is promoted out of the worktree.
+# Every other write_scope path is silently stranded, and because _state/** is
+# gitignored the failure is invisible rather than an error. This stranded a PoC,
+# a harness suite, a sealed cross-check file and a program record in one session.
+# Warn rather than block: writing harnesses into a gitignored target tree is
+# legitimate and useful -- the defect is Chrono ASSUMING those paths come back.
+warn_unpromoted_write_scope() {
+    python3 - "$TASK_FILE" "$VAULT_ROOT" <<'PYWARN' 2>/dev/null || true
+import re, subprocess, sys
+from pathlib import Path
+task, root = Path(sys.argv[1]), sys.argv[2]
+try:
+    text = task.read_text()
+except Exception:
+    sys.exit(0)
+def field(name):
+    m = re.search(rf"^{name}:\s*(.+)$", text, re.M)
+    return m.group(1).strip() if m else ""
+ret = field("return_artifact")
+ws  = field("write_scope").strip("[]")
+paths = [p.strip().strip("'\"") for p in ws.split(",") if p.strip()]
+extra = [p for p in paths if p and p != ret]
+if not extra:
+    sys.exit(0)
+ignored = []
+for p in extra:
+    try:
+        r = subprocess.run(["git", "check-ignore", "-q", p], cwd=root, capture_output=True)
+        if r.returncode == 0:
+            ignored.append(p)
+    except Exception:
+        pass
+print(
+    "predispatch notice: only `return_artifact` is promoted from the worktree. "
+    f"{len(extra)} other write_scope path(s) will NOT be promoted automatically"
+    + (f" and {len(ignored)} of them are gitignored so the omission is silent" if ignored else "")
+    + ": " + ", ".join(extra)
+    + ". Sweep the attempt worktree before settling this task.",
+)
+PYWARN
+}
+# A full disk does not fail a lane, it DEGRADES it: the Go linker cannot write a
+# test binary, every harness silently fails to build, and the lane reports
+# UNDETERMINED for a reason that has nothing to do with the target. Two lanes
+# burned their full budget on this before anyone looked at df.
+warn_low_disk() {
+    local free_mb
+    free_mb=$(df -Pm "$VAULT_ROOT" 2>/dev/null | awk 'NR==2 {print $4}')
+    [[ "$free_mb" =~ ^[0-9]+$ ]] || return 0   # fail-open: unreadable df never blocks a dispatch
+    if (( free_mb < 2048 )); then
+        printf 'predispatch notice: only %s MB free on the volume holding %s. Toolchains that link binaries (go test, forge, cargo) fail silently below ~2 GB and the lane will report UNDETERMINED for an unrelated reason. Reclaim before dispatching.\n' \
+            "$free_mb" "$VAULT_ROOT"
+    fi
+}
+
+warn_low_disk
+warn_unpromoted_write_scope
+
+# Concurrency admission runs after capability validation and before any state is
+# mutated, so a refusal leaves no registry row, no inbox copy and no worktree.
+if $SWARM_ENABLED; then
+    for lane in "${SWARM_LANES[@]}"; do check_launch_capacity "$lane"; done
+else
+    check_launch_capacity "$TO_MODEL"
 fi
 
 if [[ ( "$MODE" == "project" || "$MODE" == "bounty" || "$MODE" == "advisory" ) && "$SWARM_ENABLED" == "false" ]]; then
@@ -2611,3 +2737,20 @@ elif [[ "$SQUAD_DISPATCH_MODE" == "pane" && -n "$NUDGE_PANE" ]]; then
 fi
 
 echo "✓ Dispatched ${TASK_ID} → ${TO_MODEL}/${SPECIALIST} (${COMPAT_NAMESPACE} mailbox)"
+
+# A dispatch is not finished until someone is WATCHING it. Board completion
+# alerts are addressed to a fixed tmux pane, so any controller that does not
+# occupy that pane (a background job, a fresh session) is never told the lane
+# landed. Measured repeatedly: lanes finished and sat unread until the operator
+# noticed. Emitting the exact command removes the "I meant to attach one" step.
+cat <<WATCHER
+  ATTACH A WATCHER — this session gets no board alert when the lane lands:
+    OUT=${VAULT_ROOT}/departments/${COMPAT_NAMESPACE}/outbox/${TASK_ID}-response.md
+    for i in \$(seq 1 200); do
+      [ -f "\$OUT" ] && { echo LANDED; exit 0; }
+      s=\$(python3 -c "import json;print(json.load(open('${VAULT_ROOT}/_state/active-tasks.json')).get('${TASK_ID}',{}).get('status','gone'))" 2>/dev/null)
+      [ "\$s" != "in-flight" ] && { echo "TERMINAL status=\$s"; exit 0; }
+      sleep 20
+    done; echo TIMEOUT
+  Run it BACKGROUNDED so its exit re-invokes the session. One watcher per batch is enough.
+WATCHER

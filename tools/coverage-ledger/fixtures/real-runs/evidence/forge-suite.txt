@@ -1,0 +1,6 @@
+Ran 15 tests for test/Accounting.t.sol:AccountingConcrete
+[PASS] test_depositCreditsVault() (gas: 182192)
+[PASS] test_feeAccrualMatchesRate() (gas: 236080)
+Suite result: ok. 15 passed; 0 failed; 0 skipped; finished in 3.21s (25.61ms CPU time)
+
+Ran 1 test suite in 3.22s (3.21s CPU time): 15 tests passed, 0 failed, 0 skipped (15 total tests)

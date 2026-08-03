@@ -10,7 +10,7 @@ max_turns: 30
 <!-- generated_by=lane-capability-registry/v1 registry_sha256=268b6f90a9c6eb271bab4d6099c584332059c6b21404bece9775ccc25de296d6
 # BEGIN SPECIALIST CAPABILITY PROJECTION
 capability_source: model-lanes/specialist-lane-capabilities.v1.json
-capability_source_sha256: 5b64ee29f4f33255a6454a810742cf8d1b8a19c1f1d6b5a0bee98d4f5010efd9
+capability_source_sha256: 585d42615757d63d998fb325e50cead8dd269d9c729dde30eb4e95d71be375af
 capability_skills: ["copy-refinement"]
 capability_tools: ["firecrawl_scrape"]
 capability_mcps: ["chrono-research-arsenal","chrono-vault","sequential-thinking"]
