@@ -179,8 +179,9 @@ Read top to bottom, the enforcement class moves *by design* from OS-enforced to 
 <repo>/
 ├── shared/            # source of truth: modes, capabilities, specialists, routing.md, protocol.md, skills
 ├── departments/       # per-domain specialist briefs + mailboxes (coding, security, content, research, sysmgmt)
-├── model-lanes/       # generated per-lane adapters (163) with capability provenance
+├── model-lanes/       # generated per-lane adapters with capability provenance
 ├── bin/               # the execution rail: dispatch, board supervisor, reconcile, validate
+├── tools/             # rigs and their controls: coverage-ledger, standing-checks, radar, exporter
 ├── plugins/           # MCP servers: memory vault, guarded security stack, media, recon
 ├── moat/              # differential impact-verification lab (above)
 ├── docs/              # design records, architecture, and audits
@@ -188,6 +189,32 @@ Read top to bottom, the enforcement class moves *by design* from OS-enforced to 
 ```
 
 To orient: read `CLAUDE.md`, `shared/protocol.md`, and `shared/routing.md` (the contract you operate under), the two modes under `shared/modes/`, and the roster in `shared/specialist-runtime-map.tsv`; then run `bin/validate-capabilities.sh && bin/test`. Configuration is path-generic — the repo root resolves through a shared resolver and private state lives under `$VAULT_ROOT`, so no absolute home paths are baked in.
+
+</details>
+
+## What this repo is, and what it deliberately isn't
+
+<details>
+<summary>Method and mechanism ship; one operator's measurements do not</summary>
+
+This is a **deterministic projection** of a private working repo, and the split is on purpose.
+
+**What ships — the parts that transfer:**
+
+| | |
+|---|---|
+| `shared/capabilities/public/` | **28 capability cards** as workflow method — S0 Intake → S7 Capture, the roles that own each step, the skills they draw on, and the gates that must clear |
+| `shared/registries/recommended-toolchain.tsv` | **197 tools** indexed by *technique class* × *target class* — what to install for a kind of hunting against a kind of target |
+| `tools/coverage-ledger/` | eleven technique classes, a target applicability matrix, and **92 evidence signatures** that distinguish a tool that *ran* from a tool that was merely *named* |
+| `tools/standing-checks/`, `tools/radar/` | rigs shipped **with their control fixtures**, so you can prove a rig discriminates before trusting a result |
+
+**What does not ship, and why:**
+
+- **No liveness, lane or cost annotations.** Whether a tool works on our machine is not a fact about yours. Establish capability locally with a real invocation returning a real result on real target code — `present` is not liveness, and `--version` succeeding is not liveness.
+- **No run output** — action logs, run manifests, results. A *fixture* proves a rig discriminates and is part of the tool; a *result* describes one machine and one target and is not.
+- **No engagement material.** Nothing about the systems this has been pointed at.
+
+The load-bearing idea, if you take only one: **a technique that was never run cannot support a claim that nothing is there.** Track applicable technique classes as `USED | INAPPLICABLE | DEFERRED | UNAVAILABLE`, treat a missing row as `UNEXAMINED`, and let only `USED` — backed by a positive control that would have caught the tool failing — support a negative result.
 </details>
 
 > **Status, honestly.** An actively developed daily driver, not a turnkey release. Its boundaries are stated at the enforcement class they actually hold (see the safety model above).
