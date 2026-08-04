@@ -64,60 +64,76 @@ flowchart LR
 
 The **coordinator** is the only operator-facing voice — specialists never talk to the operator directly. The worker recalls prior context from memory (untrusted notes arrive quoted), does the work, and writes its artifact first; **cross-family review** is the gate between "done" and "landed"; **atomic settle** writes the envelope last, so a task is either fully landed or not landed at all. Rejects and `needs_human` route back to the operator, and outcomes are recorded to memory for the next session.
 
+## Adversarial review — the flagship guardrail
+
+**A model cannot settle its own family's work.** Every one of the **73** routed specialists carries an `anti_affinity` constraint, so a Claude-authored security task is *machine-refused* a Claude reviewer. Independence is a property of the dispatch rail, not a convention a reviewer can waive.
+
+This matters because LLMs are unreliable self-critics: a model reliably fixes an error an external source flags, yet misses the **same** error in its own output ([Self-Correction Bench 2025](https://arxiv.org/abs/2507.02778); [Huang et al. 2023](https://arxiv.org/abs/2310.01798)). Heterogeneous families fail differently ([Dietterich 2000](https://link.springer.com/chapter/10.1007/3-540-45014-9_1)), and a separate verifier lifts even a stronger generator ([Multi-Agent Verification 2025](https://arxiv.org/abs/2502.20379)).
+
+The reviewer is adversarial by role, not by tone — its job is to find the reason the work is wrong, and a `REJECT` is a normal outcome rather than a failure. Rejections route back with the defect named; only an explicit approval from the other family lets a task settle.
+
+*Honesty note:* the literature motivates this design. No published study evaluates "reviewer family ≠ author family" gating exactly as built here.
+
 ## Under the hood
 
-Every mechanism below is real and shipped; citations link straight to the grounding literature.
-
 <details>
-<summary><b>Worktree isolation & atomic publish</b> — clean per-task contexts; temp → fsync → rename, never in place</summary>
+<summary><b>Worktree isolation, cross-family review, pinned contracts, fail-closed memory</b></summary>
 <br>
 
-Each attempt is a dedicated git worktree running a freshly spawned, capability-scoped CLI; shared state is written temp file → fsync → atomic rename. Isolation is a *reliability* choice too: models measurably lose track of information buried in long contexts ([Liu et al. 2023](https://arxiv.org/abs/2307.03172)), and isolated per-task contexts outperform one monolithic coordinator session ([Chain of Agents 2024](https://arxiv.org/abs/2406.02818)). Because the worker is a separate process that can be a *different model family* — not an in-session subagent inheriting the coordinator's context and bias — the review gate is a genuine second opinion.
+**Isolation & atomic publish.** Each attempt is a dedicated git worktree running a freshly spawned, capability-scoped CLI; shared state is written temp → fsync → atomic rename. Isolation is a *reliability* choice too — models lose track of information buried in long contexts ([Liu et al. 2023](https://arxiv.org/abs/2307.03172)), and isolated per-task contexts beat one monolithic session ([Chain of Agents 2024](https://arxiv.org/abs/2406.02818)). Because the worker is a separate process that can be a *different family* — not an in-session subagent inheriting the coordinator's bias — the review gate is a genuine second opinion.
+
+**Cross-family review.** LLMs are unreliable self-critics ([Huang et al. 2023](https://arxiv.org/abs/2310.01798); [Kamoi et al. 2024](https://arxiv.org/abs/2406.01297)): a model fixes an error an external source flags, yet misses the *same* error in its own output ([Self-Correction Bench 2025](https://arxiv.org/abs/2507.02778)). Heterogeneous models fail differently ([Dietterich 2000](https://link.springer.com/chapter/10.1007/3-540-45014-9_1)), and a separate verifier lifts even a stronger generator ([Multi-Agent Verification 2025](https://arxiv.org/abs/2502.20379)). So `anti_affinity` is set on **all 73** routed specialists: a Claude-authored security task cannot be settled by a Claude reviewer.
+
+**Dispatcher-pinned contracts.** At dispatch the coordinator computes required phases, review policy, memory policy and expected result path, pins them with a **SHA-256** digest, and every layer re-validates it. A worker cannot widen its own scope or skip a phase.
+
+*Honesty note:* these results motivate the design. No published study evaluates "reviewer family ≠ author family" gating exactly as built here.
 </details>
 
-<details>
-<summary><b>Cross-family review</b> — the flagship guardrail: no model judges its own work</summary>
-<br>
+## Routing — and what happens when a model is down
 
-LLMs are unreliable self-critics ([Huang et al. 2023](https://arxiv.org/abs/2310.01798); [Kamoi et al. 2024](https://arxiv.org/abs/2406.01297)): a model reliably fixes an error an external source flags, yet misses the *same* error in its own output ([Self-Correction Bench 2025](https://arxiv.org/abs/2507.02778)). Heterogeneous models fail differently ([Dietterich 2000](https://link.springer.com/chapter/10.1007/3-540-45014-9_1); [LLM Ensemble survey 2025](https://arxiv.org/abs/2502.18036)), and a *separate* verifier lifts even a stronger generator ([Multi-Agent Verification 2025](https://arxiv.org/abs/2502.20379); [LLM-as-a-Judge survey 2024](https://arxiv.org/abs/2411.15594); [Du et al. 2023](https://arxiv.org/abs/2305.14325)). So the board enforces **anti-affinity**: a Claude-authored security task literally cannot be settled by a Claude reviewer.
+Routing is **quality-first**: each specialist binds to whichever model evaluates best for *its* job, not to a house favourite. `shared/specialist-runtime-map.tsv` gives every specialist five lanes:
 
-*Honesty note:* these results motivate the design — no published study evaluates "reviewer family ≠ author family" gating exactly as built here, and the gains are benchmark-scoped. An evidence-motivated engineering choice, not a proven theorem.
-</details>
+| Lane | Role |
+|---|---|
+| `primary` | the default runner for this specialist |
+| `backup` | takes over on failover — **a different family**, so an outage doesn't also collapse review independence |
+| `escalate` | a deeper profile when a signal or safety floor demands it |
+| `review` | who is allowed to settle it, constrained by `anti_affinity` |
+| `throughput` | a cheaper bulk tier, gated (below) |
 
-<details>
-<summary><b>Dispatcher-pinned verification contracts</b> — the worker can't renegotiate its own rails</summary>
-<br>
+Each lane resolves through a **profile registry** to an exact model + effort + flags — `codex.sol.high`, `claude.opus5.xhigh`, `gemini.pro.deep` — **12 distinct profiles** in use.
 
-At dispatch the coordinator computes the required phases, review policy, memory policy, and expected result path, pins them with a **SHA-256** digest, and every layer that touches the task re-validates that digest. The contract is fixed by the dispatcher, not negotiated by the model doing the work.
-</details>
+**Failover is conservative by default.** All 73 specialists carry `failover.conservative.v1`; escalation is `escalation.signal.v1` (46) or the stricter `escalation.safety_floor.v1` (27). A lane going down degrades to the backup family rather than silently downgrading effort.
 
-<details>
-<summary><b>Fail-closed private memory</b> — RAG notes as data, never instructions</summary>
-<br>
+**The cheap tier is fenced.** Kimi is **deny-default as a primary**, with four operator-ratified exceptions. The bulk tier requires a *conjunction*: `safety_level == low` **AND** no security or privacy tag. Cost pressure cannot reach sensitive work.
 
-Durable knowledge is retrieval-augmented markdown, so decisions cite specific, provenance-bearing evidence instead of parametric recall alone ([Lewis et al. 2020](https://arxiv.org/abs/2005.11401); [A-MEM 2025](https://arxiv.org/abs/2502.12110)). The vault resolves its storage root defensively and *refuses to write into any public tree*. Recalled note bodies return wrapped as explicitly quoted, **untrusted** content, because retrieved content is a real hijack vector for tool-using agents ([Greshake et al. 2023](https://arxiv.org/abs/2302.12173); [AgentDojo 2024](https://arxiv.org/abs/2406.13352)); the stance is contain, don't filter ([CaMeL 2025](https://arxiv.org/abs/2503.18813); [OWASP LLM Top-10 2025](https://owasp.org/www-project-top-10-for-large-language-model-applications/assets/PDF/OWASP-Top-10-for-LLMs-v2025.pdf), an industry framework, not peer-reviewed research).
-</details>
+## Subagents
 
-<details>
-<summary><b>Guarded MCP supply chain</b> — schema-pinned tools, attested provenance</summary>
-<br>
+A specialist may spawn its own subagents inside its worktree for fan-out. One measured caveat is worth stating because it is invisible from config: **Claude, Codex and Gemini subagents inherit the parent's MCP servers; Kimi subagents do not.** Plan fan-out accordingly — a Kimi subagent has no memory or tool access of its own.
 
-Security tooling is never wired to models raw — it is proxied through a schema-pinning guard (Trail of Bits' `mcp-context-protector`), so a compromised or drifted MCP server cannot silently change the shape of the tools an agent trusts. The framing is attested supply-chain provenance ([in-toto, Torres-Arias et al. 2019](https://www.usenix.org/conference/usenixsecurity19/presentation/torres-arias); [SLSA](https://slsa.dev/spec/v1.0/about), an industry framework).
-</details>
+![A swarm dispatch: one task fans out across several specialists running in parallel isolated worktrees, then collects](assets/media/swarm-demo.gif)
 
-<details>
-<summary><b>Quality-first, deny-default routing</b> — the best model per task, never the cheapest by default</summary>
-<br>
+Workers surface needs; they do not self-coordinate. Cross-specialist work is brokered by the coordinator, so a worker never quietly recruits another.
 
-Every specialist binds to the model that evaluates best for its task type — long-context analysis, code synthesis, cited research, adversarial breadth — across all four providers, informed by published benchmarks plus the squad's own eval passes, operator-confirmed, and re-bound as the frontier moves (~150 bindings refreshed in the latest roster pass). The cheapest lane is **deny-by-default**, running only under explicit operator-ratified exceptions, so a cost incentive can't quietly degrade judgment-critical work ([Saltzer & Schroeder 1975](https://web.mit.edu/Saltzer/www/publications/protection/)).
-</details>
+## Learning — record and recall
 
-<details>
-<summary><b>Swarms, without losing scrutiny</b> — fan out to many models; every path still ends at review</summary>
-<br>
+Durable memory is a **private markdown vault** reached through the `chrono-vault` MCP (`record` / `recall`). Outcomes, gotchas and technique notes are recorded at the end of a task and recalled at the start of the next, so the system compounds across sessions instead of relearning.
 
-A dispatch can widen: the same task to multiple families with a deterministic **agreement/divergence** diff; bounded 2–3-member panels under quorum with one accountable coordinator (honest scope: `panel-v1` accepts Claude and Codex, and a panel collects perspectives — it is not the review); or a lead fanning native subagents where *every* decomposed subject gets its own cross-family verdict (honest status: proven end-to-end on gpt-codex; Claude and Gemini supported but not yet exercised; Kimi's subagents cannot hold MCP). More agents, never less scrutiny.
-</details>
+Two properties matter more than the storage:
+
+- **Recalled notes arrive as data, never instructions.** Untrusted content is quoted, so a poisoned note cannot redirect a worker.
+- **Memory is best-effort, never fatal.** A vault outage degrades a task; it does not block it.
+
+## Tools, skills, and MCP
+
+| Layer | What it is | Count |
+|---|---|---:|
+| **Skills** | Markdown procedures a specialist can invoke — audit checklists, debugging spines, review disciplines | **137** files / **181** catalog entries |
+| **MCP servers** | Memory vault, security stack, recon, research arsenal, dedup, media | **6** |
+| **Tool catalog** | Executables indexed by *technique class* × *target class* in [`recommended-toolchain.tsv`](shared/registries/recommended-toolchain.tsv) | **197** |
+| **Rigs** | Repo-local harnesses shipped with their control fixtures under `tools/` | **7** |
+
+Provider APIs are reached through MCP servers rather than hard-coded clients, and every capability claim is expected to survive a live probe — **`present` is not liveness, and `--version` succeeding is not liveness.**
 
 ## The specialist roster
 
@@ -132,13 +148,15 @@ Behavior is carried by **73 canonical specialists** — each a markdown brief de
 | **Shared / advisors** | 8 | `planner`, `skeptic`, `triage`, `sol`, `fable` | Cross-cutting planning, independent challenge, blank second opinions |
 | **Research** | 6 | `research`, `synthesizer`, `large-context-analyst` | Source-first investigation and cited synthesis |
 
-## Two work modes
+## Three ways work happens
 
-The same core — capability-derived protocol, worktree isolation, pinned contract, cross-family review, atomic settle — drives both.
+**Free mode is the default.** Ask for anything in plain language and the coordinator picks the specialist, the model, and the review gate. The full roster is available; nothing needs to be "turned on". Most work lives here.
 
-**[Project](shared/modes/project.md)** is the single typed build lifecycle, **S0–S7**: scope → requirements + recall → design → build → verify → cross-family review → deliver → record + atomic settle. Content, research, operations, and incident work fold in as *capabilities* under this one lifecycle, with per-capability gates (truth/rights on publish; delete/credential/production gates on operations) that never weaken when a capability folds in.
+The two typed modes are **consented workflows layered on the same core** — capability-derived protocol, worktree isolation, pinned contract, cross-family review, atomic settle — and neither starts without an explicit go.
 
-**[Bounty](shared/modes/bounty.md)** runs one target-agnostic offensive skill (`systematic-attacking`) under two co-equal iron laws:
+**[Project](shared/modes/project.md)** — the typed build lifecycle, **S0–S7**: scope → requirements + recall → design → build → verify → cross-family review → ship → capture. Front-end and game work additionally require visual verification and an end-to-end acceptance gate before S4 can clear.
+
+**[Bounty](shared/modes/bounty.md)** — target-agnostic offensive work under two co-equal iron laws:
 
 ```
 IRON LAW 1 (safety): NO OFFENSIVE ACTION OUTSIDE AUTHORIZED, VERIFIED SCOPE.
@@ -146,7 +164,7 @@ IRON LAW 2 (rigor):  NO FINDING WITHOUT A REPRODUCED, NEGATIVE-CONTROLLED,
                      INTRINSIC-IMPACT PROOF.
 ```
 
-Its discipline is **find → chain → prove → dedup → package**: only a **finding** — reproduced, negative-controlled, clearing an intrinsic-impact bar, and independently reproduced by a *different model family* — may be submitted. A mandatory multi-model fan-out precedes any real-money submission, and the final Submit click is always a **human operator gate**.
+Its discipline is **find → chain → prove → dedup → package**, and its distinguishing rule is a coverage one: applicable technique classes are tracked `USED | INAPPLICABLE | DEFERRED | UNAVAILABLE`, a missing row is `UNEXAMINED`, and **only `USED` — backed by a positive control that would have caught the tool failing — can support a negative result.**
 
 ## The safety model, stated honestly
 
@@ -194,30 +212,13 @@ To orient: read `CLAUDE.md`, `shared/protocol.md`, and `shared/routing.md` (the 
 
 ## What this repo is, and what it deliberately isn't
 
-<details>
-<summary>Method and mechanism ship; one operator's measurements do not</summary>
+This is a **deterministic projection** of a private working repo, and the split is on purpose: **method and mechanism ship; one operator's measurements do not.**
 
-This is a **deterministic projection** of a private working repo, and the split is on purpose.
+What ships is above — the capability cards, the toolchain catalog, the coverage-ledger vocabulary, the rigs *with their control fixtures*. What does not:
 
-**What ships — the parts that transfer:**
-
-| | |
-|---|---|
-| `shared/capabilities/public/` | **28 capability cards** as workflow method — S0 Intake → S7 Capture, the roles that own each step, the skills they draw on, and the gates that must clear |
-| `shared/registries/recommended-toolchain.tsv` | **197 tools** indexed by *technique class* × *target class* — what to install for a kind of hunting against a kind of target |
-| `tools/coverage-ledger/` | eleven technique classes, a target applicability matrix, and **92 evidence signatures** that distinguish a tool that *ran* from a tool that was merely *named* |
-| `tools/standing-checks/`, `tools/radar/` | rigs shipped **with their control fixtures**, so you can prove a rig discriminates before trusting a result |
-
-**What does not ship, and why:**
-
-- **No liveness, lane or cost annotations.** Whether a tool works on our machine is not a fact about yours. Establish capability locally with a real invocation returning a real result on real target code — `present` is not liveness, and `--version` succeeding is not liveness.
+- **No liveness, lane or cost annotations.** Whether a tool works on our machine is not a fact about yours.
 - **No run output** — action logs, run manifests, results. A *fixture* proves a rig discriminates and is part of the tool; a *result* describes one machine and one target and is not.
 - **No engagement material.** Nothing about the systems this has been pointed at.
-
-The load-bearing idea, if you take only one: **a technique that was never run cannot support a claim that nothing is there.** Track applicable technique classes as `USED | INAPPLICABLE | DEFERRED | UNAVAILABLE`, treat a missing row as `UNEXAMINED`, and let only `USED` — backed by a positive control that would have caught the tool failing — support a negative result.
-</details>
-
-> **Status, honestly.** An actively developed daily driver, not a turnkey release. Its boundaries are stated at the enforcement class they actually hold (see the safety model above).
 
 ## Contributing & license
 
