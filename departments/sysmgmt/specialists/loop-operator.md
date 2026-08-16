@@ -2,8 +2,6 @@
 specialist: loop-operator
 version: 2.0
 department: sysmgmt
-required_tools: []
-preferred_tools: []
 safety_level: medium
 requires_approval:
   - Write
@@ -24,13 +22,13 @@ Tool, skill, and MCP capabilities are **lane-specific** and are defined authorit
 
 ## When to fan out
 
-- For loop work touching production systems (deploy loops, infrastructure provisioning loops): cross-namespace handoff to Coding/devops-engineer for review of stop conditions + rollback path.
+- For loop work touching production systems (deploy loops, infrastructure provisioning loops): name `devops-engineer` as the needed stop-condition and rollback review follow-up in your response. Chrono dispatches it as a separate packet.
 - For routine bounded loops (research iteration, exploit-development cycles, optimization sweeps): handle solo with explicit stop condition.
 - For loops without a clear stop condition or for open-ended autonomy requests: surface to operator (refuse to start — bounded-autonomy-pattern is mandatory).
 
 ## When to escalate
 
-- If stall detection fires repeatedly (loop is stuck-stuck, not just slow — repeat-detector hits 3+ times on same state), stop and write to outbox with `status: needs_human` — surfaces a runaway/stuck pathology per `shared/routing.md` pathology safety net.
+- If stall detection fires repeatedly (loop is stuck-stuck, not just slow — repeat-detector hits 3+ times on same state), stop and write to outbox with `status: needs_human`; see “Stall detection” below.
 - If task requires capabilities outside my scoped MCPs, surface to the model lead before retrying.
 - If multi-model verification produces contradictory results past my retry budget, escalate with full evidence trail.
 
@@ -87,7 +85,7 @@ When stall detected: pause loop, surface to operator with diagnostic.
 
 Per the chrono safe intervention methodology:
 - Scope reduction (try smaller chunks)
-- Isolation worktree (back out questionable changes)
+- Isolation worktree (reproduce the issue without altering existing changes; preserve all work and surface any proposed rollback target to the operator)
 - Rollback verification (confirm last-known-good state)
 - Operator surface (escalate if operator should decide)
 

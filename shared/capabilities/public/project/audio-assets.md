@@ -14,6 +14,10 @@ gates: [paid_media, public_release, credential_change, live_outreach]
 > real target code, and see `shared/registries/recommended-toolchain.tsv` for
 > what to install by technique class and target class.
 
+## Availability in a fresh clone
+
+A zero-key checkout gets this protocol and its validation metadata as documentation; automated dispatch is `needs_tool`. To make it runnable, install and authenticate the selected model CLI, configure every MCP declared by the dispatched specialists, bind the private vault (`CHRONO_VAULT_ROOT`; Kimi also requires its exact vault context), install any required host-local binaries, and provide approved credentials plus a bounded budget for any metered provider named below. After setup, re-run the production role planner and validators on that host; availability remains subject to the narrower gaps and operator gates documented in this card.
+
 **When to use:** produce music, sound effects, voice/narration (TTS), or interactive-audio design as a content
 deliverable. Media specialists are `tool_gated` to the lane hosting the chrono-media-studio / ElevenLabs plugins
 (ElevenLabs is Claude-lane-only). Interactive-audio design routes rendering to the music/sound/voice roles.
@@ -22,16 +26,16 @@ deliverable. Media specialists are `tool_gated` to the lane hosting the chrono-m
 |---|---|---|---|---|
 | **S0** Intake/Admit | `Chrono` | `chrono-vault` | — | memory overlay (recall); brief |
 | **S1** Frame (brief + audio-event map) | `interactive-audio-designer`, `brand-voice` | — | `interactive-audio-design`, `audio-event-map-authoring` | — |
-| **S3** Produce (music / SFX / voice) | `music-composer`, `sound-designer`, `voice-narrator`, `voice-agent-builder` | `generate_audio`, `ElevenLabs API` | `audio-event-map-authoring`, `voice-consistency-audit` | `credential_change` (voice agent); `live_outreach` (agent outbound) |
+| **S3** Produce (music / SFX / voice) | `music-composer`, `sound-designer`, `voice-narrator`, `voice-agent-builder` | `generate_audio`, `ElevenLabs API` | `audio-event-map-authoring`, `voice-consistency-audit` | TBASF blueprint unless the exact route has a current receipt; `credential_change` (voice agent); `live_outreach` (agent outbound) |
 | **S4** Verify (rights/likeness + conditional truth) | `skeptic`, `sound-designer`, `asset-provenance-and-rights-auditor`, `content-verifier` | `chrono-research-arsenal` | `rights-and-provenance-gate`, `consent-and-likeness-check`, `claim-verification` | truth-rights overlay — **Rule-6** rights gate (machine record) AND independent voice/likeness → consent check (both mandatory); **conditional Rule-8** truth gate — factual narration carrying factual/product/efficacy claims requires `content-verifier` grounding (unverifiable load-bearing claim ⇒ `needs_tool`/non-PASS before release); privacy if a real person |
 | **S5** Review/Gate | `skeptic`, `operator` | — | — | review overlay; `paid_media`, `public_release`, `credential_change` |
 | **S6** Ship/Deliver (package) | `sound-designer` | — | — | — |
 | **S7** Capture | `Chrono`, `memory-curator` | `chrono-vault` | — | memory overlay (record) |
 
-**Notes.** `generate_audio` (Higgsfield-backed) and `ElevenLabs API` are the governed, live routes. Raw
-`higgsfield__generate_audio` remains `verified: no` and must never be used. **ElevenLabs is
-Claude-lane-only** — on a non-Claude lane the ElevenLabs route is unavailable and the all-lane `generate_audio`
-route serves the core pipeline. Voice-likeness / real-person resemblance routes to `asset-provenance-and-rights-auditor`
+**Notes.** `generate_audio` is Gemini/Lyria music only; it is not Higgsfield-backed and does not imply TTS,
+voice cloning, SFX, or agent creation. Those operations belong to the separate Claude ElevenLabs sibling MCP,
+which remains available-gated/unproven until role-scoped credential and semantic receipts exist. Voice-likeness
+/ real-person resemblance routes to `asset-provenance-and-rights-auditor`
 (never self-cleared). Factual voice narration carrying factual/product/efficacy claims additionally fires the S4
 conditional Rule-8 truth gate.
 

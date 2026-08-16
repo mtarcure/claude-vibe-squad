@@ -9,6 +9,7 @@ import json
 import shutil
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 import tempfile
 import types
@@ -19,6 +20,7 @@ from unittest import mock
 PYTHON_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PYTHON_ROOT))
 
+import launch_hygiene  # noqa: E402
 import tool_surface_attest  # noqa: E402
 from scripts.python.tests.ci_host_independence import (  # noqa: E402
     skip_in_host_independent_ci,
@@ -72,64 +74,92 @@ class ReconciliationScopeTests(unittest.TestCase):
 
 
 class BoardSupervisorLaunchTests(unittest.TestCase):
+    def test_project_close_verifier_runs_on_bridge_before_commit_marker(self) -> None:
+        supervisor = (REPO_ROOT / "bin" / "board-supervisor.sh").read_text(
+            encoding="utf-8"
+        )
+        bridge = (REPO_ROOT / "scripts/python/dispatch_context_builder.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("ModeExitVerificationError", supervisor)
+        self.assertIn("publish_prepared_worktree_outputs", supervisor)
+        function = bridge.split("def publish_prepared_worktree_outputs(", 1)[1].split(
+            "\ndef ", 1
+        )[0]
+        verifier = function.index("_invoke_project_mode_exit_verifier")
+        result = function.index("prepared.result_relative")
+        envelope = function.index("prepared.outbox_relative")
+        self.assertLess(verifier, result)
+        self.assertLess(result, envelope)
+
     def test_unbound_raw_canary_is_not_treated_as_credential_broker(self) -> None:
         with self.assertRaisesRegex(
-            AttestationError, "runtime authority, CredentialBroker binding, and inode re-audit"
+            AttestationError,
+            "runtime authority, CredentialBroker binding, and inode re-audit",
         ):
-            tool_surface_attest._trusted_boundary_receipt(object(), {"status": "admitted"})
+            tool_surface_attest._trusted_boundary_receipt(
+                object(), {"status": "admitted"}
+            )
 
-    def test_admitted_task_uses_fresh_boundary_launch_seam(self) -> None:
+    def test_usage_error_does_not_require_doctor_log_sibling(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            bin_directory = Path(temporary_directory) / "bin"
+            bin_directory.mkdir()
+            shutil.copy2(REPO_ROOT / "bin" / "board-supervisor.sh", bin_directory)
+            self.assertFalse((bin_directory / "doctor-log-home.sh").exists())
+
+            completed = subprocess.run(
+                [
+                    str(bin_directory / "board-supervisor.sh"),
+                    "prepare",
+                    "request.json",
+                    "standard",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(completed.returncode, 64, completed.stderr)
+            self.assertIn("Usage: board-supervisor.sh trusted-launch", completed.stderr)
+            self.assertNotIn("doctor-log-home.sh", completed.stderr)
+
+    def test_valid_launch_fails_loudly_without_doctor_log_sibling(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            bin_directory = repository / "bin"
+            bin_directory.mkdir()
+            shutil.copy2(REPO_ROOT / "bin" / "board-supervisor.sh", bin_directory)
+            context_file = repository / "context.json"
+            context_file.write_text("{}\n", encoding="utf-8")
+
+            completed = subprocess.run(
+                [
+                    str(bin_directory / "board-supervisor.sh"),
+                    "trusted-launch",
+                    str(context_file),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertIn("doctor-log-home.sh", completed.stderr)
+            self.assertNotIn("Usage: board-supervisor.sh", completed.stderr)
+
+    def test_retired_prepare_mode_cannot_invoke_host_admission(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = Path(temporary_directory) / "repo"
             bin_directory = repository / "bin"
             python_directory = repository / "scripts" / "python"
-            task_root = repository / "task-root"
             bin_directory.mkdir(parents=True)
             python_directory.mkdir(parents=True)
-            task_root.mkdir()
             shutil.copy2(REPO_ROOT / "bin" / "board-supervisor.sh", bin_directory)
-
-            request_path = repository / "request.json"
-            runtime_context_path = repository / "runtime-context.json"
-            launch_log = repository / "launch-log.json"
-            request_path.write_text(json.dumps({"task_root": str(task_root)}), encoding="utf-8")
-            runtime_context_path.write_text(
-                json.dumps({"schema": "board-supervisor-runtime-context/v1", "log": str(launch_log)}),
-                encoding="utf-8",
-            )
-            (python_directory / "launch_hygiene.py").write_text(
-                """#!/usr/bin/env python3
-import json, sys
-if sys.argv[1] == 'validate':
-    print(json.dumps({'status': 'valid'}))
-elif sys.argv[1] == 'field':
-    request = json.load(open(sys.argv[sys.argv.index('--request') + 1]))
-    print(request['task_root'])
-else:
-    raise SystemExit('standalone preflight must not consume the retained launch')
-""",
-                encoding="utf-8",
-            )
+            shutil.copy2(REPO_ROOT / "bin" / "doctor-log-home.sh", bin_directory)
+            invoked = repository / "host-admission-invoked"
             (python_directory / "host_admission.py").write_text(
-                "print('{\"status\":\"admitted\",\"receipt\":\"live\"}')\n",
-                encoding="utf-8",
-            )
-            (python_directory / "tool_surface_attest.py").write_text(
-                """#!/usr/bin/env python3
-import json, pathlib, sys
-assert sys.argv[1] == 'supervisor-launch'
-def value(name): return sys.argv[sys.argv.index(name) + 1]
-assert value('--workload-class') == 'standard'
-assert json.loads(value('--admission-json'))['status'] == 'admitted'
-context = json.load(open(value('--runtime-context')))
-events = [
-    'role_context_compiled', 'runtime_envelope_sealed',
-    'stage1_boundary_retained', 'fresh_cli_launched',
-    'real_tool_operation_attested', 'reconciliation_bound',
-]
-pathlib.Path(context['log']).write_text(json.dumps(events))
-print(json.dumps({'status': 'launched', 'events': events}))
-""",
+                f"from pathlib import Path\nPath({str(invoked)!r}).touch()\n",
                 encoding="utf-8",
             )
 
@@ -137,28 +167,17 @@ print(json.dumps({'status': 'launched', 'events': events}))
                 [
                     str(bin_directory / "board-supervisor.sh"),
                     "prepare",
-                    str(request_path),
+                    "request.json",
                     "standard",
-                    str(runtime_context_path),
                 ],
                 capture_output=True,
                 text=True,
                 check=False,
             )
 
-            self.assertEqual(completed.returncode, 0, completed.stderr)
-            self.assertNotIn("launch_blocked_broker_unimplemented", completed.stdout)
-            self.assertEqual(
-                json.loads(launch_log.read_text(encoding="utf-8")),
-                [
-                    "role_context_compiled",
-                    "runtime_envelope_sealed",
-                    "stage1_boundary_retained",
-                    "fresh_cli_launched",
-                    "real_tool_operation_attested",
-                    "reconciliation_bound",
-                ],
-            )
+            self.assertEqual(completed.returncode, 64)
+            self.assertIn("Usage: board-supervisor.sh trusted-launch", completed.stderr)
+            self.assertFalse(invoked.exists())
 
     @skip_in_host_independent_ci(
         "needs a host-canonical executable and the live supervisor launch seam"
@@ -249,7 +268,9 @@ print(json.dumps({'status': 'launched', 'events': events}))
                             "tool": "write-result",
                             "operation": "produce task result",
                             "effect_path": str(effect_path),
-                            "expected_effect_sha256": hashlib.sha256(b"done").hexdigest(),
+                            "expected_effect_sha256": hashlib.sha256(
+                                b"done"
+                            ).hexdigest(),
                         },
                         "ttl_seconds": 60,
                     }
@@ -272,14 +293,17 @@ print(json.dumps({'status': 'launched', 'events': events}))
             fake_hygiene.run_preflight_canary = lambda *_args, **_kwargs: prepared
             fake_hygiene.launch_if_canary_passes = launch_if_canary_passes
 
-            with mock.patch.dict(sys.modules, {"launch_hygiene": fake_hygiene}), mock.patch.object(
-                tool_surface_attest,
-                "_trusted_boundary_receipt",
-                return_value={
-                    "authority_authenticated": True,
-                    "broker_healthy": True,
-                    "inode_audit_passed": True,
-                },
+            with (
+                mock.patch.dict(sys.modules, {"launch_hygiene": fake_hygiene}),
+                mock.patch.object(
+                    tool_surface_attest,
+                    "_trusted_boundary_receipt",
+                    return_value={
+                        "authority_authenticated": True,
+                        "broker_healthy": True,
+                        "inode_audit_passed": True,
+                    },
+                ),
             ):
                 result = tool_surface_attest._supervisor_launch(
                     request_path,
@@ -294,6 +318,54 @@ print(json.dumps({'status': 'launched', 'events': events}))
             self.assertRegex(result["launch_attestation_sha256"], r"^[0-9a-f]{64}$")
             self.assertRegex(result["tool_attestation_sha256"], r"^[0-9a-f]{64}$")
             self.assertRegex(result["reconciliation_binding_sha256"], r"^[0-9a-f]{64}$")
+
+    def test_strict_launch_scrubs_vault_context_before_hygiene_validation(self) -> None:
+        source = (REPO_ROOT / "bin" / "board-supervisor.sh").read_text(
+            encoding="utf-8"
+        )
+        start = source.index(
+            '    prepared.environment["PATH"] = DEFAULT_LANE_PATH'
+        )
+        end = source.index("    def bounded_real_launcher", start)
+        environment_setup = textwrap.dedent(source[start:end])
+        prepared = types.SimpleNamespace(
+            environment={
+                "HOME": "/tmp/home",
+                "XDG_CONFIG_HOME": "/tmp/config",
+                "XDG_CACHE_HOME": "/tmp/cache",
+                "TMPDIR": "/tmp/task",
+                "PATH": "/usr/bin:/bin",
+                "LC_ALL": "C",
+                "CHRONO_VAULT_ROOT": "/private/vault",
+                "OBSIDIAN_VAULT_ROOT": "/private/vault",
+                "CHRONO_VAULT_CONTEXT": "stale",
+                "CHRONO_VAULT_BROKER_TOKEN": "secret",
+            }
+        )
+        namespace = {
+            "prepared": prepared,
+            "trusted_environment": {"CHRONO_VAULT_CONTEXT": '{"aperture":"none"}'},
+            "DEFAULT_LANE_PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "VAULT_ROOT_ALIASES": (
+                "CHRONO_VAULT_ROOT",
+                "OBSIDIAN_VAULT_ROOT",
+            ),
+            "VAULT_CONTEXT_ENV": "CHRONO_VAULT_CONTEXT",
+            "VAULT_BROKER_TOKEN_ENV": "CHRONO_VAULT_BROKER_TOKEN",
+        }
+
+        exec(compile(environment_setup, "board-supervisor.sh", "exec"), namespace)
+
+        launch_hygiene._validate_child_environment(prepared.environment)
+        self.assertFalse(
+            {
+                "CHRONO_VAULT_ROOT",
+                "OBSIDIAN_VAULT_ROOT",
+                "CHRONO_VAULT_CONTEXT",
+                "CHRONO_VAULT_BROKER_TOKEN",
+            }
+            & set(prepared.environment)
+        )
 
 
 class BlockReasonClassificationTests(unittest.TestCase):
@@ -325,6 +397,93 @@ class BlockReasonClassificationTests(unittest.TestCase):
 
         self.assertEqual(classify(reason), "integration")
 
+    def test_timeout_words_in_evidence_cannot_outvote_four_diagnoses(self) -> None:
+        classify = self._classifier()
+        counterexamples = {
+            "fresh lane code integration failed: shared/timeouts.md, bin/x.sh": (
+                "integration"
+            ),
+            "worktree isolation failed: _state/timeout-notes.md": "worktree",
+            "memory proof failed: shared/vault-timeout.md": "memory_proof",
+            "capability denied: tools/deadline.py": "capability",
+        }
+
+        for reason, failure_class in counterexamples.items():
+            with self.subTest(reason=reason):
+                self.assertEqual(classify(reason), failure_class)
+
+    def test_generic_launch_tail_distinguishes_timeout_from_timeout_word(self) -> None:
+        classify = self._classifier()
+        expected = {
+            "trusted launch failed: Command '['codex']' timed out after 900 seconds": (
+                "timeout"
+            ),
+            "trusted launch failed: executable returned exit 75": "launch",
+            "trusted launch failed: timeout policy file could not be loaded": "launch",
+            "fresh lane process cleanup failed: boom": "other",
+        }
+
+        for reason, failure_class in expected.items():
+            with self.subTest(reason=reason):
+                self.assertEqual(classify(reason), failure_class)
+
+    def test_timeout_phrase_in_report_filename_is_not_a_timeout_signal(self) -> None:
+        classify = self._classifier()
+
+        self.assertEqual(
+            classify("trusted launch failed: malformed report: analysis timed out.md"),
+            "launch",
+        )
+
+    def test_operation_timeout_is_a_timeout_signal(self) -> None:
+        classify = self._classifier()
+
+        self.assertEqual(
+            classify("trusted launch failed: operation timeout"),
+            "timeout",
+        )
+
+    def test_a_report_filename_is_not_a_timeout_diagnosis(self) -> None:
+        """The filename guard must also cover the *leading* clause.
+
+        The guard added for the generic-launch tail is only consulted when a
+        launch clause wraps the evidence. A reason that is itself a filename
+        never reaches it, so `analysis timed out.md` was diagnosed `timeout` --
+        a report name, not a timeout event. With no diagnostic clause at all
+        the only honest class is `other`; wrapped in a launch clause the
+        diagnosis stays `launch`.
+        """
+        classify = self._classifier()
+        expected = {
+            "analysis timed out.md": "other",
+            "trusted launch failed: analysis timed out.md": "launch",
+            # the whole family, not just the one reported instance
+            "timeouts.md": "other",
+            "timeout-notes.md": "other",
+            "deadline.json": "other",
+            "report timed out.markdown": "other",
+            "fresh lane timeout: boom": "timeout",
+        }
+
+        for reason, failure_class in expected.items():
+            with self.subTest(reason=reason):
+                self.assertEqual(classify(reason), failure_class)
+
+    def test_the_filename_guard_does_not_disarm_a_real_timeout_diagnosis(self) -> None:
+        """Narrowing the leading clause must not cost the timeout class itself."""
+        classify = self._classifier()
+        expected = {
+            "fresh lane timeout: boom": "timeout",
+            "timeout": "timeout",
+            "deadline exceeded: boom": "timeout",
+            "fresh lane cli timed out after 2700s": "timeout",
+            "worktree isolation failed: _state/timeout-notes.md": "worktree",
+        }
+
+        for reason, failure_class in expected.items():
+            with self.subTest(reason=reason):
+                self.assertEqual(classify(reason), failure_class)
+
     def test_every_supervisor_block_reason_keeps_its_intended_class(self) -> None:
         classify = self._classifier()
         expected = {
@@ -334,12 +493,45 @@ class BlockReasonClassificationTests(unittest.TestCase):
                 "request_validation"
             ),
             'Stage-1 canary failed: {"canary": "denied"}': "launch_canary",
+            "trusted launch failed: Command '['codex']' timed out after 900 seconds": (
+                "timeout"
+            ),
             "trusted launch failed: boom": "launch",
+            "fresh lane timeout: boom": "timeout",
+            "memory proof failed: boom": "memory_proof",
+            "response envelope missing: boom": "missing_envelope",
+            "fresh lane process cleanup failed: boom": "other",
             "fresh lane code integration failed: boom": "integration",
+            "mode-exit verification failed: retry": "verification",
         }
         for reason, failure_class in expected.items():
             with self.subTest(reason=reason):
                 self.assertEqual(classify(reason), failure_class)
+
+    def test_native_cli_failures_use_exact_transport_classes(self) -> None:
+        source = (REPO_ROOT / "bin" / "board-supervisor.sh").read_text(encoding="utf-8")
+        launch = source.split("completed = launch_task(", 1)[1].split(
+            "observed_memory_ids = set()", 1
+        )[0]
+        cleanup = launch.index("except ProcessTruthError")
+        timeout = launch.index("except subprocess.TimeoutExpired")
+        self.assertLess(cleanup, timeout)
+        self.assertIn("hold_for_operator_stop", launch[cleanup:timeout])
+        self.assertNotIn("block_after_provision", launch[cleanup:timeout])
+        self.assertNotIn("cli_timeout", launch[cleanup:timeout])
+        self.assertIn("except subprocess.TimeoutExpired", launch)
+        self.assertIn('failure_class="cli_timeout"', launch)
+        self.assertEqual(source.count("trap_cli_missing(exc)"), 4)
+        self.assertIn('failure_class="cli_missing"', launch)
+        self.assertIn('failure_class="cli_nonzero"', launch)
+        marker = "def trap_cli_missing(exc):"
+        helper = marker + source.split(marker, 1)[1].split("\n\n", 1)[0]
+        denied = []
+        namespace = {"deny": lambda *args: denied.append(args)}
+        exec(compile(helper, "board-supervisor.sh", "exec"), namespace)
+        for error in (FileNotFoundError("x"), PermissionError("x"), OSError("x")):
+            namespace["trap_cli_missing"](error)
+        self.assertEqual([args[1] for args in denied], ["cli_missing", "cli_missing"])
 
 
 if __name__ == "__main__":

@@ -20,7 +20,7 @@ For prompt injection, agent jailbreaks, tool abuse, indirect prompt injection. N
 - Read model card if available
 - Identify available tools / functions the agent can call
 - Look for system prompt leaks (sometimes accessible)
-- Tools: prompt-engineer specialist for jailbreak pattern catalog; invoking Lead uses its native syntax (`@prompt-engineer` for Gemini, `Task` with `subagent_type: prompt-engineer` for Claude, or `Agent(subagent_type=prompt-engineer)` for Kimi).
+- Tools: the `prompt-engineer` specialist maintains the jailbreak pattern catalog. Chrono dispatches it as its own packet; no lane invokes it inline.
 
 ### Phase 3 Recon
 - Map prompt surface (what inputs reach the model)
@@ -52,9 +52,9 @@ For prompt injection, agent jailbreaks, tool abuse, indirect prompt injection. N
 ## Specialists most active
 
 - prompt-engineer (cross-cutting — knows jailbreak patterns)
-- security namespace invokes `exploit-developer` via `Task` tool with `subagent_type: exploit-developer` (multi-step jailbreak chains)
+- Chrono dispatches `exploit-developer` (multi-step jailbreak chains)
 - ai-engineer (Coding cross-namespace — for agent-system specific attacks)
-- security namespace invokes `skeptic` via `Task` tool with `subagent_type: skeptic` to verify findings reproduce reliably
+- Chrono dispatches `skeptic` to verify findings reproduce reliably
 
 ## Tools
 

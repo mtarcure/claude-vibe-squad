@@ -2,8 +2,6 @@
 specialist: synthesizer
 version: 2.0
 department: research
-required_tools: []
-preferred_tools: []
 safety_level: medium
 requires_approval:
   - Write
@@ -24,12 +22,12 @@ Tool, skill, and MCP capabilities are **lane-specific** and are defined authorit
 
 ## Search tool order
 
-Try dedicated tools FIRST — synthesized+cited search, real-time web/news search, and academic-paper search; on Gemini, native Google Search. **Run one live probe before concluding a tool is unavailable — never fall back on a prior-session or boilerplate "not wired" claim; trust `api-catalog.md` over packet boilerplate.** Treat absence from the callable runtime schema as an availability error: declare `capability_gap` and use the approved fallback. Otherwise, fall back to `WebSearch` ONLY when a dedicated tool ERRORS on a live call. Declare `tools_used` honestly per call.
+Follow `docs/standards/tool-trigger-map.md` § Search availability and fallback.
 
 ## When to fan out
 
-- For ambiguity in conflicting trajectories: dispatch back to `research` for one more source-pass via research namespace's mailbox.
-- For factual disputes that need cross-model verification: handoff to a skeptic-style fan-out (different family from writers).
+- For ambiguity in conflicting trajectories, name `research` as the needed additional source-pass follow-up in your response. Chrono dispatches it as a separate packet.
+- For factual disputes that need cross-model verification, name a different-family `skeptic` pass as the needed follow-up in your response. Chrono dispatches it as a separate packet.
 - For solo task handling: aggregating N specialist outputs into one consolidated report, preserving outlier findings, model-attribution-tagged synthesis.
 - For operator-facing decision: when contributors fundamentally disagree on the answer — surface to operator with the disagreement matrix.
 
@@ -67,10 +65,10 @@ Try dedicated tools FIRST — synthesized+cited search, real-time web/news searc
 # Synthesis: <topic>
 
 ## Consensus Findings
-(items where N/N or majority of inputs agreed)
+(items where all N/N inputs agreed; disclose the input count)
 
 ## Strong Findings
-(items confirmed by ≥2 inputs, with confidence stamps)
+(items confirmed by at least two but fewer than all inputs, with confidence stamps and every dissent preserved)
 
 ## Minority Reports
 (items only one input surfaced — preserved, not dropped)

@@ -9,7 +9,7 @@ CLI restriction mechanism for that lane.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import json
 import os
@@ -37,7 +37,17 @@ CLAUDE_FIRST_PARTY_SERVERS = {
 }
 TOOL_NAME_RE = re.compile(r"^[A-Za-z0-9._+-]+$")
 ROLE_CONFIG_MARKER = "__ROLE_MCP_CONFIG__"
+CHRONO_VAULT_SERVER = "chrono-vault"
+BROKER_TOKEN_ENV = "CHRONO_VAULT_BROKER_TOKEN"
+BROKER_TOKEN_RE = re.compile(r"^[0-9a-f]{64}$")
 LANES = frozenset({"codex", "claude", "gemini", "kimi"})
+KIMI_LOCAL_SERVER_SCRIPTS = {
+    name: Path("plugins") / name / "mcp_server.py"
+    for name in ("chrono-vault", "chrono-dedup", "chrono-research-arsenal")
+}
+KIMI_SEQUENTIAL_COMMAND = Path(
+    "/opt/homebrew/bin/mcp-server-sequential-thinking"
+)
 CAPABILITY_SOURCE_RELATIVE = Path(
     "model-lanes/specialist-lane-capabilities.v1.json"
 )
@@ -66,9 +76,41 @@ CAPABILITY_SOURCE_RELATIVE = Path(
 # that is genuinely absent, still denies.
 PATH_RESOLVABLE_EVIDENCE = frozenset({"host-PATH"})
 
+# ── Structural validity is NOT runtime health ────────────────────────────────
+# These were one class until 2026-08-10, and folding them together made a
+# transient outage anywhere in a role's authorized set a permanent denial of
+# that role. Measured 2026-08-09: the `research` role could not be dispatched
+# because the `github` MCP answered `HTTP 400: Authorization header is badly
+# formatted`, on a markdown/caching packet that never touched github.
+#
+#   STRUCTURAL  -- an authorized server that is not configured at all, or whose
+#                  record is unsafe. This is a defect in the PLAN and no amount
+#                  of waiting fixes it. Still fails closed.
+#   RUNTIME     -- a properly-configured, authorized server that did not answer
+#                  the health probe (connection failure, auth failure, provider
+#                  outage). This is a fact about the WORLD at one instant. It
+#                  degrades: the launch proceeds, and the unhealthy server is
+#                  named in the receipt and in the worker's injected context so
+#                  the worker does not discover it by calling a dead tool.
+#
+# `available` now means exactly one thing on every lane -- see `mcp_health()`.
+# The lanes differ only in whether they COLLECT health at all, and that is
+# stated here rather than left implicit in where the probe happens to be
+# called: `claude` and `gemini` run a live `<cli> mcp list` that reports a
+# per-server status, while `codex` and `kimi` enumerate configuration only and
+# every record therefore carries no status. A status-less record is `unknown`
+# health, not healthy and not unhealthy -- we simply did not look.
+MCP_HEALTH_INSPECTED_LANES = frozenset({"claude", "gemini"})
+MCP_HEALTHY_STATUS_RE = re.compile(r"^[✔✓]?\s*Connected\b")
+MCP_STATUS_MAX_LENGTH = 512
+
 
 class CapabilityDenied(RuntimeError):
     """Role capability projection cannot be enforced without widening it."""
+
+
+def _reject_non_finite_json(_value: str) -> None:
+    raise ValueError("non-finite JSON value")
 
 
 @dataclass(frozen=True)
@@ -88,6 +130,21 @@ class LaneCapabilityPlan:
     # gate it (F6). The worker is expected to declare a `capability_gap` and use
     # the task-approved fallback rather than pretend the tool worked.
     capability_gaps: tuple[str, ...] = ()
+    # Authorized servers that ARE configured but did not answer the health
+    # probe. Degraded, not denied: the launch proceeds and these are surfaced.
+    unhealthy_mcps: tuple[str, ...] = ()
+    # (server name, verbatim probe status) for every entry in `unhealthy_mcps`.
+    # Verbatim so the receipt records what the runtime actually said, not this
+    # module's paraphrase of it.
+    unhealthy_mcp_status: tuple[tuple[str, str], ...] = ()
+
+
+@dataclass(frozen=True)
+class KimiLocalHostArtifacts:
+    """Executable host paths used by Kimi's controller-owned templates."""
+
+    interpreter: Path
+    sequential_thinking: Path
 
 
 def _sha256_file(path: Path) -> str:
@@ -249,6 +306,12 @@ def load_json_mcp_servers(path: Path) -> dict[str, dict[str, object]]:
     return result
 
 
+# SGR ("select graphic rendition") colour sequences only -- not the whole ANSI
+# escape space. A cursor-movement or clear-screen sequence in an inventory row
+# would be genuinely anomalous and should still fail closed.
+_SGR_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
 def parse_live_mcp_listing(
     *, lane: str, output: str
 ) -> dict[str, dict[str, object]]:
@@ -258,6 +321,18 @@ def parse_live_mcp_listing(
         raise CapabilityDenied(f"{lane} does not have a text MCP inventory parser")
     if not isinstance(output, str) or "\x00" in output:
         raise CapabilityDenied("live MCP inventory output is invalid")
+
+    # Strip SGR colour codes before matching. The row patterns anchor on the
+    # status glyph, and `gemini mcp list` emits colour even when its output is
+    # captured rather than shown on a terminal, so every row arrives as
+    # "\x1b[32m✓\x1b[39m name: ..." and fails the anchor. Measured 2026-08-16:
+    # 12 of 12 live rows rejected with "unparseable row" on a host whose
+    # inventory was entirely healthy.
+    #
+    # This is stripped HERE rather than at each call site so a second caller
+    # cannot reintroduce the bug, and it is deliberately narrow: only SGR
+    # sequences, so a genuinely malformed row still fails closed.
+    output = _SGR_RE.sub("", output)
 
     lines = output.splitlines()
     header = (
@@ -467,6 +542,321 @@ def _canonical_role_config(
         ) from exc
 
 
+def chrono_vault_relay_server(
+    *,
+    repo_root: Path,
+    broker_port: int,
+    broker_token: str,
+    task_id: str,
+    attempt_id: str,
+    generation: int,
+    python_executable: Path = Path("/usr/bin/python3"),
+) -> dict[str, object]:
+    """Return the one path-free MCP server record installed in a worker.
+
+    The only filesystem path in this record points back into the worker's own
+    worktree.  The private vault address and authenticated aperture context
+    stay exclusively in the supervisor-owned backend environment.
+    """
+
+    if (
+        isinstance(broker_port, bool)
+        or not isinstance(broker_port, int)
+        or not 1 <= broker_port <= 65535
+    ):
+        raise CapabilityDenied("chrono-vault broker port is invalid")
+    if not isinstance(broker_token, str) or BROKER_TOKEN_RE.fullmatch(broker_token) is None:
+        raise CapabilityDenied("chrono-vault broker token is invalid")
+    if (
+        not isinstance(task_id, str)
+        or not isinstance(attempt_id, str)
+        or SERVER_NAME_RE.fullmatch(task_id) is None
+        or SERVER_NAME_RE.fullmatch(attempt_id) is None
+        or len(task_id) > 192
+        or len(attempt_id) > 192
+        or isinstance(generation, bool)
+        or not isinstance(generation, int)
+        or generation < 1
+    ):
+        raise CapabilityDenied("chrono-vault broker binding is invalid")
+    try:
+        root = Path(repo_root).resolve(strict=True)
+        executable = Path(python_executable).resolve(strict=True)
+        relay = (root / "plugins" / "chrono-vault" / "broker.py").resolve(strict=True)
+    except (OSError, RuntimeError):
+        raise CapabilityDenied("chrono-vault relay runtime is unavailable") from None
+    if (
+        not root.is_dir()
+        or not executable.is_file()
+        or not os.access(executable, os.X_OK)
+        or not relay.is_file()
+        or not relay.is_relative_to(root)
+    ):
+        raise CapabilityDenied("chrono-vault relay runtime is unavailable")
+    return {
+        "command": str(executable),
+        "args": [
+            str(relay),
+            "relay",
+            "--port",
+            str(broker_port),
+            "--task-id",
+            task_id,
+            "--attempt-id",
+            attempt_id,
+            "--generation",
+            str(generation),
+            "--server-name",
+            CHRONO_VAULT_SERVER,
+        ],
+        "env": {BROKER_TOKEN_ENV: broker_token},
+    }
+
+
+def broker_chrono_vault_plan(
+    plan: LaneCapabilityPlan,
+    *,
+    repo_root: Path,
+    broker_port: int,
+    broker_token: str,
+    task_id: str,
+    attempt_id: str,
+    generation: int,
+    python_executable: Path = Path("/usr/bin/python3"),
+) -> LaneCapabilityPlan:
+    """Replace direct chrono-vault launch data with one relay-only record."""
+
+    if CHRONO_VAULT_SERVER not in plan.authorized_mcps:
+        return plan
+    relay = chrono_vault_relay_server(
+        repo_root=repo_root,
+        broker_port=broker_port,
+        broker_token=broker_token,
+        task_id=task_id,
+        attempt_id=attempt_id,
+        generation=generation,
+        python_executable=python_executable,
+    )
+    if plan.lane == "codex":
+        return replace(
+            plan,
+            cli_args=(
+                *plan.cli_args,
+                *codex_chrono_vault_relay_args(
+                    relay=relay,
+                    broker_token=broker_token,
+                ),
+            ),
+        )
+
+    # Gemini has no reviewed per-spawn MCP-config argument in the current
+    # launcher.  Returning role_config_json here used to look complete, but the
+    # materializer then rejected it because no ROLE_CONFIG_MARKER was present.
+    # Keep this typed and closed until the supervisor has a proven config-home
+    # injection mechanism.
+    if plan.lane == "gemini":
+        raise CapabilityDenied(
+            "Gemini chrono-vault relay config injection is not implemented"
+        )
+
+    selected: dict[str, object] = {}
+    if plan.role_config_json is not None:
+        try:
+            payload = json.loads(plan.role_config_json)
+            configured = payload.get("mcpServers") if isinstance(payload, dict) else None
+        except (TypeError, ValueError, json.JSONDecodeError):
+            configured = None
+        if not isinstance(configured, dict):
+            raise CapabilityDenied("role MCP config cannot be broker-rewritten")
+        selected.update(configured)
+    selected[CHRONO_VAULT_SERVER] = relay
+    role_config_json = _canonical_role_config(
+        authorized=tuple(sorted(selected)),
+        configured_servers=selected,
+    )
+    cli_args = plan.cli_args
+    if plan.lane == "claude" and ROLE_CONFIG_MARKER not in cli_args:
+        cli_args = ("--mcp-config", ROLE_CONFIG_MARKER, *cli_args)
+    return replace(plan, role_config_json=role_config_json, cli_args=cli_args)
+
+
+def codex_chrono_vault_relay_args(
+    *,
+    relay: Mapping[str, object],
+    broker_token: str,
+) -> tuple[str, str]:
+    """Build the final Codex table replacement for one validated relay."""
+
+    if (
+        not isinstance(relay, Mapping)
+        or not isinstance(relay.get("command"), str)
+        or not isinstance(relay.get("args"), list)
+        or any(not isinstance(value, str) for value in relay["args"])
+        or not isinstance(broker_token, str)
+        or BROKER_TOKEN_RE.fullmatch(broker_token) is None
+        or relay.get("env") != {BROKER_TOKEN_ENV: broker_token}
+    ):
+        raise CapabilityDenied("Codex chrono-vault relay record is invalid")
+    # JSON strings are valid TOML basic strings for these prevalidated ASCII
+    # values.  A full table replacement appears after the earlier enabled=true
+    # switch and therefore wins without exposing host provider configuration.
+    command = json.dumps(relay["command"], ensure_ascii=True)
+    arguments = ",".join(
+        json.dumps(value, ensure_ascii=True) for value in relay["args"]
+    )
+    token = json.dumps(broker_token, ensure_ascii=True)
+    override = (
+        "mcp_servers.chrono-vault="
+        "{enabled=true,command="
+        + command
+        + ",args=["
+        + arguments
+        + f"],env={{CHRONO_VAULT_BROKER_TOKEN={token}}}}}"
+    )
+    return ("-c", override)
+
+
+def _kimi_local_server_templates(
+    *,
+    repo_root: Path | None,
+    authorized: tuple[str, ...],
+    vault_environment: Mapping[str, str] | None = None,
+    host_artifacts: KimiLocalHostArtifacts | None = None,
+) -> dict[str, dict[str, object]]:
+    """Build selected Kimi MCP config from controller-owned local paths only."""
+
+    supported = set(KIMI_LOCAL_SERVER_SCRIPTS) | {"sequential-thinking"}
+    if set(authorized) - supported:
+        raise CapabilityDenied("Kimi lead MCP uses an unsupported local template")
+    if repo_root is None:
+        raise CapabilityDenied("Kimi local template repo root is unavailable")
+    try:
+        root = Path(repo_root).resolve(strict=True)
+    except (OSError, RuntimeError):
+        raise CapabilityDenied("Kimi local template repo root is unavailable") from None
+    if not root.is_dir():
+        raise CapabilityDenied("Kimi local template repo root is unavailable")
+
+    bound_vault_environment: dict[str, str] | None = None
+    if "chrono-vault" in authorized:
+        required = {"CHRONO_VAULT_ROOT", "CHRONO_VAULT_CONTEXT"}
+        if not isinstance(vault_environment, Mapping) or set(vault_environment) != required:
+            raise CapabilityDenied("Kimi chrono-vault environment is not exactly bound")
+        vault_root = vault_environment["CHRONO_VAULT_ROOT"]
+        vault_context = vault_environment["CHRONO_VAULT_CONTEXT"]
+        try:
+            decoded_context = json.loads(
+                vault_context,
+                parse_constant=_reject_non_finite_json,
+            )
+        except (TypeError, ValueError):
+            raise CapabilityDenied("Kimi chrono-vault context is invalid") from None
+        if (
+            not isinstance(vault_root, str)
+            or not Path(vault_root).is_absolute()
+            or not vault_root
+            or "\x00" in vault_root
+            or len(vault_root.encode("utf-8")) > 4096
+            or not isinstance(vault_context, str)
+            or "\x00" in vault_context
+            or len(vault_context.encode("utf-8")) > 16384
+            or not isinstance(decoded_context, dict)
+            or decoded_context.get("schema") != "chrono-vault-context/v1"
+            or json.dumps(
+                decoded_context,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+            != vault_context
+        ):
+            raise CapabilityDenied("Kimi chrono-vault environment is invalid")
+        bound_vault_environment = {
+            name: vault_environment[name] for name in sorted(required)
+        }
+
+    artifacts = host_artifacts or KimiLocalHostArtifacts(
+        interpreter=root / ".venv" / "bin" / "python",
+        sequential_thinking=KIMI_SEQUENTIAL_COMMAND,
+    )
+    interpreter = Path(artifacts.interpreter)
+    sequential_command = Path(artifacts.sequential_thinking)
+    selected: dict[str, dict[str, object]] = {}
+    script_names = set(authorized) & set(KIMI_LOCAL_SERVER_SCRIPTS)
+    if script_names and (
+        not interpreter.is_absolute()
+        or not interpreter.is_file()
+        or not os.access(interpreter, os.X_OK)
+    ):
+        raise CapabilityDenied("Kimi local template interpreter is unavailable")
+    for name in authorized:
+        if name == "sequential-thinking":
+            if (
+                not sequential_command.is_absolute()
+                or not sequential_command.is_file()
+                or not os.access(sequential_command, os.X_OK)
+            ):
+                raise CapabilityDenied(
+                    "Kimi sequential-thinking executable is unavailable"
+                )
+            selected[name] = {"command": str(sequential_command)}
+            continue
+        script = root / KIMI_LOCAL_SERVER_SCRIPTS[name]
+        try:
+            resolved_script = script.resolve(strict=True)
+        except (OSError, RuntimeError):
+            raise CapabilityDenied(
+                "Kimi local template server script is unavailable"
+            ) from None
+        if (
+            script.is_symlink()
+            or not resolved_script.is_file()
+            or not resolved_script.is_relative_to(root)
+        ):
+            raise CapabilityDenied("Kimi local template server script is unavailable")
+        selected[name] = {
+            "command": str(interpreter),
+            "args": [str(script)],
+        }
+        if name == "chrono-vault":
+            selected[name]["env"] = bound_vault_environment
+    return selected
+
+
+def _kimi_none_aperture_environment(
+    vault_environment: Mapping[str, str] | None,
+) -> bool:
+    """Recognize the controller projection that intentionally omits vault paths."""
+
+    if not isinstance(vault_environment, Mapping) or set(vault_environment) != {
+        "CHRONO_VAULT_CONTEXT"
+    }:
+        return False
+    vault_context = vault_environment["CHRONO_VAULT_CONTEXT"]
+    try:
+        decoded_context = json.loads(
+            vault_context,
+            parse_constant=_reject_non_finite_json,
+        )
+    except (TypeError, ValueError):
+        return False
+    return (
+        isinstance(vault_context, str)
+        and "\x00" not in vault_context
+        and len(vault_context.encode("utf-8")) <= 16384
+        and isinstance(decoded_context, dict)
+        and decoded_context.get("schema") == "chrono-vault-context/v1"
+        and decoded_context.get("aperture") == "none"
+        and json.dumps(
+            decoded_context,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+        == vault_context
+    )
+
+
 def load_tool_classes(
     *,
     repo_root: Path,
@@ -498,12 +888,13 @@ def load_tool_classes(
     entries = payload.get("entries") if isinstance(payload, dict) else None
     if not isinstance(entries, list):
         return {}
+    source_lane = "gpt-codex" if lane == "codex" else lane
     classes: dict[str, dict[str, str]] = {}
     for entry in entries:
         if (
             not isinstance(entry, dict)
             or entry.get("specialist") != specialist
-            or entry.get("lane") != lane
+            or entry.get("lane") != source_lane
         ):
             continue
         for tool in entry.get("tools") or ():
@@ -535,6 +926,64 @@ def _tool_gates_launch(tool_class: Mapping[str, str] | None) -> bool:
     return str(tool_class.get("evidence") or "") in PATH_RESOLVABLE_EVIDENCE
 
 
+def mcp_health(*, lane: str, details: Mapping[str, object]) -> str:
+    """Classify ONE configured server record as healthy/unknown/unhealthy.
+
+    One predicate, every lane. `unknown` is not a euphemism for healthy: it
+    means this lane collected no health evidence for this record (see
+    ``MCP_HEALTH_INSPECTED_LANES``), so there is nothing to degrade on. Only a
+    lane that actually probed can report `unhealthy`.
+    """
+
+    status = details.get("status")
+    if status is None:
+        return "unknown"
+    if not isinstance(status, str):
+        raise CapabilityDenied("configured MCP server has an unsafe status")
+    if MCP_HEALTHY_STATUS_RE.match(status):
+        return "healthy"
+    if (
+        lane == "claude"
+        and status.startswith("⏸ Pending approval")
+        and isinstance(details.get("project_config"), dict)
+    ):
+        # The role config re-supplies this server to the child directly, so a
+        # pending in-project approval is a configuration state, not ill health.
+        return "healthy"
+    return "unhealthy"
+
+
+def _validate_server_record(
+    *, name: str, details: Mapping[str, object]
+) -> None:
+    """Fail closed on an authorized server whose RECORD is unsafe.
+
+    This is the structural leg. It stays a hard denial: an unparseable or
+    unsafe record means the plan cannot be enforced, which is categorically
+    different from a well-formed server that happens to be down right now.
+    """
+
+    if not isinstance(details, Mapping):
+        raise CapabilityDenied(f"configured MCP server {name} has an unsafe record")
+    status = details.get("status")
+    if status is not None and (
+        not isinstance(status, str)
+        or "\x00" in status
+        or "\n" in status
+        or len(status) > MCP_STATUS_MAX_LENGTH
+    ):
+        raise CapabilityDenied(f"configured MCP server {name} has an unsafe status")
+    live_name = details.get("live_name")
+    if live_name is not None and (
+        not isinstance(live_name, str)
+        or (
+            live_name not in CLAUDE_FIRST_PARTY_SERVERS
+            and not CLAUDE_LIVE_SERVER_RE.fullmatch(live_name)
+        )
+    ):
+        raise CapabilityDenied(f"configured MCP server {name} has an unsafe live name")
+
+
 def plan_lane(
     *,
     lane: str,
@@ -542,58 +991,89 @@ def plan_lane(
     configured_servers: Mapping[str, Mapping[str, object]],
     tool_lookup: Callable[[str], str | None] | None = None,
     tool_classes: Mapping[str, Mapping[str, str]] | None = None,
+    repo_root: Path | None = None,
+    kimi_vault_environment: Mapping[str, str] | None = None,
+    kimi_host_artifacts: KimiLocalHostArtifacts | None = None,
+    broker_chrono_vault: bool = False,
 ) -> LaneCapabilityPlan:
     """Build one fail-closed, deterministic native-CLI enforcement plan."""
 
     if lane not in LANES:
         raise CapabilityDenied(f"unsupported capability lane: {lane!r}")
-    authorized = tuple(sorted(set(projection.get("mcps", ()))))
-    brokered = tuple(sorted(set(projection.get("brokered_mcps", ()))))
+    if not isinstance(broker_chrono_vault, bool):
+        raise CapabilityDenied("broker_chrono_vault must be a boolean")
+    raw_authorized = projection.get("mcps", ())
+    raw_brokered = projection.get("brokered_mcps", ())
+    if not isinstance(raw_authorized, (list, tuple)) or not isinstance(
+        raw_brokered, (list, tuple)
+    ):
+        raise CapabilityDenied("role MCP declarations have the wrong shape")
+    if any(not isinstance(name, str) for name in (*raw_authorized, *raw_brokered)):
+        raise CapabilityDenied("role MCP declaration contains an unsafe name")
+    brokered = tuple(raw_brokered)
+    if lane == "kimi":
+        if raw_authorized:
+            raise CapabilityDenied(
+                "Kimi direct role MCP declarations are forbidden; use lead: declarations"
+            )
+        if any(name.startswith("lead:") for name in brokered):
+            raise CapabilityDenied("Kimi brokered MCP names must be stripped")
+        if brokered != tuple(sorted(set(brokered))):
+            raise CapabilityDenied("Kimi brokered MCP names must be sorted unique")
+        if (
+            not broker_chrono_vault
+            and "chrono-vault" in brokered
+            and _kimi_none_aperture_environment(kimi_vault_environment)
+        ):
+            brokered = tuple(name for name in brokered if name != "chrono-vault")
+        authorized = brokered
+        template_authorized = tuple(
+            name
+            for name in authorized
+            if not (broker_chrono_vault and name == CHRONO_VAULT_SERVER)
+        )
+        configured_servers = dict(_kimi_local_server_templates(
+            repo_root=repo_root,
+            authorized=template_authorized,
+            vault_environment=kimi_vault_environment,
+            host_artifacts=kimi_host_artifacts,
+        ))
+        if broker_chrono_vault and CHRONO_VAULT_SERVER in authorized:
+            # A deliberately inert placeholder makes a forgotten supervisor
+            # rewrite fail closed. broker_chrono_vault_plan replaces it only
+            # after the retained listener and token exist.
+            configured_servers[CHRONO_VAULT_SERVER] = {
+                "command": "/usr/bin/false"
+            }
+    else:
+        authorized = tuple(sorted(set(raw_authorized)))
+        brokered = tuple(sorted(set(brokered)))
     tools = tuple(sorted(set(projection.get("tools", ()))))
     configured = tuple(sorted(configured_servers))
-    if any(not SERVER_NAME_RE.fullmatch(name) for name in (*authorized, *configured)):
+    if any(
+        not isinstance(name, str) or not SERVER_NAME_RE.fullmatch(name)
+        for name in (*authorized, *brokered, *configured)
+    ):
         raise CapabilityDenied("MCP server name is unsafe")
-    launch_available = set(configured)
-    if lane == "claude":
-        launch_available = {
-            name
-            for name, details in configured_servers.items()
-            if isinstance(details.get("status"), str)
-            and (
-                str(details["status"]).startswith("✔ Connected")
-                or str(details["status"]).startswith("Connected")
-                or (
-                    lane == "claude"
-                    and str(details["status"]).startswith("⏸ Pending approval")
-                    and isinstance(details.get("project_config"), dict)
-                )
-            )
-        }
-    elif lane == "gemini":
-        launch_available = {
-            name
-            for name, details in configured_servers.items()
-            if details.get("status") is None
-            or (
-                isinstance(details.get("status"), str)
-                and str(details["status"]).startswith("Connected")
-            )
-        }
+    # STRUCTURAL: an authorized server that was never configured cannot be
+    # enforced at all. Fail closed -- unchanged, and deliberately so.
     absent_mcps = tuple(sorted(set(authorized) - set(configured)))
-    unhealthy_mcps = tuple(
-        sorted((set(authorized) & set(configured)) - launch_available)
-    )
-    if absent_mcps or unhealthy_mcps:
-        unavailable = [
-            *(f"{name} (absent)" for name in absent_mcps),
-            *(
-                f"{name} ({configured_servers[name].get('status', 'unhealthy')})"
-                for name in unhealthy_mcps
-            ),
-        ]
+    if absent_mcps:
         raise CapabilityDenied(
-            "role requires unavailable MCP servers: " + ", ".join(unavailable)
+            "role requires unconfigured MCP servers: "
+            + ", ".join(f"{name} (absent)" for name in absent_mcps)
         )
+    # STRUCTURAL: an unsafe record is a defect in the plan, not an outage.
+    for name in authorized:
+        _validate_server_record(name=name, details=configured_servers[name])
+    # RUNTIME: record ill health and let the launch proceed. A worker that never
+    # calls this server is unaffected; one that does is told up front.
+    unhealthy_status = tuple(
+        (name, str(configured_servers[name]["status"]))
+        for name in authorized
+        if mcp_health(lane=lane, details=configured_servers[name]) == "unhealthy"
+    )
+    unhealthy_mcps = tuple(name for name, _status in unhealthy_status)
     disabled = tuple(sorted(set(configured) - set(authorized)))
 
     capability_gaps: tuple[str, ...] = ()
@@ -674,7 +1154,7 @@ def plan_lane(
             configured_servers=configured_servers,
         )
         arguments = ["--mcp-config-file", ROLE_CONFIG_MARKER]
-        tag = "kimi-cli-config-scoped/v1"
+        tag = "kimi-cli-main-lead-config-scoped/v1"
     return LaneCapabilityPlan(
         lane=lane,
         authorized_mcps=authorized,
@@ -688,6 +1168,8 @@ def plan_lane(
         cli_args=tuple(arguments),
         role_config_json=role_config_json,
         capability_gaps=capability_gaps,
+        unhealthy_mcps=unhealthy_mcps,
+        unhealthy_mcp_status=unhealthy_status,
     )
 
 
@@ -762,12 +1244,17 @@ def cli_args_for_materialized(
 
 __all__ = [
     "CapabilityDenied",
+    "broker_chrono_vault_plan",
+    "codex_chrono_vault_relay_args",
+    "chrono_vault_relay_server",
+    "KimiLocalHostArtifacts",
     "LaneCapabilityPlan",
     "adapter_path_for",
     "cli_args_for_materialized",
     "load_json_mcp_servers",
     "load_projection",
     "materialize_role_config",
+    "mcp_health",
     "parse_claude_enabled_plugins",
     "parse_claude_project_plugin_dirs",
     "parse_live_mcp_listing",

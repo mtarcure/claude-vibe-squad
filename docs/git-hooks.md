@@ -16,15 +16,17 @@ Disable again with:
 git config --unset core.hooksPath
 ```
 
-> **Precedence note.** `core.hooksPath` *replaces* `.git/hooks` — while it is set, any script in `.git/hooks/` (including a locally installed one) no longer runs. `.githooks/pre-commit` carries over the same specialist + format checks the local hook had, and adds the moat Tier-A check, so switching is a strict superset for those. If you also rely on the separate private-memory **leak guard** (`scripts/hooks/pre-commit`), see "Composing with the leak guard" below.
+> **Precedence note.** `core.hooksPath` *replaces* `.git/hooks` — while it is set, any script in `.git/hooks/` (including a locally installed one) no longer runs. That costs nothing here: `.githooks/pre-commit` itself runs the private-memory **leak guard** first, then the specialist + format checks the local hook had, capability validation, and the moat Tier-A check — a strict superset of the local hook. See "Composing with the leak guard" below.
 
 ## What the pre-commit hook does
 
-It runs three checks, in order:
+It runs five checks, in order:
 
-1. **Specialist validation** — only when a staged file is a specialist brief (`departments/*/specialists/*.md`, `shared/specialists/*.md`, or `.claude/agents/*.md`). Runs `bin/validate-specialists.sh`; **blocks the commit (exit 1)** if validation fails. Fast, no network.
-2. **Format checks** — **warnings only, never blocking.** Flags shell scripts missing a `set -` safety line, task packets missing required frontmatter, and `shared/dispatch-toolkit.sh` missing the no-delete-rule marker.
-3. **moat Tier-A boundary check** — **only fires when the commit stages files under `moat/`** (non-moat commits skip it entirely). Runs the public, data-free Layer-1 leak-boundary scanner exactly as documented in [`moat/boundary/README.md`](../moat/boundary/README.md):
+1. **Private-memory leak guard** — **always first, and blocking.** Runs `scripts/hooks/pre-commit`, which rejects staged private-memory artifacts (restricted-sensitivity notes, `_state/bounty/` paths, legacy `chrono-kg` database blobs). This is the one failure that cannot be undone once pushed, so it gates before every other check — and a *missing* guard script also blocks rather than passing silently.
+2. **Capability validation** — only when the commit stages files under `shared/capabilities/` or `shared/registries/`. Runs `bin/validate-capabilities.sh` and its `--self-test`; **blocks the commit (exit 1)** if either fails.
+3. **Specialist and live capability-home validation** — **on every commit**, whatever is staged, so live host drift is caught even when no specialist brief changed. Runs `bin/validate-specialists.sh --quiet` with host-independent mode forced off; **blocks the commit (exit 1)** on failure.
+4. **Format checks** — **warnings only, never blocking.** Flags shell scripts missing a `set -` safety line and `shared/dispatch-toolkit.sh` missing the no-delete-rule marker.
+5. **moat Tier-A boundary check** — **only fires when the commit stages files under `moat/`** (non-moat commits skip it entirely). Runs the public, data-free Layer-1 leak-boundary scanner exactly as documented in [`moat/boundary/README.md`](../moat/boundary/README.md):
 
    ```sh
    git diff --cached --name-only -z --diff-filter=ACMR -- moat/ \
@@ -37,15 +39,9 @@ The retired Spec-1.5 **auto-snapshot** check is intentionally absent: current di
 
 ## Composing with the leak guard
 
-`scripts/hooks/pre-commit` is a separate Python **leak guard** that rejects staged private-memory artifacts (restricted-sensitivity notes, `_state/bounty/` paths, KG database blobs). It is orthogonal to Tier-A: the leak guard blocks private-file *presence*; Tier-A checks Layer-1 *contents* for capability/provenance/secret issues.
+`scripts/hooks/pre-commit` is a separate Python **leak guard** that rejects staged private-memory artifacts. It is orthogonal to Tier-A: the leak guard blocks private-file *presence*; Tier-A checks Layer-1 *contents* for capability/provenance/secret issues.
 
-Because `core.hooksPath` runs a single `pre-commit`, you cannot have both files active as `pre-commit` at once. To run both, either:
-
-- add a `node moat/boundary/tier-a.mjs`-style call into your own wrapper, or
-- keep the leak guard as your local `.git/hooks/pre-commit` and do **not** set `core.hooksPath` (then wire Tier-A manually), or
-- extend `.githooks/pre-commit` to also invoke `scripts/hooks/pre-commit`.
-
-Pick one deliberately; this repo ships the tracked hook and the leak guard as separate, composable pieces rather than forcing a combination.
+`.githooks/pre-commit` invokes the leak guard itself, as its first and unconditional check, so setting `core.hooksPath .githooks` gives you both from a single tracked file. The guard also remains usable standalone: a clone that does not set `core.hooksPath` can still install it as a local `.git/hooks/pre-commit`.
 
 ## Scope
 

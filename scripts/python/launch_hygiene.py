@@ -24,6 +24,10 @@ try:
     from seatbelt_profile import CompiledProfile, ProfileSpec, compile_profile
 except ModuleNotFoundError:  # Package import used by repository-level tests/tools.
     from .seatbelt_profile import CompiledProfile, ProfileSpec, compile_profile
+try:
+    from board_process_truth import ProcessTruthError, observe_process, terminate_attributable_tree
+except ModuleNotFoundError:  # Package import used by repository-level tests/tools.
+    from .board_process_truth import ProcessTruthError, observe_process, terminate_attributable_tree
 
 
 SANDBOX_EXEC = Path("/usr/bin/sandbox-exec")
@@ -134,9 +138,12 @@ class ProcessGroupReaper:
         if pgid not in self._groups:
             return
         try:
-            os.killpg(pgid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
+            identity = observe_process(pgid)
+            if identity is None:
+                raise ProcessTruthError("process-tree root disappeared before cleanup")
+            terminate_attributable_tree(identity, 1.0)
+        except OSError as exc:
+            raise ProcessTruthError("process-tree cleanup failed") from exc
 
 
 def _special_node_label(mode: int) -> str:
@@ -543,13 +550,12 @@ def run_sanitized(
             manager.terminate(process.pid)
             try:
                 stdout, stderr = process.communicate(timeout=1)
-            except subprocess.TimeoutExpired:
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                stdout, stderr = process.communicate()
-            raise HygieneError(f"child timed out after {timeout}s") from exc
+            except subprocess.TimeoutExpired as drain_exc:
+                raise ProcessTruthError(
+                    "child pipes remained open after verified process cleanup"
+                ) from drain_exc
+            exc.stdout, exc.stderr = stdout, stderr
+            raise
     finally:
         manager.unregister(process.pid)
     return subprocess.CompletedProcess(list(command), process.returncode, stdout, stderr)

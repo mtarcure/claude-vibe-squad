@@ -22,9 +22,9 @@ Routing is chosen **per specialist on capability**, never by folder location.
 Every specialist row carries a full chain, resolved from the profile registry:
 
 - `primary_lane` + `primary_profile` — the best-fit lane for the work.
-- `backup_lane` + `backup_profile` — a genuine second-best, **cross-family** on capability (different provider from primary), used on operational failover.
+- `backup_lane` + `backup_profile` — a genuine second-best, **cross-family** on capability (different provider from primary), available only for a manually authored operator/Chrono board redispatch after an operational failure.
 - `escalate_lane` + `escalate_profile` — the stronger variant/effort, engaged by `escalation_policy`.
-- `review_lane` + `review_profile` — a separate reviewer lane (independent of the author; `anti_affinity: author_family` enforces this for code review).
+- `review_lane` + `review_profile` — a separate provider-family reviewer lane. Every `mandatory_review: true` packet must preserve `anti_affinity: author_family`; same-lane self-review never satisfies it.
 - `throughput_lane` + `throughput_profile` + `throughput_policy` — the bulk/downshift route, gated (see §5).
 - `failover_policy`, `escalation_policy` — versioned policy IDs (see §5–§6), not per-row prose.
 
@@ -36,25 +36,20 @@ Every specialist row carries a full chain, resolved from the profile registry:
 |------|--------------------------|----------|---------------------|
 | codex | `gpt-5.6-sol` (high) | `gpt-5.6-sol` Ultra/max | implementation · tests · PoC · code review mechanics · graphics/runtime |
 | claude | `claude-fable-5` (xhigh) | `claude-fable-5` max | judgment · planning · safety/security reasoning · security defense · research/synthesis/long-context · developmental content · game/level/audio design |
-| gemini | `gemini-3.5-flash` | `gemini-3.1-pro-preview` (deep) | content/text · design · media/multimodal · **search grounding (live · subscription — Google Search grounding, first-class Rule-8 route)** |
-| kimi | `kimi-code/k3` (high, thinking) | `kimi-code/k3-256k`; cross-family Opus 5 for the authoring/long-context roles | allowlisted primaries (frontend/agentic authoring, bulk, large-context, experimental probing); otherwise throughput-only |
+| gemini | `gemini-3.7-flash` | `gemini-3.1-pro-preview` (deep) | content/text · design · media/multimodal · **search grounding (live · API-key-backed — Google Search grounding, first-class Rule-8 route)** |
+| kimi | `kimi-code/k3` (high, thinking) | `kimi-code/k3-256k`; cross-family Opus 5 for the long-context roles | allowlisted primaries (bulk, large-context, summarization, experimental probing); otherwise throughput-only |
 
-**Live-launcher caveat (kimi + gemini).** The profile registry row is what the board attests
-(`selected_model_sha256` is computed over the resolved `shared/registries/profiles.tsv` row), but
-`dispatch_context_builder.py::trusted_lane_args_for` passes a separately pinned `_PROVEN_LANE_MODELS` string as
-the actual `--model` flag for the kimi and gemini lanes — currently `kimi-code/kimi-for-coding` and
-`gemini-3.6-flash`. That constant was added by the 2026-07-23 "fix board gemini and kimi invocation" commit,
-before the 2026-07 K3 routing refresh, and has not been re-pointed at `k3`. So on those two lanes the table
-above states the **routing intent and the attested profile**, while the spawned CLI may still receive the older
-proven flag. Codex and Claude have no such indirection — they pass the profile's own `model_id` and `effort`.
+**Live-launcher model binding.** For every lane, the board attests the resolved
+`shared/registries/profiles.tsv` row and passes that row's `model_id` as the native CLI's exact `--model`
+argument. There is no lane-specific alternate model pin: selected profile, attested model, and launched model
+remain aligned for Codex, Claude, Gemini, and Kimi.
 
 **Kimi is deny-default as a primary, with a narrow allowlisted primary set.** `shared/lane-policy.tsv` carries
-`primary_default kimi deny` plus **four** operator-ratified `primary_exception` rows:
+`primary_default kimi deny` plus **three** operator-ratified `primary_exception` rows:
 
-- `experimental-attacker` (`kimi.k3.high`) — authorized mass-tool-use, broad hypothesis generation, heavy probing. Outputs are leads, never validated findings, and require Claude/Codex confirmation plus formal review.
-- `large-context-analyst` (`kimi.k3.256k`) — the 256k window *is* the capability being routed to. Retrieval and fetch stay lead-brokered, so metered/MCP-backed research is requested from the lead rather than performed in-subagent; Opus 5 remains backup and cross-family reviewer.
+- `experimental-attacker` (`kimi.k3.max`) — authorized mass-tool-use, broad hypothesis generation, heavy probing. Outputs are leads, never validated findings, and require Claude/Codex confirmation plus formal review.
+- `large-context-analyst` (`kimi.k3.high`) — large-corpus synthesis on the routed K3 thinking profile. Retrieval and fetch stay lead-brokered, so metered/MCP-backed research is requested from the lead rather than performed in-subagent; Opus 5 remains backup and cross-family reviewer.
 - `summarizer` (`kimi.k3.high`) — low-risk summarization of supplied documents only; Claude review remains required before consequential use.
-- `web-builder` (`kimi.k3.high`) — authoring-shaped website implementation. Kimi has no shell or browser surface, so build, deploy, and visual/e2e verification are not performed on this lane and remain with the Opus 5 backup; the `public_release`, `credential_change`, and `production_mutation` gates are unchanged.
 
 For those roles Kimi is a real primary, not a downshift. Outside the allowlist it remains a **gated throughput
 lane** and the data-extraction bulk backup: `kimi.k2.7.bulk` → `kimi-code/kimi-for-coding-highspeed`, marked
@@ -80,8 +75,8 @@ When a backup lane cannot invoke the required tools, it runs **specification-onl
 
 - **`safety_level`** (`low | medium | high`) is a **quality floor, not a complexity detector.** `high` forces the strongest profile + stricter review + `throughput.never`. Complexity escalation is separate and signal-based.
 - **`heightened_risk`** (boolean) marks defense-in-depth roles. The complete machine-readable role set lives in `shared/lane-policy.tsv`; it includes the security, exploit, incident, privacy, provenance, reconnaissance, supply-chain, and experimental-attacker roles that require the high-safety floor.
-- **GLOBAL safety-refusal invariant.** A genuine safety refusal on **any** lane surfaces to the operator; the same request is **never cross-family re-dispatched in either direction** (Fable-refuses → do not shop to Sol; Sol-refuses → do not shop to Fable/Gemini/Kimi). Operational blocks (overload/down/timeout) may cross-family failover; safety refusals may not. Refusals are classified by (1) structured provider/wrapper policy event, (2) typed terminal status, then (3) content heuristic **only to downgrade certainty** to `possible_refusal` + surface. A schema-valid 200-style response is terminal; short output is never treated as an operational failure.
-- **`operator_gate`** — closed enum in `shared/lane-policy.tsv`: `delete · cleanup · credential_change · public_release · paid_media · live_outreach · production_mutation · offensive_execution · malware_detonation`. `production_mutation` (mutating a live production system that is not itself a public release) is **operator-ratified (2026-07-13)**. `requires_approval` in a brief is **harness tool names only** (`Write`, `Bash`, `WebFetch`, …) — domain gates live in `operator_gate`, never in `requires_approval`.
+- **GLOBAL safety-refusal invariant.** A genuine safety refusal on **any** lane surfaces to the operator; the same request is **never cross-family re-dispatched in either direction** (Fable-refuses → do not shop to Sol; Sol-refuses → do not shop to Fable/Gemini/Kimi). An operational block (overload/down/timeout) may inform a later, manually authored operator/Chrono board packet to the backup lane; no automatic redispatch exists. Refusals are classified by (1) structured provider/wrapper policy event, (2) typed terminal status, then (3) content heuristic **only to downgrade certainty** to `possible_refusal` + surface. A schema-valid 200-style response is terminal; short output is never treated as an operational failure.
+- **`operator_gate`** — closed policy enum whose machine vocabulary lives in `shared/lane-policy.tsv`; Hard Rule 6 in `CLAUDE.md` states the corresponding policy set, and `scripts/python/tests/test_held_action_gate.py` requires both to equal the admission-time controller set. `production_mutation` (mutating a live production system that is not itself a public release) is **operator-ratified (2026-07-13)**. `requires_approval` in a brief is **harness tool names only** (`Write`, `Bash`, `WebFetch`, …) — domain gates live in `operator_gate`, never in `requires_approval`. Ordinary worker admission keeps all controller-held category tokens out of `action_scope`; this is not a per-tool-call approval mechanism. See `shared/protocol.md` § Held-category authority and logical scopes.
 - **Downshift conjunction gate.** `throughput.downshift_gated.v1` permits the kimi bulk tier ONLY when `safety_level == low` AND no security/privacy/financial content AND a per-task Chrono bulk flag. Never a per-specialist default; `throughput.never.v1` is mandatory when `safety_level != low`, `heightened_risk`, or any `dual_use|privacy|financial` tag applies.
 
 Policy IDs (versioned): `failover.conservative.v1` · `escalation.signal.v1` · `escalation.safety_floor.v1` (mandatory for high/heightened) · `throughput.never.v1` · `throughput.downshift_gated.v1`.
@@ -94,13 +89,13 @@ else (low):                                escalation.signal.v1        ; through
 failover_policy = failover.conservative.v1   (all rows)
 ```
 
-## 6. Failover — dormant, opt-in, conservative-first
+## 6. Failover — signal and surface; redispatch is manual
 
-`failover.conservative.v1` is the canonical policy for the built, cross-family-reviewed control plane. The implementation ships inert and remains dormant unless the operator explicitly opts in; `_state/**` and its enable sentinel are not part of a public checkout.
+`failover.conservative.v1` names the backup choice and conservative signal policy. The dormant automatic-failover subsystem is retired; there is no enable flag, sentinel, watcher, or alternate dispatch route.
 
-- When explicitly enabled, auto-failover fires **only on HARD signals**: `dispatch_ack` failure, confirmed process-exit, or a typed provider error. Ambiguous / slow / silent / missed-heartbeat / soft-or-hard-deadline → **cancel + surface, never auto-redispatch**.
-- **Minimal attempt ledger** (correctness, not deferrable): `task_id, attempt_id, generation, lane, lease_owner, lease_expiry, terminal_status, effective_model_history, artifact_path, artifact_hash`. Chrono is the sole canonical outbox publisher — attempt-specific staging → content-addressed winner → atomic temp+fsync+rename, with generation fencing so a late primary cannot overwrite a backup.
-- **Lease/lock** coordinates Claude's native `--fallback-model` (Fable → Opus, in-lane) with Chrono cross-family re-dispatch: cross-family only after the native chain is observed terminal; hysteresis/cooldown prevents oscillation.
+- HARD signals (`dispatch_ack` failure, confirmed process exit, or a typed provider error) are evidence to surface, not a dispatch trigger. Ambiguous / slow / silent / missed-heartbeat / deadline observations also surface and never select or launch a backup.
+- The ordinary board descriptor, receipt, and registry fences retain process and publication evidence; no parallel attempt ledger exists.
+- After the native Claude fallback chain is observed terminal, the operator may direct Chrono to author a new ordinary board packet using the mapped backup. That packet passes the same dispatch, scope, gate, and review checks as any other task.
 - **Opus** is Claude's native fallback only (overload / in-family safety fallback), never a standing lane. Carve-out/heightened work exhausted on the in-family chain **surfaces** rather than laundering cross-family.
 
 ## 7. Dispatch contract
@@ -125,17 +120,15 @@ Every non-trivial task packet names:
 - `to_model` differs from the map without `model_override_reason`
 - a `high` / `heightened_risk` specialist lacks mandatory review
 - `mandatory_review: true` has `review_model: none`
-- `review_model` equals `to_model` for mandatory review (or violates `anti_affinity`)
-- `operator_gate` work has `operator_approved: false`
+- normalized `review_model` equals `to_model` for mandatory review, or otherwise violates distinct-family `anti_affinity`
+- a deletion manifest is present without `operator_approved: true`; for other held categories, `operator_approved` records policy consent but does not grant ordinary worker action-time authority
 - write scopes overlap in-flight work
 
-Explicit operator approval is required for every `operator_gate` action: deletes, cleanup, credential changes, public release changes, live outreach/email, paid media generation, and production mutations (Hard Rule 6).
+Explicit operator approval is required by policy for every `operator_gate` action enumerated by Hard Rule 6. Ordinary worker admission denies declared held-category authority; deletion alone also has the file-exact integration gate described in `shared/protocol.md`.
 
 ## 8. Pointers
 
 - Per-specialist rows: `shared/specialist-runtime-map.tsv` (machine source of truth).
-- Profile/policy registries + schema: `_state/roster-redesign-2026-07-13/schema-final.md`.
-- Full design rationale: `_state/roster-redesign-2026-07-13/design-v2.md` and `consult-synthesis.md`.
 - Mode workflows: `shared/modes/*.md`.
 
 ## 9. Dispatch shapes

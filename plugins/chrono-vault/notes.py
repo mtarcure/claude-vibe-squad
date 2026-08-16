@@ -5,14 +5,30 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import secrets
 from datetime import datetime, timezone
 from typing import Any
 
-from vaultroot import resolve_vault_root
+import audit
+from clearance import ClearanceError, apply_record_policy
+from vaultroot import VaultRootError, resolve_vault_root
 
 
 NOTE_TYPES = frozenset({"attempt", "finding", "learning"})
+NOTE_ID_RE = re.compile(r"mem-[0-9a-f]{12}")
+
+# The write-time contradiction directive. It is an input instruction, never a
+# stored frontmatter field: the caller declares how this write relates to an
+# existing active note, and the declaration is reflected through machinery that
+# already exists (the `supersedes` list; a `coexists-with:` evidence ref) rather
+# than a new schema field. See `record` for the full contract.
+CONTRADICTION_FIELD = "contradiction"
+CONTRADICTION_RELATIONSHIPS = frozenset({"new", "supersedes", "coexists-with"})
+COEXISTS_REF_PREFIX = "coexists-with:"
+COEXISTS_CONDITION_PREFIX = "coexists-condition:"
+MAX_COEXISTS_CONDITION_CHARS = 512
+ACTIVE_STATUSES = ("candidate", "verified")
 STATUSES = frozenset(
     {"candidate", "verified", "superseded", "invalidated", "archived"}
 )
@@ -307,10 +323,249 @@ def _write_atomic(destination_fd: int, final_name: str, content: bytes) -> None:
                 pass
 
 
+def _extract_contradiction_directive(
+    fields: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Pop and shape-validate the optional `contradiction` directive.
+
+    Returns `(fields_without_directive, directive)` where `directive` always has
+    a `relationship`. Shape is caller-controllable and deterministic, so a
+    malformed directive is a `SchemaError` like any other bad input — this is
+    *not* the "detection was inconclusive" path, which never refuses a write.
+    """
+    if not isinstance(fields, dict) or CONTRADICTION_FIELD not in fields:
+        return fields, {"relationship": "new"}
+    cleaned = dict(fields)
+    raw = cleaned.pop(CONTRADICTION_FIELD)
+    if not isinstance(raw, dict):
+        raise SchemaError("contradiction must be an object")
+    unknown = set(raw) - {"relationship", "note_id", "condition"}
+    if unknown:
+        raise SchemaError(f"unknown contradiction fields: {sorted(map(str, unknown))}")
+    relationship = raw.get("relationship", "new")
+    if relationship not in CONTRADICTION_RELATIONSHIPS:
+        raise SchemaError(
+            f"contradiction.relationship must be one of {sorted(CONTRADICTION_RELATIONSHIPS)}"
+        )
+    note_id = raw.get("note_id")
+    condition = raw.get("condition")
+    if relationship == "new":
+        if note_id is not None or condition is not None:
+            raise SchemaError("contradiction.new takes no note_id or condition")
+        return cleaned, {"relationship": "new"}
+    if not isinstance(note_id, str) or NOTE_ID_RE.fullmatch(note_id) is None:
+        raise SchemaError("contradiction.note_id must be a canonical note id")
+    if relationship == "supersedes":
+        if condition is not None:
+            raise SchemaError("contradiction.supersedes takes no condition")
+        return cleaned, {"relationship": "supersedes", "note_id": note_id}
+    if not isinstance(condition, str) or not condition.strip():
+        raise SchemaError("contradiction.coexists-with requires a non-empty condition")
+    if len(condition) > MAX_COEXISTS_CONDITION_CHARS or "\x00" in condition:
+        raise SchemaError("contradiction.condition is too long or contains a null byte")
+    return cleaned, {
+        "relationship": "coexists-with",
+        "note_id": note_id,
+        "condition": condition,
+    }
+
+
+def _apply_declared_relationship(note: dict[str, Any], directive: dict[str, Any]) -> None:
+    """Reflect a declared relationship onto the note using existing machinery.
+
+    `supersedes` rides the existing frontmatter list (a candidate note may only
+    *declare* the pointer; `set_status` ratifies the live transition later).
+    `coexists-with` is recorded as a structured evidence ref plus its condition,
+    so the "both are right under different conditions" distinction is durable and
+    covered by the content hash instead of being merged away.
+    """
+    relationship = directive["relationship"]
+    if relationship == "supersedes":
+        target = directive["note_id"]
+        if target not in note["supersedes"]:
+            note["supersedes"] = [*note["supersedes"], target]
+    elif relationship == "coexists-with":
+        target = directive["note_id"]
+        marker = f"{COEXISTS_REF_PREFIX}{target}"
+        refs = [
+            ref
+            for ref in note["evidence_refs"]
+            if not ref.startswith("note-content-sha256:")
+        ]
+        if marker not in refs:
+            refs.append(marker)
+            refs.append(f"{COEXISTS_CONDITION_PREFIX}{directive['condition']}")
+            note["evidence_refs"] = refs
+    else:
+        return
+    _refresh_content_ref(note)
+
+
+def _coexists_ids(note: dict[str, Any]) -> set[str]:
+    return {
+        ref[len(COEXISTS_REF_PREFIX):]
+        for ref in note.get("evidence_refs", [])
+        if isinstance(ref, str) and ref.startswith(COEXISTS_REF_PREFIX)
+    }
+
+
+def _subject_key(note: dict[str, Any]) -> tuple[str, str] | None:
+    """The corpus dimension on which two notes are "about the same thing".
+
+    A concrete `component` is the sharpest subject; a real `target` is the
+    fallback. A note with neither carries too little signal to detect against
+    without flagging every target-less note against every other, so it returns
+    None (treated as no contradiction).
+    """
+    component = note.get("component")
+    if isinstance(component, str) and component.strip():
+        return "component", component
+    target = note.get("target")
+    if isinstance(target, str) and target.strip() and target != NOT_APPLICABLE:
+        return "target", target
+    return None
+
+
+def _detect_contradictions(note: dict[str, Any], root: Any) -> tuple[list[str], bool]:
+    """Best-effort candidate finder. Returns `(active_same_subject_ids, ran_ok)`.
+
+    Detection is never a gate and never a semantic judge. Any failure — no index
+    yet, a stale schema, an unreadable store — returns `([], False)` so the write
+    is recorded and flagged rather than refused. An empty but readable store
+    conclusively has no contradiction, so it returns `([], True)`.
+    """
+    subject = _subject_key(note)
+    if subject is None:
+        return [], True
+    column, value = subject
+    try:
+        from recall import _read_index
+
+        with _read_index(root) as connection:
+            if connection is None:
+                return [], True
+            rows = connection.execute(
+                "SELECT m.id FROM notes_fts "
+                "JOIN meta AS m ON m.docid = notes_fts.rowid "
+                f"WHERE notes_fts.{column} = ? "
+                f"AND m.status IN ({','.join('?' for _ in ACTIVE_STATUSES)}) "
+                "AND m.note_type = ?",
+                (value, *ACTIVE_STATUSES, note["type"]),
+            ).fetchall()
+    except Exception:  # noqa: BLE001 — detection must never break a write
+        return [], False
+    return sorted({row[0] for row in rows}), True
+
+
+def _emit_contradiction_event(
+    note_type: str,
+    note: dict[str, Any],
+    directive: dict[str, Any],
+    detected_ids: list[str],
+    detection_ok: bool,
+) -> None:
+    """Record the write-time contradiction check as one auditable declaration.
+
+    The *resolution* is the caller's declaration, recorded here for a reviewer to
+    read later — the write is never blocked and the check never grades itself.
+    An unreconciled contradiction lands as `flagged`, not a refusal.
+    """
+    relationship = directive["relationship"]
+    declared_ids = set(note["supersedes"]) | _coexists_ids(note)
+    unreconciled = [note_id for note_id in detected_ids if note_id not in declared_ids]
+    if not detection_ok:
+        result = audit.CONTRA_INCONCLUSIVE
+    elif unreconciled:
+        result = audit.CONTRA_FLAGGED
+    elif declared_ids:
+        result = audit.CONTRA_DECLARED
+    else:
+        result = audit.CONTRA_CLEAR
+    request_hash = audit.request_digest(
+        "contradiction",
+        {
+            "note_type": note_type,
+            "target": note["target"],
+            "component": note["component"],
+            "relationship": relationship,
+        },
+    )
+    audit.emit(
+        "contradiction",
+        result=result,
+        request_hash=request_hash,
+        returned_note_ids=sorted(detected_ids),
+        extra={
+            "relationship": relationship,
+            "declared_note_ids": sorted(declared_ids),
+            "unreconciled_note_ids": sorted(unreconciled),
+            "detection_ok": detection_ok,
+        },
+    )
+
+
 def record(note_type: str, fields: dict) -> dict[str, Any]:
-    """Validate, atomically write, and best-effort index a canonical note."""
-    note = _normalize(note_type, fields)
+    """Validate, atomically write, and best-effort index a canonical note.
+
+    Emits one `record` audit event (best-effort, never gating): `recorded` when
+    the note is written and indexed, `recorded_unindexed` when the note landed
+    but the best-effort index update failed, `denied`/`rejected`/`unavailable`
+    when it did not. The event carries the new note id (never its content) so a
+    write can be told apart from a silent no-op. Every exception is re-raised
+    exactly as before.
+
+    It also emits one `contradiction` event describing the write-time check
+    against the existing corpus (`clear`/`declared`/`flagged`/`inconclusive`).
+    An optional `fields["contradiction"]` directive declares how this write
+    relates to an active note — `{"relationship": "supersedes", "note_id": ...}`
+    or `{"relationship": "coexists-with", "note_id": ..., "condition": ...}`.
+    A malformed directive is a `SchemaError`; a detected-but-undeclared
+    contradiction is flagged, not refused.
+    """
+    request_hash = audit.request_digest(
+        "record", {"note_type": note_type, "fields": fields}
+    )
+    result_code = audit.ERROR
+    returned_note_ids: list[str] = []
+    try:
+        result = _record(note_type, fields)
+        returned_note_ids = [result["id"]]
+        result_code = (
+            audit.RECORDED_UNINDEXED if result["index_dirty"] else audit.RECORDED
+        )
+        return result
+    except ClearanceError:
+        result_code = audit.DENIED
+        raise
+    except SchemaError:
+        result_code = audit.REJECTED
+        raise
+    except (VaultRootError, NoteWriteError):
+        result_code = audit.UNAVAILABLE
+        raise
+    finally:
+        audit.emit(
+            "record",
+            result=result_code,
+            request_hash=request_hash,
+            returned_note_ids=returned_note_ids,
+        )
+
+
+def _record(note_type: str, fields: dict) -> dict[str, Any]:
+    if not isinstance(fields, dict):
+        raise SchemaError("fields must be a dict")
+    fields, directive = _extract_contradiction_directive(fields)
+    note = _normalize(note_type, apply_record_policy(note_type, fields))
     root = resolve_vault_root()
+
+    # Write-time contradiction handling: reflect any declared relationship, run
+    # best-effort detection against the corpus, and record the check as one
+    # auditable declaration. None of this gates the write — a contradiction is
+    # flagged, never refused (losing a note is the worse failure).
+    _apply_declared_relationship(note, directive)
+    detected_ids, detection_ok = _detect_contradictions(note, root)
+    _emit_contradiction_event(note_type, note, directive, detected_ids, detection_ok)
 
     root_fd = -1
     notes_fd = -1

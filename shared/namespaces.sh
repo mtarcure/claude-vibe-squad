@@ -2,7 +2,7 @@
 # Canonical compatibility-mailbox inventory.
 #
 # These namespaces own departments/<namespace>/{inbox,active,outbox,archive}
-# directories and therefore need lifecycle scans plus inbox/outbox watchers.
+# directories and therefore need lifecycle scans plus outbox notification watchers.
 # Model execution remains packet-driven via `to_model`; this list must never be
 # used to infer a model lane.
 

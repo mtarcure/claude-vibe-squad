@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>__HOME__/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+	</dict>
+	<key>Label</key>
+	<string>com.chrono.dream</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>__HOME__/chrono/bin/run-dream.sh</string>
+	</array>
+	<key>RunAtLoad</key>
+	<false/>
+	<key>StandardErrorPath</key>
+	<string>__HOME__/Obsidian-Chrono/chrono/_state/dream-logs/launchd.err</string>
+	<key>StandardOutPath</key>
+	<string>__HOME__/Obsidian-Chrono/chrono/_state/dream-logs/launchd.out</string>
+	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Hour</key>
+		<integer>5</integer>
+		<key>Minute</key>
+		<integer>0</integer>
+	</dict>
+	<key>StartCalendarIntervalRunAtNextWake</key>
+	<true/>
+</dict>
+</plist>

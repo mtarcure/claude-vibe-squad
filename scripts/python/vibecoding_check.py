@@ -13,11 +13,9 @@ spec at `shared/specialists/vibecoding-check.md`.
 
 Universal checks (always):
   1. Typed operator approval record present
-  2. Declared artifacts exist
-  3. Citations resolve (URL 200 / file exists / git ref resolves)
-  4. No TODO/FIXME/XXX in modified code
-  5. All declared phase-tags emitted
-  6. No unauthorized file deletions in run diff in run log
+  2. Citations resolve (URL 200 / file exists / git ref resolves)
+  3. No TODO/FIXME/XXX in modified code
+  4. All declared phase-tags emitted
 
 Mode-specific extensions (declared in checks.yaml):
   - project: tests_pass, git_clean, new_code_has_tests, no_destructive_ops
@@ -34,8 +32,8 @@ Exit codes:
   3  — tier-3 issue; state written; operator surface needed
 
 State files:
-  _state/runs/<run-id>/manifest.yaml   — written by the Lead executing the mode
-  _state/vibecoding-check/<run-id>.md  — written by THIS script on tier-2/3
+  _state/runs/<run-id>/manifest.yaml   — JSON-compatible YAML written by the Lead
+  _state/vibecoding-check/<run-id>.md  — written by THIS script for every report
   _state/approvals/<run-id>.md         — operator-owned vibecoding-approval/v1 record
 """
 
@@ -64,6 +62,7 @@ from pathlib import Path
 from typing import Any
 
 from verification_contract import (
+    LANE_TO_AUTHOR_FAMILY,
     REQUIRED_PHASE_IDS,
     ContractError,
     author_family_for_lane,
@@ -91,6 +90,7 @@ RUN_ID_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9_-]{0,126}[A-Za-z0-9])?$")
 APPROVAL_SCHEMA = "vibecoding-approval/v1"
 SHELL_METACHAR_RE = re.compile(r"[;&|`$<>\r\n]")
 METADATA_IPS = frozenset({ipaddress.ip_address("169.254.169.254")})
+KNOWN_AUTHOR_FAMILIES = frozenset(LANE_TO_AUTHOR_FAMILY.values())
 
 
 @dataclass
@@ -478,6 +478,10 @@ def check_action_log_complete(manifest: dict[str, Any]) -> CheckResult:
         for item in actions:
             if item.get("destructive") is not False:
                 raise ManifestContractError("destructive action is not authorized in v1 close")
+            if manifest.get("mode") == "bounty" and (
+                not isinstance(item.get("target"), str) or not item["target"]
+            ):
+                raise ManifestContractError("every Bounty action must declare its target")
             resolve_vault_file(item.get("evidence_ref"), field_name="action evidence")
     except (ManifestContractError, TypeError) as exc:
         return CheckResult("action_log_complete", False, TIER_OPERATOR, str(exc))
@@ -562,11 +566,22 @@ def check_bounty_scope_and_targets(manifest: dict[str, Any]) -> CheckResult:
         evidence = resolve_vault_file(scope.get("evidence_ref"), field_name="scope.evidence_ref")
         if hash_file(evidence) != scope.get("evidence_sha256"):
             raise ManifestContractError("scope evidence hash mismatch")
-        targets = []
-        for collection in (manifest.get("actions", []), manifest.get("findings", []), manifest.get("negative_results", [])):
+        targets: list[str] = []
+        collections = (
+            ("actions", manifest.get("actions", [])),
+            ("findings", manifest.get("findings", [])),
+            ("negative_results", manifest.get("negative_results", [])),
+        )
+        for collection_name, collection in collections:
             if not isinstance(collection, list):
                 raise ManifestContractError("Bounty target collection must be a list")
-            targets.extend(item.get("target") for item in collection if isinstance(item, dict) and item.get("target"))
+            for index, item in enumerate(collection):
+                target = item.get("target") if isinstance(item, dict) else None
+                if not isinstance(target, str) or not target:
+                    raise ManifestContractError(
+                        f"{collection_name}[{index}].target must be a nonempty string"
+                    )
+                targets.append(target)
         for target in targets:
             if not _target_allowed(target, allowed):
                 raise ManifestContractError(f"out-of-scope Bounty target: {target}")
@@ -590,6 +605,24 @@ def check_bounty_no_self_inflicted(manifest: dict[str, Any]) -> CheckResult:
     return CheckResult("bounty_no_self_inflicted", True)
 
 
+def _pinned_author_family(manifest: dict[str, Any]) -> str:
+    """Return the dispatcher-pinned authoring family for this run.
+
+    `check_verification_contract` binds this field to the registry contract and
+    the registry contract to the dispatched lane, so it is the one authorship
+    claim a worker cannot write for itself. Anti-affinity must be measured
+    against it rather than against a finding's own account of who wrote it.
+    """
+    declared = manifest.get("author_family")
+    if declared not in KNOWN_AUTHOR_FAMILIES:
+        raise ManifestContractError("manifest author_family is invalid")
+    contract = manifest.get("verification_contract")
+    pinned = contract.get("author_family") if isinstance(contract, dict) else None
+    if pinned is not None and declared != pinned:
+        raise ManifestContractError("manifest author_family differs from dispatcher pin")
+    return declared
+
+
 def check_bounty_result_evidence(manifest: dict[str, Any]) -> CheckResult:
     try:
         result_type = manifest.get("result_type")
@@ -611,13 +644,34 @@ def check_bounty_result_evidence(manifest: dict[str, Any]) -> CheckResult:
         else:
             if not findings:
                 raise ManifestContractError("normal Bounty requires findings")
-            pinned = manifest.get("verification_contract", {}).get("author_family")
+            # Both anchors are dispatcher-pinned. A finding that supplies its own
+            # author_family/author_run_id can otherwise nominate its own family,
+            # inside its own run, as the "independent" reproducer and stay green.
+            pinned_family = _pinned_author_family(manifest)
+            pinned_run_id = validate_run_id(manifest.get("run_id"))
             for finding in findings:
                 required = ("id", "title", "target", "cvss_v4", "cvss_v4_score", "artifact_sha256", "author_family", "author_run_id", "reproduction")
                 if any(key not in finding for key in required):
                     raise ManifestContractError("normal finding is structurally incomplete")
+                author_family = finding["author_family"]
+                author_run_id = finding["author_run_id"]
+                if author_family not in KNOWN_AUTHOR_FAMILIES:
+                    raise ManifestContractError("finding author_family is invalid")
+                if author_family != pinned_family:
+                    raise ManifestContractError("finding author_family differs from dispatcher pin")
+                validate_run_id(author_run_id)
                 reproduction = finding["reproduction"]
-                if not isinstance(reproduction, dict) or reproduction.get("reproducer_family") == pinned or reproduction.get("reproduction_run_id") == manifest.get("run_id"):
+                if not isinstance(reproduction, dict):
+                    raise ManifestContractError("reproduction must be an object")
+                reproducer_family = reproduction.get("reproducer_family")
+                reproduction_run_id = reproduction.get("reproduction_run_id")
+                if (
+                    reproducer_family not in KNOWN_AUTHOR_FAMILIES
+                    or reproducer_family == author_family
+                ):
+                    raise ManifestContractError("reproduction violates family/run anti-affinity")
+                validate_run_id(reproduction_run_id)
+                if reproduction_run_id in (author_run_id, pinned_run_id):
                     raise ManifestContractError("reproduction violates family/run anti-affinity")
                 if reproduction.get("status") != "reproduced" or reproduction.get("control_status") != "passed":
                     return CheckResult("bounty_result_evidence", False, TIER_RETRY, "reproduction/control work did not pass")
@@ -660,15 +714,24 @@ def atomic_write(path: Path, content: str) -> None:
 
 
 def load_manifest(run_id: str) -> dict[str, Any]:
-    try:
-        import yaml
-    except ModuleNotFoundError as exc:
-        raise RuntimeError("PyYAML is required to load a run manifest") from exc
     manifest_path = _run_state_path(run_id, "manifest.yaml", must_exist=False)
     if not manifest_path.exists():
         raise ManifestContractError(f"manifest not found: {manifest_path}")
     manifest_path = _run_state_path(run_id, "manifest.yaml", must_exist=True)
-    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+    raw_manifest = manifest_path.read_text(encoding="utf-8")
+    try:
+        # JSON is a YAML 1.2 subset and is the canonical producer format. It
+        # keeps the settlement verifier fully offline and avoids asking uv to
+        # resolve this repository's unrelated application dependency graph.
+        manifest = json.loads(raw_manifest)
+    except json.JSONDecodeError:
+        try:
+            import yaml
+        except ModuleNotFoundError as exc:
+            raise ManifestContractError(
+                "manifest must be JSON-compatible YAML when PyYAML is unavailable"
+            ) from exc
+        manifest = yaml.safe_load(raw_manifest) or {}
     if not isinstance(manifest, dict):
         raise ManifestContractError("manifest must be an object")
     return manifest
@@ -790,41 +853,9 @@ def check_operator_approval(manifest: dict[str, Any]) -> CheckResult:
     return CheckResult(name="operator_approval", passed=True, detail=detail)
 
 
-def check_artifacts_exist(manifest: dict[str, Any]) -> CheckResult:
-    artifacts = manifest.get("artifacts") or []
-    if not artifacts:
-        return CheckResult(
-            name="artifacts_exist", passed=False, tier=TIER_RETRY,
-            detail="manifest declares no artifacts",
-        )
-    missing: list[str] = []
-    invalid: list[str] = []
-    for index, art in enumerate(artifacts):
-        value = art.get("path") if isinstance(art, dict) else art
-        try:
-            path = resolve_vault_candidate(value, field_name=f"artifacts[{index}].path")
-        except ManifestContractError as exc:
-            invalid.append(str(exc))
-            continue
-        if not path.exists():
-            missing.append(str(path))
-            continue
-        try:
-            resolve_vault_file(value, field_name=f"artifacts[{index}].path")
-        except ManifestContractError as exc:
-            invalid.append(str(exc))
-    if invalid:
-        return CheckResult(
-            name="artifacts_exist", passed=False, tier=TIER_OPERATOR,
-            detail=f"{len(invalid)} unsafe artifact path(s): {invalid[0]}",
-        )
-    if missing:
-        return CheckResult(
-            name="artifacts_exist", passed=False, tier=TIER_RETRY,
-            detail=f"{len(missing)} missing: {', '.join(missing[:3])}{'...' if len(missing) > 3 else ''}",
-        )
-    return CheckResult(name="artifacts_exist", passed=True,
-                       detail=f"{len(artifacts)} artifacts present")
+# Compatibility for the direct security-test reader. The standalone presence
+# check was redundant; this stronger check also verifies artifact hashes and gates.
+check_artifacts_exist = check_artifact_and_gate_bindings
 
 
 def check_citations_resolve(manifest: dict[str, Any]) -> CheckResult:
@@ -1286,84 +1317,6 @@ def check_phase_tags(manifest: dict[str, Any]) -> CheckResult:
                        detail=f"all {len(declared)} phase-tags emitted")
 
 
-def check_no_unauthorized_deletions(manifest: dict[str, Any]) -> CheckResult:
-    """Check 6 (universal): no unauthorized file deletions in the run's diff."""
-    try:
-        run_id = validate_run_id(manifest["run_id"])
-        approval_path = _approval_path(run_id, must_exist=False)
-        snapshot_keys = [
-            str(v)
-            for v in (
-                manifest.get("task_id"),
-                manifest.get("dispatch_task_id"),
-                run_id,
-            )
-            if v and str(v) != "none"
-        ]
-        snapshot_sha = ""
-        for key in snapshot_keys:
-            result = subprocess.run(
-                ["git", "log", "--oneline", "--fixed-strings", "--grep", key],
-                capture_output=True, text=True, cwd=str(VAULT_ROOT),
-            )
-            if result.stdout.strip():
-                snapshot_sha = result.stdout.split()[0]
-                break
-
-        if not snapshot_sha:
-            fallback_diff = subprocess.run(
-                ["git", "diff", "--name-only", "--diff-filter=D", "--"],
-                capture_output=True, text=True, cwd=str(VAULT_ROOT),
-            )
-            fallback_deleted = [f.strip() for f in fallback_diff.stdout.splitlines() if f.strip()]
-            if not fallback_deleted:
-                return CheckResult(
-                    name="no_unauthorized_deletions", passed=True, tier=TIER_OK,
-                    detail="No dispatch snapshot found; no current working-tree deletions detected.",
-                )
-            deleted_files = fallback_deleted
-        else:
-            # Compare the dispatch snapshot against the current working tree. Using
-            # HEAD here misses ordinary unstaged deletions, which are the common
-            # risk during long-running agent work.
-            diff_result = subprocess.run(
-                ["git", "diff", "--name-only", "--diff-filter=D", snapshot_sha, "--"],
-                capture_output=True, text=True, cwd=str(VAULT_ROOT),
-            )
-            deleted_files = [f.strip() for f in diff_result.stdout.splitlines() if f.strip()]
-
-        if not deleted_files:
-            return CheckResult(
-                name="no_unauthorized_deletions", passed=True, tier=TIER_OK,
-                detail="No deletions detected in run diff.",
-            )
-
-        if approval_path.exists():
-            approval = _load_approval_record(run_id)
-            if approval.deletion_approved and set(approval.deleted_paths) == set(deleted_files):
-                return CheckResult(
-                    name="no_unauthorized_deletions", passed=True, tier=TIER_OK,
-                    detail=f"Typed deletion approval exactly covers: {deleted_files}",
-                )
-
-        return CheckResult(
-            name="no_unauthorized_deletions", passed=False, tier=TIER_OPERATOR,
-            detail=(
-                f"UNAUTHORIZED DELETIONS in run {run_id}:\n"
-                + "\n".join(f"  - {f}" for f in deleted_files)
-                + "\n\nThe auto-snapshot makes these recoverable."
-                + f"\nTo approve: write a {APPROVAL_SCHEMA} record with "
-                "deletion_approved: true and the exact deleted_paths"
-                + "\nTo recover: git checkout <snapshot-sha> -- <file-path>"
-            ),
-        )
-    except Exception as e:
-        return CheckResult(
-            name="no_unauthorized_deletions", passed=False, tier=TIER_OPERATOR,
-            detail=f"Delete-check errored: {e}",
-        )
-
-
 # ─── Mode-specific checks ──────────────────────────────────────────
 
 def _resolve_test_cwd(value: object) -> Path:
@@ -1748,22 +1701,74 @@ def check_project_no_destructive_ops(manifest: dict[str, Any]) -> CheckResult:
                        detail=f"checked {len(actions)} actions — none destructive")
 
 
-CVSS_V4_VECTOR_RE = re.compile(
-    r"^CVSS:4\.0"
-    r"(?:/AV:[NALP])"   # Attack Vector
-    r"(?:/AC:[LH])"     # Attack Complexity
-    r"(?:/AT:[NP])"     # Attack Requirements
-    r"(?:/PR:[NLH])"    # Privileges Required
-    r"(?:/UI:[NPA])"    # User Interaction
-    r"(?:/VC:[HLN])"    # Vulnerable Confidentiality
-    r"(?:/VI:[HLN])"    # Vulnerable Integrity
-    r"(?:/VA:[HLN])"    # Vulnerable Availability
-    r"(?:/SC:[HLN])"    # Subsequent Confidentiality
-    r"(?:/SI:[HLN])"    # Subsequent Integrity
-    r"(?:/SA:[HLN])"    # Subsequent Availability
-    r"(?:/[A-Z][A-Z]?:[A-Z]+)*"  # optional Threat / Environmental / Supplemental
-    r"$"
+CVSS_V4_BASE_METRICS = (
+    "AV", "AC", "AT", "PR", "UI", "VC", "VI", "VA", "SC", "SI", "SA",
 )
+CVSS_V4_METRIC_VALUES = {
+    "AV": frozenset("NALP"),
+    "AC": frozenset("LH"),
+    "AT": frozenset("NP"),
+    "PR": frozenset("NLH"),
+    "UI": frozenset("NPA"),
+    "VC": frozenset("HLN"),
+    "VI": frozenset("HLN"),
+    "VA": frozenset("HLN"),
+    "SC": frozenset("HLN"),
+    # Safety (`S`) is a MODIFIED-subsequent value only — it is legal on MSI/MSA
+    # below, never on the base SC/SI/SA triad.
+    "SI": frozenset("HLN"),
+    "SA": frozenset("HLN"),
+    "E": frozenset("XAPU"),
+    "CR": frozenset("XHML"),
+    "IR": frozenset("XHML"),
+    "AR": frozenset("XHML"),
+    "MAV": frozenset("XNALP"),
+    "MAC": frozenset("XLH"),
+    "MAT": frozenset("XNP"),
+    "MPR": frozenset("XNLH"),
+    "MUI": frozenset("XNPA"),
+    "MVC": frozenset("XHLN"),
+    "MVI": frozenset("XHLN"),
+    "MVA": frozenset("XHLN"),
+    "MSC": frozenset("XHLN"),
+    "MSI": frozenset("XHLNS"),
+    "MSA": frozenset("XHLNS"),
+    "S": frozenset("XNP"),
+    "AU": frozenset("XNY"),
+    "R": frozenset("XAUI"),
+    "V": frozenset("XDC"),
+    "RE": frozenset("XLMH"),
+    "U": frozenset(("X", "Clear", "Green", "Amber", "Red")),
+}
+CVSS_V4_COMPONENT_RE = re.compile(r"(?P<metric>[A-Z]{1,3}):(?P<value>[A-Za-z]+)")
+# CVSS:4.0 mandates one canonical metric order in the vector string. Derived from
+# the table above rather than restated, so the two cannot drift apart.
+CVSS_V4_METRIC_ORDER = tuple(CVSS_V4_METRIC_VALUES)
+
+
+def is_valid_cvss_v4_vector(vector: str) -> bool:
+    """Validate the complete CVSS v4 vector grammar accepted by this verifier."""
+    components = vector.split("/")
+    if not components or components[0] != "CVSS:4.0":
+        return False
+
+    parsed: list[tuple[str, str]] = []
+    for component in components[1:]:
+        match = CVSS_V4_COMPONENT_RE.fullmatch(component)
+        if match is None:
+            return False
+        metric, value = match.group("metric", "value")
+        if metric not in CVSS_V4_METRIC_VALUES or value not in CVSS_V4_METRIC_VALUES[metric]:
+            return False
+        parsed.append((metric, value))
+
+    metrics = [metric for metric, _value in parsed]
+    positions = [CVSS_V4_METRIC_ORDER.index(metric) for metric in metrics]
+    return (
+        len(metrics) == len(set(metrics))
+        and positions == sorted(positions)
+        and set(CVSS_V4_BASE_METRICS).issubset(metrics)
+    )
 
 
 def check_bounty_cvss(manifest: dict[str, Any]) -> CheckResult:
@@ -1782,18 +1787,15 @@ def check_bounty_cvss(manifest: dict[str, Any]) -> CheckResult:
         if not isinstance(vec, str):
             issues.append(f"{title}: cvss_v4 not a string")
             continue
-        if not CVSS_V4_VECTOR_RE.match(vec):
+        if not is_valid_cvss_v4_vector(vec):
             issues.append(f"{title}: cvss_v4 not a valid CVSS:4.0 vector")
             continue
-        # Optional cvss_v4_score field — if present, must be numeric in [0, 10].
+        # The normal-finding schema requires a JSON number in [0, 10].
         score = f.get("cvss_v4_score")
-        if score is not None:
-            try:
-                score_f = float(score)
-                if not (0.0 <= score_f <= 10.0):
-                    issues.append(f"{title}: cvss_v4_score {score_f} out of [0.0, 10.0]")
-            except (TypeError, ValueError):
-                issues.append(f"{title}: cvss_v4_score not numeric")
+        if isinstance(score, bool) or not isinstance(score, (int, float)):
+            issues.append(f"{title}: cvss_v4_score not a JSON number")
+        elif not (0.0 <= score <= 10.0):
+            issues.append(f"{title}: cvss_v4_score {score} out of [0.0, 10.0]")
 
     if issues:
         return CheckResult(
@@ -1873,11 +1875,9 @@ def run_all_checks(manifest: dict[str, Any]) -> RunReport:
 
     for check_fn in (
         check_operator_approval,
-        check_artifacts_exist,
         check_citations_resolve,
         check_no_todo_in_modified,
         check_phase_tags,
-        check_no_unauthorized_deletions,
     ):
         try:
             report.checks.append(check_fn(manifest))

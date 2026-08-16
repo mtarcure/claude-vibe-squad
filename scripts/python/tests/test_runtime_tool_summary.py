@@ -22,6 +22,26 @@ class RuntimeToolSummaryTests(unittest.TestCase):
         self.assertEqual(actual, expected)
 
     def test_projection_uses_primary_server_and_operation_provider_closure(self) -> None:
+        payload = module.load_payload(ROOT)
+        relations = module.server_relations(payload)
+        self.assertIn("perplexity_search", relations["chrono-research-arsenal"])
+        self.assertNotIn("perplexity_search_web", relations["chrono-research-arsenal"])
+        perplexity_entries = [
+            (entry["specialist"], entry["lane"])
+            for entry in payload["entries"]
+            if any(tool["id"] == "perplexity_search" for tool in entry["tools"])
+        ]
+        self.assertTrue(perplexity_entries)
+        self.assertTrue(
+            all(lane in {"claude", "gpt-codex"} for _specialist, lane in perplexity_entries)
+        )
+        self.assertFalse(
+            any(
+                tool["id"] == "perplexity_search_web"
+                for entry in payload["entries"]
+                for tool in entry["tools"]
+            )
+        )
         rows = module.project_runtime_tools(ROOT)
         self.assertEqual(rows["backend-engineer"]["required_tools"], ())
         self.assertEqual(
@@ -37,10 +57,7 @@ class RuntimeToolSummaryTests(unittest.TestCase):
             rows["frontend-engineer"]["required_tools"],
             ("chrome-devtools", "playwright"),
         )
-        self.assertNotIn(
-            "perplexity_search_web",
-            rows["frontend-engineer"]["preferred_tools"],
-        )
+        self.assertNotIn("perplexity_search", rows["frontend-engineer"]["preferred_tools"])
 
     def test_required_provider_dominates_preferred_provider(self) -> None:
         payload = {

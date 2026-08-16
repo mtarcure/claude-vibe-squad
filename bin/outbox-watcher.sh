@@ -1,33 +1,27 @@
 #!/bin/bash
-# Outbox watcher — fires `tmux send-keys` to the chrono (Coordinator) pane the
-# moment a model lane writes a response file to a compatibility outbox/. Closes the outbox-poller
-# gap: chrono's CLAUDE.md says "scan outboxes at start of every operator turn"
-# but that's pull-based and only fires when the operator types. This watcher
-# is push-based — when a Lead finishes work, chrono is notified immediately
-# and a durable chrono-side queue entry is written for next-session surfacing.
+# Outbox watcher — observes compatibility-outbox responses and asks the shared
+# reconciler to settle TASK-* envelopes. Its live notification path is narrower:
+# `tmux send-keys` targets only the Chrono (Coordinator) window.
 #
-# Architectural symmetry with inbox-watcher.sh:
-#   - inbox-watcher: outside-world (Chrono) -> namespace inbox -> nudge model lane pane
-#   - outbox-watcher: namespace outbox -> nudge Chrono pane -> Chrono surfaces to operator
+# A successful tmux call proves keystrokes reached that pane, not that a human or
+# controller read them. An absent or unattended pane has no live recipient. TASK
+# events retain file/registry state, and reconciler-emitted events also retain a
+# Chrono-queue record for a later reader; RESP-* replies retain only their file plus
+# a best-effort pane nudge.
 #
-# Per `shared/protocol.md`: response files land in `departments/<namespace>/outbox/`
-# matching `*-response.md` (the convention used by send-task.sh's reply path)
-# or `RESP-<id>.md` (legacy peer replies).
+# This is settlement/notification glue, not headless broadcast. A polling controller
+# must start bin/board-notify.sh as a best-effort target-state observer and consume
+# its stdout; launch-squad starts this outbox watcher, not that registry watcher.
 #
 # Usage:  bash bin/outbox-watcher.sh <source-namespace>
-# Typically launched by launch-squad.sh as a background pane alongside
-# inbox-watchers (window 6).
+# Typically launched by launch-squad.sh in the watcher/status window.
 
 set -uo pipefail
 
-PUBLISH_ONCE_PATH=""
 NOTIFY_ONCE_EVENT_KEY=""
 NOTIFY_ONCE_MESSAGE=""
 NOTIFY_ONCE_MODE=0
-if [[ "${1:-}" == "--publish-once" ]]; then
-    NAMESPACE="coding"
-    PUBLISH_ONCE_PATH="${2:-}"
-elif [[ "${1:-}" == "--notify-once" ]]; then
+if [[ "${1:-}" == "--notify-once" ]]; then
     NAMESPACE="coding"
     NOTIFY_ONCE_MODE=1
     NOTIFY_ONCE_EVENT_KEY="${2:-}"
@@ -40,8 +34,7 @@ if [[ -z "${NAMESPACE}" ]]; then
     exit 1
 fi
 
-if [[ -z "$PUBLISH_ONCE_PATH" && "$NOTIFY_ONCE_MODE" == 0 ]] \
-    && ! command -v fswatch >/dev/null 2>&1; then
+if [[ "$NOTIFY_ONCE_MODE" == 0 ]] && ! command -v fswatch >/dev/null 2>&1; then
     echo "fswatch not installed — install with: brew install fswatch"
     exit 1
 fi
@@ -50,16 +43,28 @@ fi
 source "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")/.." && pwd -P)/shared/repo-root.sh"
 SESSION="${SQUAD_SESSION:-squad}"
 TMUX_BIN="${TMUX_BIN:-tmux}"
+CHRONO_TMUX_TARGET="${SESSION}:chrono.0"
+EXPECTED_CHRONO_PANE_COMMAND="claude"
 RESPONSE_MIN_AGE_SECONDS="${RESPONSE_MIN_AGE_SECONDS:-5}"
 if [[ ! "$RESPONSE_MIN_AGE_SECONDS" =~ ^[0-9]+$ ]]; then
     echo "RESPONSE_MIN_AGE_SECONDS must be a non-negative integer" >&2
     exit 1
 fi
+# "all" consolidates every namespace into ONE watcher. Measured 2026-08-08:
+# six per-namespace watchers cost 22 MB and 0% CPU, so this is not a
+# performance change -- it removes a reliability failure. Each namespace ran
+# its own supervisor->watcher->child chain that leaked children over time
+# (coding reached 5 processes, security 4), and every extra copy fired its own
+# duplicate notification for the same response file. One process cannot
+# duplicate itself across namespaces. A single fswatch over all six outboxes
+# was measured at 31-48 ms detection for simultaneous writes, faster than the
+# 0.3 s loop it replaces.
+ALL_NAMESPACES=0
+if [[ "${NAMESPACE}" == "all" ]]; then
+    ALL_NAMESPACES=1
+fi
 OUTBOX="${VAULT_ROOT}/departments/${NAMESPACE}/outbox"
 STATE_DIR="${VAULT_ROOT}/_state"
-FAILOVER_STAGING="${STATE_DIR}/failover/staging"
-FAILOVER_CONTROL="${VAULT_ROOT}/bin/failover-control.py"
-DAEMON_REQUIREMENTS="${VAULT_ROOT}/daemon/requirements.txt"
 CHRONO_NOTIFY_LOCKDIR="${STATE_DIR}/chrono-notify.lockdir"
 CHRONO_NOTIFY_RECEIPTS_DIR="${STATE_DIR}/chrono-notify-receipts"
 
@@ -122,7 +127,7 @@ acquire_chrono_notify_lock() {
 }
 
 send_chrono_notification_once() {
-    local event_key="$1" message="$2" receipt_hash receipt tmp
+    local event_key="$1" message="$2" receipt_hash receipt tmp pane_current_command
     acquire_chrono_notify_lock || return $?
     receipt_hash="$(printf '%s' "$event_key" | shasum -a 256 | awk '{print $1}')"
     receipt="${CHRONO_NOTIFY_RECEIPTS_DIR}/${receipt_hash}.sent"
@@ -134,15 +139,23 @@ send_chrono_notification_once() {
     fi
     if ! "$TMUX_BIN" has-session -t "$SESSION" 2>/dev/null \
         || ! "$TMUX_BIN" list-windows -t "$SESSION" -F '#{window_name}' 2>/dev/null | grep -qx "chrono"; then
+        echo "[$(date '+%H:%M:%S')] chrono pane nudge skipped: target=${CHRONO_TMUX_TARGET} unavailable; no notification lost: registry/outbox records persist and bin/board-notify.sh serves headless registry readers" >&2
         release_chrono_notify_lock || return 1
         return 2
     fi
-    if ! "$TMUX_BIN" send-keys -l -t "${SESSION}:chrono" "$message"; then
+    if ! pane_current_command="$("$TMUX_BIN" display-message -p -t "$CHRONO_TMUX_TARGET" '#{pane_current_command}' 2>/dev/null)" \
+        || [[ "$pane_current_command" != "$EXPECTED_CHRONO_PANE_COMMAND" ]]; then
+        printf "[%s] chrono pane nudge skipped: target=%s expected_command=%q actual_command=%q; no notification lost: registry/outbox records persist and bin/board-notify.sh serves headless registry readers\n" \
+            "$(date '+%H:%M:%S')" "$CHRONO_TMUX_TARGET" "$EXPECTED_CHRONO_PANE_COMMAND" "${pane_current_command:-unavailable}" >&2
+        release_chrono_notify_lock || return 1
+        return 2
+    fi
+    if ! "$TMUX_BIN" send-keys -l -t "$CHRONO_TMUX_TARGET" "$message"; then
         release_chrono_notify_lock || return 1
         return 1
     fi
     sleep 0.3
-    if ! "$TMUX_BIN" send-keys -t "${SESSION}:chrono" Enter; then
+    if ! "$TMUX_BIN" send-keys -t "$CHRONO_TMUX_TARGET" Enter; then
         release_chrono_notify_lock || return 1
         return 1
     fi
@@ -150,7 +163,7 @@ send_chrono_notification_once() {
         "$event_key" \
         "$(printf '%s' "$message" | shasum -a 256 | awk '{print $1}')" \
         "$(date -u +%FT%TZ)" \
-        "${SESSION}:chrono" > "$tmp" \
+        "$CHRONO_TMUX_TARGET" > "$tmp" \
         || ! mv "$tmp" "$receipt"; then
         rm -f "$tmp" 2>/dev/null || true
         release_chrono_notify_lock || true
@@ -169,58 +182,25 @@ if [[ "$NOTIFY_ONCE_MODE" == 1 ]]; then
     exit $?
 fi
 
-publish_runtime_alert() {
-    local message="$1" event_key
-    echo "[$(date '+%H:%M:%S')] CRITICAL FAILOVER PUBLISH RUNTIME: ${message}" >&2
-    event_key="$(notification_event_key "runtime-alert" "$(printf '%s' "$message" | shasum -a 256 | awk '{print $1}')")"
-    send_chrono_notification_once "$event_key" "🚨 FAILOVER PUBLISH RUNTIME ERROR: ${message}" || true
-}
-
-publish_staging_artifact() {
-    local artifact="$1" output rc
-    if ! command -v uv >/dev/null 2>&1; then
-        publish_runtime_alert "uv is unavailable; cannot publish $(basename "$artifact")"
-        return 70
-    fi
-    output="$(uv run --with-requirements "$DAEMON_REQUIREMENTS" \
-        python "$FAILOVER_CONTROL" publish --artifact "$artifact" 2>&1)"
-    rc=$?
-    if [[ "$rc" -eq 0 ]]; then
-        return 0
-    fi
-    if [[ "$rc" -eq 2 && "$output" == *'"status": "rejected"'* ]]; then
-        echo "[$(date '+%H:%M:%S')] staging artifact rejected by controller: ${artifact}: ${output}" >&2
-        return 2
-    fi
-    publish_runtime_alert "interpreter/dependency failure for ${artifact} (exit ${rc}): ${output}"
-    return 70
-}
-
-if [[ -n "$PUBLISH_ONCE_PATH" ]]; then
-    [[ -f "$PUBLISH_ONCE_PATH" ]] || {
-        echo "publish artifact not found: ${PUBLISH_ONCE_PATH}" >&2
-        exit 64
-    }
-    if publish_staging_artifact "$PUBLISH_ONCE_PATH"; then
-        echo "fenced staging artifact published: $(basename "$PUBLISH_ONCE_PATH")"
-        exit 0
-    else
-        rc=$?
-        exit "$rc"
-    fi
+if [[ "$ALL_NAMESPACES" != "1" ]]; then mkdir -p "${OUTBOX}"; fi
+if [[ "$ALL_NAMESPACES" == "1" ]]; then
+    WATCH_PATHS=()
+    for _ns_dir in "${VAULT_ROOT}"/departments/*/; do
+        [[ -d "${_ns_dir}outbox" ]] || mkdir -p "${_ns_dir}outbox"
+        WATCH_PATHS+=("${_ns_dir}outbox")
+    done
+    unset _ns_dir
+else
+    WATCH_PATHS=("${OUTBOX}")
 fi
 
-mkdir -p "${OUTBOX}" "${FAILOVER_STAGING}"
-WATCH_PATHS=("${OUTBOX}")
-STAGING_OWNER=0
-if [[ "$NAMESPACE" == "coding" && ( "${FAILOVER_CONTROL_ENABLED:-0}" == "1" || -f "${STATE_DIR}/failover/ENABLED" ) ]]; then
-    WATCH_PATHS+=("${FAILOVER_STAGING}")
-    STAGING_OWNER=1
+if [[ "$ALL_NAMESPACES" == "1" ]]; then
+    echo "Watching ${#WATCH_PATHS[@]} namespace outboxes (consolidated) for new responses; will nudge squad:chrono pane on each."
+else
+    echo "Watching ${OUTBOX}/ for new responses; will nudge squad:chrono pane on each."
 fi
 
-echo "Watching ${OUTBOX}/ for new responses; will nudge squad:chrono pane on each."
-
-if [[ "$NAMESPACE" == "coding" ]]; then
+if [[ "$NAMESPACE" == "coding" || "$ALL_NAMESPACES" == "1" ]]; then
     (
         while true; do
             sleep 900
@@ -235,7 +215,86 @@ fi
 
 frontmatter_field() {
     local file="$1" field="$2"
-    awk -v key="$field" '/^---$/{p=!p; next} p && index($0, key ":") == 1 {sub("^[^:]+:[[:space:]]*", ""); print; exit}' "$file"
+    awk -v key="$field" -v source="$file" '
+        function reject(message) {
+            print source ": " message > "/dev/stderr"
+            invalid=1
+            exit 65
+        }
+
+        NR == 1 {
+            started=1
+            if ($0 != "---") {
+                reject("frontmatter must begin with an exact --- delimiter at line 1")
+            }
+            parsing=1
+            next
+        }
+
+        parsing && $0 == "---" {
+            closed=1
+            parsing=0
+            exit
+        }
+
+        parsing {
+            # Blank and comment lines do not end an empty-key lookahead: an
+            # indented child after either still belongs to that empty key.
+            if ($0 ~ /^[[:space:]]*$/ || $0 ~ /^[[:space:]]*#/) {
+                next
+            }
+            if ($0 ~ /^[[:space:]]/) {
+                if (empty_key != "") {
+                    reject(sprintf("frontmatter key %c%s%c at line %d has nested content at line %d; flat scalar values are required", 39, empty_key, 39, empty_line, NR))
+                }
+                reject(sprintf("frontmatter line %d is indented; top-level flat scalar key/value pairs are required", NR))
+            }
+
+            separator=index($0, ":")
+            if (separator == 0) {
+                reject(sprintf("frontmatter line %d is not a top-level key/value pair; flat scalar values are required", NR))
+            }
+            parsed_key=substr($0, 1, separator - 1)
+            if (parsed_key !~ /^[A-Za-z_][A-Za-z0-9_-]*$/) {
+                reject(sprintf("frontmatter line %d has an invalid key", NR))
+            }
+            if (parsed_key in first_line) {
+                reject(sprintf("frontmatter key %c%s%c is duplicated at line %d (first declared at line %d); one flat scalar per key is required", 39, parsed_key, 39, NR, first_line[parsed_key]))
+            }
+
+            raw_value=substr($0, separator + 1)
+            first_line[parsed_key]=NR
+            value[parsed_key]=raw_value
+            sub(/^[[:space:]]*/, "", value[parsed_key])
+
+            empty_key=""
+            empty_line=0
+            scalar_probe=raw_value
+            gsub(/[[:space:]]/, "", scalar_probe)
+            if (scalar_probe == "") {
+                empty_key=parsed_key
+                empty_line=NR
+            }
+            next
+        }
+
+        END {
+            if (invalid) {
+                exit 65
+            }
+            if (!started) {
+                print source ": frontmatter is empty; an exact --- delimiter is required at line 1" > "/dev/stderr"
+                exit 65
+            }
+            if (!closed) {
+                print source ": frontmatter is unclosed; an exact --- delimiter is required" > "/dev/stderr"
+                exit 65
+            }
+            if (key in first_line) {
+                print value[key]
+            }
+        }
+    ' "$file"
 }
 
 response_context() {
@@ -257,14 +316,13 @@ response_context() {
     printf 'unknown-model/unknown-specialist'
 }
 
-response_ready_for_status() {
+legacy_response_ready_for_status() {
     local file="$1" mtime now age
     [[ -f "$file" ]] || return 1
     mtime="$(stat -c %Y "$file" 2>/dev/null || stat -f %m "$file" 2>/dev/null || echo 0)"
     now="$(date +%s)"
     age=$((now - mtime))
-    # Keep this gate synchronized with registry_reconciler.py so the watcher
-    # never hands off an envelope before the shared reconciler considers it ready.
+    # Legacy quiescence/display only. V2 settlement reaches the reconciler first.
     [[ "$age" -ge "$RESPONSE_MIN_AGE_SECONDS" ]] || return 1
     awk '/^---$/{p=!p; next} p && /^status:[[:space:]]*/ {found=1; exit} END{exit found ? 0 : 1}' "$file"
 }
@@ -427,38 +485,16 @@ PROCESSED_PATHS="|"
 PENDING_PATHS="|"
 
 handle_response_path() {
-    local path="$1" fname ctx status status_prefix task_id NUDGE_MSG state task_file can_nudge dept reconciler_handled reconcile_output event_state event_key
-    # Lane-owned files land only in attempt staging. The controller validates
-    # schema/ID/hash and generation, then atomically publishes the canonical
-    # outbox file. A rejected or partial staging write is never surfaced.
-    case "$path" in
-        "${FAILOVER_STAGING}"/*/*.md)
-            [[ "$STAGING_OWNER" == "1" ]] || return
-            if ! response_ready_for_status "$path"; then
-                echo "[$(date '+%H:%M:%S')] staging artifact not quiescent/status-ready: $(basename "$path"); scheduling delayed retry"
-                case "$PENDING_PATHS" in
-                    *"|$path|"*) ;;
-                    *)
-                        PENDING_PATHS="${PENDING_PATHS}${path}|"
-                        (
-                            while [[ -f "$path" ]]; do
-                                sleep 6
-                                if response_ready_for_status "$path"; then
-                                    handle_response_path "$path"
-                                    break
-                                fi
-                            done
-                        ) &
-                        ;;
-                esac
-                return
-            fi
-            if publish_staging_artifact "$path"; then
-                echo "[$(date '+%H:%M:%S')] fenced staging artifact published: $(basename "$path")"
-            fi
-            return
-            ;;
-    esac
+    local path="$1" fname ctx status status_prefix task_id NUDGE_MSG state task_file can_nudge dept reconciler_handled reconcile_output event_state event_key nudge_status
+    # In consolidated mode the namespace differs per event, so derive it from
+    # the path rather than a launch-time global. Every message, task lookup and
+    # reconciler call below reads NAMESPACE/OUTBOX, and the loop is
+    # single-threaded, so setting them per event is safe.
+    if [[ "$ALL_NAMESPACES" == "1" ]]; then
+        NAMESPACE="${path#"${VAULT_ROOT}/departments/"}"
+        NAMESPACE="${NAMESPACE%%/*}"
+        OUTBOX="${VAULT_ROOT}/departments/${NAMESPACE}/outbox"
+    fi
     # Only react to actual response files — not partial writes or unrelated edits.
     case "$path" in
         */TASK-*-response.md|*/RESP-*.md) ;;
@@ -469,6 +505,15 @@ handle_response_path() {
     esac
 
     fname="$(basename "$path")"
+    # Validate the whole frontmatter region before asking the reconciler to
+    # consume it. The field helper scans every row, so a malformed optional key
+    # cannot hide behind a valid status field. A held file is deliberately not
+    # added to PROCESSED_PATHS: correcting it in place produces a new fswatch
+    # event and retries the same response without discarding the deliverable.
+    if ! frontmatter_field "$path" status >/dev/null; then
+        echo "[$(date '+%H:%M:%S')] response envelope held in outbox: ${fname}; correct the named frontmatter error and republish"
+        return
+    fi
     ctx="$(response_context "$fname")"
     status="unknown"
     status_prefix="❓ UNKNOWN STATUS"
@@ -476,7 +521,28 @@ handle_response_path() {
     reconciler_handled=0
     if [[ "$fname" == TASK-*-response.md ]]; then
         task_id="${fname%-response.md}"
-        if response_ready_for_status "$path"; then
+        # V2 envelopes are atomically published commit markers. Reconcile before
+        # consulting the V1 mtime quiescence/display fallback below.
+        if reconcile_output="$("${VAULT_ROOT}/bin/registry-reconciler.sh" --task-id "$task_id" 2>&1)"; then
+            if grep -Fq "reconciled ${task_id} ->" <<<"$reconcile_output" \
+                || grep -Fq "already-settled ${task_id} ->" <<<"$reconcile_output" \
+                || grep -Fq "review-required ${task_id} ->" <<<"$reconcile_output" \
+                || grep -Fq "review-held ${task_id} ->" <<<"$reconcile_output" \
+                || grep -Fq "auto-closed ${task_id} from" <<<"$reconcile_output" \
+                || grep -Fq "swarm-review-required ${task_id} ->" <<<"$reconcile_output"; then
+                reconciler_handled=1
+                echo "[$(date '+%H:%M:%S')] shared reconciler handled registry entry: ${task_id}"
+            fi
+            if [[ "$reconciler_handled" == 0 ]] \
+                && grep -Fq "v2-settlement-hold ${task_id} ->" <<<"$reconcile_output"; then
+                echo "[$(date '+%H:%M:%S')] authoritative V2 settlement hold: ${task_id}"
+                return
+            fi
+        else
+            echo "[$(date '+%H:%M:%S')] warning: failed registry reconciliation for ${task_id}: ${reconcile_output}" >&2
+            return
+        fi
+        if [[ "$reconciler_handled" == 1 ]] || legacy_response_ready_for_status "$path"; then
             status="$(response_status "$path")"
             status_prefix="$(status_nudge_prefix "$status")"
         else
@@ -488,7 +554,7 @@ handle_response_path() {
                         (
                             while [[ -f "$path" ]]; do
                                 sleep 1
-                                if response_ready_for_status "$path"; then
+                                if legacy_response_ready_for_status "$path"; then
                                     handle_response_path "$path"
                                     break
                                 fi
@@ -512,21 +578,8 @@ handle_response_path() {
     echo "[$(date '+%H:%M:%S')] new: ${fname} from ${ctx} via ${NAMESPACE} namespace -> queueing chrono status"
 
     if [[ "$fname" == TASK-*-response.md ]]; then
-        if reconcile_output="$("${VAULT_ROOT}/bin/registry-reconciler.sh" --task-id "$task_id" 2>&1)"; then
-            if grep -Fq "reconciled ${task_id} ->" <<<"$reconcile_output" \
-                || grep -Fq "already-settled ${task_id} ->" <<<"$reconcile_output" \
-                || grep -Fq "review-required ${task_id} ->" <<<"$reconcile_output" \
-                || grep -Fq "review-held ${task_id} ->" <<<"$reconcile_output" \
-                || grep -Fq "swarm-review-required ${task_id} ->" <<<"$reconcile_output"; then
-                reconciler_handled=1
-                echo "[$(date '+%H:%M:%S')] shared reconciler handled registry entry: ${task_id}"
-            else
-                echo "[$(date '+%H:%M:%S')] shared reconciler found no settled registry entry; using notification fallback: ${task_id}"
-            fi
-        else
-            echo "[$(date '+%H:%M:%S')] warning: failed registry reconciliation for ${task_id}: ${reconcile_output}" >&2
-        fi
         if [[ "$reconciler_handled" == 0 ]]; then
+            echo "[$(date '+%H:%M:%S')] shared reconciler found no settled registry entry; using notification fallback: ${task_id}"
             if append_chrono_queue "$task_id" "$status" "$path"; then
                 echo "[$(date '+%H:%M:%S')] fallback queued chrono status entry: ${status} ${NAMESPACE}/${task_id}"
             else
@@ -558,13 +611,13 @@ handle_response_path() {
     fi
 
     # TASK responses are queued and nudged by the shared reconciler. Keep this
-    # legacy path only for RESP-* replies or as a reconciler-failure fallback.
+    # legacy path for RESP-* replies or successful, unhandled V1 reconciliation.
     if [[ "$fname" == TASK-*-response.md && "$reconciler_handled" == 1 ]]; then
         return
     fi
 
-    # Compose the nudge. Chrono receives this in its conversation as if the
-    # operator typed it, then chooses to read + surface per its own protocol.
+    # Compose a best-effort pane nudge. tmux acceptance is not evidence that a
+    # human or controller attended, read, or acted on the injected text.
     if [[ -n "${task_id}" ]]; then
         NUDGE_MSG="${status_prefix}: ${task_id} — RESP from model lane ${ctx}: ${fname} landed in compatibility mailbox departments/${NAMESPACE}/outbox/. Read and surface to operator per chrono/CLAUDE.md protocol."
     else
@@ -576,11 +629,16 @@ handle_response_path() {
         event_state="$status"
         [[ "$event_state" == "needs_review" ]] && event_state="review-required"
         event_key="$(notification_event_key "${NAMESPACE}/${task_id:-$fname}" "$event_state")"
-        if ! send_chrono_notification_once "$event_key" "$NUDGE_MSG"; then
-            echo "[$(date '+%H:%M:%S')] chrono pane nudge failed; durable queue retained: ${fname}" >&2
+        if send_chrono_notification_once "$event_key" "$NUDGE_MSG"; then
+            true
+        else
+            nudge_status=$?
+            if [[ "$nudge_status" -ne 2 ]]; then
+                echo "[$(date '+%H:%M:%S')] chrono pane nudge failed; no receipt-backed tmux delivery: ${fname}" >&2
+            fi
         fi
     else
-        echo "[$(date '+%H:%M:%S')] chrono pane unavailable; queued without tmux nudge: ${fname}"
+        echo "[$(date '+%H:%M:%S')] chrono pane unavailable; no tmux recipient: ${fname}"
     fi
 }
 
@@ -595,7 +653,7 @@ scan_existing_responses() {
         handle_response_path "$path"
     done < <(
         find "${WATCH_PATHS[@]}" -type f \
-            \( -name 'TASK-*-response.md' -o -name 'RESP-*.md' -o -path "${FAILOVER_STAGING}/*/*.md" \) \
+            \( -name 'TASK-*-response.md' -o -name 'RESP-*.md' \) \
             -print0 2>/dev/null
     )
 }

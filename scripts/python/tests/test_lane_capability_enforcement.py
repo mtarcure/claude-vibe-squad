@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
 import os
@@ -17,17 +18,24 @@ ROOT = Path(__file__).resolve().parents[3]
 PYTHON_DIR = ROOT / "scripts" / "python"
 sys.path.insert(0, str(PYTHON_DIR))
 
+from held_action_gate import HELD_CATEGORIES  # noqa: E402
+
 from lane_capability_enforcement import (  # noqa: E402
+    MCP_HEALTH_INSPECTED_LANES,
     CapabilityDenied,
+    KimiLocalHostArtifacts,
     cli_args_for_materialized,
     load_json_mcp_servers,
     load_projection,
+    load_tool_classes,
     materialize_role_config,
+    mcp_health,
     parse_claude_enabled_plugins,
     parse_claude_project_plugin_dirs,
     parse_live_mcp_listing,
     plan_lane,
 )
+from specialist_capability_source import load_source  # noqa: E402
 import seatbelt_profile  # noqa: E402
 from scripts.python.tests.ci_host_independence import (  # noqa: E402
     skip_in_host_independent_ci,
@@ -35,6 +43,37 @@ from scripts.python.tests.ci_host_independence import (  # noqa: E402
 
 
 class LaneCapabilityEnforcementTests(unittest.TestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = Path(directory.name)
+        interpreter = root / "python"
+        sequential_thinking = root / "mcp-server-sequential-thinking"
+        for executable in (interpreter, sequential_thinking):
+            executable.write_text("fixture executable\n", encoding="utf-8")
+            executable.chmod(0o700)
+        self.kimi_host_artifacts = KimiLocalHostArtifacts(
+            interpreter=interpreter,
+            sequential_thinking=sequential_thinking,
+        )
+
+    @staticmethod
+    def _kimi_vault_environment() -> dict[str, str]:
+        context = json.dumps(
+            {
+                "aperture": "focused",
+                "schema": "chrono-vault-context/v1",
+                "task_id": "TASK-2026-08-08-1300-v4-capability-kimi",
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return {
+            "CHRONO_VAULT_ROOT": "/private/chrono-vault",
+            "CHRONO_VAULT_CONTEXT": context,
+        }
+
     def _supervisor_denial_record(
         self,
         *,
@@ -44,7 +83,8 @@ class LaneCapabilityEnforcementTests(unittest.TestCase):
         adapter: Path,
         executable: Path,
     ) -> tuple[int, dict[str, object]]:
-        digest = lambda value: hashlib.sha256(value).hexdigest()
+        def digest(value: bytes) -> str:
+            return hashlib.sha256(value).hexdigest()
         now = int(time.time())
         task_id = f"TASK-2026-07-22-0705-{lane}-deny"
         attempt_id = "d-" + digest(lane.encode())[:32]
@@ -93,20 +133,17 @@ class LaneCapabilityEnforcementTests(unittest.TestCase):
             "expected_outbox_path": (
                 f"_state/lane-capability-wiring-2026-07-22/{lane}-response.md"
             ),
+            "evidence_outputs": [],
             "required_phase_ids": [
                 "S0", "S1", "S2", "S3", "S4", "S5", "S6", "S7"
             ],
             "verification_kinds": ["project_tests", "recipient_contract"],
-            "operator_gates": [
-                "credential-change",
-                "default-cutover",
-                "delete-from-main",
-                "outreach",
-                "prod-mutation",
-                "public-push",
-                "release",
-                "spend",
-            ],
+            # Derived, never restated: the supervisor refuses any packet whose
+            # operator_gates differ from HELD_CATEGORIES by even one value, so a
+            # literal copy here turns every future gate change into a fixture
+            # failure that looks like a policy failure. Restating it is what made
+            # the 2026-08-08 vocabulary rename look like 21 broken tests.
+            "operator_gates": sorted(HELD_CATEGORIES),
             "packet_sha256": digest(f"{task_id}:packet".encode()),
             "plan_sha256": digest(f"{task_id}:plan".encode()),
             "verification_contract_sha256": digest(
@@ -117,6 +154,21 @@ class LaneCapabilityEnforcementTests(unittest.TestCase):
                 "95438e2cc6b06ab3f12622ad0a0f3e0a"
                 "6654e6cf3a7b35f3908b3487f883f376"
             ),
+            "auth_class": "subscription",
+            "lane_policy_row_sha256": "a" * 64,
+            "capability_surface_sha256": digest(f"{lane}:surface".encode()),
+            "memory_context": {
+                "schema": "chrono-vault-context/v1",
+                "task_id": task_id,
+                "attempt_id": attempt_id,
+                "generation": 1,
+                "mode": "project",
+                "aperture": "none",
+                "focus": None,
+                "engagement_start": time.strftime(
+                    "%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)
+                ),
+            },
             "active_board_tasks": [],
             "created_at": now,
             "expires_at": now + 300,
@@ -411,7 +463,10 @@ class LaneCapabilityEnforcementTests(unittest.TestCase):
             ),
         )
 
-    def test_claude_requires_an_usable_live_status_for_authorized_mcp(self) -> None:
+    def test_claude_unhealthy_authorized_mcp_degrades_instead_of_denying(self) -> None:
+        # An authorized server that is CONFIGURED BUT UNHEALTHY must not gate
+        # the launch. Measured 2026-08-09: `github` answering HTTP 400 made the
+        # whole `research` role undispatchable on a packet that never used it.
         projection = {
             "lane": "claude",
             "specialist": "sample",
@@ -422,17 +477,162 @@ class LaneCapabilityEnforcementTests(unittest.TestCase):
             "sources": [],
             "schema": "role-capability-projection/v1",
         }
-        with self.assertRaisesRegex(CapabilityDenied, "unavailable MCP servers"):
+        plan = plan_lane(
+            lane="claude",
+            projection=projection,
+            configured_servers={
+                "chrono-recon": {
+                    "live_name": "plugin:chrono-recon:chrono-recon",
+                    "tool_namespace": "plugin_chrono-recon_chrono-recon",
+                    "status": "! Needs authentication",
+                }
+            },
+        )
+        self.assertEqual(plan.authorized_mcps, ("chrono-recon",))
+        self.assertEqual(plan.unhealthy_mcps, ("chrono-recon",))
+        # Verbatim, so the receipt records what the runtime said.
+        self.assertEqual(
+            plan.unhealthy_mcp_status,
+            (("chrono-recon", "! Needs authentication"),),
+        )
+
+    def test_structurally_absent_authorized_mcp_still_fails_closed(self) -> None:
+        projection = {
+            "lane": "claude",
+            "specialist": "sample",
+            "mcps": ["chrono-recon"],
+            "brokered_mcps": [],
+            "tools": [],
+            "skills": [],
+            "sources": [],
+            "schema": "role-capability-projection/v1",
+        }
+        with self.assertRaisesRegex(
+            CapabilityDenied, r"unconfigured MCP servers: chrono-recon \(absent\)"
+        ):
             plan_lane(
                 lane="claude",
                 projection=projection,
                 configured_servers={
-                    "chrono-recon": {
-                        "live_name": "plugin:chrono-recon:chrono-recon",
-                        "status": "! Needs authentication",
+                    "sequential-thinking": {
+                        "live_name": "sequential-thinking",
+                        "tool_namespace": "sequential-thinking",
+                        "status": "✔ Connected",
                     }
                 },
             )
+
+    def test_unsafe_authorized_server_name_or_record_still_fails_closed(self) -> None:
+        def projection_for(name: str) -> dict[str, object]:
+            return {
+                "lane": "claude",
+                "specialist": "sample",
+                "mcps": [name],
+                "brokered_mcps": [],
+                "tools": [],
+                "skills": [],
+                "sources": [],
+                "schema": "role-capability-projection/v1",
+            }
+
+        with self.assertRaisesRegex(CapabilityDenied, "MCP server name is unsafe"):
+            plan_lane(
+                lane="claude",
+                projection=projection_for("chrono recon; rm -rf /"),
+                configured_servers={
+                    "chrono recon; rm -rf /": {
+                        "live_name": "plugin:chrono-recon:chrono-recon",
+                        "tool_namespace": "plugin_chrono-recon_chrono-recon",
+                        "status": "✔ Connected",
+                    }
+                },
+            )
+        for label, record in (
+            (
+                "unsafe live name",
+                {
+                    "live_name": "plugin:chrono-recon:chrono-recon --dangerously",
+                    "status": "✔ Connected",
+                },
+            ),
+            (
+                "unsafe status",
+                {
+                    "live_name": "plugin:chrono-recon:chrono-recon",
+                    "status": "✔ Connected\ninjected: row",
+                },
+            ),
+            (
+                "non-string status",
+                {"live_name": "plugin:chrono-recon:chrono-recon", "status": 200},
+            ),
+            (
+                "oversized status",
+                {
+                    "live_name": "plugin:chrono-recon:chrono-recon",
+                    "status": "x" * 4096,
+                },
+            ),
+        ):
+            with self.subTest(record=label):
+                with self.assertRaisesRegex(CapabilityDenied, "unsafe"):
+                    plan_lane(
+                        lane="claude",
+                        projection=projection_for("chrono-recon"),
+                        configured_servers={"chrono-recon": record},
+                    )
+
+    def test_mcp_health_means_one_thing_on_every_lane(self) -> None:
+        # The claude branch used to demand a literal "✔ Connected" while the
+        # gemini branch treated a status-less row as available. That asymmetry
+        # is why `research` ran twice on gemini and failed its first claude
+        # dispatch. One predicate now decides, and the lanes differ only in
+        # whether they collect a status at all.
+        self.assertEqual(MCP_HEALTH_INSPECTED_LANES, frozenset({"claude", "gemini"}))
+        for lane in ("claude", "gemini", "codex", "kimi"):
+            with self.subTest(lane=lane):
+                self.assertEqual(
+                    mcp_health(lane=lane, details={"status": "✔ Connected"}), "healthy"
+                )
+                self.assertEqual(
+                    mcp_health(lane=lane, details={"status": "Connected"}), "healthy"
+                )
+                self.assertEqual(
+                    mcp_health(lane=lane, details={"status": "Disconnected"}),
+                    "unhealthy",
+                )
+                # No status collected is not a health verdict either way.
+                self.assertEqual(
+                    mcp_health(lane=lane, details={"command": "/usr/bin/false"}),
+                    "unknown",
+                )
+        pending = {
+            "status": "⏸ Pending approval",
+            "project_config": {"command": "/usr/bin/false"},
+        }
+        self.assertEqual(mcp_health(lane="claude", details=pending), "healthy")
+        self.assertEqual(
+            mcp_health(lane="claude", details={"status": "⏸ Pending approval"}),
+            "unhealthy",
+        )
+
+    def test_healthy_authorized_mcps_report_no_degradation(self) -> None:
+        plan = plan_lane(
+            lane="gemini",
+            projection={
+                "lane": "gemini",
+                "specialist": "sample",
+                "mcps": ["playwright"],
+                "brokered_mcps": [],
+                "tools": [],
+                "skills": [],
+                "sources": [],
+                "schema": "role-capability-projection/v1",
+            },
+            configured_servers={"playwright": {"status": "Connected"}},
+        )
+        self.assertEqual(plan.unhealthy_mcps, ())
+        self.assertEqual(plan.unhealthy_mcp_status, ())
 
     def test_gemini_emits_native_allowed_server_array(self) -> None:
         projection = {
@@ -500,10 +700,310 @@ class LaneCapabilityEnforcementTests(unittest.TestCase):
             ("--allowed-mcp-server-names", "playwright"),
         )
 
-    def test_kimi_file_config_suppresses_global_servers_and_keeps_lead_mcps_brokered(
+    def test_kimi_uses_only_exact_local_templates_and_ignores_host_config(self) -> None:
+        vault_environment = self._kimi_vault_environment()
+        python = str(self.kimi_host_artifacts.interpreter)
+        expected = {
+            name: {
+                "command": python,
+                "args": [str(ROOT / "plugins" / name / "mcp_server.py")],
+            }
+            for name in (
+                "chrono-dedup",
+                "chrono-research-arsenal",
+                "chrono-vault",
+            )
+        }
+        expected["sequential-thinking"] = {
+            "command": str(self.kimi_host_artifacts.sequential_thinking)
+        }
+        expected["chrono-vault"]["env"] = vault_environment
+        secret = "synthetic-host-secret"
+        hostile = {
+            name: {
+                "url": f"https://user:{secret}@example.test/mcp",
+                "headers": {"Authorization": secret},
+                "env": {"TOKEN": secret},
+            }
+            for name in expected
+        }
+        hostile["unrelated-global"] = {"command": f"/tmp/{secret}"}
+        all_names = sorted(expected)
+        plan = plan_lane(
+            lane="kimi",
+            projection={"mcps": [], "brokered_mcps": all_names, "tools": []},
+            configured_servers=hostile,
+            repo_root=ROOT,
+            kimi_vault_environment=vault_environment,
+            kimi_host_artifacts=self.kimi_host_artifacts,
+        )
+        self.assertEqual(json.loads(plan.role_config_json), {"mcpServers": expected})
+        self.assertEqual(plan.configured_mcps, tuple(all_names))
+        self.assertEqual(plan.disabled_mcps, ())
+        self.assertNotIn(secret, plan.role_config_json)
+        self.assertTrue(
+            all(
+                not ({"headers", "auth", "url"} & set(config))
+                for config in expected.values()
+            )
+        )
+        self.assertTrue(
+            all(
+                "env" not in config
+                for name, config in expected.items()
+                if name != "chrono-vault"
+            )
+        )
+        subset = plan_lane(
+            lane="kimi",
+            projection={
+                "mcps": [],
+                "brokered_mcps": ["chrono-vault", "sequential-thinking"],
+                "tools": [],
+            },
+            configured_servers=hostile,
+            repo_root=ROOT,
+            kimi_vault_environment=vault_environment,
+            kimi_host_artifacts=self.kimi_host_artifacts,
+        )
+        self.assertEqual(
+            set(json.loads(subset.role_config_json)["mcpServers"]),
+            {"chrono-vault", "sequential-thinking"},
+        )
+
+    def test_kimi_vault_template_receives_only_bound_vault_environment(self) -> None:
+        vault_environment = self._kimi_vault_environment()
+        plan = plan_lane(
+            lane="kimi",
+            projection={
+                "mcps": [],
+                "brokered_mcps": ["chrono-vault", "sequential-thinking"],
+                "tools": [],
+            },
+            configured_servers={"hostile": {"env": {"TOKEN": "secret"}}},
+            repo_root=ROOT,
+            kimi_vault_environment=vault_environment,
+            kimi_host_artifacts=self.kimi_host_artifacts,
+        )
+        servers = json.loads(plan.role_config_json)["mcpServers"]
+        self.assertEqual(servers["chrono-vault"]["env"], vault_environment)
+        self.assertNotIn("env", servers["sequential-thinking"])
+        self.assertNotIn("TOKEN", plan.role_config_json)
+
+        for invalid in (
+            None,
+            {"CHRONO_VAULT_ROOT": "/private/chrono-vault"},
+            {**vault_environment, "TOKEN": "secret"},
+            {**vault_environment, "CHRONO_VAULT_ROOT": "relative"},
+            {**vault_environment, "CHRONO_VAULT_CONTEXT": "{}"},
+            {
+                **vault_environment,
+                "CHRONO_VAULT_CONTEXT": (
+                    '{"schema":"chrono-vault-context/v1","x":NaN}'
+                ),
+            },
+        ):
+            with self.subTest(invalid=invalid), self.assertRaises(CapabilityDenied):
+                plan_lane(
+                    lane="kimi",
+                    projection={
+                        "mcps": [],
+                        "brokered_mcps": ["chrono-vault"],
+                        "tools": [],
+                    },
+                    configured_servers={},
+                    repo_root=ROOT,
+                    kimi_vault_environment=invalid,
+                    kimi_host_artifacts=self.kimi_host_artifacts,
+                )
+
+    def test_kimi_none_aperture_projects_without_vault_binding(self) -> None:
+        none_context = json.dumps(
+            {
+                "aperture": "none",
+                "schema": "chrono-vault-context/v1",
+                "task_id": "TASK-2026-08-14-1900-small-batch",
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        projection = {
+            "mcps": [],
+            "brokered_mcps": ["chrono-vault", "sequential-thinking"],
+            "tools": [],
+        }
+
+        plan = plan_lane(
+            lane="kimi",
+            projection=projection,
+            configured_servers={},
+            repo_root=ROOT,
+            kimi_vault_environment={"CHRONO_VAULT_CONTEXT": none_context},
+            kimi_host_artifacts=self.kimi_host_artifacts,
+        )
+
+        self.assertEqual(plan.authorized_mcps, ("sequential-thinking",))
+        self.assertEqual(plan.brokered_mcps, ("sequential-thinking",))
+        self.assertEqual(
+            json.loads(plan.role_config_json),
+            {
+                "mcpServers": {
+                    "sequential-thinking": {
+                        "command": str(
+                            self.kimi_host_artifacts.sequential_thinking
+                        )
+                    }
+                }
+            },
+        )
+
+        focused_context = json.dumps(
+            {
+                "aperture": "focused",
+                "schema": "chrono-vault-context/v1",
+                "task_id": "TASK-2026-08-14-1900-small-batch",
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        with self.assertRaisesRegex(CapabilityDenied, "not exactly bound"):
+            plan_lane(
+                lane="kimi",
+                projection=projection,
+                configured_servers={},
+                repo_root=ROOT,
+                kimi_vault_environment={
+                    "CHRONO_VAULT_CONTEXT": focused_context
+                },
+                kimi_host_artifacts=self.kimi_host_artifacts,
+            )
+
+    def test_kimi_local_templates_fail_closed_on_unknown_or_missing_paths(self) -> None:
+        def projection(name: str) -> dict[str, object]:
+            return {"mcps": [], "brokered_mcps": [name], "tools": []}
+
+        with self.assertRaisesRegex(CapabilityDenied, "unsupported local template"):
+            plan_lane(
+                lane="kimi",
+                projection=projection("unknown-server"),
+                configured_servers={},
+                repo_root=ROOT,
+            )
+        missing_interpreter = KimiLocalHostArtifacts(
+            interpreter=self.kimi_host_artifacts.interpreter.with_name(
+                "missing-python"
+            ),
+            sequential_thinking=self.kimi_host_artifacts.sequential_thinking,
+        )
+        with self.assertRaisesRegex(CapabilityDenied, "interpreter"):
+            plan_lane(
+                lane="kimi",
+                projection=projection("chrono-vault"),
+                configured_servers={},
+                repo_root=ROOT,
+                kimi_vault_environment=self._kimi_vault_environment(),
+                kimi_host_artifacts=missing_interpreter,
+            )
+        missing_sequential = KimiLocalHostArtifacts(
+            interpreter=self.kimi_host_artifacts.interpreter,
+            sequential_thinking=self.kimi_host_artifacts.sequential_thinking.with_name(
+                "missing-sequential-thinking"
+            ),
+        )
+        with self.assertRaisesRegex(
+            CapabilityDenied, "sequential-thinking executable"
+        ):
+            plan_lane(
+                lane="kimi",
+                projection=projection("sequential-thinking"),
+                configured_servers={},
+                repo_root=ROOT,
+                kimi_host_artifacts=missing_sequential,
+            )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "repo"
+            script = root / "plugins" / "chrono-vault" / "mcp_server.py"
+            script.parent.mkdir(parents=True)
+            script.write_text("# local test server\n", encoding="utf-8")
+            with self.assertRaisesRegex(CapabilityDenied, "interpreter"):
+                plan_lane(
+                    lane="kimi",
+                    projection=projection("chrono-vault"),
+                    configured_servers={},
+                    repo_root=root,
+                    kimi_vault_environment=self._kimi_vault_environment(),
+                )
+            interpreter = root / ".venv" / "bin" / "python"
+            interpreter.parent.mkdir(parents=True)
+            interpreter.write_text("#!/bin/sh\n", encoding="utf-8")
+            interpreter.chmod(0o755)
+            script.unlink()
+            with self.assertRaisesRegex(CapabilityDenied, "server script"):
+                plan_lane(
+                    lane="kimi",
+                    projection=projection("chrono-vault"),
+                    configured_servers={},
+                    repo_root=root,
+                    kimi_vault_environment=self._kimi_vault_environment(),
+                )
+            outside = Path(directory) / "outside.py"
+            outside.write_text("# outside repo\n", encoding="utf-8")
+            script.symlink_to(outside)
+            with self.assertRaisesRegex(CapabilityDenied, "server script"):
+                plan_lane(
+                    lane="kimi",
+                    projection=projection("chrono-vault"),
+                    configured_servers={},
+                    repo_root=root,
+                    kimi_vault_environment=self._kimi_vault_environment(),
+                )
+
+    def test_all_runtime_mapped_kimi_roles_plan_from_templates_without_host_config(
         self,
     ) -> None:
-        projection = {
+        adapters = sorted(
+            (ROOT / "model-lanes" / "kimi" / ".kimi" / "agents").glob("*.yaml")
+        )
+        with (ROOT / "shared" / "specialist-runtime-map.tsv").open(
+            encoding="utf-8", newline=""
+        ) as stream:
+            rows = csv.DictReader(stream, delimiter="\t")
+            route_fields = (
+                "primary_lane",
+                "backup_lane",
+                "escalate_lane",
+                "review_lane",
+                "throughput_lane",
+            )
+            expected_specialists = {
+                row["specialist"]
+                for row in rows
+                if any(row[field] == "kimi" for field in route_fields)
+            }
+        self.assertEqual({adapter.stem for adapter in adapters}, expected_specialists)
+        for adapter in adapters:
+            with self.subTest(specialist=adapter.stem):
+                projection = load_projection(
+                    lane="kimi",
+                    specialist=adapter.stem,
+                    adapter_path=adapter,
+                    overlay_path=adapter,
+                )
+                plan = plan_lane(
+                    lane="kimi",
+                    projection=projection,
+                    configured_servers={"hostile": {"url": "https://invalid"}},
+                    repo_root=ROOT,
+                    tool_lookup=lambda name: f"/declared/{name}",
+                    kimi_vault_environment=self._kimi_vault_environment(),
+                    kimi_host_artifacts=self.kimi_host_artifacts,
+                )
+                self.assertEqual(plan.authorized_mcps, plan.brokered_mcps)
+
+    def test_kimi_rejects_direct_unstripped_or_noncanonical_mcp_declarations(
+        self,
+    ) -> None:
+        base = {
             "lane": "kimi",
             "specialist": "summarizer",
             "mcps": [],
@@ -514,30 +1014,32 @@ class LaneCapabilityEnforcementTests(unittest.TestCase):
             "schema": "role-capability-projection/v1",
         }
         configured = {
-            "chrono-vault": {"command": "/usr/bin/false"},
-            "sequential-thinking": {"command": "/usr/bin/false"},
+            "chrono-vault": {"command": "/bin/chrono-vault"},
+            "sequential-thinking": {"command": "/bin/sequential-thinking"},
         }
-        plan = plan_lane(
-            lane="kimi",
-            projection=projection,
-            configured_servers=configured,
-        )
-        self.assertEqual(json.loads(plan.role_config_json), {"mcpServers": {}})
-        self.assertEqual(
-            plan.cli_args, ("--mcp-config-file", "__ROLE_MCP_CONFIG__")
-        )
-        self.assertEqual(
-            plan.capability_enforcement, "kimi-cli-config-scoped/v1"
-        )
-        self.assertEqual(
-            plan.brokered_mcps, ("chrono-vault", "sequential-thinking")
-        )
-        self.assertEqual(
-            plan.disabled_mcps, ("chrono-vault", "sequential-thinking")
-        )
+        for field, value, reason in (
+            ("mcps", ["chrono-vault"], "direct role MCP"),
+            ("brokered_mcps", ["lead:chrono-vault"], "stripped"),
+            (
+                "brokered_mcps",
+                ["sequential-thinking", "chrono-vault"],
+                "sorted unique",
+            ),
+            ("brokered_mcps", ["chrono-vault", "chrono-vault"], "sorted unique"),
+        ):
+            projection = {**base, field: value}
+            with self.subTest(field=field, value=value), self.assertRaisesRegex(
+                CapabilityDenied, reason
+            ):
+                plan_lane(
+                    lane="kimi",
+                    projection=projection,
+                    configured_servers=configured,
+                    repo_root=ROOT,
+                )
 
-    def test_every_lane_fails_closed_on_missing_authorized_mcp(self) -> None:
-        for lane in ("codex", "claude", "gemini", "kimi"):
+    def test_non_kimi_lanes_fail_closed_on_missing_authorized_mcp(self) -> None:
+        for lane in ("codex", "claude", "gemini"):
             with self.subTest(lane=lane):
                 projection = {
                     "lane": lane,
@@ -550,7 +1052,7 @@ class LaneCapabilityEnforcementTests(unittest.TestCase):
                     "schema": "role-capability-projection/v1",
                 }
                 with self.assertRaisesRegex(
-                    CapabilityDenied, "unavailable MCP servers"
+                    CapabilityDenied, "unconfigured MCP servers"
                 ):
                     plan_lane(
                         lane=lane,
@@ -591,7 +1093,7 @@ class LaneCapabilityEnforcementTests(unittest.TestCase):
             "lane": "kimi",
             "specialist": "sample",
             "mcps": [],
-            "brokered_mcps": [],
+            "brokered_mcps": ["chrono-vault"],
             "tools": [],
             "skills": [],
             "sources": [],
@@ -601,6 +1103,9 @@ class LaneCapabilityEnforcementTests(unittest.TestCase):
             lane="kimi",
             projection=projection,
             configured_servers={},
+            repo_root=ROOT,
+            kimi_vault_environment=self._kimi_vault_environment(),
+            kimi_host_artifacts=self.kimi_host_artifacts,
         )
         with tempfile.TemporaryDirectory() as directory:
             worktree = Path(directory)
@@ -610,7 +1115,20 @@ class LaneCapabilityEnforcementTests(unittest.TestCase):
                 task_id="TASK-2026-07-22-0705-lane-capability-wiring",
                 attempt_id="d-" + "1" * 32,
             )
-            self.assertEqual(json.loads(path.read_text()), {"mcpServers": {}})
+            self.assertEqual(
+                json.loads(path.read_text()),
+                {
+                    "mcpServers": {
+                        "chrono-vault": {
+                            "command": str(self.kimi_host_artifacts.interpreter),
+                            "args": [
+                                str(ROOT / "plugins" / "chrono-vault" / "mcp_server.py")
+                            ],
+                            "env": self._kimi_vault_environment(),
+                        }
+                    }
+                },
+            )
             self.assertEqual(
                 stat.S_IMODE(path.stat().st_mode),
                 0o600,
@@ -621,124 +1139,144 @@ class LaneCapabilityEnforcementTests(unittest.TestCase):
                 ("--mcp-config-file", str(path)),
             )
 
-    @skip_in_host_independent_ci(
-        "runs installed Claude and Gemini CLIs against live MCP/plugin inventory"
-    )
-    def test_all_real_claude_and_gemini_adapters_plan_from_live_inventory(
+    def _assert_all_real_adapters_plan_from_live_inventory(
         self,
+        *,
+        lane: str,
+        executable: Path,
+        adapter_root: Path,
+        project_config_path: Path,
     ) -> None:
-        cases = (
-            (
-                "claude",
-                Path(seatbelt_profile.LANE_CLI_PATHS["claude"]),
-                ROOT / "model-lanes/claude/.claude/agents",
-            ),
-            (
-                "gemini",
-                Path("/opt/homebrew/bin/gemini"),
-                ROOT / "model-lanes/gemini/.gemini/agents",
-            ),
+        completed = subprocess.run(
+            [str(executable), "mcp", "list"],
+            check=False,
+            capture_output=True,
+            text=True,
+            cwd=str(ROOT / "model-lanes" / lane),
+            timeout=30,
+            env={
+                key: value
+                for key, value in {
+                    **os.environ,
+                    "NO_COLOR": "1",
+                }.items()
+                if lane != "claude"
+                or key
+                not in {
+                    "ANTHROPIC_API_KEY",
+                    "CLAUDECODE",
+                    "CLAUDE_CODE_CHILD_SESSION",
+                    "CLAUDE_CODE_ENTRYPOINT",
+                    "CLAUDE_CODE_EXECPATH",
+                    "CLAUDE_CODE_SESSION_ID",
+                }
+            },
         )
-        for lane, executable, adapter_root in cases:
-            with self.subTest(lane=lane):
-                completed = subprocess.run(
-                    [str(executable), "mcp", "list"],
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                    cwd=str(ROOT / "model-lanes" / lane),
-                    timeout=30,
-                    env={
-                        key: value
-                        for key, value in {
-                            **os.environ,
-                            "NO_COLOR": "1",
-                        }.items()
-                        if lane != "claude"
-                        or key
-                        not in {
-                            "ANTHROPIC_API_KEY",
-                            "CLAUDECODE",
-                            "CLAUDE_CODE_CHILD_SESSION",
-                            "CLAUDE_CODE_ENTRYPOINT",
-                            "CLAUDE_CODE_EXECPATH",
-                            "CLAUDE_CODE_SESSION_ID",
-                        }
-                    },
-                )
-                self.assertEqual(completed.returncode, 0, completed.stderr)
-                configured = parse_live_mcp_listing(
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        configured = parse_live_mcp_listing(
+            lane=lane,
+            output=completed.stdout if lane == "claude" else completed.stderr,
+        )
+        project_servers = load_json_mcp_servers(project_config_path)
+        self.assertFalse(set(project_servers) - set(configured))
+        for name, config in project_servers.items():
+            configured[name]["project_config"] = config
+        native_tools = set(configured)
+        if lane == "claude":
+            plugins = subprocess.run(
+                [str(executable), "plugin", "list", "--json"],
+                check=False,
+                capture_output=True,
+                text=True,
+                cwd=str(ROOT / "model-lanes" / lane),
+                timeout=30,
+                env={
+                    key: value
+                    for key, value in {
+                        **os.environ,
+                        "NO_COLOR": "1",
+                    }.items()
+                    if key
+                    not in {
+                        "ANTHROPIC_API_KEY",
+                        "CLAUDECODE",
+                        "CLAUDE_CODE_CHILD_SESSION",
+                        "CLAUDE_CODE_ENTRYPOINT",
+                        "CLAUDE_CODE_EXECPATH",
+                        "CLAUDE_CODE_SESSION_ID",
+                    }
+                },
+            )
+            self.assertEqual(plugins.returncode, 0, plugins.stderr)
+            native_tools.update(parse_claude_enabled_plugins(plugins.stdout))
+        adapters = sorted(
+            path
+            for path in adapter_root.glob("*.md")
+            if path.name != "README.md"
+        )
+        source_entries, _ = load_source(ROOT)
+        expected_specialists = {
+            specialist
+            for specialist, source_lane in source_entries
+            if source_lane == lane
+        }
+        self.assertEqual(
+            {adapter.stem for adapter in adapters},
+            expected_specialists,
+        )
+        planned = 0
+        for adapter in adapters:
+            projection = load_projection(
+                lane=lane,
+                specialist=adapter.stem,
+                adapter_path=adapter,
+                overlay_path=adapter,
+            )
+            plan_lane(
+                lane=lane,
+                projection=projection,
+                configured_servers=configured,
+                tool_classes=load_tool_classes(
+                    repo_root=ROOT,
                     lane=lane,
-                    output=(
-                        completed.stdout if lane == "claude" else completed.stderr
-                    ),
-                )
-                project_config_path = (
-                    ROOT / "model-lanes/claude/.mcp.json"
-                    if lane == "claude"
-                    else ROOT / "model-lanes/gemini/.gemini/settings.json"
-                )
-                project_servers = load_json_mcp_servers(project_config_path)
-                self.assertFalse(set(project_servers) - set(configured))
-                for name, config in project_servers.items():
-                    configured[name]["project_config"] = config
-                native_tools = set(configured)
-                if lane == "claude":
-                    plugins = subprocess.run(
-                        [str(executable), "plugin", "list", "--json"],
-                        check=False,
-                        capture_output=True,
-                        text=True,
-                        cwd=str(ROOT / "model-lanes" / lane),
-                        timeout=30,
-                        env={
-                            key: value
-                            for key, value in {
-                                **os.environ,
-                                "NO_COLOR": "1",
-                            }.items()
-                            if key
-                            not in {
-                                "ANTHROPIC_API_KEY",
-                                "CLAUDECODE",
-                                "CLAUDE_CODE_CHILD_SESSION",
-                                "CLAUDE_CODE_ENTRYPOINT",
-                                "CLAUDE_CODE_EXECPATH",
-                                "CLAUDE_CODE_SESSION_ID",
-                            }
-                        },
-                    )
-                    self.assertEqual(plugins.returncode, 0, plugins.stderr)
-                    native_tools.update(
-                        parse_claude_enabled_plugins(plugins.stdout)
-                    )
-                adapters = sorted(
-                    path
-                    for path in adapter_root.glob("*.md")
-                    if path.name != "README.md"
-                )
-                if lane == "claude":
-                    self.assertEqual(len(adapters), 71)
-                else:
-                    self.assertEqual(len(adapters), 26)
-                planned = 0
-                for adapter in adapters:
-                    projection = load_projection(
-                        lane=lane,
-                        specialist=adapter.stem,
-                        adapter_path=adapter,
-                        overlay_path=adapter,
-                    )
-                    plan_lane(
-                        lane=lane,
-                        projection=projection,
-                        configured_servers=configured,
-                        tool_lookup=lambda name: (
-                            name if name in native_tools else shutil.which(name)
-                        ),
-                    )
-                    planned += 1
-                self.assertEqual(planned, len(adapters))
+                    specialist=adapter.stem,
+                ),
+                tool_lookup=lambda name: (
+                    name if name in native_tools else shutil.which(name)
+                ),
+            )
+            planned += 1
+        self.assertEqual(planned, len(adapters))
+
+    @skip_in_host_independent_ci(
+        "runs installed Claude CLI against live MCP/plugin inventory"
+    )
+    def test_all_real_claude_adapters_plan_from_live_inventory(self) -> None:
+        self._assert_all_real_adapters_plan_from_live_inventory(
+            lane="claude",
+            executable=Path(seatbelt_profile.LANE_CLI_PATHS["claude"]),
+            adapter_root=ROOT / "model-lanes/claude/.claude/agents",
+            project_config_path=ROOT / "model-lanes/claude/.mcp.json",
+        )
+
+    @skip_in_host_independent_ci(
+        "runs installed Gemini CLI against live MCP/plugin inventory"
+    )
+    def test_all_real_gemini_adapters_plan_from_live_inventory(self) -> None:
+        gemini_project_config = ROOT / "model-lanes/gemini/.gemini/settings.json"
+        if not gemini_project_config.is_file():
+            # This host-local, gitignored inventory is absent from fresh clones
+            # and board worktrees. Its absence skips only Gemini; Claude's
+            # independently testable inventory remains a separate subject.
+            self.skipTest(
+                "SKIP: gemini adapter inventory not present in this tree"
+            )
+        self._assert_all_real_adapters_plan_from_live_inventory(
+            lane="gemini",
+            executable=Path("/opt/homebrew/bin/gemini"),
+            adapter_root=ROOT / "model-lanes/gemini/.gemini/agents",
+            project_config_path=gemini_project_config,
+        )
 
 
 if __name__ == "__main__":

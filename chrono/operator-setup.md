@@ -46,6 +46,8 @@ gitignored `chrono/operator-setup.local.md`.
 - Stop: `bash bin/squad-stop.sh`
 - Status: `bash bin/where-are-we.sh`
 - Health: `bash bin/doctor.sh`
+- Roster generation: `bash bin/gen-roster.sh`
+- Roster drift check: `bash bin/gen-roster.sh --check`
 - Specialist validation: `bash bin/validate-specialists.sh`
 - Public hygiene: `bash bin/product-hygiene.sh --public-export`
 

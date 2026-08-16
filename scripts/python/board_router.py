@@ -26,11 +26,8 @@ Three independent conflict axes (all must be clear to co-run):
 
 Missing or ambiguous metadata always serializes.
 
-The LOGICAL concurrency bound is enforced here; the PHYSICAL host admission
-(RSS/swap/pressure) is Task 1.2's ``host_admission.under_admission`` and is
-delegated through the ``admission_gate`` seam — it is not reimplemented.
-Production calls fail closed when that gate is absent, errors, or returns a
-non-boolean result; pure-logic use requires an explicit ``logical_only`` opt-in.
+This module owns logical conflict scheduling only. Physical launch admission is
+owned by the sender's fail-closed host-admission CLI and is not imported here.
 """
 
 from __future__ import annotations
@@ -40,14 +37,6 @@ import hashlib
 import json
 import os
 from typing import Callable, Iterable, Mapping, Sequence
-
-try:  # interface reference only; the supervisor supplies the real gate.
-    from host_admission import under_admission as _under_admission  # noqa: F401
-
-    _HOST_ADMISSION_AVAILABLE = True
-except Exception:  # pragma: no cover - board_router never requires it at import
-    _HOST_ADMISSION_AVAILABLE = False
-
 
 __all__ = [
     "DepEdge",
@@ -498,9 +487,8 @@ def schedule(
     ``active_reservations`` plus ``active_snapshot_sha256`` must be the complete
     persisted snapshot returned by the prior round. Reservations remain active
     unless a matching ``ReservationRelease`` records a ``settled`` or ``cancelled``
-    transition. ``admission_gate`` is the Task 1.2 seam and receives active plus
-    newly admitted work. Production scheduling fails closed without an exact
-    boolean result; pure-logic callers must explicitly use ``logical_only=True``.
+    transition. ``admission_gate`` is a caller-supplied pure scheduling predicate;
+    it is not physical host admission. Logical-only callers opt in explicitly.
     """
 
     if isinstance(concurrency, bool) or not isinstance(concurrency, int) or concurrency <= 0:
@@ -624,8 +612,7 @@ def schedule(
         else:
             reasons.setdefault(task.task_id, conflict)
 
-    # 4. Task 1.2 gates active plus proposed work. Missing, failing, or non-bool
-    #    gates fail closed; logical-only operation requires an explicit opt-in.
+    # 4. An optional pure caller predicate gates active plus proposed work.
     if admitted and not logical_only:
         gate_ok = False
         if callable(admission_gate):
@@ -636,7 +623,7 @@ def schedule(
             gate_ok = isinstance(gate_result, bool) and gate_result
         if not gate_ok:
             for task in admitted:
-                reasons[task.task_id] = "host admission unavailable or deferred (Task 1.2)"
+                reasons[task.task_id] = "caller scheduling predicate unavailable or deferred"
             admitted = []
 
     run_ids = tuple(task.task_id for task in admitted)

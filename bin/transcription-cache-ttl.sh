@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-exec python3 scripts/python/transcription_cache_ttl.py "$@"
+exec python3 -B scripts/python/transcription_cache_ttl.py "$@"

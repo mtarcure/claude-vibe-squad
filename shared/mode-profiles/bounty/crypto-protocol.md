@@ -50,9 +50,9 @@ For cryptographic implementation reviews — TLS libraries, signature schemes, k
 ## Specialists most active
 
 - smart-contract-engineer (Coding) — surprisingly applicable for ZK / MPC analysis
-- security namespace invokes `exploit-developer` via `Task` tool with `subagent_type: exploit-developer` (multi-model)
-- security namespace invokes `threat-modeler` via `Task` tool with `subagent_type: threat-modeler` (deep — protocol-level threat models matter most here)
-- security namespace invokes `skeptic` via `Task` tool with `subagent_type: skeptic` in council-consensus mode for high-stakes crypto findings
+- Chrono dispatches `exploit-developer` (multi-model)
+- Chrono dispatches `threat-modeler` (deep — protocol-level threat models matter most here)
+- Chrono dispatches `skeptic` in council-consensus mode for high-stakes crypto findings
 
 ## Tools
 

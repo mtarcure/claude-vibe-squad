@@ -126,6 +126,7 @@ class BlockedEnvelopeCollisionTests(unittest.TestCase):
                     "--return-artifact", OUTBOX_RELATIVE,
                     "--compatibility-namespace", NAMESPACE,
                     "--reason", REASON,
+                    "--failure-class", "cli_missing",
                 ],
                 capture_output=True,
                 text=True,
@@ -136,7 +137,9 @@ class BlockedEnvelopeCollisionTests(unittest.TestCase):
             self.assertNotIn("already differs", completed.stderr)
             receipt = json.loads(completed.stdout)
             self.assertEqual(receipt["status"], "blocked")
-            self.assertIn("status: blocked", (root / OUTBOX_RELATIVE).read_text())
+            body = (root / OUTBOX_RELATIVE).read_text()
+            self.assertIn("status: blocked", body)
+            self.assertIn("failure_class: cli_missing", body)
 
 
 class BlockedEnvelopeGuardsPreservedTests(unittest.TestCase):

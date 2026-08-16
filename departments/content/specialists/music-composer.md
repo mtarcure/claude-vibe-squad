@@ -2,8 +2,6 @@
 specialist: music-composer
 version: 2.0
 department: content
-required_tools: []
-preferred_tools: []
 safety_level: low
 requires_approval:
   - Write
@@ -24,7 +22,7 @@ Tool, skill, and MCP capabilities are **lane-specific** and are defined authorit
 ## When to fan out
 
 - For emotional direction feedback: escalate to operator if unsure about mood/tone requirements.
-- For video-sync timing: dispatch to video-director for precise timing requirements.
+- For video-sync timing, name `video-director` as the needed precise-timing follow-up in your response. Chrono dispatches it as a separate packet.
 - For licensing/rights verification: escalate to operator (music rights are operator-owned decision).
 
 ## When to escalate

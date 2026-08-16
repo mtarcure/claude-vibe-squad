@@ -14,6 +14,14 @@ and a decided review resolution disagree on a value, the resolution's grounded v
 and the registry row is reconciled to match (as was done for the local-CLI cost-tier row-class at
 `d1f3c5f`; see the `—` note below).
 
+Those rows describe the configured maintainer-host ceiling; they do not prove fresh-clone availability.
+The advertised `capability_state` is the zero-key/default-install state. A card may say `live` only when the
+production role planner can admit its required specialists with no private MCP configuration, vault binding,
+provider credential, authenticated subscription session, or host-only executable. Otherwise it must say
+`needs_tool` (or `degraded-blueprint` only when the zero-key checkout can actually produce that blueprint)
+and name every additional prerequisite category. Preserve the configured-host ceiling in `state_reason` so
+the conservative default does not erase what a configured installation can do.
+
 ## Frontmatter
 
 ```yaml
@@ -22,18 +30,20 @@ id: <mode>/<capability>            # matches the file path; the closed `capabili
 mode: project | bounty            # the two work modes. The retired domain modes (content/outreach/research/maintenance/incident) folded into `project`; legacy ids resolve via validate_capabilities.CAPABILITY_ALIASES
 profile_family: <family>          # OPTIONAL — groups a folded domain under project (content · research · outreach · operations); engineering cards omit it
 title: <Human-readable title>
-capability_state: live | lane-gated | degraded-blueprint | needs_tool   # conservative default
-state_reason: <one line — why this state>
-state_evidence: <registry / api-catalog / roster citation backing the state>
+capability_state: live | lane-gated | degraded-blueprint | needs_tool   # zero-key/default-install state
+state_reason: <one line — zero-key result, required setup, then configured-host ceiling>
+state_evidence: <fresh-install planner evidence plus registry / api-catalog evidence for the ceiling>
 overlays: [review, truth-rights, impact, accessibility, privacy, memory]  # only those that apply
 gates: [<operator_gate tokens>]   # public_release · paid_media · production_mutation · credential_change · delete · cleanup · live_outreach (+ manual-hold notes for offensive_execution/malware_detonation)
 cost_note: <which steps are subscription / metered / free-local, + budget guard for metered>
 ---
 ```
 
-- **`capability_state` is a conservative default now; Phase-2's `bin/validate-capabilities.sh` will DERIVE
-  it** from the per-lane tool-verify. If any core-step tool is not live (`yes`/`lane-live`), the capability
-  cannot be `live`. Never assert `live` without `state_reason`/`state_evidence`.
+- **`capability_state` is a zero-key conservative default.** `bin/validate-capabilities.sh` still checks the
+  configured-host tool ceiling from the registry, but that is only an upper bound. If any core-step tool is
+  not live (`yes`/`lane-live`), the capability cannot be `live`; even when every tuple is registry-live, the
+  card remains `needs_tool` when the production role planner needs configuration absent from a fresh clone.
+  Never assert `live` without fresh-install `state_reason`/`state_evidence`.
 
 ## Step blocks (S0–S7)
 
@@ -94,8 +104,9 @@ Present them as one 5-column table:
 | `pattern-doc-untyped` | `(untyped)` |
 
 - **`(SKILL.md)`** — one of the 4 real invokable skills (chrono-vault `compact-now`/`blind-rediscovery`/
-  `parity-probe`; codex-agent `sandbox-provision-discipline`). Where the registry flags the skill `stale`,
-  append `— stale` as **trailing prose OUTSIDE the tuple** (e.g. `` `parity-probe` (SKILL.md) — stale ``);
+  `parity-probe`; codex-agent `sandbox-provision-discipline`).
+- Where the registry flags a skill `stale`, append `— stale` as **trailing prose OUTSIDE the tuple**
+  (e.g. `` `<skill>` (SKILL.md) — stale ``);
   the tuple itself stays one of the four legal forms.
 - **`(authored)`** — a `shared/skills/*.md` with `status: authored` (read-on-start methodology reference).
 - **`(stub)`** — a `shared/skills/*.md` with `status: stub`. Read-only draft; **cannot** satisfy a required
@@ -117,9 +128,11 @@ review (S5, mandatory at `safety_level:high`/`heightened_risk`, cross-family) ·
 1. Every specialist ID ∈ canonical roster (or one of the 3 sentinels).
 2. Every tool's `state`/`cost_tier` and every skill's `type` trace to the registry TSV (or api-catalog).
    A tool not live for its lane is `needs_tool`.
-3. `capability_state` is justified by `state_reason`/`state_evidence`.
-4. Offensive gates (`offensive_execution`/`malware_detonation`) are "present in runtime metadata; enum +
-   validator reconciliation pending" → manual hold, never "machine-enforced".
+3. `capability_state` is justified by fresh-install `state_reason`/`state_evidence`; configured-host registry
+   liveness is an explicitly labeled ceiling, never the downloader's default state.
+4. Offensive gates (`offensive_execution`/`malware_detonation`) are declaration holds enforced at worker
+   admission: the supervisor rejects authenticated `action_scope` declarations containing them. Admission
+   authenticates declarations; it does not remove underlying tool capability or provide a per-action gate.
 5. **Raw-tool rule:** never claim raw `higgsfield__*` as live (`verified:yes`); it may appear ONLY as
    `verified:no` to document why the `generate_image`/`generate_video`/`generate_audio` wrapper is the live
    route.

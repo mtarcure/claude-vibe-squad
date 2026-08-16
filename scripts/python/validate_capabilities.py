@@ -7,6 +7,7 @@ import argparse
 import csv
 import json
 import re
+import subprocess
 import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass
@@ -43,6 +44,13 @@ MODES = {
 # links still dispatch. Stage-1 is resolve-only: gates are re-anchored onto each
 # card before the move, so a resolved id carries identical gates/overlays — the
 # resolution canonicalizes the home, it never changes a capability's meaning.
+#
+# An alias is only valid while its target card exists — `test_capability_alias_
+# resolution.py` pins that. The 2026-08-14 (P13.64) roster consolidation retired
+# the study-coaching and personal-operations roles and their capability cards, so
+# `research/learning-study` and `maintenance/personal-operations` were dropped
+# from this map rather than left pointing at deleted files. Those two legacy ids
+# now fail resolution, which is the intended signal that the capability is gone.
 CAPABILITY_ALIASES = {
     "content/audio-assets": "project/audio-assets",
     "content/editorial-longform": "project/editorial-longform",
@@ -52,13 +60,11 @@ CAPABILITY_ALIASES = {
     "content/video": "project/video",
     "research/data-extraction-dataset": "project/data-extraction-dataset",
     "research/investigation-synthesis": "project/investigation-synthesis",
-    "research/learning-study": "project/learning-study",
     "outreach/prospecting-outreach": "project/prospecting-outreach",
     "maintenance/dependency-release-integrity": "project/dependency-release-integrity",
     "maintenance/environment-repo-health": "project/environment-repo-health",
     "maintenance/harness-audit-compatibility": "project/harness-audit-compatibility",
     "maintenance/memory-vault-hygiene": "project/memory-vault-hygiene",
-    "maintenance/personal-operations": "project/personal-operations",
 }
 CAPABILITY_STATES = {"live", "lane-gated", "degraded-blueprint", "needs_tool"}
 LANES = {"claude", "codex", "gemini", "kimi", "all", "local", "none", "unknown"}
@@ -140,6 +146,117 @@ FIX_HINTS = {
         "row before citing the promoted skill as SKILL.md."
     ),
 }
+REGISTRY_RELATIVE = Path("shared/registries/skill-tool-registry.tsv")
+
+
+def registry_publication_state(root: Path) -> str:
+    """Classify the validator registry as published, withheld, or broken.
+
+    Public projections deliberately omit the registry, while maintainer trees
+    track it.  Absence therefore needs one extra fact before it can be
+    interpreted: an untracked path is ``not-published``; a tracked-but-missing
+    path is a real failure.  Extracted public archives have no Git metadata, so
+    they take the same non-published path as a public clone.
+    """
+    registry_path = root / REGISTRY_RELATIVE
+    if registry_path.is_file():
+        return "published"
+
+    try:
+        worktree = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--is-inside-work-tree"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    except OSError:
+        return "unknown" if (root / ".git").exists() else "not-published"
+    if worktree.returncode != 0:
+        return "unknown" if (root / ".git").exists() else "not-published"
+
+    try:
+        tracked = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(root),
+                "ls-files",
+                "--error-unmatch",
+                "--",
+                REGISTRY_RELATIVE.as_posix(),
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    except OSError:
+        return "unknown"
+    if tracked.returncode == 0:
+        return "missing"
+    if tracked.returncode == 1:
+        return "not-published"
+    return "unknown"
+
+
+def emit_registry_configuration(state: str) -> int:
+    """Emit a typed result when registry-backed validation cannot start."""
+    if state == "not-published":
+        result_status = "not-applicable"
+        summary_status = "pass"
+        code = "registry-not-published"
+        message = (
+            "shared skill-tool registry is withheld from this tree by export policy; "
+            "registry-backed capability validation is not applicable"
+        )
+        return_code = 0
+    elif state == "missing":
+        result_status = "fail"
+        summary_status = "fail"
+        code = "missing-registry"
+        message = (
+            "shared skill-tool registry is tracked by this tree but missing; "
+            "capability validation failed closed"
+        )
+        return_code = 1
+    else:
+        result_status = "could-not-run"
+        summary_status = "could-not-run"
+        code = "registry-publication-undetermined"
+        message = (
+            "could not determine whether the absent shared skill-tool registry "
+            "belongs to this distribution"
+        )
+        return_code = 2
+
+    print(
+        json.dumps(
+            {
+                "type": "registry-degradation",
+                "file": REGISTRY_RELATIVE.as_posix(),
+                "status": result_status,
+                "code": code,
+                "message": message,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+    )
+    print(
+        json.dumps(
+            {
+                "type": "summary",
+                "files": 0,
+                "passed": 0,
+                "failed": 1 if result_status == "fail" else 0,
+                "could_not_run": 1 if result_status == "could-not-run" else 0,
+                "not_applicable": 1 if result_status == "not-applicable" else 0,
+                "status": summary_status,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+    )
+    return return_code
 
 
 @dataclass(frozen=True)
@@ -326,7 +443,7 @@ def parse_specialists(cell: str, line_number: int) -> tuple[list[str], list[Find
 class Validator:
     def __init__(self, root: Path) -> None:
         self.root = root
-        registry = read_tsv(root / "shared/registries/skill-tool-registry.tsv")
+        registry = read_tsv(root / REGISTRY_RELATIVE)
         self.registry_names = Counter(
             row["name"] for row in registry if row.get("name")
         )
@@ -787,7 +904,19 @@ class Validator:
 
 def discover(root: Path) -> list[Path]:
     base = root / "shared/capabilities"
-    return sorted(path for path in base.rglob("*.md") if not path.name.startswith("_"))
+    return sorted(
+        path
+        for path in base.rglob("*.md")
+        if not path.name.startswith("_")
+        # `public/` holds the generated export variants. They deliberately drop
+        # capability_state, state_reason, state_evidence and cost_note -- that
+        # stripping is the point, since those fields are a census of what works
+        # on OUR machine. Validating a derived artifact against the source
+        # schema fails by construction; freshness is enforced instead by
+        # tools/export/build_public_capability_cards.py --check in CI, which
+        # also re-runs the private-state guard.
+        and "public" not in path.relative_to(base).parts
+    )
 
 
 def resolve_paths(root: Path, values: Iterable[str]) -> list[Path]:
@@ -1477,7 +1606,26 @@ def main() -> int:
     )
     args = parser.parse_args()
     root = args.root.resolve()
-    validator = Validator(root)
+    publication_state = registry_publication_state(root)
+    if publication_state != "published":
+        return emit_registry_configuration(publication_state)
+    try:
+        validator = Validator(root)
+    except (OSError, UnicodeError) as exc:
+        print(
+            json.dumps(
+                {
+                    "type": "configuration",
+                    "status": "could-not-run",
+                    "code": "registry-read",
+                    "file": REGISTRY_RELATIVE.as_posix(),
+                    "message": str(exc),
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+        )
+        return 2
     if args.self_test:
         return self_test(validator)
     paths = resolve_paths(root, args.paths) if args.paths else discover(root)

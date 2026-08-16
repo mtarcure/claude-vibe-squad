@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import json
+import os
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -17,6 +21,28 @@ SPEC.loader.exec_module(module)
 
 
 POINTER = "Capabilities are lane-specific; read the structured adapter."
+FABRICATED_BASELINE = "1" * 40
+
+
+def _git(root: Path, *args: str) -> str:
+    """Run one git command against a hermetic throwaway repository."""
+    environment = {
+        **os.environ,
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_SYSTEM": os.devnull,
+        "GIT_AUTHOR_NAME": "baseline test",
+        "GIT_AUTHOR_EMAIL": "baseline@example.invalid",
+        "GIT_COMMITTER_NAME": "baseline test",
+        "GIT_COMMITTER_EMAIL": "baseline@example.invalid",
+    }
+    return subprocess.run(
+        ["git", *args],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+        env=environment,
+    ).stdout.strip()
 
 
 def policy() -> dict:
@@ -77,7 +103,7 @@ def row(specialist: str = "example") -> dict[str, str]:
 class CapabilityHomeTests(unittest.TestCase):
     def test_markdown_capabilities_require_json_string_arrays(self) -> None:
         parsed = module._markdown_frontmatter(
-            "---\nname: x\nskills: [\"one\", \"two\"]\ntools: []\n---\n",
+            '---\nname: x\nskills: ["one", "two"]\ntools: []\n---\n',
             Path("x.md"),
         )
         self.assertEqual(parsed["skills"], ["one", "two"])
@@ -89,12 +115,10 @@ class CapabilityHomeTests(unittest.TestCase):
             module._json_string_list(["one", "one"], "skills", Path("x.md"))
         with self.assertRaisesRegex(module.CapabilityHomeError, "duplicate top-level"):
             module._markdown_frontmatter(
-                "---\nskills: [\"one\"]\nskills: [\"two\"]\n---\n", Path("x.md")
+                '---\nskills: ["one"]\nskills: ["two"]\n---\n', Path("x.md")
             )
         with self.assertRaisesRegex(module.CapabilityHomeError, "duplicate top-level"):
-            module._yaml_top_level(
-                "skills: [\"one\"]\nskills: [\"two\"]\n", Path("x.yaml")
-            )
+            module._yaml_top_level('skills: ["one"]\nskills: ["two"]\n', Path("x.yaml"))
 
     def test_gemini_comment_projection_is_loaded_after_frontmatter(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -226,9 +250,7 @@ class CapabilityHomeTests(unittest.TestCase):
         for label, malformed in malformed_cases.items():
             with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
-                adapter_path = (
-                    root / "model-lanes/gemini/.gemini/agents/example.md"
-                )
+                adapter_path = root / "model-lanes/gemini/.gemini/agents/example.md"
                 adapter_path.parent.mkdir(parents=True)
                 adapter_path.write_text(malformed, encoding="utf-8")
                 adapters, issues = module.load_adapters(root, {"example": row()})
@@ -277,9 +299,7 @@ class CapabilityHomeTests(unittest.TestCase):
             )
             adapters, issues = module.load_adapters(root, {"example": row()})
             self.assertEqual(issues, [])
-            self.assertEqual(
-                adapters[("example", "gemini")]["mcps"], ("chrono-vault",)
-            )
+            self.assertEqual(adapters[("example", "gemini")]["mcps"], ("chrono-vault",))
 
     def test_baseline_extractor_canonicalizes_tools_and_collects_skills(self) -> None:
         text = (
@@ -315,9 +335,7 @@ class CapabilityHomeTests(unittest.TestCase):
             "- If the integration is missing, report `capability_gap`.\n"
             "- `one-skill`, `two-skill` — compare output with `memory.md`.\n"
         )
-        self.assertEqual(
-            module._skill_identifiers(section), {"one-skill", "two-skill"}
-        )
+        self.assertEqual(module._skill_identifiers(section), {"one-skill", "two-skill"})
 
     def test_baseline_tool_extractor_scans_reviewed_lexicon_in_full_body(self) -> None:
         reviewed = policy()
@@ -414,9 +432,7 @@ class CapabilityHomeTests(unittest.TestCase):
                 }
             },
         )
-        self.assertEqual(
-            {issue["identifier"] for issue in issues}, expected
-        )
+        self.assertEqual({issue["identifier"] for issue in issues}, expected)
 
     def test_cast_and_anvil_require_context(self) -> None:
         reviewed = module.load_policy(ROOT)
@@ -459,17 +475,19 @@ class CapabilityHomeTests(unittest.TestCase):
             self.assertIn("swarm_diff.py:16-22", ids)
             self.assertNotIn("generic-adapter-pointer", ids)
             # The exempt requires_approval value must not create a second WebFetch hit.
-            self.assertEqual(sum(issue["identifier"] == "WebFetch" for issue in issues), 1)
+            self.assertEqual(
+                sum(issue["identifier"] == "WebFetch" for issue in issues), 1
+            )
 
     def test_boundary_requires_exactly_one_generic_pointer(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             brief = root / "departments/coding/specialists/example.md"
             brief.parent.mkdir(parents=True)
-            brief.write_text("---\nspecialist: example\n---\n\nNo pointer.\n", encoding="utf-8")
-            baseline = {
-                "example": {"skills": set(), "tools": set(), "mcps": set()}
-            }
+            brief.write_text(
+                "---\nspecialist: example\n---\n\nNo pointer.\n", encoding="utf-8"
+            )
+            baseline = {"example": {"skills": set(), "tools": set(), "mcps": set()}}
             issues = module.base_boundary_diagnostics(
                 root, {"example": row()}, policy(), baseline
             )
@@ -546,7 +564,10 @@ class CapabilityHomeTests(unittest.TestCase):
             {("example", "gpt-codex"): adapter},
             lane_inventory=inventory,
             catalog_tools={"catalog-tool"},
-            skill_names={lane: ({"real-skill"} if lane == "gpt-codex" else set()) for lane in module.LANES},
+            skill_names={
+                lane: ({"real-skill"} if lane == "gpt-codex" else set())
+                for lane in module.LANES
+            },
             which=lambda _name: None,
         )
         self.assertEqual(
@@ -784,12 +805,18 @@ class CapabilityHomeTests(unittest.TestCase):
             root = Path(directory)
             policy_path = root / module.POLICY_RELATIVE
             policy_path.parent.mkdir(parents=True)
-            policy_path.write_text(json.dumps(policy(), sort_keys=True), encoding="utf-8")
+            policy_path.write_text(
+                json.dumps(policy(), sort_keys=True), encoding="utf-8"
+            )
             adapters = {
                 ("zeta", "claude"): {
-                    "adapter": "z.md", "specialist": "zeta", "lane": "claude",
+                    "adapter": "z.md",
+                    "specialist": "zeta",
+                    "lane": "claude",
                     "lane_native_mirror": True,
-                    "skills": ("native", "b", "a"), "tools": (), "mcps": (),
+                    "skills": ("native", "b", "a"),
+                    "tools": (),
+                    "mcps": (),
                 }
             }
             inventory = {
@@ -815,12 +842,77 @@ class CapabilityHomeTests(unittest.TestCase):
                 "index-freshness",
             )
 
+    def test_generated_source_index_counts_distinct_surfaces_dynamically(self) -> None:
+        ref = type(
+            "CapabilityRef",
+            (),
+            {
+                "identifier": "scope-gate",
+                "requirement": "required",
+                "availability": "available",
+                "evidence": "lane-inventory",
+            },
+        )()
+        source = {
+            (specialist, lane): {
+                "specialist": specialist,
+                "lane": lane,
+                "coverage": "full",
+                "limitations": (),
+                "skills": (ref,),
+                "tools": (),
+                "mcps": (),
+            }
+            for specialist, lane in (
+                ("alpha", "claude"),
+                ("beta", "claude"),
+                ("gamma", "gpt-codex"),
+            )
+        }
+        runtime = {
+            specialist: {**row(specialist), "primary_lane": lane}
+            for specialist, lane in (
+                ("alpha", "claude"),
+                ("beta", "claude"),
+                ("gamma", "codex"),
+            )
+        }
+        runtime_summary = {
+            specialist: {"required_tools": (), "preferred_tools": ()}
+            for specialist in runtime
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            policy_path = root / module.POLICY_RELATIVE
+            policy_path.parent.mkdir(parents=True)
+            policy_path.write_text(
+                json.dumps(policy(), sort_keys=True), encoding="utf-8"
+            )
+            with (
+                mock.patch.object(module, "runtime_rows", return_value=runtime),
+                mock.patch.object(
+                    module, "project_runtime_tools", return_value=runtime_summary
+                ),
+                mock.patch.object(module, "source_sha256", return_value="source-sha"),
+            ):
+                payload = json.loads(
+                    module.render_index(root, {}, policy(), source_entries=source)
+                )
+
+        surface_hashes = [entry["surface_sha256"] for entry in payload["entries"]]
+        self.assertEqual(surface_hashes[0], surface_hashes[1])
+        self.assertNotEqual(surface_hashes[0], surface_hashes[2])
+        self.assertEqual(payload["surface_count"], len(set(surface_hashes)))
+
     def test_generated_index_subtracts_unmarked_legacy_gemini_mirror(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             policy_path = root / module.POLICY_RELATIVE
             policy_path.parent.mkdir(parents=True)
-            policy_path.write_text(json.dumps(policy(), sort_keys=True), encoding="utf-8")
+            policy_path.write_text(
+                json.dumps(policy(), sort_keys=True), encoding="utf-8"
+            )
             adapters = {
                 ("zeta", "gemini"): {
                     "adapter": "z.md",
@@ -842,6 +934,131 @@ class CapabilityHomeTests(unittest.TestCase):
             )
             entry = json.loads(rendered)["entries"][0]
             self.assertEqual(entry["tools"], [])
+
+
+class BaselineAcquisitionTests(unittest.TestCase):
+    """Cover the step that *reads* the baseline, not only the one that parses it.
+
+    Every other baseline test above hands `extract_baseline_capabilities` a
+    literal string, so the suite used to begin after the only step that can
+    fail.  An absent baseline commit was silently converted into an empty
+    historical capability set, which left `migration-parity` comparing every
+    brief against nothing and reporting `pass` -- the one answer it must never
+    be able to reach by accident.
+    """
+
+    def setUp(self) -> None:
+        module.require_baseline_commit.cache_clear()
+        self.addCleanup(module.require_baseline_commit.cache_clear)
+
+    def _repository(self) -> Path:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = Path(directory.name)
+        brief = root / "departments/coding/specialists/example.md"
+        brief.parent.mkdir(parents=True)
+        brief.write_text("## Tools\n- Foundry / nuclei\n\n## Next\n", encoding="utf-8")
+        _git(root, "init", "-q", ".")
+        _git(root, "add", "-A")
+        _git(root, "commit", "-qm", "pre-strip baseline")
+        return root
+
+    def test_absent_baseline_commit_is_configuration_fatal(self) -> None:
+        root = self._repository()
+        relative = Path("departments/coding/specialists/example.md")
+
+        # Pin the premise. For a commit it cannot resolve, git still reports
+        # the *path*, in the same words it uses for a brief that postdates a
+        # perfectly reachable baseline. The empty-set fallback keyed on exactly
+        # this string, which is why it could not tell the two causes apart.
+        probe = subprocess.run(
+            ["git", "show", f"{FABRICATED_BASELINE}:{relative.as_posix()}"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(probe.returncode, 0)
+        self.assertIn("exists on disk, but not in", probe.stderr)
+
+        with self.assertRaises(module.CapabilityHomeError) as caught:
+            module.baseline_text(root, FABRICATED_BASELINE, relative)
+        self.assertIn(FABRICATED_BASELINE, str(caught.exception))
+
+    def test_load_baseline_refuses_before_reading_any_brief(self) -> None:
+        root = self._repository()
+        configured = {**policy(), "baseline_ref": FABRICATED_BASELINE}
+        with self.assertRaises(module.CapabilityHomeError) as caught:
+            module.load_baseline(root, {}, configured)
+        self.assertIn(FABRICATED_BASELINE, str(caught.exception))
+
+    def test_validator_run_refuses_rather_than_reporting_pass(self) -> None:
+        """The public-clone shape: a real tree whose baseline object is absent."""
+        with tempfile.TemporaryDirectory() as directory:
+            configured = json.loads(
+                (ROOT / module.POLICY_RELATIVE).read_text(encoding="utf-8")
+            )
+            configured["baseline_ref"] = FABRICATED_BASELINE
+            policy_path = Path(directory) / "adapter-capability-policy.json"
+            policy_path.write_text(json.dumps(configured), encoding="utf-8")
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                code = module.main(
+                    ["--repo-root", str(ROOT), "--policy", str(policy_path)]
+                )
+        self.assertEqual(code, 2)
+        self.assertNotIn('"status": "pass"', stdout.getvalue())
+        reported = json.loads(stderr.getvalue())
+        self.assertEqual(reported["status"], "error")
+        self.assertIn(FABRICATED_BASELINE, reported["message"])
+
+    def test_brief_added_after_a_reachable_baseline_stays_empty(self) -> None:
+        """Negative control: the legitimate new-specialist path must survive."""
+        root = self._repository()
+        reachable = _git(root, "rev-parse", "HEAD")
+        added = Path("departments/coding/specialists/added-later.md")
+        (root / added).write_text("## Tools\n- nuclei\n", encoding="utf-8")
+        self.assertEqual(module.baseline_text(root, reachable, added), "")
+
+    def test_brief_absent_from_baseline_and_disk_stays_fatal(self) -> None:
+        root = self._repository()
+        reachable = _git(root, "rev-parse", "HEAD")
+        with self.assertRaises(module.CapabilityHomeError):
+            module.baseline_text(
+                root, reachable, Path("departments/coding/specialists/absent.md")
+            )
+
+    def test_reachable_baseline_still_extracts_pre_strip_capabilities(self) -> None:
+        """Negative control: the maintainer path still reads real history."""
+        root = self._repository()
+        reachable = _git(root, "rev-parse", "HEAD")
+        loaded = module.load_baseline(
+            root, {"example": row()}, {**policy(), "baseline_ref": reachable}
+        )
+        self.assertEqual(loaded["example"]["tools"], {"forge", "nuclei"})
+
+    def test_index_only_run_does_not_need_the_baseline_history(self) -> None:
+        """The refusal belongs to the checks that read history, not to the run."""
+        with tempfile.TemporaryDirectory() as directory:
+            configured = json.loads(
+                (ROOT / module.POLICY_RELATIVE).read_text(encoding="utf-8")
+            )
+            configured["baseline_ref"] = FABRICATED_BASELINE
+            policy_path = Path(directory) / "adapter-capability-policy.json"
+            policy_path.write_text(json.dumps(configured), encoding="utf-8")
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                code = module.main(
+                    [
+                        "--repo-root",
+                        str(ROOT),
+                        "--policy",
+                        str(policy_path),
+                        "--only",
+                        "index",
+                    ]
+                )
+        self.assertNotEqual(code, 2)
+        self.assertNotIn("baseline commit", stderr.getvalue())
 
 
 if __name__ == "__main__":

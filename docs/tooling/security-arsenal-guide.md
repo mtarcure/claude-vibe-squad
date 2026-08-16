@@ -70,21 +70,25 @@ These candidates were evaluated, not installed or wired. Their model calls can i
 
 ### Installed local pilots (no provider campaigns)
 
-| Tool | What it is / when to reach for it | Exact command |
+These versions were pinned in an **operator-local arsenal directory that is not part of this repository**; a fresh clone does not include them. Install each from its documented source (the candidate table above and `shared/api-catalog.md` §12), then run the command shown — it resolves the tool from your `PATH` or the pilot's virtual environment.
+
+| Tool | What it is / when to reach for it | Exact command (after install) |
 |---|---|---|
-| Promptfoo 0.121.19 | Repeatable synthetic prompt/eval regression harness. Reach for it after defining approved fixtures and provider/data-flow limits. | `_state/tooling-arsenal-2026-07-18/tools/promptfoo/node_modules/.bin/promptfoo --version` |
-| garak 0.15.1 | Broad LLM vulnerability scanner. Use only for an explicitly authorized target/provider baseline. | `_state/tooling-arsenal-2026-07-18/tools/garak/bin/garak --list_probes` |
-| PyRIT 0.14.0 | Programmable multi-turn risk-identification framework. Use after simpler evals justify a reviewed scenario. | `_state/tooling-arsenal-2026-07-18/tools/pyrit/bin/python -c 'import pyrit; print(pyrit.__version__)'` |
-| Snyk Agent Scan 0.5.15 (`mcp-scan` lineage) | Inventory/scan agent components. Current verification requires Snyk authorization and may transmit component metadata; it is not an MCP stdio proxy. | `_state/tooling-arsenal-2026-07-18/tools/mcp-scan/bin/snyk-agent-scan --help` |
-| LlamaFirewall 1.0.3 | Self-hostable scanner framework. Package/CLI is installed, but model-backed PromptGuard/AlignmentCheck enforcement is not configured. | `_state/tooling-arsenal-2026-07-18/tools/llamafirewall/bin/llamafirewall --help` |
+| Promptfoo 0.121.19 | Repeatable synthetic prompt/eval regression harness. Reach for it after defining approved fixtures and provider/data-flow limits. | `npx promptfoo@latest --version` |
+| garak 0.15.1 | Broad LLM vulnerability scanner. Use only for an explicitly authorized target/provider baseline. | `garak --list_probes` |
+| PyRIT 0.14.0 | Programmable multi-turn risk-identification framework. Use after simpler evals justify a reviewed scenario. | `python -c 'import pyrit; print(pyrit.__version__)'` |
+| Snyk Agent Scan 0.5.15 (`mcp-scan` lineage) | Inventory/scan agent components. Current verification requires Snyk authorization and may transmit component metadata; it is not an MCP stdio proxy. | `snyk-agent-scan --help` |
+| LlamaFirewall 1.0.3 | Self-hostable scanner framework. Package/CLI is installed, but model-backed PromptGuard/AlignmentCheck enforcement is not configured. | `llamafirewall --help` |
 
 Do not run Promptfoo, garak, or PyRIT against a provider merely because the CLI exists. A campaign needs target authorization, prompt/data-flow review, provider credentials, and a spend ceiling. Do not run Snyk Agent Scan over MCP configs without reviewing each command: scanning starts configured stdio servers.
 
 ## Smart-contract pilots added 2026-07-18
 
-| Tool | What it is / when to reach for it | Exact command |
+These are operator-local installs, not tracked in this repository. Install each from its documented source (`shared/api-catalog.md` §12), then run the command shown — it resolves the tool from your `PATH`.
+
+| Tool | What it is / when to reach for it | Exact command (after install) |
 |---|---|---|
-| Heimdall-rs | Pinned macOS/arm64 bytecode disassembler/decompiler. Reach for it when verified Solidity source is unavailable. | `_state/tooling-arsenal-2026-07-18/bin/heimdall decompile --help` |
+| Heimdall-rs | Pinned macOS/arm64 bytecode disassembler/decompiler. Reach for it when verified Solidity source is unavailable. | `heimdall decompile --help` |
 | Kontrol | Formal verification from Foundry tests. | Not installed: pinned `kup` cannot start without Nix; provision only in a separate disk-budgeted pilot. |
 
 The official Heimdall release asset checksum matched, but its `0.9.3` asset prints `heimdall 0.9.2`; preserve that provenance caveat in evidence. Never use its unencrypted-HTTP bootstrap. Kontrol's official route has no release binary and documents a 30–60 minute Nix/kup build, so the failed prerequisite is an honest capability gap rather than a host-level Nix mutation.

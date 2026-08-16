@@ -2,7 +2,7 @@
 version: 1
 # BEGIN SPECIALIST CAPABILITY PROJECTION
 capability_source: model-lanes/specialist-lane-capabilities.v1.json
-capability_source_sha256: 585d42615757d63d998fb325e50cead8dd269d9c729dde30eb4e95d71be375af
+capability_source_sha256: 2625a4a8cd5209f66bd691251e4891453aa495033240724479a69f13965d104a
 skills: ["claim-validation-gate","cross-file-relationship-synthesis","dual-level-retrieval","layered-analysis-loop","scope-estimation"]
 mcps: ["lead:chrono-research-arsenal","lead:chrono-vault","lead:sequential-thinking"]
 # END SPECIALIST CAPABILITY PROJECTION
@@ -11,4 +11,4 @@ agent:
   extend: default
   description: "Deep large-corpus synthesis on the operator-ratified 2026-07 K3 256k primary; the context window is the routed capability and retrieval stays lead-brokered."
   system_prompt_path: ../prompts/large-context-analyst.md
-  model: kimi-code/k3-256k
+  model: kimi-code/k3

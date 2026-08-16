@@ -66,7 +66,7 @@ class CompatHealthTests(unittest.TestCase):
             severity="critical",
             description="CompatRecallToken is reachable without a prior attempt.",
             evidence="artifact:compat-fixture",
-            target="push-chain",
+            target="example-chain",
             attack_class="compatibility",
         )
 
@@ -78,7 +78,7 @@ class CompatHealthTests(unittest.TestCase):
 
         self.assertRegex(note_id, r"^mem-[0-9a-f]{12}$")
         self.assertEqual([row["id"] for row in recalled["results"]], [note_id])
-        self.assertEqual(note["target"], "push-chain")
+        self.assertEqual(note["target"], "example-chain")
         self.assertEqual(note["attack_class"], "compatibility")
         self.assertIn("severity-critical", note["keywords"])
         self.assertIn("artifact:compat-fixture", note["evidence_refs"])
@@ -87,7 +87,7 @@ class CompatHealthTests(unittest.TestCase):
     def test_finding_can_inherit_target_and_attack_class_from_attempt(self) -> None:
         attempt_id = mcp_server.record_attempt(
             role="exploit-developer",
-            target="push-chain",
+            target="example-chain",
             attack_class="forged-inbound",
         )
 
@@ -102,7 +102,7 @@ class CompatHealthTests(unittest.TestCase):
         attempt = mcp_server.get_note(attempt_id)
         finding = mcp_server.get_note(finding_id)
         self.assertEqual(attempt["type"], "attempt")
-        self.assertEqual(attempt["target"], "push-chain")
+        self.assertEqual(attempt["target"], "example-chain")
         self.assertEqual(finding["target"], attempt["target"])
         self.assertEqual(finding["attack_class"], attempt["attack_class"])
         self.assertIn(f"note:{attempt_id}", finding["evidence_refs"])
@@ -164,6 +164,31 @@ class CompatHealthTests(unittest.TestCase):
         self.assertTrue(result["indexed"])
         self.assertEqual(mcp_server.get_note(result["id"])["type"], "learning")
 
+    def test_recall_ready_is_false_when_a_recall_only_prerequisite_is_broken(self) -> None:
+        """health must not claim ready for a defect only recall enforces.
+
+        Cross-family review found the gap: health checked generation, schema,
+        metadata and quarantine, but recall additionally validates the BM25
+        weights. Deleting only the config.bm25_weights row left health
+        reporting recall_ready=True while every recall raised "index is missing
+        BM25 weights" -- a tool failure a caller would read as an empty result,
+        which is the exact confusion recall_ready exists to prevent. The index
+        is structurally current here; only the recall-only prerequisite is gone.
+        """
+        import sqlite3
+
+        mcp_server.record_attempt("ai-engineer", "memory", "retrieval")
+        self.assertTrue(mcp_server.health()["recall_ready"])
+
+        with sqlite3.connect(self.vault_root / "index" / "kg.db") as connection:
+            connection.execute("DELETE FROM config WHERE key='bm25_weights'")
+
+        result = mcp_server.health()
+
+        self.assertFalse(result["recall_ready"])
+        # Still structurally rooted -- root_valid alone would have said "fine".
+        self.assertTrue(result["root_valid"])
+
     def test_health_reports_counts_fts_and_planted_legacy_store(self) -> None:
         mcp_server.record_attempt("ai-engineer", "memory", "retrieval")
         mcp_server.record_finding(
@@ -190,11 +215,16 @@ class CompatHealthTests(unittest.TestCase):
                 "note_counts",
                 "index_generation",
                 "index_dirty",
+                "recall_ready",
                 "legacy_stores",
             },
         )
         self.assertEqual(result["vault_id"], "compat-health-test")
         self.assertTrue(result["root_valid"])
+        # recall_ready is what makes health usable as a precondition for recall.
+        # root_valid alone is not: a vault can be rooted correctly while the
+        # index read path refuses every query as schema-stale.
+        self.assertTrue(result["recall_ready"])
         self.assertEqual(result["schema_version"], 1)
         self.assertTrue(result["fts5"])
         self.assertEqual(

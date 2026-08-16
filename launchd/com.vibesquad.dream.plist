@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Nightly dreaming pass. Optional, never required.
+
+    bash bin/install-routines.sh
+
+  installs and loads this alongside the other OPTIONAL_AGENTS, substituting the
+  vault root into ProgramArguments below. The daemon-only option skips it, and
+  SQUAD_LAUNCHAGENTS_DIR redirects where it lands. `bin/squad up` blocks only on
+  com.vibesquad.daemon, so a host without this agent runs normally — it just has
+  no scheduled dream.
+
+  One calendar entry, not two: bin/dream.sh picks the deep pass itself on Sunday.
+  RunAtLoad is omitted (launchd defaults it to false), so installation does not
+  dispatch a dream. The runner has only shadow mode.
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.vibesquad.dream</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>__VAULT_ROOT__/bin/dream.sh</string>
+	</array>
+	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Hour</key>
+		<integer>3</integer>
+		<key>Minute</key>
+		<integer>0</integer>
+	</dict>
+</dict>
+</plist>

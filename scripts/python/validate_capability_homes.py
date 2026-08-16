@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+from functools import lru_cache
 import hashlib
 import json
 from pathlib import Path
@@ -30,6 +31,7 @@ from specialist_capability_source import (
     available_arrays,
     is_usable_capability,
     load_source,
+    role_surface_sha256,
     source_sha256,
     tracked_arrays,
 )
@@ -63,11 +65,29 @@ INDEX_RELATIVE = Path("model-lanes/generated-specialist-capabilities.json")
 LANE_REGISTRY_RELATIVE = Path("model-lanes/lane-capabilities.tsv")
 RUNTIME_MAP_RELATIVE = Path("shared/specialist-runtime-map.tsv")
 API_CATALOG_RELATIVE = Path("shared/api-catalog.md")
+REGISTRY_RELATIVE = Path("shared/registries/skill-tool-registry.tsv")
 INDEX_SCHEMA = "specialist-adapter-capability-index/v2"
 
 
 class CapabilityHomeError(RuntimeError):
     """Raised for an invalid capability-home input or configuration."""
+
+
+def registry_published(root: Path) -> bool:
+    """True when the shared skill-tool registry exists in this tree.
+
+    The export policy (tools/export/policy/path-policy.json) deliberately
+    withholds the registry from the public tree: the public repo ships the
+    mechanism, not our measurements. Its absence there is the policy working,
+    not a defect, so checks that resolve against the registry degrade to a
+    warning and are skipped -- mirroring the registry-not-published handling
+    in validate_specialists.py, the first stage of this validator chain.
+    Absent on the private tree it would still be a real problem, but the
+    private tree has it, and validate_capabilities.py plus the pre-commit
+    gate still hard-require it there; this branch only fires on a published
+    candidate.
+    """
+    return (root / REGISTRY_RELATIVE).is_file()
 
 
 def diagnostic(
@@ -94,19 +114,29 @@ def load_policy(root: Path, policy_path: Path | None = None) -> dict[str, Any]:
     try:
         policy = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise CapabilityHomeError(f"cannot load capability policy {path}: {exc}") from exc
+        raise CapabilityHomeError(
+            f"cannot load capability policy {path}: {exc}"
+        ) from exc
     if policy.get("schema") != "adapter-capability-policy/v1":
         raise CapabilityHomeError("capability policy schema mismatch")
     baseline = str(policy.get("baseline_ref") or "")
     if not re.fullmatch(r"[0-9a-f]{40}", baseline):
-        raise CapabilityHomeError("capability policy baseline_ref must be an exact git SHA")
+        raise CapabilityHomeError(
+            "capability policy baseline_ref must be an exact git SHA"
+        )
     pointer = policy.get("generic_pointer_line")
     if not isinstance(pointer, str) or not pointer:
-        raise CapabilityHomeError("capability policy requires one exact generic_pointer_line")
+        raise CapabilityHomeError(
+            "capability policy requires one exact generic_pointer_line"
+        )
     for field in CAPABILITY_FIELDS:
         values = policy.get("identifier_seeds", {}).get(field)
-        if not isinstance(values, list) or not all(isinstance(item, str) for item in values):
-            raise CapabilityHomeError(f"policy identifier_seeds.{field} must be a string list")
+        if not isinstance(values, list) or not all(
+            isinstance(item, str) for item in values
+        ):
+            raise CapabilityHomeError(
+                f"policy identifier_seeds.{field} must be a string list"
+            )
         parity_values = policy.get("parity_identifier_seeds", {}).get(field, values)
         if not isinstance(parity_values, list) or not all(
             isinstance(item, str) for item in parity_values
@@ -125,7 +155,9 @@ def load_policy(root: Path, policy_path: Path | None = None) -> dict[str, Any]:
         if not isinstance(rule, dict) or not all(
             isinstance(rule.get(key), str) for key in ("id", "kind", "pattern")
         ):
-            raise CapabilityHomeError("policy regex_rules entries require id/kind/pattern")
+            raise CapabilityHomeError(
+                "policy regex_rules entries require id/kind/pattern"
+            )
         re.compile(rule["pattern"])
     return policy
 
@@ -156,7 +188,9 @@ def _markdown_frontmatter(text: str, path: Path) -> dict[str, Any]:
         key, raw = line.split(":", 1)
         key = key.strip()
         raw = raw.strip()
-        if key in CAPABILITY_FIELDS or key in {f"capability_{field}" for field in CAPABILITY_FIELDS}:
+        if key in CAPABILITY_FIELDS or key in {
+            f"capability_{field}" for field in CAPABILITY_FIELDS
+        }:
             if key in result:
                 raise CapabilityHomeError(
                     f"{path}: duplicate top-level capability field {key}"
@@ -177,9 +211,7 @@ def _gemini_comment_projection(text: str, path: Path) -> dict[str, Any]:
     begin_matches = list(
         re.finditer(rf"(?m)^{re.escape(GEMINI_PROJECTION_BEGIN)}$", text)
     )
-    end_matches = list(
-        re.finditer(rf"(?m)^{re.escape(GEMINI_PROJECTION_END)}$", text)
-    )
+    end_matches = list(re.finditer(rf"(?m)^{re.escape(GEMINI_PROJECTION_END)}$", text))
     if not begin_matches and not end_matches:
         return {}
     if len(begin_matches) != 1 or len(end_matches) != 1:
@@ -316,7 +348,9 @@ def runtime_rows(root: Path) -> dict[str, dict[str, str]]:
         raise CapabilityHomeError(f"cannot read runtime map {path}: {exc}") from exc
     result = {row.get("specialist", ""): row for row in rows}
     if "" in result or len(result) != len(rows):
-        raise CapabilityHomeError("runtime map contains empty or duplicate specialist ids")
+        raise CapabilityHomeError(
+            "runtime map contains empty or duplicate specialist ids"
+        )
     return result
 
 
@@ -450,9 +484,7 @@ def _seed_capabilities(
 
 def _section(text: str, heading: str, level: int) -> str:
     marker = "#" * level + " " + heading
-    match = re.search(
-        rf"(?m)^{re.escape(marker)}(?:[ \t]+\([^\n]*\))?[ \t]*\n", text
-    )
+    match = re.search(rf"(?m)^{re.escape(marker)}(?:[ \t]+\([^\n]*\))?[ \t]*\n", text)
     if not match:
         return ""
     remainder = text[match.end() :]
@@ -469,9 +501,7 @@ def _skill_identifiers(section: str) -> set[str]:
         if not re.match(r"^\s*-\s+`", line):
             continue
         declarations = line.split(" — ", 1)[0]
-        result.update(
-            re.findall(r"`([a-z0-9][a-z0-9_.-]*)`", declarations)
-        )
+        result.update(re.findall(r"`([a-z0-9][a-z0-9_.-]*)`", declarations))
     return result
 
 
@@ -487,7 +517,9 @@ def _tool_identifiers(section: str, policy: dict[str, Any]) -> set[str]:
     return _seed_capabilities(section, policy, tool_section=True)["tools"]
 
 
-def extract_baseline_capabilities(text: str, policy: dict[str, Any]) -> dict[str, set[str]]:
+def extract_baseline_capabilities(
+    text: str, policy: dict[str, Any]
+) -> dict[str, set[str]]:
     """Extract the reviewed role-specific capability lexicon from a pre-strip brief."""
     result = _seed_capabilities(text, policy)
     result["skills"].update(_skill_identifiers(_section(text, "Skills", 3)))
@@ -498,13 +530,58 @@ def extract_baseline_capabilities(text: str, policy: dict[str, Any]) -> dict[str
     return result
 
 
+@lru_cache(maxsize=None)
+def require_baseline_commit(root: Path, baseline_ref: str) -> str:
+    """Prove the pinned baseline commit is present here, or refuse to run.
+
+    ``git show`` cannot answer this question.  Given a rev it cannot resolve,
+    it still reports the *path* first -- ``path 'X' exists on disk, but not in
+    '<ref>'`` -- which is the same message it emits for a brief that genuinely
+    postdates a perfectly reachable baseline.  One message, two causes: reading
+    that stderr cannot tell "this specialist is new" from "this history is
+    absent", so accepting it as an empty capability set turns a missing
+    baseline into an empty one.  Migration parity then compares every brief
+    against nothing and reports success, which is the one answer it must never
+    be able to give by accident.
+
+    ``git cat-file -e`` asks only whether the object exists, so its answer has
+    exactly one meaning.  Ask that separately, once, and the per-file fallback
+    below becomes safe.
+
+    Only successful probes are cached: ``lru_cache`` does not memoize raised
+    exceptions, so an unreachable baseline is re-probed rather than latched.
+    """
+    probe = subprocess.run(
+        ["git", "cat-file", "-e", f"{baseline_ref}^{{commit}}"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if probe.returncode != 0:
+        raise CapabilityHomeError(
+            f"baseline commit {baseline_ref} is not present in {root}: "
+            f"{probe.stderr.strip() or 'object not found'}. The base-boundary "
+            "and migration-parity checks read pre-strip specialist briefs from "
+            "that commit, so a tree without it cannot establish the boundary "
+            "they claim to check. Fetch the baseline history, or select those "
+            "two checks out explicitly with --only."
+        )
+    return baseline_ref
+
+
 def baseline_text(root: Path, baseline_ref: str, relative: Path) -> str:
+    require_baseline_commit(root, baseline_ref)
     command = ["git", "show", f"{baseline_ref}:{relative.as_posix()}"]
-    result = subprocess.run(command, cwd=root, capture_output=True, text=True, timeout=30)
+    result = subprocess.run(
+        command, cwd=root, capture_output=True, text=True, timeout=30
+    )
     if result.returncode != 0:
-        # New canonical specialists legitimately have no pre-strip baseline.
-        # Treat only that exact case as an empty historical capability set;
-        # every other baseline read failure remains configuration-fatal.
+        # The baseline commit is proven present above, so a read failure here
+        # can only be about this path.  New canonical specialists legitimately
+        # have no pre-strip baseline; treat only that exact case as an empty
+        # historical capability set, and keep every other read failure
+        # configuration-fatal.
         current = root / relative
         missing_at_ref = (
             "does not exist in" in result.stderr
@@ -522,6 +599,10 @@ def load_baseline(
     root: Path, rows: dict[str, dict[str, str]], policy: dict[str, Any]
 ) -> dict[str, dict[str, set[str]]]:
     baseline_ref = policy["baseline_ref"]
+    # Probe before the per-brief loop so an unreachable baseline is reported as
+    # itself rather than as whichever brief happened to be read first -- and so
+    # it is still reported when `rows` is empty and the loop never runs.
+    require_baseline_commit(root, baseline_ref)
     result: dict[str, dict[str, set[str]]] = {}
     for specialist, row in sorted(rows.items()):
         relative = canonical_brief(root, row)
@@ -538,7 +619,9 @@ def _frontmatter_scan_lines(
     if not lines or lines[0].strip() != "---":
         return [], list(enumerate(lines, start=1))
     try:
-        end = next(index for index in range(1, len(lines)) if lines[index].strip() == "---")
+        end = next(
+            index for index in range(1, len(lines)) if lines[index].strip() == "---"
+        )
     except StopIteration:
         return [], list(enumerate(lines, start=1))
     eligible: list[tuple[int, str]] = []
@@ -588,7 +671,13 @@ def base_boundary_diagnostics(
             text = path.read_text(encoding="utf-8")
         except OSError as exc:
             issues.append(
-                diagnostic("base-boundary", relative.as_posix(), "read", str(exc), kind="schema")
+                diagnostic(
+                    "base-boundary",
+                    relative.as_posix(),
+                    "read",
+                    str(exc),
+                    kind="schema",
+                )
             )
             continue
         frontmatter, body = _frontmatter_scan_lines(text, exempt)
@@ -611,7 +700,9 @@ def base_boundary_diagnostics(
         for line_no, line in scan_lines:
             seen: set[tuple[str, str]] = set()
             for kind in CAPABILITY_FIELDS:
-                for identifier in sorted(identifiers[kind], key=lambda item: item.lower()):
+                for identifier in sorted(
+                    identifiers[kind], key=lambda item: item.lower()
+                ):
                     if _identifier_matches(line, identifier, kind):
                         reported = _alias(identifier, policy, kind)
                         key = (kind, reported)
@@ -670,7 +761,9 @@ def migration_parity_diagnostics(
                 for field in CAPABILITY_FIELDS:
                     declared[field].update(adapter[field])
         for kind in ("skills", "tools"):
-            for identifier in sorted(baseline[specialist][kind], key=lambda item: item.lower()):
+            for identifier in sorted(
+                baseline[specialist][kind], key=lambda item: item.lower()
+            ):
                 # A named MCP supersedes a same-id CLI/tool declaration. This is
                 # the intentional de-duplication path for capabilities such as
                 # Playwright; parity is about retained access, not preserving a
@@ -703,14 +796,38 @@ def source_coverage_diagnostics(
     }
     issues: list[dict[str, Any]] = []
     for specialist, lane in sorted(expected - set(source_entries)):
-        issues.append(diagnostic("source-coverage", SOURCE_RELATIVE.as_posix(), f"{specialist}:{lane}", "routed specialist/lane pair is absent from the authored source", kind="schema"))
+        issues.append(
+            diagnostic(
+                "source-coverage",
+                SOURCE_RELATIVE.as_posix(),
+                f"{specialist}:{lane}",
+                "routed specialist/lane pair is absent from the authored source",
+                kind="schema",
+            )
+        )
     for specialist, lane in sorted(set(source_entries) - expected):
-        issues.append(diagnostic("source-coverage", SOURCE_RELATIVE.as_posix(), f"{specialist}:{lane}", "authored source contains a specialist/lane pair that is not routed", kind="schema"))
+        issues.append(
+            diagnostic(
+                "source-coverage",
+                SOURCE_RELATIVE.as_posix(),
+                f"{specialist}:{lane}",
+                "authored source contains a specialist/lane pair that is not routed",
+                kind="schema",
+            )
+        )
     for specialist, row in sorted(rows.items()):
         primary = normalize_lane(row.get("primary_lane", ""))
         entry = source_entries.get((specialist, primary))
         if entry and entry["coverage"] != "full":
-            issues.append(diagnostic("source-coverage", SOURCE_RELATIVE.as_posix(), f"{specialist}:{primary}", "primary lane must declare full coverage", kind="schema"))
+            issues.append(
+                diagnostic(
+                    "source-coverage",
+                    SOURCE_RELATIVE.as_posix(),
+                    f"{specialist}:{primary}",
+                    "primary lane must declare full coverage",
+                    kind="schema",
+                )
+            )
     return issues
 
 
@@ -722,19 +839,48 @@ def adapter_source_sync_diagnostics(
     expected_sha = source_sha256(root)
     issues: list[dict[str, Any]] = []
     for key, entry in sorted(source_entries.items()):
-        if not any(entry[field] for field in CAPABILITY_FIELDS) and not entry.get("primary_requirements"):
+        if not any(entry[field] for field in CAPABILITY_FIELDS) and not entry.get(
+            "primary_requirements"
+        ):
             continue
         adapter = adapters.get(key)
         specialist, lane = key
         if adapter is None:
-            issues.append(diagnostic("adapter-source-sync", SOURCE_RELATIVE.as_posix(), f"{specialist}:{lane}", "capability-bearing source entry has no physical adapter", kind="schema"))
+            issues.append(
+                diagnostic(
+                    "adapter-source-sync",
+                    SOURCE_RELATIVE.as_posix(),
+                    f"{specialist}:{lane}",
+                    "capability-bearing source entry has no physical adapter",
+                    kind="schema",
+                )
+            )
             continue
         expected = available_arrays(source_entries, specialist, lane)
         for field in CAPABILITY_FIELDS:
             if tuple(adapter[field]) != expected[field]:
-                issues.append(diagnostic("adapter-source-sync", adapter["adapter"], f"{specialist}:{lane}:{field}", "derived adapter capability array differs from the authored source", kind=field))
-        if adapter.get("capability_source") != SOURCE_RELATIVE.as_posix() or adapter.get("capability_source_sha256") != expected_sha:
-            issues.append(diagnostic("adapter-source-sync", adapter["adapter"], f"{specialist}:{lane}:source", "derived adapter lacks the exact capability source pointer/hash", kind="schema"))
+                issues.append(
+                    diagnostic(
+                        "adapter-source-sync",
+                        adapter["adapter"],
+                        f"{specialist}:{lane}:{field}",
+                        "derived adapter capability array differs from the authored source",
+                        kind=field,
+                    )
+                )
+        if (
+            adapter.get("capability_source") != SOURCE_RELATIVE.as_posix()
+            or adapter.get("capability_source_sha256") != expected_sha
+        ):
+            issues.append(
+                diagnostic(
+                    "adapter-source-sync",
+                    adapter["adapter"],
+                    f"{specialist}:{lane}:source",
+                    "derived adapter lacks the exact capability source pointer/hash",
+                    kind="schema",
+                )
+            )
     return issues
 
 
@@ -753,12 +899,16 @@ def load_lane_inventory(root: Path) -> dict[str, dict[str, set[str]]]:
                 "skills": set(json.loads(row["skills"])),
             }
         except (KeyError, json.JSONDecodeError, TypeError) as exc:
-            raise CapabilityHomeError(f"invalid lane inventory row {lane}: {exc}") from exc
+            raise CapabilityHomeError(
+                f"invalid lane inventory row {lane}: {exc}"
+            ) from exc
         grounding = row.get("grounding", "")
         if grounding == "google-search-grounding":
             result[lane]["tools"].add("google_web_search")
     if set(result) != set(LANES):
-        raise CapabilityHomeError("lane inventory must contain exactly the four execution lanes")
+        raise CapabilityHomeError(
+            "lane inventory must contain exactly the four execution lanes"
+        )
     return result
 
 
@@ -773,8 +923,7 @@ def _catalog_section_name(raw: str) -> str:
 
 def _catalog_lane_tokens(raw: str) -> set[str]:
     lanes = {
-        normalize_lane(item)
-        for item in re.findall(r"[a-z][a-z0-9-]*", raw.lower())
+        normalize_lane(item) for item in re.findall(r"[a-z][a-z0-9-]*", raw.lower())
     }
     return lanes & set(LANES)
 
@@ -825,7 +974,7 @@ def registry_tool_lane_restrictions(root: Path) -> dict[str, set[str]]:
     Non-runtime values such as ``none`` or ``direct-api`` produce an empty set,
     which prevents route-derived catalog availability from fabricating a lane.
     """
-    path = root / "shared/registries/skill-tool-registry.tsv"
+    path = root / REGISTRY_RELATIVE
     if not path.is_file():
         return {}
     result: dict[str, set[str]] = {}
@@ -909,7 +1058,9 @@ def verified_catalog_tools(
                 continue
             # A registry restriction on any identifier/alias in the heading
             # constrains the complete catalog entry, not just that spelling.
-            candidate_lanes = lanes if registry_lanes is None else lanes & registry_lanes
+            candidate_lanes = (
+                lanes if registry_lanes is None else lanes & registry_lanes
+            )
             for lane in candidate_lanes:
                 result[lane].add(candidate)
     return result
@@ -943,32 +1094,43 @@ def actual_skill_names(root: Path, lane: str) -> set[str]:
 
 
 def shared_registry_capabilities(root: Path) -> dict[str, dict[str, set[str]]]:
-    path = root / "shared/registries/skill-tool-registry.tsv"
-    result = {
-        lane: {field: set() for field in CAPABILITY_FIELDS}
-        for lane in LANES
-    }
+    path = root / REGISTRY_RELATIVE
+    result = {lane: {field: set() for field in CAPABILITY_FIELDS} for lane in LANES}
     with path.open(encoding="utf-8", newline="") as handle:
         for row in csv.DictReader(handle, delimiter="\t"):
             name = row.get("name", "")
-            lanes = set(LANES) if row.get("lanes") == "all" else {
-                normalize_lane(item.strip())
-                for item in re.split(r"[|,]", row.get("lanes", ""))
-            }
-            if row.get("record_kind") == "skill" and row.get("verified_state") in {"authored", "yes"}:
+            lanes = (
+                set(LANES)
+                if row.get("lanes") == "all"
+                else {
+                    normalize_lane(item.strip())
+                    for item in re.split(r"[|,]", row.get("lanes", ""))
+                }
+            )
+            if row.get("record_kind") == "skill" and row.get("verified_state") in {
+                "authored",
+                "yes",
+            }:
                 for lane in lanes & set(LANES):
                     result[lane]["skills"].add(name)
-            if row.get("record_kind") == "tool" and row.get("verified_state") in {"yes", "lane-live"}:
+            if row.get("record_kind") == "tool" and row.get("verified_state") in {
+                "yes",
+                "lane-live",
+            }:
                 for lane in lanes & set(LANES):
                     if row.get("type", "").startswith("mcp"):
                         result[lane]["mcps"].add(name)
-                    if row.get("type") in {"mcp-tool", "provider-native", "plugin-skill-family"}:
+                    if row.get("type") in {
+                        "mcp-tool",
+                        "provider-native",
+                        "plugin-skill-family",
+                    }:
                         result[lane]["tools"].add(name)
     return result
 
 
 def shared_registry_records(root: Path) -> dict[str, dict[str, str]]:
-    path = root / "shared/registries/skill-tool-registry.tsv"
+    path = root / REGISTRY_RELATIVE
     with path.open(encoding="utf-8", newline="") as handle:
         return {
             row["name"]: row
@@ -1000,15 +1162,23 @@ def tool_existence_diagnostics(
             if identifier not in inventory[lane]["mcps"]:
                 issues.append(
                     diagnostic(
-                        "tool-existence", adapter["adapter"], identifier,
-                        "declared MCP is absent from the lane inventory", kind="mcps"
+                        "tool-existence",
+                        adapter["adapter"],
+                        identifier,
+                        "declared MCP is absent from the lane inventory",
+                        kind="mcps",
                     )
                 )
         for identifier in adapter["skills"]:
-            if identifier not in inventory[lane]["skills"] and identifier not in skills[lane]:
+            if (
+                identifier not in inventory[lane]["skills"]
+                and identifier not in skills[lane]
+            ):
                 issues.append(
                     diagnostic(
-                        "tool-existence", adapter["adapter"], identifier,
+                        "tool-existence",
+                        adapter["adapter"],
+                        identifier,
                         "declared skill is absent from lane inventory and installed skill roots",
                         kind="skills",
                     )
@@ -1029,7 +1199,9 @@ def tool_existence_diagnostics(
             ):
                 issues.append(
                     diagnostic(
-                        "tool-existence", adapter["adapter"], identifier,
+                        "tool-existence",
+                        adapter["adapter"],
+                        identifier,
                         "declared tool is absent from lane inventory, this lane's exact verified API catalog identifiers, and its shell PATH",
                         kind="tools",
                     )
@@ -1048,7 +1220,9 @@ def source_existence_diagnostics(
 ) -> list[dict[str, Any]]:
     inventory = lane_inventory or load_lane_inventory(root)
     catalog = catalog_tools or verified_catalog_tools(root, runtime_rows(root))
-    installed_skills = skill_names or {lane: actual_skill_names(root, lane) for lane in LANES}
+    installed_skills = skill_names or {
+        lane: actual_skill_names(root, lane) for lane in LANES
+    }
     registry = shared_registry_capabilities(root)
     runtime = runtime_rows(root)
     issues: list[dict[str, Any]] = []
@@ -1058,15 +1232,44 @@ def source_existence_diagnostics(
             for identifier in projected[kind]:
                 present = False
                 if kind == "skills":
-                    present = identifier in inventory[lane][kind] or identifier in installed_skills[lane] or identifier in registry[lane][kind]
+                    present = (
+                        identifier in inventory[lane][kind]
+                        or identifier in installed_skills[lane]
+                        or identifier in registry[lane][kind]
+                    )
                 elif kind == "mcps":
-                    present = identifier in inventory[lane][kind] or identifier in registry[lane][kind]
+                    present = (
+                        identifier in inventory[lane][kind]
+                        or identifier in registry[lane][kind]
+                    )
                 else:
                     normalized = identifier.lower()
-                    shell_capable = "repo-shell" in inventory[lane]["skills"] or "run_shell_command" in inventory[lane]["tools"]
-                    present = identifier in inventory[lane][kind] or identifier in registry[lane][kind] or normalized in catalog.get(lane, set()) or (shell_capable and (which(identifier) is not None or which(normalized) is not None))
+                    shell_capable = (
+                        "repo-shell" in inventory[lane]["skills"]
+                        or "run_shell_command" in inventory[lane]["tools"]
+                    )
+                    present = (
+                        identifier in inventory[lane][kind]
+                        or identifier in registry[lane][kind]
+                        or normalized in catalog.get(lane, set())
+                        or (
+                            shell_capable
+                            and (
+                                which(identifier) is not None
+                                or which(normalized) is not None
+                            )
+                        )
+                    )
                 if not present:
-                    issues.append(diagnostic("source-existence", SOURCE_RELATIVE.as_posix(), f"{specialist}:{lane}:{identifier}", "available capability lacks lane-local inventory, registry, installed-skill, catalog, or shell-qualified PATH evidence", kind=kind))
+                    issues.append(
+                        diagnostic(
+                            "source-existence",
+                            SOURCE_RELATIVE.as_posix(),
+                            f"{specialist}:{lane}:{identifier}",
+                            "available capability lacks lane-local inventory, registry, installed-skill, catalog, or shell-qualified PATH evidence",
+                            kind=kind,
+                        )
+                    )
         for kind in CAPABILITY_FIELDS:
             for ref in entry[kind]:
                 if (
@@ -1074,7 +1277,15 @@ def source_existence_diagnostics(
                     and ref.availability == "uninstalled"
                     and which(ref.identifier) is not None
                 ):
-                    issues.append(diagnostic("source-existence", SOURCE_RELATIVE.as_posix(), f"{specialist}:{lane}:{ref.identifier}", "capability is marked uninstalled but is now present on PATH", kind=kind))
+                    issues.append(
+                        diagnostic(
+                            "source-existence",
+                            SOURCE_RELATIVE.as_posix(),
+                            f"{specialist}:{lane}:{ref.identifier}",
+                            "capability is marked uninstalled but is now present on PATH",
+                            kind=kind,
+                        )
+                    )
                 # A platform-unavailable tool that is actually on PATH contradicts
                 # its own "OS-impossible on this host" claim — treat that as a
                 # mislabel to catch, exactly like the uninstalled-on-PATH drift
@@ -1086,7 +1297,15 @@ def source_existence_diagnostics(
                     and ref.availability == "platform-unavailable"
                     and which(ref.identifier) is not None
                 ):
-                    issues.append(diagnostic("source-existence", SOURCE_RELATIVE.as_posix(), f"{specialist}:{lane}:{ref.identifier}", "capability is marked platform-unavailable but is present on PATH", kind=kind))
+                    issues.append(
+                        diagnostic(
+                            "source-existence",
+                            SOURCE_RELATIVE.as_posix(),
+                            f"{specialist}:{lane}:{ref.identifier}",
+                            "capability is marked platform-unavailable but is present on PATH",
+                            kind=kind,
+                        )
+                    )
                 # The inverse drift: a capability whose evidence *claims* the
                 # host PATH while the binary is absent. `host-PATH` asserts a
                 # fact that is cheap to re-derive, so re-derive it rather than
@@ -1100,16 +1319,56 @@ def source_existence_diagnostics(
                     and ref.evidence == "host-PATH"
                     and which(ref.identifier) is None
                 ):
-                    issues.append(diagnostic("source-existence", SOURCE_RELATIVE.as_posix(), f"{specialist}:{lane}:{ref.identifier}", "capability claims host-PATH evidence but is absent from PATH", kind=kind))
+                    issues.append(
+                        diagnostic(
+                            "source-existence",
+                            SOURCE_RELATIVE.as_posix(),
+                            f"{specialist}:{lane}:{ref.identifier}",
+                            "capability claims host-PATH evidence but is absent from PATH",
+                            kind=kind,
+                        )
+                    )
                 if ref.availability == "mcp-operation":
                     provider = ref.evidence
-                    if provider not in inventory[lane]["mcps"] and provider not in registry[lane]["mcps"]:
-                        issues.append(diagnostic("source-existence", SOURCE_RELATIVE.as_posix(), f"{specialist}:{lane}:{ref.identifier}", f"MCP operation provider {provider!r} is not available on this lane", kind=kind))
+                    if (
+                        provider not in inventory[lane]["mcps"]
+                        and provider not in registry[lane]["mcps"]
+                    ):
+                        issues.append(
+                            diagnostic(
+                                "source-existence",
+                                SOURCE_RELATIVE.as_posix(),
+                                f"{specialist}:{lane}:{ref.identifier}",
+                                f"MCP operation provider {provider!r} is not available on this lane",
+                                kind=kind,
+                            )
+                        )
                 if ref.availability == "pending-restart-activation":
-                    if kind != "mcps" or ref.identifier not in inventory[lane]["staged_mcps"]:
-                        issues.append(diagnostic("source-existence", SOURCE_RELATIVE.as_posix(), f"{specialist}:{lane}:{ref.identifier}", "pending-restart MCP lacks the lane staged_mcp_surface declaration", kind=kind))
-                if ref.availability == "harness-only" and ref.identifier not in runtime[specialist].get("requires_approval", ""):
-                    issues.append(diagnostic("source-existence", SOURCE_RELATIVE.as_posix(), f"{specialist}:{lane}:{ref.identifier}", "harness-only capability lacks a matching runtime-map approval gate", kind=kind))
+                    if (
+                        kind != "mcps"
+                        or ref.identifier not in inventory[lane]["staged_mcps"]
+                    ):
+                        issues.append(
+                            diagnostic(
+                                "source-existence",
+                                SOURCE_RELATIVE.as_posix(),
+                                f"{specialist}:{lane}:{ref.identifier}",
+                                "pending-restart MCP lacks the lane staged_mcp_surface declaration",
+                                kind=kind,
+                            )
+                        )
+                if ref.availability == "harness-only" and ref.identifier not in runtime[
+                    specialist
+                ].get("requires_approval", ""):
+                    issues.append(
+                        diagnostic(
+                            "source-existence",
+                            SOURCE_RELATIVE.as_posix(),
+                            f"{specialist}:{lane}:{ref.identifier}",
+                            "harness-only capability lacks a matching runtime-map approval gate",
+                            kind=kind,
+                        )
+                    )
     return issues
 
 
@@ -1132,7 +1391,14 @@ def required_primary_diagnostics(
 ) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
     repo_root = root or Path(__file__).resolve().parents[2]
-    registry = shared_registry_records(repo_root)
+    # None means the registry is withheld from this tree by export policy, not
+    # empty: an empty dict would fabricate a provider-closure failure for every
+    # declared server. Only the registry lookups are skipped; the runtime-tool
+    # summary drift check and the assignment/adapter presence checks below need
+    # no registry and stay enforced. validate_repository reports the skip.
+    registry = (
+        shared_registry_records(repo_root) if registry_published(repo_root) else None
+    )
     source_adapters = adapters
     if source_adapters is None:
         source_adapters, adapter_issues = load_adapters(repo_root, rows)
@@ -1162,34 +1428,37 @@ def required_primary_diagnostics(
             )
         )
 
-    _entries, payload = load_source(repo_root)
-    relations = server_relations(payload)
-    for server, operations in sorted(relations.items()):
-        if server not in registry:
-            issues.append(
-                diagnostic(
-                    "provider-closure",
-                    SOURCE_RELATIVE.as_posix(),
-                    server,
-                    "declared server lacks a registry record",
-                    kind="mcps",
-                )
-            )
-        for operation in sorted(operations, key=str.casefold):
-            record = registry.get(operation)
-            if record is None or record.get("verified_state") not in {
-                "yes",
-                "lane-live",
-            }:
+    if registry is not None:
+        _entries, payload = load_source(repo_root)
+        relations = server_relations(payload)
+        for server, operations in sorted(relations.items()):
+            if server not in registry:
                 issues.append(
                     diagnostic(
                         "provider-closure",
                         SOURCE_RELATIVE.as_posix(),
-                        f"{server}:{operation}",
-                        "declared operation lacks a verified registry record",
-                        kind="tools",
+                        server,
+                        "declared server lacks a registry record",
+                        kind="mcps",
                     )
                 )
+            for operation in sorted(operations, key=str.casefold):
+                record = registry.get(operation)
+                if (
+                    record is None
+                    or record.get("type") != "mcp-tool"
+                    or canonical_server(record.get("path_or_source", ""))
+                    != canonical_server(server)
+                ):
+                    issues.append(
+                        diagnostic(
+                            "provider-closure",
+                            SOURCE_RELATIVE.as_posix(),
+                            f"{server}:{operation}",
+                            "declared operation lacks one matching provider registry record",
+                            kind="tools",
+                        )
+                    )
 
     for specialist, row in sorted(rows.items()):
         if namespace and row.get("source_namespace") != namespace:
@@ -1218,20 +1487,21 @@ def required_primary_diagnostics(
                         )
                     )
                     continue
-                record = registry.get(identifier)
-                if record is None or record.get("verified_state") not in {
-                    "yes",
-                    "lane-live",
-                }:
-                    issues.append(
-                        diagnostic(
-                            "required-primary",
-                            SOURCE_RELATIVE.as_posix(),
-                            f"{specialist}:{primary}:{identifier}",
-                            "assigned provider lacks a verified registry record",
-                            kind=level.removesuffix("_tools"),
+                if registry is not None:
+                    record = registry.get(identifier)
+                    if record is None or record.get("verified_state") not in {
+                        "yes",
+                        "lane-live",
+                    }:
+                        issues.append(
+                            diagnostic(
+                                "required-primary",
+                                SOURCE_RELATIVE.as_posix(),
+                                f"{specialist}:{primary}:{identifier}",
+                                "assigned provider lacks a verified registry record",
+                                kind=level.removesuffix("_tools"),
+                            )
                         )
-                    )
                 assigned_ids = {ref.identifier for ref in assignments}
                 if adapter is None or assigned_ids.isdisjoint(adapter["mcps"]):
                     issues.append(
@@ -1262,9 +1532,12 @@ def render_index(
         runtime = runtime_rows(root)
         runtime_summary = project_runtime_tools(root)
         source_index = []
+        surface_hashes: set[str] = set()
         for (specialist, lane), entry in sorted(source_entries.items()):
             adapter = adapters.get((specialist, lane), {})
             primary_lane = normalize_lane(runtime[specialist]["primary_lane"])
+            surface_hash = role_surface_sha256(entry)
+            surface_hashes.add(surface_hash)
             assigned_servers = {
                 canonical_server(ref.identifier): ref.identifier
                 for ref in entry["mcps"]
@@ -1285,30 +1558,39 @@ def render_index(
                                 "resolution": "local",
                             }
                         )
-            source_index.append({
-                "adapter": adapter.get("adapter"),
-                "coverage": entry["coverage"],
-                "known_unavailable": {
-                    field: [
-                        {
-                            "availability": ref.availability,
-                            "evidence": ref.evidence,
-                            "id": ref.identifier,
-                            "requirement": ref.requirement,
-                        }
-                        for ref in entry[field]
-                        if not is_usable_capability(field, ref.availability)
-                    ]
-                    for field in CAPABILITY_FIELDS
-                },
-                "lane": lane,
-                "limitations": list(entry["limitations"]),
-                "mcps": list(available_arrays(source_entries, specialist, lane)["mcps"]),
-                "primary_plan": primary_plan,
-                "skills": list(available_arrays(source_entries, specialist, lane)["skills"]),
-                "specialist": specialist,
-                "tools": list(available_arrays(source_entries, specialist, lane)["tools"]),
-            })
+            source_index.append(
+                {
+                    "adapter": adapter.get("adapter"),
+                    "coverage": entry["coverage"],
+                    "known_unavailable": {
+                        field: [
+                            {
+                                "availability": ref.availability,
+                                "evidence": ref.evidence,
+                                "id": ref.identifier,
+                                "requirement": ref.requirement,
+                            }
+                            for ref in entry[field]
+                            if not is_usable_capability(field, ref.availability)
+                        ]
+                        for field in CAPABILITY_FIELDS
+                    },
+                    "lane": lane,
+                    "limitations": list(entry["limitations"]),
+                    "mcps": list(
+                        available_arrays(source_entries, specialist, lane)["mcps"]
+                    ),
+                    "primary_plan": primary_plan,
+                    "skills": list(
+                        available_arrays(source_entries, specialist, lane)["skills"]
+                    ),
+                    "specialist": specialist,
+                    "surface_sha256": surface_hash,
+                    "tools": list(
+                        available_arrays(source_entries, specialist, lane)["tools"]
+                    ),
+                }
+            )
         payload = {
             "baseline_ref": policy["baseline_ref"],
             "generated": True,
@@ -1316,6 +1598,7 @@ def render_index(
             "schema": INDEX_SCHEMA,
             "source": SOURCE_RELATIVE.as_posix(),
             "source_sha256": source_sha256(root),
+            "surface_count": len(surface_hashes),
             "entries": source_index,
         }
         return json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
@@ -1323,10 +1606,7 @@ def render_index(
     for adapter in adapters.values():
         lane_wide = {
             field: set(inventory[adapter["lane"]][field])
-            | {
-                item.removeprefix("lead:")
-                for item in inventory[adapter["lane"]][field]
-            }
+            | {item.removeprefix("lead:") for item in inventory[adapter["lane"]][field]}
             for field in CAPABILITY_FIELDS
         }
         legacy_native_mirror = adapter["lane"] == "gemini" and all(
@@ -1380,36 +1660,131 @@ def validate_repository(
     only: set[str] | None = None,
     write_index: bool = False,
     namespace: str | None = None,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     policy = load_policy(root, policy_path)
     rows = runtime_rows(root)
     adapters, issues = load_adapters(root, rows)
-    baseline = load_baseline(root, rows, policy)
     lane_inventory = load_lane_inventory(root)
     source_entries, _source_payload = load_source(root)
     enabled = only or {"boundary", "parity", "existence", "source", "required", "index"}
+    # The baseline is git history, not a file in this tree, and only two checks
+    # consume it. Reading it unconditionally made an unreachable baseline fail
+    # runs that never needed it -- `--only index --write-index` among them.
+    # This narrows the refusal to the checks it is actually about; it is not an
+    # escape hatch, because a default run enables both of them.
+    baseline: dict[str, dict[str, set[str]]] = {}
+    if enabled & {"boundary", "parity"}:
+        baseline = load_baseline(root, rows, policy)
+    # Warnings are non-fatal by contract: they name a check the tree cannot run,
+    # never a defect in what it can. Keeping them out of `issues` keeps every
+    # exit-code consumer (pre-commit, bin/test, CI) honest about real failures.
+    warnings: list[dict[str, Any]] = []
+    registry_available = registry_published(root)
+    if not registry_available:
+        warnings.append(
+            {
+                **diagnostic(
+                    "registry-degradation",
+                    REGISTRY_RELATIVE.as_posix(),
+                    "registry-not-published",
+                    "shared skill-tool registry is withheld from this tree by "
+                    "export policy; registry-backed checks are skipped",
+                    kind="schema",
+                ),
+                "severity": "warning",
+            }
+        )
     expected_index = render_index(
-        root, adapters, policy, policy_path, lane_inventory=lane_inventory, source_entries=source_entries
+        root,
+        adapters,
+        policy,
+        policy_path,
+        lane_inventory=lane_inventory,
+        source_entries=source_entries,
     )
     if write_index:
         path = root / INDEX_RELATIVE
         atomic_write_text(path, expected_index)
     if "boundary" in enabled:
-        boundary_rows = rows if namespace is None else {
-            key: value for key, value in rows.items()
-            if value.get("source_namespace") == namespace
-        }
+        boundary_rows = (
+            rows
+            if namespace is None
+            else {
+                key: value
+                for key, value in rows.items()
+                if value.get("source_namespace") == namespace
+            }
+        )
         issues.extend(base_boundary_diagnostics(root, boundary_rows, policy, baseline))
     if "parity" in enabled:
-        parity_rows = rows if namespace is None else {key: value for key, value in rows.items() if value.get("source_namespace") == namespace}
-        issues.extend(migration_parity_diagnostics(parity_rows, adapters, baseline, source_entries))
+        parity_rows = (
+            rows
+            if namespace is None
+            else {
+                key: value
+                for key, value in rows.items()
+                if value.get("source_namespace") == namespace
+            }
+        )
+        issues.extend(
+            migration_parity_diagnostics(
+                parity_rows, adapters, baseline, source_entries
+            )
+        )
     if "existence" in enabled:
-        scoped_source = source_entries if namespace is None else {key: value for key, value in source_entries.items() if rows[key[0]].get("source_namespace") == namespace}
-        issues.extend(source_existence_diagnostics(root, scoped_source, lane_inventory=lane_inventory))
+        # The registry is evidence FOR declared capabilities, so running the
+        # existence check against a tree that legitimately lacks it would
+        # fabricate a failure for every capability whose evidence lives there.
+        # Skip the whole check and say so -- the same shape as the
+        # tool-cross-checks-skipped warning in validate_specialists.py.
+        if not registry_available:
+            warnings.append(
+                {
+                    **diagnostic(
+                        "source-existence",
+                        REGISTRY_RELATIVE.as_posix(),
+                        "existence-skipped-registry-not-published",
+                        "source-existence checks need the shared skill-tool "
+                        "registry, which this tree does not carry",
+                        kind="schema",
+                    ),
+                    "severity": "warning",
+                }
+            )
+        else:
+            scoped_source = (
+                source_entries
+                if namespace is None
+                else {
+                    key: value
+                    for key, value in source_entries.items()
+                    if rows[key[0]].get("source_namespace") == namespace
+                }
+            )
+            issues.extend(
+                source_existence_diagnostics(
+                    root, scoped_source, lane_inventory=lane_inventory
+                )
+            )
     if "source" in enabled:
         issues.extend(source_coverage_diagnostics(rows, source_entries))
         issues.extend(adapter_source_sync_diagnostics(root, adapters, source_entries))
     if "required" in enabled:
+        if not registry_available:
+            warnings.append(
+                {
+                    **diagnostic(
+                        "required-primary",
+                        REGISTRY_RELATIVE.as_posix(),
+                        "registry-cross-checks-skipped-registry-not-published",
+                        "provider-closure and verified-record checks need the "
+                        "shared skill-tool registry, which this tree does not "
+                        "carry; assignment and drift checks still ran",
+                        kind="schema",
+                    ),
+                    "severity": "warning",
+                }
+            )
         issues.extend(
             required_primary_diagnostics(
                 rows,
@@ -1423,7 +1798,11 @@ def validate_repository(
         issues.extend(index_freshness_diagnostics(root, expected_index))
     issues.sort(
         key=lambda item: (
-            item["check"], item["path"], item["line"], item["kind"], item["identifier"]
+            item["check"],
+            item["path"],
+            item["line"],
+            item["kind"],
+            item["identifier"],
         )
     )
     summary = {
@@ -1435,8 +1814,9 @@ def validate_repository(
         "schema": "capability-home-validation/v1",
         "source_entries": len(source_entries),
         "status": "fail" if issues else "pass",
+        "warnings": len(warnings),
     }
-    return issues, summary
+    return issues, warnings, summary
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1448,7 +1828,10 @@ def main(argv: list[str] | None = None) -> int:
         help="comma-separated subset: boundary,parity,existence,index",
     )
     parser.add_argument("--write-index", action="store_true")
-    parser.add_argument("--namespace", help="limit boundary/parity/existence/required checks to one source namespace")
+    parser.add_argument(
+        "--namespace",
+        help="limit boundary/parity/existence/required checks to one source namespace",
+    )
     args = parser.parse_args(argv)
     root = Path(args.repo_root).resolve()
     allowed = {"boundary", "parity", "existence", "source", "required", "index"}
@@ -1459,7 +1842,7 @@ def main(argv: list[str] | None = None) -> int:
         if unknown:
             parser.error(f"unknown --only check(s): {','.join(sorted(unknown))}")
     try:
-        issues, summary = validate_repository(
+        issues, warnings, summary = validate_repository(
             root,
             Path(args.policy).resolve() if args.policy else None,
             only=only,
@@ -1481,6 +1864,8 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 2
+    for warning in warnings:
+        print(json.dumps(warning, sort_keys=True, ensure_ascii=False))
     for issue in issues:
         print(json.dumps(issue, sort_keys=True, ensure_ascii=False))
     print(json.dumps(summary, sort_keys=True, ensure_ascii=False))

@@ -18,8 +18,8 @@
 # Recommended shell alias:
 #   alias vs='bash ~/Obsidian-Claude-Vibe-Squad/bin/connect.sh'
 #
-# Remote one-liner (run from any other machine via SSH to Mac mini):
-#   ssh chronos-mini -t 'bash ~/Obsidian-Claude-Vibe-Squad/bin/connect.sh'
+# Remote one-liner (run from any other machine via SSH to the squad host):
+#   ssh <squad-host> -t 'bash ~/Obsidian-Claude-Vibe-Squad/bin/connect.sh'
 
 set -uo pipefail
 

@@ -24,11 +24,19 @@ Execute the named `specialist:` in this lane. Use the Kimi subagent registered
 in `main.yaml` when it exists, for example `Agent(subagent_type=research)`.
 If the adapter is missing, execute inline and report `capability_gap`.
 
-Current Kimi CLI behavior: MCP tools are available to the main Kimi lane, but
-not inside Kimi `Agent(...)` subagents. If a task requires an MCP call such as
-`arxiv_search`, `xai_search`, vault tools, or sequential thinking, run that MCP
-call in the main Kimi lane and report `subagent_mcp_gap` instead of retrying the
-subagent path.
+The board prompt supplies an exact per-task MCP server allowlist. Those servers
+are available only to this main Kimi lead. Treat every server not named there
+as unavailable, even if it exists in global configuration. Never reveal or
+pass MCP configuration, credentials, environment, or values.
+
+The board builds the lead config from four deterministic local templates; it
+does not copy host MCP configuration. Credential-bearing remote routes are
+unavailable, and operations requiring credentials remain unproven.
+
+Native `Agent(...)` subagents remain MCP-free and must not be asked to call or
+inherit MCP tools. When specialist work needs an allowed MCP operation, perform
+that call here in the main lead, pass only the needed result to the subagent,
+and report `subagent_mcp_gap` rather than retrying MCP inside the subagent.
 
 Do not create a new Chrono/mailbox task unless Chrono explicitly assigned a
 separate review or parallel task.

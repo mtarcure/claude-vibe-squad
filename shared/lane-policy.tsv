@@ -25,7 +25,6 @@ primary_default	kimi	deny	all	Kimi primary remains forbidden unless an explicit 
 primary_exception	kimi	allow	experimental-attacker	Narrow operator-ratified experimental-primary exception; output remains a lead pending heavy-hitter validation and review.
 primary_exception	kimi	allow	large-context-analyst	Operator-ratified 2026-07 K3 routing exception; the k3.256k window is the capability being routed to, and every required methodology skill resolves lane-portably through the shared registry. Retrieval and fetch remain lead-brokered, so metered or MCP-backed research is requested from the lead rather than performed in-subagent, and Opus 5 stays the backup plus cross-family reviewer.
 primary_exception	kimi	allow	summarizer	Narrow operator-ratified low-risk supplied-document summarization exception; Claude review remains required before consequential use.
-primary_exception	kimi	allow	web-builder	Operator-ratified 2026-07 K3 routing exception for authoring-shaped website implementation; both required skills resolve lane-portably through the shared registry. Kimi has no shell or browser surface, so build, deploy, and visual or e2e verification are not performed on this lane and remain with the Opus 5 backup; every public_release, credential_change, and production_mutation gate is unchanged.
 vocabulary	anti_affinity	author_family	all	Review anti-affinity.
 vocabulary	anti_affinity	none	all	No anti-affinity.
 vocabulary	capability_class	code_review	all	Code review.

@@ -26,9 +26,8 @@ Context Protector is configured for schema pinning and ANSI escape visualization
 
 Snyk Agent Scan is a mandatory pre-activation gate, not an inline MCP server. `preactivate-security-stack.sh` fails closed unless inherited `SNYK_TOKEN` and `SOLODIT_API_KEY` are present, then scans the normalized `snyk-preactivation-targets.json` mirror with `--ci`. `validate_staged.py` rejects any semantic drift among the live Claude config, live Codex config, both review mirrors, and the Snyk target file.
 
-Google Model Armor remains separate from this MCP stack and is explicitly `blocked-on-operator-credential` in `held-modelarmor.json`; no copied bearer token is configured.
+Google Model Armor was removed from this stack on 2026-08-10 (operator decision). It was a GCP project service requiring `GOOGLE_APPLICATION_CREDENTIALS` or `gcloud auth application-default login` — not an API-key endpoint — and was never activated. `held-modelarmor.json`, its validator branches, and its report key are deleted.
 
-Operator ask: Provide either the absolute path to a durable least-privilege Model Armor service-account JSON key via GOOGLE_APPLICATION_CREDENTIALS, or run `gcloud auth application-default login` for the gateway identity.
 
 ## Exact operator cutover
 
@@ -41,4 +40,4 @@ Operator ask: Provide either the absolute path to a durable least-privilege Mode
 7. In each restarted lane, require `tools/list` plus read-only synthetic fixture calls through all three guarded servers. Retain pinning/tool-call evidence; a config/list success alone is insufficient.
 8. Run the existing chrono-vault record/recall parity probes. Promote a lane only if every applicable probe passes; otherwise restore the previously reviewed live registry inputs and perform one controlled launcher restart.
 
-No restart, live lane mutation, Snyk network scan, Solodit API query, or Model Armor call was performed while preparing this configuration.
+No restart, live lane mutation, Snyk network scan, or Solodit API query was performed while preparing this configuration.

@@ -30,6 +30,18 @@
       "path": "shared/registries/skill-tool-registry.tsv",
       "sha256": "215eb6236136fd478019ddec990dd37e993f612106e2206d43e8a8bc54e828a9",
       "reason": "Registry evidence count fragment 1350=477-historical, not a credential."
+    },
+    {
+      "rule_id": "generic-api-key",
+      "path": "plugins/chrono-vault/tests/test_compat_health.py",
+      "sha256": "8739cbe2db6b2e15b5a351142e3294f3947e107ad54d901c8f661083203c49a1",
+      "reason": "SQLite configuration row key bm25_weights, not a credential. Same secret value already allowlisted at plugins/chrono-vault/recall.py and tests/test_index.py; this occurrence is the recall_ready regression test deleting that config row."
+    },
+    {
+      "rule_id": "stripe-access-token",
+      "path": "tools/export/tests/test_projector.py",
+      "sha256": "692f7deca775262a2de8fdfad532749bc75b3b8df3b04bd5a2669173000b0929",
+      "reason": "Synthetic poison canary for test_public_synthetic_credential_poison_canary_fails_closed, which proves the export gate fails closed on a planted credential. P11.3 requires this canary to exist, so gitleaks detecting it is the test working."
     }
   ]
 }

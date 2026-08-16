@@ -18,11 +18,21 @@ import tempfile
 import time
 import unittest
 
-from scripts.python.tests.ci_host_independence import (
-    skip_in_host_independent_ci,
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from dispatch_checkout import normal_checkout_root  # noqa: E402
+
+# See dispatch_checkout: send-task.sh refuses to dispatch from a linked
+# worktree, and that refusal runs before the guards this suite tests -- so
+# without this the result depends on checkout shape, not on behaviour.
+# The helper returns the root unchanged in a main checkout.
+REPO = normal_checkout_root(Path(__file__).resolve().parents[3])
+if str(REPO) not in sys.path:
+    sys.path.insert(0, str(REPO))
+
+from scripts.python.tests.supervisor_lifecycle import (  # noqa: E402
+    cleanup_supervisors_before_root,
 )
 
-REPO = Path(__file__).resolve().parents[3]  # scripts/python/tests -> repo root
 RECONCILER = REPO / "scripts" / "python" / "registry_reconciler.py"
 SEND_TASK = REPO / "bin" / "send-task.sh"
 OUTBOX_WATCHER = REPO / "bin" / "outbox-watcher.sh"
@@ -209,7 +219,7 @@ class Block1SymlinkedInbox(unittest.TestCase):
             }, "body"), encoding="utf-8")
 
             env = {**os.environ, "VAULT_ROOT": str(vault), "SKIP_NUDGE": "1",
-                   "FAILOVER_CONTROL_ENABLED": "0"}
+                   }
             r = subprocess.run([str(SEND_TASK), str(pkt)], env=env,
                                capture_output=True, text=True, timeout=120)
             out = r.stdout + r.stderr
@@ -220,39 +230,135 @@ class Block1SymlinkedInbox(unittest.TestCase):
         finally:
             shutil.rmtree(root, ignore_errors=True)
 
-    @skip_in_host_independent_ci(
-        "uses the non-dry board dispatch and live inbox delivery rail"
-    )
     def test_legitimate_real_inbox_still_dispatches(self):
         # guard: the containment fix must NOT reject a normal (real-dir) inbox, even
         # when VAULT_ROOT lives under a symlinked prefix like macOS /tmp->/private/tmp.
+        # Keep the real dispatcher and context handoff, but replace the detached
+        # board process and context builder with fixture-local recorders. This test
+        # is about the physical inbox boundary, not an installed model CLI.
         root = Path(tempfile.mkdtemp(prefix="wave2-b1ok-"))
         try:
             vault = root / "vault"
             vault.mkdir()
-            for name in ("bin", "shared", "scripts", "model-lanes"):
+            for name in ("shared", "model-lanes"):
                 (vault / name).symlink_to(REPO / name)
+
+            fixture_bin = vault / "bin"
+            fixture_bin.mkdir()
+            for entry in (REPO / "bin").iterdir():
+                if entry.name != "board-supervisor.sh":
+                    (fixture_bin / entry.name).symlink_to(
+                        entry, target_is_directory=entry.is_dir()
+                    )
+            launch_marker = root / "board-launch.args"
+            supervisor = fixture_bin / "board-supervisor.sh"
+            supervisor.write_text(
+                "#!/bin/sh\n"
+                "set -eu\n"
+                ": \"${WAVE2_BOARD_LAUNCH_MARKER:?}\"\n"
+                ": \"${BOARD_DISPATCH_DESCRIPTOR_PATH:?}\"\n"
+                "while [ ! -f \"$BOARD_DISPATCH_DESCRIPTOR_PATH\" ]; do "
+                "sleep 0.01; done\n"
+                "printf '%s\\n' \"$@\" > \"$WAVE2_BOARD_LAUNCH_MARKER\"\n",
+                encoding="utf-8",
+            )
+            supervisor.chmod(0o755)
+
+            fixture_scripts = vault / "scripts"
+            fixture_scripts.mkdir()
+            for entry in (REPO / "scripts").iterdir():
+                if entry.name != "python":
+                    (fixture_scripts / entry.name).symlink_to(
+                        entry, target_is_directory=entry.is_dir()
+                    )
+            fixture_python = fixture_scripts / "python"
+            fixture_python.mkdir()
+            for entry in (REPO / "scripts" / "python").iterdir():
+                if entry.name not in {"dispatch_context_builder.py", "host_admission.py"}:
+                    (fixture_python / entry.name).symlink_to(
+                        entry, target_is_directory=entry.is_dir()
+                    )
+            # Production binds the admission decision to the exact candidate
+            # vector: host_admission.py computes candidate_vector_sha256 and
+            # send-task.sh refuses a reply whose hash does not match, so a stub
+            # that omits the field is rejected with "candidate vector binding
+            # mismatch" before the behaviour under test is ever reached. Echo
+            # back the vector we were handed so the stub honours that contract.
+            (fixture_python / "host_admission.py").write_text(
+                "import json, sys\n"
+                "argv = sys.argv[1:]\n"
+                "vector = (argv[argv.index('--vector-sha256') + 1]\n"
+                "          if '--vector-sha256' in argv else '')\n"
+                "print(json.dumps({'admitted': True, 'action': 'admit',\n"
+                "                  'candidate_vector_sha256': vector}))\n",
+                encoding="utf-8",
+            )
+            context_builder = fixture_python / "dispatch_context_builder.py"
+            context_builder.write_text(
+                "#!/usr/bin/env python3\n"
+                "import json\n"
+                "from pathlib import Path\n"
+                "import sys\n"
+                "if len(sys.argv) < 2 or sys.argv[1] != 'build':\n"
+                "    raise SystemExit(64)\n"
+                "pairs = iter(sys.argv[2:])\n"
+                "args = {flag: next(pairs) for flag in pairs}\n"
+                "required = {'--repo-root', '--task-file', '--attempt-id', "
+                "'--generation', '--output'}\n"
+                "if set(args) != required:\n"
+                "    raise SystemExit(64)\n"
+                "Path(args['--output']).write_text(\n"
+                "    json.dumps({'fixture': 'physical-inbox', **args}, sort_keys=True) "
+                "+ '\\n', encoding='utf-8'\n"
+                ")\n",
+                encoding="utf-8",
+            )
+
             (vault / "_state").mkdir()
             dept = vault / "departments" / "coding"
             for sub in ("inbox", "active", "outbox", "archive"):
                 (dept / sub).mkdir(parents=True)
             task_id = "TASK-2026-07-16-0245-b1okprobe"
+            artifact = f"departments/coding/outbox/{task_id}-response.md"
             pkt = root / f"{task_id}.md"
             pkt.write_text(envelope({
                 "id": task_id, "to_model": "claude", "specialist": "none",
                 "source_namespace": "coding", "compatibility_namespace": "coding",
+                "mode": "project", "run_id": "P1-7-PHYSICAL-INBOX",
+                "result_type": "normal", "read_scope": "[]",
                 "parallel_safe": "true", "direct_lane_work_allowed": "true",
-                "write_scope": "[]",
-                "return_artifact": f"{dept}/outbox/{task_id}-response.md",
+                "mandatory_review": "false", "review_model": "none",
+                "model_override_reason": "hermetic physical inbox fixture",
+                "write_scope": f"[{artifact}]", "return_artifact": artifact,
             }, "body"), encoding="utf-8")
             env = {**os.environ, "VAULT_ROOT": str(vault), "SKIP_NUDGE": "1",
-                   "FAILOVER_CONTROL_ENABLED": "0"}
+                   "SQUAD_DISPATCH_MODE": "board",
+                   "WAVE2_BOARD_LAUNCH_MARKER": str(launch_marker)}
             r = subprocess.run([str(SEND_TASK), str(pkt)], env=env,
                                capture_output=True, text=True, timeout=120)
             self.assertEqual(r.returncode, 0, msg=r.stdout + r.stderr)
-            self.assertTrue((dept / "inbox" / f"{task_id}.md").is_file())
+            delivered = dept / "inbox" / f"{task_id}.md"
+            self.assertTrue(delivered.is_file())
+            delivered_text = delivered.read_text(encoding="utf-8")
+            self.assertIn(f"return_artifact: {artifact}\n", delivered_text)
+            self.assertIn(f"write_scope: [{artifact}]\n", delivered_text)
+
+            deadline = time.monotonic() + 5
+            while not launch_marker.is_file() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertTrue(launch_marker.is_file(), msg="fixture supervisor did not run")
+            launch_args = launch_marker.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(launch_args[0], "detached-launch")
+            self.assertTrue(any(arg.endswith(".context.json") for arg in launch_args))
+            descriptors = list((vault / "_state" / "board-dispatch").glob("*.dispatch.json"))
+            self.assertEqual(len(descriptors), 1)
+            process_record = json.loads(descriptors[0].read_text(encoding="utf-8"))
+            self.assertEqual(process_record["schema"], "board-dispatch-process/v2")
+            self.assertEqual(process_record["task_id"], task_id)
+            self.assertIn("process_start_token", process_record)
+            self.assertIn("argv_sha256", process_record)
         finally:
-            shutil.rmtree(root, ignore_errors=True)
+            cleanup_supervisors_before_root(root, vault)
 
     def test_compatibility_namespace_traversal_rejected_before_mailbox_write(self):
         root = Path(tempfile.mkdtemp(prefix="wave2-b1compat-"))
@@ -270,7 +376,7 @@ class Block1SymlinkedInbox(unittest.TestCase):
             }, "body"), encoding="utf-8")
 
             env = {**os.environ, "VAULT_ROOT": str(vault), "SKIP_NUDGE": "1",
-                   "FAILOVER_CONTROL_ENABLED": "0"}
+                   }
             r = subprocess.run([str(SEND_TASK), str(pkt)], env=env,
                                capture_output=True, text=True, timeout=60)
             out = r.stdout + r.stderr
@@ -308,7 +414,7 @@ class Block1SymlinkedInbox(unittest.TestCase):
                         "write_scope": "[]",
                     }, "body"), encoding="utf-8")
                     env = {**os.environ, "VAULT_ROOT": str(vault), "SKIP_NUDGE": "1",
-                           "FAILOVER_CONTROL_ENABLED": "0"}
+                           }
 
                     r = subprocess.run([str(SEND_TASK), str(pkt)], env=env,
                                        capture_output=True, text=True, timeout=60)
@@ -556,6 +662,77 @@ class Block3WatcherNoArchive(unittest.TestCase):
         finally:
             shutil.rmtree(root, ignore_errors=True)
 
+    def test_reconciler_failure_cannot_fall_back_to_terminal_status(self):
+        root = Path(tempfile.mkdtemp(prefix="wave2-reconcile-fail-"))
+        try:
+            vault, dept = self._vault(root)
+            reconciler = vault / "bin" / "registry-reconciler.sh"
+            reconciler.write_text("#!/bin/bash\necho 'forced failure' >&2\nexit 70\n",
+                                  encoding="utf-8")
+            task_id = "TASK-2026-08-07-1010-reconcile-fail"
+            entry = {
+                "compatibility_namespace": "security",
+                "specialist": "claude-spec",
+                "to_model": "claude",
+                "source_namespace": "security",
+                "review_model": "none",
+                "mandatory_review": "false",
+                "status": "in-flight",
+            }
+            registry = vault / "_state" / "active-tasks.json"
+            registry.write_text(json.dumps({task_id: entry}), encoding="utf-8")
+            packet = dept / "active" / f"{task_id}.md"
+            packet.write_text(f"---\nid: {task_id}\n---\nbody\n", encoding="utf-8")
+            response = dept / "outbox" / f"{task_id}-response.md"
+            response.write_text(
+                envelope({
+                    "id": f"{task_id}-response",
+                    "in_response_to": task_id,
+                    "from": "claude",
+                    "to": "chrono",
+                    "type": "RESULT",
+                    "status": "complete",
+                }),
+                encoding="utf-8",
+            )
+            fakebin = root / "fakebin"
+            fakebin.mkdir()
+            fswatch = fakebin / "fswatch"
+            fswatch.write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
+            fswatch.chmod(0o755)
+            env = {
+                **os.environ,
+                "VAULT_ROOT": str(vault),
+                "SQUAD_SESSION": "none",
+                "RESPONSE_MIN_AGE_SECONDS": "0",
+                "PATH": f"{fakebin}:{os.environ['PATH']}",
+            }
+            env.pop("CHRONO_VAULT_ROOT", None)
+
+            result = subprocess.run(
+                ["bash", str(vault / "bin" / "outbox-watcher.sh"), "security"],
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            output = result.stdout + result.stderr
+            current = json.loads(registry.read_text(encoding="utf-8"))[task_id]
+            queue_path = vault / "_state" / "chrono-queue.md"
+            queue = queue_path.read_text(encoding="utf-8") if queue_path.exists() else ""
+            self.assertEqual(result.returncode, 0, output)
+            self.assertEqual(current["status"], "in-flight", output)
+            self.assertTrue(packet.is_file(), output)
+            self.assertTrue(response.is_file(), output)
+            self.assertFalse((dept / "archive" / f"{task_id}.md").exists(), output)
+            self.assertIn("warning: failed registry reconciliation", output)
+            self.assertNotIn(f" | complete | security/{task_id} |", queue)
+            self.assertNotIn("fallback queued chrono status entry", output)
+            self.assertNotIn("✅ DONE", output)
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
     def test_preexisting_response_is_replayed_before_fswatch_events(self):
         root = Path(tempfile.mkdtemp(prefix="wave2-startup-replay-"))
         try:
@@ -593,15 +770,275 @@ class Block3WatcherNoArchive(unittest.TestCase):
             self.assertIn("shared reconciler handled registry entry", out)
         finally:
             shutil.rmtree(root, ignore_errors=True)
+
+    def test_v2_atomic_response_reconciles_before_legacy_age_gate(self):
+        root = Path(tempfile.mkdtemp(prefix="wave2-v2-immediate-"))
+        try:
+            vault, dept = self._vault(root)
+            task_id = "TASK-2026-08-07-1006-watcher-immediate"
+            attempt_id = "d-" + "6" * 32
+            generation = 1
+            board = vault / "_state" / "board-dispatch"
+            board.mkdir()
+            base = board / f"{task_id}.{attempt_id}"
+            descriptor = Path(f"{base}.dispatch.json")
+            descriptor.write_text(
+                json.dumps(
+                    {
+                        "schema": "board-dispatch-process/v2",
+                        "task_id": task_id,
+                        "attempt_id": attempt_id,
+                        "generation": generation,
+                        "created_at": "2026-08-07T12:00:01Z",
+                        "pid": 12345,
+                        "pgid": 12345,
+                        "process_start_token": "test:1",
+                        "argv_sha256": "a" * 64,
+                        "context_path": f"{base}.context.json",
+                        "log_path": f"{base}.log",
+                        "receipt_path": f"{base}.receipt.json",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            entry = {
+                "compatibility_namespace": "security",
+                "specialist": "claude-spec",
+                "to_model": "claude",
+                "source_namespace": "security",
+                "review_model": "none",
+                "mandatory_review": "false",
+                "status": "in-flight",
+                "delivery_state": "in-progress",
+                "delivery_attempt_id": attempt_id,
+                "delivery_generation": generation,
+                "delivery_history": [
+                    {
+                        "event": "in-progress",
+                        "transport": "board-supervisor",
+                        "attempt_id": attempt_id,
+                        "generation": generation,
+                    }
+                ],
+            }
+            (vault / "_state" / "active-tasks.json").write_text(
+                json.dumps({task_id: entry}), encoding="utf-8"
+            )
+            packet = dept / "active" / f"{task_id}.md"
+            packet.write_text(f"---\nid: {task_id}\n---\nbody\n", encoding="utf-8")
+            response = dept / "outbox" / f"{task_id}-response.md"
+            response.write_text(
+                envelope(
+                    {
+                        "id": f"{task_id}-response",
+                        "in_response_to": task_id,
+                        "from": "claude",
+                        "to": "chrono",
+                        "type": "RESULT",
+                        "status": "complete",
+                        "delivery_attempt_id": attempt_id,
+                        "delivery_generation": str(generation),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            fakebin = root / "fakebin"
+            fakebin.mkdir()
+            fswatch = fakebin / "fswatch"
+            fswatch.write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
+            fswatch.chmod(0o755)
+            env = {
+                **os.environ,
+                "VAULT_ROOT": str(vault),
+                "SQUAD_SESSION": "none",
+                "SQUAD_TEST_ISOLATION": "1",
+                "RESPONSE_MIN_AGE_SECONDS": "3600",
+                "PATH": f"{fakebin}:{os.environ['PATH']}",
+            }
+            env.pop("CHRONO_VAULT_ROOT", None)
+
+            result = subprocess.run(
+                ["bash", str(vault / "bin" / "outbox-watcher.sh"), "security"],
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            output = result.stdout + result.stderr
+            final = json.loads(
+                (vault / "_state" / "active-tasks.json").read_text(encoding="utf-8")
+            )[task_id]
+            self.assertEqual(result.returncode, 0, output)
+            self.assertEqual(final["status"], "complete", output)
+            self.assertTrue((dept / "archive" / f"{task_id}.md").is_file(), output)
+            self.assertIn("shared reconciler handled registry entry", output)
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+    def test_v2_stale_response_hold_never_falls_back_to_false_done(self):
+        root = Path(tempfile.mkdtemp(prefix="wave2-v2-hold-"))
+        try:
+            vault, dept = self._vault(root)
+            task_id = "TASK-2026-08-07-1007-watcher-v2-hold"
+            attempt_id = "d-" + "7" * 32
+            stale_attempt = "d-" + "1" * 32
+            generation = 2
+            board = vault / "_state" / "board-dispatch"
+            board.mkdir()
+            base = board / f"{task_id}.{attempt_id}"
+            Path(f"{base}.dispatch.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "board-dispatch-process/v2",
+                        "task_id": task_id,
+                        "attempt_id": attempt_id,
+                        "generation": generation,
+                        "created_at": "2026-08-07T12:00:01Z",
+                        "pid": 12345,
+                        "pgid": 12345,
+                        "process_start_token": "test:1",
+                        "argv_sha256": "a" * 64,
+                        "context_path": f"{base}.context.json",
+                        "log_path": f"{base}.log",
+                        "receipt_path": f"{base}.receipt.json",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            entry = {
+                "compatibility_namespace": "security",
+                "specialist": "claude-spec",
+                "to_model": "claude",
+                "source_namespace": "security",
+                "review_model": "none",
+                "mandatory_review": "false",
+                "status": "in-flight",
+                "delivery_state": "in-progress",
+                "delivery_attempt_id": attempt_id,
+                "delivery_generation": generation,
+                "delivery_history": [
+                    {
+                        "event": "in-progress",
+                        "transport": "board-supervisor",
+                        "attempt_id": attempt_id,
+                        "generation": generation,
+                    }
+                ],
+            }
+            registry = vault / "_state" / "active-tasks.json"
+            registry.write_text(json.dumps({task_id: entry}), encoding="utf-8")
+            packet = dept / "active" / f"{task_id}.md"
+            packet.write_text(f"---\nid: {task_id}\n---\nbody\n", encoding="utf-8")
+            response = dept / "outbox" / f"{task_id}-response.md"
+
+            def write_response(response_attempt: str, response_generation: int) -> None:
+                response.write_text(
+                    envelope(
+                        {
+                            "id": f"{task_id}-response",
+                            "in_response_to": task_id,
+                            "from": "claude",
+                            "to": "chrono",
+                            "type": "RESULT",
+                            "status": "complete",
+                            "delivery_attempt_id": response_attempt,
+                            "delivery_generation": str(response_generation),
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+            fakebin = root / "fakebin"
+            fakebin.mkdir()
+            fswatch = fakebin / "fswatch"
+            fswatch.write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
+            fswatch.chmod(0o755)
+            env = {
+                **os.environ,
+                "VAULT_ROOT": str(vault),
+                "SQUAD_SESSION": "none",
+                "SQUAD_TEST_ISOLATION": "1",
+                "RESPONSE_MIN_AGE_SECONDS": "0",
+                "PATH": f"{fakebin}:{os.environ['PATH']}",
+            }
+            env.pop("CHRONO_VAULT_ROOT", None)
+
+            write_response(stale_attempt, 1)
+            for _ in range(2):
+                held = subprocess.run(
+                    ["bash", str(vault / "bin" / "outbox-watcher.sh"), "security"],
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
+                held_output = held.stdout + held.stderr
+                current = json.loads(registry.read_text(encoding="utf-8"))[task_id]
+                self.assertEqual(held.returncode, 0, held_output)
+                self.assertEqual(current["status"], "in-flight", held_output)
+                self.assertTrue(packet.is_file(), held_output)
+                self.assertIn("authoritative V2 settlement hold", held_output)
+                self.assertNotIn("fallback queued chrono status entry: complete", held_output)
+                self.assertNotIn("✅ DONE", held_output)
+
+            queue = (vault / "_state" / "chrono-queue.md").read_text(encoding="utf-8")
+            self.assertNotIn(f" | complete | security/{task_id} |", queue)
+
+            for review_state in ("review-required", "needs_review"):
+                with self.subTest(review_state=review_state):
+                    registry_payload = json.loads(registry.read_text(encoding="utf-8"))
+                    registry_payload[task_id]["status"] = review_state
+                    if review_state == "needs_review":
+                        registry_payload[task_id]["mandatory_review"] = "true"
+                        registry_payload[task_id]["review_model"] = "gpt-codex"
+                    registry.write_text(json.dumps(registry_payload), encoding="utf-8")
+                    held = subprocess.run(
+                        ["bash", str(vault / "bin" / "outbox-watcher.sh"), "security"],
+                        env=env,
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                        check=False,
+                    )
+                    held_output = held.stdout + held.stderr
+                    self.assertEqual(held.returncode, 0, held_output)
+                    self.assertTrue(packet.is_file(), held_output)
+                    self.assertIn("authoritative V2 settlement hold", held_output)
+                    self.assertNotIn("fallback queued chrono status entry: complete", held_output)
+                    self.assertNotIn("✅ DONE", held_output)
+
+            registry_payload = json.loads(registry.read_text(encoding="utf-8"))
+            registry_payload[task_id]["status"] = "in-flight"
+            registry_payload[task_id]["mandatory_review"] = "false"
+            registry_payload[task_id]["review_model"] = "none"
+            registry.write_text(json.dumps(registry_payload), encoding="utf-8")
+            write_response(attempt_id, generation)
+            corrected = subprocess.run(
+                ["bash", str(vault / "bin" / "outbox-watcher.sh"), "security"],
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            corrected_output = corrected.stdout + corrected.stderr
+            current = json.loads(registry.read_text(encoding="utf-8"))[task_id]
+            self.assertEqual(corrected.returncode, 0, corrected_output)
+            self.assertEqual(current["status"], "complete", corrected_output)
+            self.assertTrue((dept / "archive" / f"{task_id}.md").is_file())
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
     def test_gnu_stat_mtime_probe_never_uses_filesystem_report_as_epoch(self):
         root = Path(tempfile.mkdtemp(prefix="wave2-gnu-stat-"))
         try:
             vault, dept = self._vault(root)
-            # The real reconciler uses the same queue lock as the watcher's
-            # fallback. Stub it out so the deliberately stale lock below is
-            # consumed by append_chrono_queue rather than blocking upstream.
+            # A successful, unhandled V1 reconciliation keeps the legacy status
+            # fallback. Stub it so the stale lock is consumed by the watcher.
             reconciler = vault / "bin" / "registry-reconciler.sh"
-            reconciler.write_text("#!/bin/bash\necho 'forced fallback' >&2\nexit 1\n",
+            reconciler.write_text("#!/bin/bash\necho 'successful V1 fallback'\nexit 0\n",
                                   encoding="utf-8")
             t = "TASK-2026-07-16-2010-gnustatprobe"
             entry = {"compatibility_namespace": "security", "specialist": "claude-spec",
@@ -669,26 +1106,38 @@ class Block3WatcherNoArchive(unittest.TestCase):
 
 
 class WatcherSupervisorWiring(unittest.TestCase):
-    def test_launch_restarts_each_watcher_kind_per_namespace(self):
+    def test_launch_restarts_one_consolidated_outbox_watcher(self):
+        """One supervised outbox watcher in "all" mode, not one per namespace.
+
+        This pinned the per-namespace spawn until 2026-08-09. outbox-watcher.sh
+        gained an "all" mode that derives the namespace per event from the path,
+        measured at four simultaneous writes -> four detections in 31-48 ms, and
+        launch-squad.sh now starts exactly one supervised watcher. The old shape
+        is asserted absent so a revert cannot pass silently: nothing reaped the
+        per-namespace fleet across restarts, which is how six intended watchers
+        became 43.
+        """
         lines = (REPO / "bin" / "launch-squad.sh").read_text(
             encoding="utf-8"
         ).splitlines()
-        for kind in ("inbox", "outbox"):
-            with self.subTest(kind=kind):
-                index = next(
-                    index for index, line in enumerate(lines)
-                    if f"watcher supervisor restart: kind={kind}" in line
-                )
-                command = lines[index]
-                arguments = lines[index + 1]
-                self.assertIn('while true; do bash "$1" "$2"', command)
-                self.assertIn(f"watcher supervisor restart: kind={kind}", command)
-                self.assertIn("namespace=$2 rc=$rc", command)
-                self.assertIn("sleep 2; done", command)
-                self.assertIn(f'"watcher-supervisor:{kind}:${{namespace}}"', arguments)
-                self.assertIn(f'"${{VAULT_ROOT}}/bin/{kind}-watcher.sh"', arguments)
-                self.assertIn('"$namespace"', arguments)
-                self.assertTrue(arguments.rstrip().endswith("&"), arguments)
+        matches = [
+            index for index, line in enumerate(lines)
+            if "watcher supervisor restart: kind=outbox" in line
+        ]
+        self.assertEqual(len(matches), 1, "expected exactly one outbox supervisor")
+        command = lines[matches[0]]
+        arguments = lines[matches[0] + 1]
+        self.assertIn('while true; do bash "$1" all', command)
+        self.assertIn("namespace=all rc=$rc", command)
+        self.assertIn("sleep 2; done", command)
+        self.assertIn('"watcher-supervisor:outbox:all"', arguments)
+        self.assertIn('"${VAULT_ROOT}/bin/outbox-watcher.sh"', arguments)
+        self.assertTrue(arguments.rstrip().endswith("&"), arguments)
+        self.assertFalse(any("watcher-supervisor:inbox:" in line for line in lines))
+        # The retired per-namespace shape must not come back.
+        self.assertFalse(
+            any('"watcher-supervisor:outbox:${namespace}"' in line for line in lines)
+        )
 
 
 if __name__ == "__main__":

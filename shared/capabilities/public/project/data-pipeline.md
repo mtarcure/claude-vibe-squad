@@ -14,6 +14,10 @@ gates: [production_mutation, credential_change, delete]
 > real target code, and see `shared/registries/recommended-toolchain.tsv` for
 > what to install by technique class and target class.
 
+## Availability in a fresh clone
+
+A zero-key checkout gets this protocol and its validation metadata as documentation; automated dispatch is `needs_tool`. To make it runnable, install and authenticate the selected model CLI, configure every MCP declared by the dispatched specialists, bind the private vault (`CHRONO_VAULT_ROOT`; Kimi also requires its exact vault context), install any required host-local binaries, and provide approved credentials plus a bounded budget for any metered provider named below. After setup, re-run the production role planner and validators on that host; availability remains subject to the narrower gaps and operator gates documented in this card.
+
 **When to use:** build an ETL / analytics / data-plumbing pipeline, or wire data into an ML/serving system.
 **Not** model training (no specialist for it — returns `needs_specialist`).
 

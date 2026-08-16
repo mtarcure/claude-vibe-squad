@@ -13,6 +13,7 @@ from typing import Any, NamedTuple
 
 SOURCE_RELATIVE = Path("model-lanes/specialist-lane-capabilities.v1.json")
 SOURCE_SCHEMA = "specialist-lane-capabilities/v1"
+SURFACE_SCHEMA = "capability-surface/v1"
 CAPABILITY_FIELDS = ("skills", "tools", "mcps")
 LANES = ("gpt-codex", "claude", "gemini", "kimi")
 # Availability states, with their semantics. The single most damaging legacy
@@ -343,6 +344,46 @@ def available_arrays(
         }
         result[kind] = tuple(sorted(values, key=str.casefold))
     return result
+
+
+def role_surface_payload(entry: dict[str, Any]) -> dict[str, Any]:
+    """Return the canonical, executable capability surface for one role lane."""
+    usable = {
+        kind: sorted(
+            {
+                ref.identifier
+                for ref in entry.get(kind, ())
+                if is_usable_capability(kind, ref.availability)
+            },
+            key=str.casefold,
+        )
+        for kind in CAPABILITY_FIELDS
+    }
+    direct_mcps = [item for item in usable["mcps"] if not item.startswith("lead:")]
+    brokered_mcps = sorted(
+        (item.removeprefix("lead:") for item in usable["mcps"] if item.startswith("lead:")),
+        key=str.casefold,
+    )
+    return {
+        "schema": SURFACE_SCHEMA,
+        "lane": entry["lane"],
+        "skills": usable["skills"],
+        "tools": usable["tools"],
+        "mcps": direct_mcps,
+        "brokered_mcps": brokered_mcps,
+    }
+
+
+def role_surface_sha256(entry: dict[str, Any]) -> str:
+    """Hash one canonical role surface without descriptive source metadata."""
+    canonical = json.dumps(
+        role_surface_payload(entry),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        allow_nan=False,
+    )
+    return hashlib.sha256(canonical.encode("ascii")).hexdigest()
 
 
 def tracked_arrays(

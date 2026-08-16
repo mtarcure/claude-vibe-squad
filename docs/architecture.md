@@ -1,171 +1,212 @@
-# Vibe Squad Architecture
+# Vibe Squad architecture
 
-Vibe Squad is a **markdown-first, board-native** multi-model harness. A coordinator (Chrono) runs in a tmux window; every specialist runs as a **fresh, capability-scoped CLI spawned per task in its own git worktree**. Work moves as markdown task packets in per-namespace mailbox folders. There is no TUI app, no PTY supervisor, and no daemon on the dispatch path.
+Vibe Squad is a Markdown-first, board-native multi-model harness. The operator
+talks to one coordinator, Chrono. Chrono interprets the request, chooses a
+specialist and workflow, assigns write ownership, and decides what must be
+reviewed. Small runtime rails then launch isolated workers, validate mechanical
+contracts, observe processes, and publish results.
 
-> Historical note: an earlier redesign proposed an Ink (Node/React) TUI backed by a FastAPI daemon as the dispatch spine. That design was **not built** — see "Planned (not built)" at the end. A later stage of the system did run four long-lived per-model tmux "lane" windows; that model was **retired at the Phase-3 board cutover** and no persistent model lanes exist today. This document describes the system that actually ships.
+The default dispatch path needs no HTTP service, database, or model proxy. It is
+made from Markdown packets, local files, short-lived native CLI processes, and
+git worktrees.
+
+## The intelligence boundary
+
+Human and model judgment lives in readable, diffable files:
+
+- Chrono's coordinator instructions
+- the Project and Bounty mode documents
+- capability cards and specialist briefs
+- routing, review, safety, and memory guidance
+
+There are exactly two work modes: [Project](../shared/modes/project.md) and
+[Bounty](../shared/modes/bounty.md). Project contains engineering, research,
+operations, outreach, and content/media capabilities. Bounty contains authorized
+security research. A conversational request or advisory answer does not create a
+third mode.
+
+A capability card selects the workflow, gates, and overlays for a task. It never
+selects the model. Chrono selects a specialist; the specialist's row in
+[`shared/specialist-runtime-map.tsv`](../shared/specialist-runtime-map.tsv)
+selects the primary CLI/profile, backup, escalation, and reviewer constraints.
+Folder or mailbox names are compatibility storage labels, not model ownership.
+
+Machinery owns facts that should not depend on interpretation: identities,
+hashes, scopes, process birth, exit receipts, publication order, and registry
+fences. It may validate or record a judgment that Chrono made, but it does not
+invent the goal, decomposition, specialist choice, review merit, or acceptance
+decision. There is no general workflow engine that replaces the Markdown
+instructions.
 
 ## Runtime shape
 
+```text
+operator
+   │
+   ▼
+Chrono in tmux ── selects mode, capability, specialist, scope, and review
+   │
+   ▼
+Markdown task packet in departments/<namespace>/inbox/
+   │
+   ▼
+detached board supervisor ── one git worktree per attempt
+   │
+   ▼
+fresh codex | claude | gemini | kimi CLI
+   │
+   ├─ writes declared artifact
+   └─ writes response envelope
+            │
+            ▼
+controller validates outside worktree
+   │
+   ├─ publishes artifact first
+   └─ publishes envelope last
+            │
+            ▼
+envelope + fenced receipt publication
+   ├─ supervisor / outbox watcher ── registry reconciler ── settlement
+   │                                      └─ optional tmux ── attended Chrono pane
+   ├─ reconciled registry ── board-notify.sh stdout ── explicit reader
+   └─ outbox/queue files ── explicit read ── later reader
 ```
-tmux session `squad`
-  ├─ window 0: chrono            — coordinator, Claude Code (+ live dashboard sidebar)
-  └─ window 5: watchers/status   — watcher fleet + status readouts
-        │
-        │  dispatch = markdown packets on the filesystem
-        ▼
-  departments/<namespace>/inbox/   ← Chrono writes packets here
-  departments/<namespace>/outbox/  ← specialists write responses here
-        │
-        │  bin/send-task.sh → detached bin/board-supervisor.sh
-        ▼
-  one git worktree per attempt (_state/board-worktrees/<attempt-id>/)
-        │
-        │  a fresh specialist CLI is spawned into that worktree,
-        │  bound to the model its runtime-map row selects
-        ▼
-  artifact written first → validated outside the worktree
-        │
-        ▼
-  outbox response envelope → bin/registry-reconciler.sh settles the task
 
-  MCP servers (per-CLI registration, no proxy)
-        ├─ chrono-vault (+ chrono-kg / chrono-obsidian legacy namespace aliases)
-        ├─ chrono-research-arsenal
-        ├─ chrono-media-studio
-        └─ chrono-recon
-  Persistent Chrome (CDP :9222) — kept alive outside the squad lifecycle
-```
+[`bin/squad`](../bin/squad) is the lifecycle interface. Its launcher creates the
+`chrono` coordinator window and a `watchers/status` window. Specialists are not
+standing tmux panes or permanent agents: each board dispatch starts a fresh CLI
+process and ends it with the attempt. The sidebar and watchers are projections
+of the board; they do not control worker execution.
 
-The launcher creates exactly **two** windows — `chrono` (window 0) and `watchers/status` (window 5). Specialist CLIs are not windows at all; they are detached, per-task child processes.
+## Native model transport and utility tools
 
-## Entry point & launcher
+All specialist model inference runs through the provider's native CLI:
+`codex`, `claude`, `gemini`, or `kimi`. Codex and Claude use their approved
+subscription login paths, Kimi uses its managed login, and Gemini's native CLI
+is the explicit API-key exception. Profiles resolve to exact model and effort
+settings through
+[`shared/registries/profiles.tsv`](../shared/registries/profiles.tsv).
 
-- `bin/vibe-squad` — thin passthrough to `bin/squad` (backward-compat name).
-- `bin/squad` — lifecycle CLI: `up` (default), `stop`, `status`, `doctor`, `attach`, `detach`.
-- `bin/launch-squad.sh` — creates the tmux session `squad` (the `chrono` coordinator window plus the `watchers/status` window), applies PATH/auth prefixes, and starts the coordinator and watcher fleet. It does **not** start any specialist CLI: those are spawned per task by the board. Re-running re-attaches an existing session (idempotent).
+MCP servers are tools, not model transports. They can provide private memory,
+research, browser automation, code intelligence, sequential thinking, or
+governed media operations. They never proxy a specialist call to Codex, Claude,
+Gemini, or Kimi. Media and other service APIs may consume their own provider
+credits when an approved Project capability invokes them; that is separate from
+the model lane.
 
-`stop` / `status` / `doctor` route to `bin/squad-stop.sh`, `bin/where-are-we.sh`, and `bin/doctor.sh` respectively.
+Each CLI owns its utility registration, and available tools differ by lane.
+[`model-lanes/lane-capabilities.tsv`](../model-lanes/lane-capabilities.tsv) is
+the capability boundary; a globally installed tool is not assumed available to
+every worker. The private Markdown memory vault also lives outside the public
+worktree; see the [Chrono Vault guide](../plugins/chrono-vault/README.md).
 
-## Components
+## Dispatch and publication
 
-### Chrono (coordinator)
-Window 0 runs Claude Code, auto-loading `chrono/CLAUDE.md`. Chrono is the only controller and the only operator-facing voice: it chooses mode, specialist, write scope, model, and review gate, then dispatches packets. Specialists never talk to the operator directly.
+Chrono calls [`scripts/send-task.sh`](../scripts/send-task.sh), which derives
+packet frontmatter from the specialist map and hands the packet to
+[`bin/send-task.sh`](../bin/send-task.sh). The hardened dispatcher validates the
+mode, optional capability card, declared read/write scope, lane/profile, safety
+fields, and immutable verification contract. It registers a fenced delivery
+attempt, writes the packet atomically to the appropriate inbox, builds a trusted
+launch context, and detaches
+[`bin/board-supervisor.sh`](../bin/board-supervisor.sh).
 
-### Specialists (board-spawned, per task)
-There are **no persistent per-model lanes**. Each dispatched packet is executed by a **freshly spawned, capability-scoped CLI running in its own git worktree**, and that process exits when the task ends. Model binding is **per specialist, not per lane**: each specialist's runtime-map row names the CLI that runs it and the profile that fixes the exact model, effort, and flags. The CLI is a vehicle, not a lane.
+The supervisor provisions an attempt-specific worktree, checks the canonical
+specialist and lane adapter, then executes the selected native CLI with only its
+packet and allowed context. The worker writes two outputs inside that worktree:
+the declared `return_artifact` and a small completion envelope. Controller code
+reads and validates both from outside the worker environment. Only validated
+output is promoted, with the artifact published before the envelope. The
+envelope is the outbox/filesystem watcher's publication marker, not a semantic
+completion verdict or a receipt for a headless consumer, so observers never
+treat a half-published result as complete.
 
-| CLI | Provider | Role in routing |
-|---|---|---|
-| `codex` | OpenAI | Primary for 12 specialists; the standard cross-family reviewer for Claude-authored work |
-| `claude` | Anthropic | Primary for 43 specialists |
-| `gemini` | Google | Primary for 14 specialists; grounded research and media routes |
-| `kimi` | Moonshot | Deny-by-default as a primary — 4 operator-ratified exceptions; otherwise gated throughput only |
+[`scripts/python/registry_reconciler.py`](../scripts/python/registry_reconciler.py)
+settles the delivery record from a valid response or a matching terminal
+receipt. Completion observation is explicit: the default watcher fleet starts the
+consolidated outbox watcher, whose best-effort live recipient is only the Chrono
+tmux pane (`bin/launch-squad.sh:217-231`); a headless controller must separately
+start [`bin/board-notify.sh`](../bin/board-notify.sh) and consume the target-state
+lines it writes to stdout (`bin/board-notify.sh:38-55`). That stdout observer has
+no persisted cursor or downtime replay and does not report `review-required`
+holds, which the registry classifies as live (`scripts/python/chrono_state/registry.py:35-63`).
+Outbox and queue files are
+durable inputs for a later explicit read, not delivery by existence. Chrono then
+decides whether to accept, manually author an ordinary continuation packet, send
+for review, or surface the result to the operator.
 
-Counts are the current `primary_lane` distribution in `shared/specialist-runtime-map.tsv` (73 rows: claude 43 · gemini 14 · codex 12 · kimi 4). Exact per-specialist model + effort resolve from `shared/registries/profiles.tsv`; see `shared/routing.md` for the routing model. A specialist reads its dispatched packet plus the named specialist markdown, executes in its worktree, and writes its response to the outbox.
+The canonical per-path recipient, timing, and unattended behavior is the
+[Completion recipient contract](../shared/protocol.md#completion-recipient-contract).
+That table is authoritative if this topology summary ever drifts.
 
-### Markdown mailbox (dispatch board)
-The dispatch board is the filesystem, not a service:
-- `departments/<compatibility_namespace>/inbox/TASK-*.md` — packets Chrono dispatches.
-- `departments/<compatibility_namespace>/outbox/TASK-*-response.md` — specialist responses.
+## The process/receipt fact seam
 
-Mailbox namespaces are `coding`, `security`, `content`, `sysmgmt`, `research`; `shared` specialists route through one of these mailboxes chosen by Chrono. `source_namespace` selects the specialist markdown; `compatibility_namespace` selects the mailbox folder.
+Runtime status is observed rather than copied from a label. Every board attempt
+has a descriptor under `_state/board-dispatch/` binding task ID, attempt ID,
+generation, PID, process group, process-start identity, command hash, launch
+context, log, and receipt path. A dashboard card is `running` only when that
+descriptor and context agree, the exact process identity is still live, and no
+matching terminal receipt exists.
 
-### MCP servers
-Each CLI registers its own MCP servers directly — there is no proxy layer:
+At termination, the controller publishes a fenced receipt containing the same
+attempt identity, a hash of the descriptor, completion time, and terminal
+outcome. A reused PID, stale generation, renamed file, mismatched command, or
+unbound receipt is rejected rather than guessed around. This logic is shared by
+[`scripts/python/board_process_truth.py`](../scripts/python/board_process_truth.py),
+the board snapshot, cancellation, and reconciliation paths.
 
-| CLI | MCP registration |
+This seam is deliberately narrow. A process receipt proves what happened to an
+attempt; it does not prove that the artifact is correct, that a review passed,
+or that the engagement should be accepted. Those remain separate evidence and
+judgment decisions.
+
+## Review, authorization, and memory
+
+Review requirements are pinned at dispatch. When independent review is
+required, the runtime map and dispatcher constrain the reviewer to a different
+provider family; an equal execution/review lane is invalid and fails closed;
+reviewers are read-only unless Chrono serializes a later write task. A
+`mandatory_review` flag is a contract to obtain review, not permission for the
+worker to approve itself.
+
+Consequential effects remain operator-gated policy, including deletion,
+credential changes, public release, paid media, live outreach, and production
+mutation. The ordinary worker path denies their declared category tokens at
+admission; it does not ask for approval during a later tool call. `read_scope`
+and `write_scope` are declarative while the worker runs, with `write_scope`
+enforced when committed changes are integrated. Deletion has a separate,
+file-exact Git-integration gate. The exact boundary and its residuals live in
+[`shared/protocol.md`](../shared/protocol.md#held-category-authority-and-logical-scopes).
+
+Recall and recording use the private Chrono Vault as a utility surface. Memory
+can inform a task, but recalled notes are evidence to re-check, not instructions
+or proof of current state. Public code, private memory, credentials, runtime
+mailboxes, and generated state remain separate; see
+[Private configuration](private-config.md).
+
+## Optional support daemon
+
+[`daemon/main.py`](../daemon/main.py) is an optional, explicitly started FastAPI
+support process. It exposes health, bearer-protected read-only task views, an
+event stream, utility-MCP/catalog calls, and a separate Gemini API summarizer.
+`bin/squad up` does not start it, it has no task-submission route, and the board
+does not depend on it. Its metered summarizer is not one of the four specialist
+model lanes.
+
+The dormant automatic-failover subsystem is retired. Operational failures surface
+through the ordinary receipt and reconciliation path. If the operator chooses the
+mapped backup, Chrono manually authors a new ordinary board packet; no flag,
+sentinel, watcher, or daemon launches it.
+
+## Canonical references
+
+| Concern | Source |
 |---|---|
-| claude | `~/.claude/settings.json` (`enabledPlugins`, via the local `chrono` plugin marketplace) |
-| codex | `~/.codex/config.toml` |
-| kimi | `~/.kimi/mcp.json` |
-| gemini | `~/.gemini/settings.json` |
-
-Servers: `chrono-vault` (private, off-repo **markdown source of truth** with a disposable FTS5/BM25 recall index — record/recall/usage plus an Obsidian read/write bridge; it retains `chrono-kg` and `chrono-obsidian` legacy namespace aliases over the same binary for archive-role compatibility. The retired `chrono-catalog` alias and the old in-repo SQLite knowledge graph are gone), `chrono-research-arsenal` (arxiv, xai, perplexity), `chrono-media-studio` (image/video/audio generation), and `chrono-recon` (OSINT). Availability differs per CLI; `shared/api-catalog.md` records the verified state each specialist binds to.
-
-### Optional daemon (secondary)
-`daemon/main.py` is an optional observability API with bearer auth except for its public health check: health, read-only task status, summarize, and event-stream routes, plus MCP/catalog support. Its file watcher runs only when this optional daemon runs; the separate failover control plane remains opt-in and dormant. The daemon is **not** started by `bin/launch-squad.sh`, does not expose task/project submission routes, and is **not a dispatch path**. When it is running, status readouts poll `GET /tasks` (`bin/vs-lane-status.sh`) and the weekly review runner posts to `/summarize` (`scripts/python/weekly_review_runner.py`). Markdown packets under `departments/<namespace>/inbox/` remain the only live dispatch spine.
-
-### Persistent Chrome
-A long-lived Chrome instance is kept alive outside the squad lifecycle (`bin/chrome-bootstrap.sh`, `bin/browser-keep-alive.sh`) and exposed over the Chrome DevTools Protocol on `:9222`. Lanes that need a browser attach over CDP to this persistent Chrome rather than spawning a fresh profile, reusing your signed-in working browser session rather than losing state. See `shared/lifecycle.md` for browser attach rules.
-
-### Watchers / status
-Window 5 hosts the watcher fleet and status readouts: `bin/inbox-watcher.sh` and `bin/outbox-watcher.sh` surface mailbox activity, and `bin/registry-reconciler.sh` settles landed responses against the active-task registry.
-
-## Task lifecycle
-
-1. Operator types a request to Chrono (window 0).
-2. Chrono selects mode, specialist(s), write scope, model, and review gate.
-3. Chrono writes a task body and calls `scripts/send-task.sh <source-namespace> <body-file> <specialist> [to-model]`.
-4. `scripts/send-task.sh` fills packet frontmatter from `shared/specialist-runtime-map.tsv` (review model, safety → `mandatory_review`, source namespace) and hands off to `bin/send-task.sh`.
-5. `bin/send-task.sh` runs the safety path (write-scope checks, toolkit injection, dispatch logging), pins a SHA-256 **verification contract** to the packet, atomically writes it to `departments/<compatibility_namespace>/inbox/TASK-*.md`, and hands delivery to a detached `bin/board-supervisor.sh`.
-6. The supervisor creates a git worktree for the attempt and spawns a fresh, capability-scoped CLI into it, bound to the specialist's model.
-7. The specialist reads the packet + named specialist markdown, executes, and writes its **return artifact first**, then the response envelope at `departments/<compatibility_namespace>/outbox/TASK-*-response.md`.
-8. The rail validates the artifact from **outside** the worktree, promotes it, and `bin/registry-reconciler.sh` settles the registry entry.
-9. Chrono reads the response, runs any required review, and surfaces the result to the operator.
-
-Dispatch is asynchronous: senders do not block on specialist work (see `shared/protocol.md` § Async Rule). `SQUAD_DISPATCH_MODE` defaults to `board`; the legacy `pane` transport still exists behind that variable but is not the shipped path.
-
-**Admission control at step 5.** `bin/send-task.sh` refuses to launch onto a saturated machine, because a lane that lands on an overloaded host does not fail — it runs slowly and gets killed at the 61-minute cap with no artifact. Defaults: 6 concurrent lanes globally, 2 per model for `claude`/`codex`, 1 for `gemini`/`kimi`. Override with `SEND_TASK_MAX_LANES`, `SEND_TASK_MAX_PER_LANE` (`model=N,model=N`), or bypass with `SEND_TASK_SKIP_CAPACITY=1`. The check **fails open**: an unreadable or corrupt registry admits the dispatch rather than blocking the board.
-
-**Promotion is `return_artifact` only.** Every other `write_scope` path stays in the attempt worktree, and because `_state/**` is gitignored the omission is silent — the file simply never appears where it was expected. `bin/send-task.sh` warns at dispatch time naming the paths that will need a manual sweep. Writing harnesses into a gitignored tree is legitimate; assuming they come back is the defect.
-
-**Terminal receipts carry a failure class.** When a lane ends without a promoted response, `bin/registry-reconciler.sh` settles from `_state/board-dispatch/<task>.<attempt>.receipt.json`. The receipt's `failure_class` (`launch`, `request_validation`, `worktree`, `memory_proof`, `integration`, `launch_canary`, `missing_envelope`, `cancelled`, `other`), `reason` and `returncode` are lifted onto the entry as `terminal_receipt_*` and named in `closure_reason`, so a toolchain gate is distinguishable from a policy denial without opening the receipt JSON.
-
-## Review gates
-`mandatory_review: true` is a dispatch-time contract, not auto-firing automation (`shared/protocol.md` § Mandatory Review Behavior). High-safety specialists must carry a `review_model`; same-family reviews run inside the specialist's own attempt before it declares done, and cross-family reviews are dispatched by Chrono as a separate attempt after the response lands. Reviewers are read-only unless Chrono serializes a later write packet.
-
-## Routing & namespaces
-Routing is **quality-fit**: Chrono picks the model per specialist by capability, recorded explicitly in `shared/specialist-runtime-map.tsv`. **`source_namespace` is a mailbox/storage label only — it never chooses the model.** Two specialists in the same namespace can run on different CLIs. The TSV is the canonical routing source of truth; `shared/routing.md` is the narrative source of truth; `model-lanes/ROSTER.md` is a generated per-CLI view.
-
-- `source_namespace`: where the specialist markdown + local memory live (coding, content, research, security, sysmgmt, shared).
-- `compatibility_namespace`: which mailbox folder a packet lands in (chosen by Chrono for the active workflow).
-
-The map is a **29-column** schema (up from the earlier 8). Each specialist row carries a full routing chain — `primary_lane` + a **cross-family `backup_lane`** (a genuine second-best from a different model family) + an `escalate` profile + a separate `review_lane` — plus `capability_class`, `safety_level`, `tool_profile` (for tool-gated media roles), `operator_gate`, and `operator_model_consult`. Rather than duplicate raw model IDs, each routing slot references a **profile** that resolves in `shared/registries/profiles.tsv` to an exact model + effort + flags; failover/escalation/throughput behaviour are **versioned policy IDs** in `shared/registries/policies.tsv`. **Kimi is deny-by-default as a primary**, with four operator-ratified exceptions declared in `shared/lane-policy.tsv` (`experimental-attacker`, `large-context-analyst`, `summarizer`, `web-builder`); outside those it is a gated throughput lane for bulk/mechanical passes. `bin/validate-specialists.sh` fail-closes on schema, foreign-key, and rule violations (current roster: 73/73 passing).
-
-There are **73 specialists** across the six source namespaces: **coding 20 · content 20 · security 11 · sysmgmt 8 · shared 8 · research 6**. The current `primary_lane` distribution is **claude 43 · gemini 14 · codex 12 · kimi 4**.
-
-## Safety model
-Capability is separated from authorization.
-
-- **Global safety-refusal invariant.** A genuine safety refusal on *any* lane surfaces to the operator and is **never cross-family re-dispatched in either direction** — a refused request is never shopped to a more permissive model. Operational failures (overload, lane down, timeout) may fail over; safety refusals may not. Refusals are classified by structured provider/wrapper policy event first, then a typed terminal status, with a content heuristic used only to *downgrade* certainty and surface — never as a positive classifier. A schema-valid response is terminal; a short response is never treated as an operational failure.
-- **Operator gates (Hard Rule 6).** A closed enum of actions requires explicit operator approval before execution: `delete · cleanup · credential_change · public_release · paid_media · live_outreach · production_mutation` (`production_mutation` — mutating a live production system that is not itself a public release — was operator-ratified 2026-07-13). A brief's `requires_approval` field is limited to actual harness tool names, so domain approvals cannot hide there.
-- **Pre-publication gates.** Two specialists are machine-checkable gates before anything ships: `content-verifier` (fact/citation truth gate, Rule 8) and `asset-provenance-and-rights-auditor` (license/consent/rights gate, Rule 6). Each emits a hash-bound `PASS|HOLD|FAIL` gate record; a non-PASS result or a stale subject hash blocks publication.
-- **`safety_level` is a quality floor**, not a complexity detector: `high` (and `heightened_risk`) force the strongest profile, stricter review, and never a throughput downshift.
-
-## Failover control plane (built, cross-family reviewed — opt-in and currently dormant)
-The redesign specifies a full resilience layer: per-specialist **cross-family backups**, Claude's native in-lane `--fallback-model` chain, a **conservative-first** auto-failover policy (act only on hard signals — dispatch-ack failure, confirmed process-exit, or a typed provider error — and otherwise surface, never guess), a minimal **attempt ledger** with generation fencing, and a **lease/lock** so the native and Chrono-coordinated paths cannot double-dispatch one packet.
-
-**Honest status (Rule 8):** this control plane is *built and cross-family reviewed but opt-in and currently gated OFF (dormant)*. It ships inert because `_state/**` is ignored and a public checkout has no enable sentinel. Dispatch today is Chrono-coordinated and automatic failover is **not** live. It is documented here as an architecture the operator can explicitly enable, not a feature that runs by default.
-
-## Key files & references
-
-| Path | Purpose |
-|---|---|
-| `bin/squad`, `bin/launch-squad.sh` | Lifecycle CLI + tmux launcher |
-| `scripts/send-task.sh`, `bin/send-task.sh` | Dispatch (frontmatter generation + hardened writer) |
-| `bin/board-supervisor.sh` | Per-attempt worktree creation + fresh specialist CLI spawn |
-| `bin/registry-reconciler.sh` | Settles landed responses against the active-task registry |
-| `shared/protocol.md` | Task-packet frontmatter, lifecycle, review behavior |
-| `shared/specialist-runtime-map.tsv` | Canonical routing: 73 rows × 29 columns (primary/backup/escalate/review lanes + profiles, capability_class, safety, operator_gate) |
-| `shared/registries/profiles.tsv`, `shared/registries/policies.tsv` | Profile → (model + effort + flags); versioned failover/escalation/throughput policies |
-| `shared/routing.md` | Narrative routing source of truth (quality-fit model, safety model, failover) |
-| `model-lanes/ROSTER.md` | Generated per-lane roster view |
-| `shared/api-catalog.md` | Capability catalog specialists bind to (verified states) |
-| `shared/lifecycle.md`, `shared/memory-discipline.md` | Session and pane rules, ephemeral specialist subprocesses, browser attach, memory hygiene |
-| `departments/*/specialists/`, `shared/specialists/` | Specialist markdown briefs |
-| `departments/*/inbox/`, `departments/*/outbox/` | Dispatch board (packets + responses) |
-| `daemon/` | Optional observability API (health/status/summarize/events), support routes, and dormant failover — never a dispatch path |
-
-## Curated design history
-
-Two portfolio design narratives are retained under `docs/design/`: the [2026-07-11 redesign proposal](design/2026-07-11-vibe-squad-redesign-design.md) and the [2026-07-12 lane-panel status design](design/2026-07-12-lane-panel-live-status-design.md). They preserve the decision process and are explicitly historical; this architecture document and the canonical routing/runtime files above describe what ships.
-
-## See also
-- Protocol: `shared/protocol.md` (packet schema, lifecycle, review behavior)
-- Routing: `shared/specialist-runtime-map.tsv` (canonical) + `model-lanes/ROSTER.md`
-- Adding a specialist: `docs/adding-a-specialist.md`
-- Lifecycle: `shared/lifecycle.md` (session rules, ephemeral specialist subprocesses, browser attach, memory discipline)
-
-## Planned (not built)
-
-The historical redesign proposed an Ink/React TUI backed by a FastAPI daemon that would supervise PTYs and dispatch work. That application and daemon dispatch spine were not built as the live system. Current dispatch remains the markdown mailbox workflow described above; the optional daemon is limited to observability and support endpoints.
+| Coordinator behavior | [`chrono/CLAUDE.md`](../chrono/CLAUDE.md) |
+| Modes and capabilities | [`shared/modes/`](../shared/modes/) and [`shared/capabilities/`](../shared/capabilities/) |
+| Packet, delivery, and completion contract | [`shared/protocol.md`](../shared/protocol.md) |
+| Routing decisions | [`shared/routing.md`](../shared/routing.md) |
+| Specialist-to-runtime mapping | [`shared/specialist-runtime-map.tsv`](../shared/specialist-runtime-map.tsv) |
+| CLI capabilities | [`model-lanes/lane-capabilities.tsv`](../model-lanes/lane-capabilities.tsv) |
+| Session lifecycle | [`shared/lifecycle.md`](../shared/lifecycle.md) |
+| Specialist briefs | [`departments/`](../departments/) and [`shared/specialists/`](../shared/specialists/) |

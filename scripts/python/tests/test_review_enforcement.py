@@ -115,13 +115,15 @@ class ReviewEnforcementTest(unittest.TestCase):
         self.assertEqual(result.returncode, expected_returncode, msg=result.stderr)
         return result
 
-    def run_authorize(self, env: dict, task_id: str, now: str) -> dict:
+    def run_claim(self, env: dict, task_id: str, attempt_id: str, now: str) -> dict:
         result = subprocess.run(
             [
                 sys.executable,
                 str(RECONCILER),
-                "--authorize-delivery",
+                "--claim-task",
                 task_id,
+                "--attempt-id",
+                attempt_id,
                 "--now",
                 now,
             ],
@@ -170,6 +172,10 @@ class ReviewEnforcementTest(unittest.TestCase):
             "compatibility_namespace": "coding", "specialist": "claude-spec",
             "to_model": "claude", "source_namespace": "coding",
             "review_model": "gpt-codex", "mandatory_review": "true", "status": "in-flight",
+            # A mandatory-review entry always carries the class its packet
+            # declared; registration refuses one that does not, and settlement
+            # refuses to guess. `standard` is the class under test here.
+            "review_class": "standard",
         }
         base.update(over)
         return base
@@ -189,6 +195,34 @@ class ReviewEnforcementTest(unittest.TestCase):
         self.assertEqual(entry["status"], "review-required")
         self.assertIn("REVIEW-REQUIRED", queue)
 
+    def test_a2b_equal_lane_mandatory_review_contract_fails_closed(self):
+        t = "TASK-2026-07-15-0002-equal-lane"
+        entry, queue = self.reconcile(
+            {t: self._entry(to_model="claude", review_model="claude")},
+            self._own_response(t, "claude", "complete"),
+            t,
+        )
+        self.assertEqual(entry["status"], "review-required")
+        self.assertEqual(entry["review_required_by"], "claude")
+        self.assertIn("invalid mandatory-review anti-affinity", queue)
+
+    def test_a2c_codex_alias_equal_lane_contract_fails_closed(self):
+        t = "TASK-2026-07-15-0002-codex-alias"
+        entry, queue = self.reconcile(
+            {
+                t: self._entry(
+                    specialist="codex-spec",
+                    to_model="codex",
+                    review_model="gpt-codex",
+                )
+            },
+            self._own_response(t, "gpt-codex", "complete"),
+            t,
+        )
+        self.assertEqual(entry["status"], "review-required")
+        self.assertEqual(entry["review_required_by"], "gpt-codex")
+        self.assertIn("invalid mandatory-review anti-affinity", queue)
+
     def test_a3_review_hold_releases_delivery_lane_without_settling(self):
         held = "TASK-2026-07-15-0002-review-held"
         successor = "TASK-2026-07-15-0002-successor"
@@ -203,9 +237,6 @@ class ReviewEnforcementTest(unittest.TestCase):
                 delivery_generation=1,
                 delivery_lane="claude",
                 delivery_attempt_count=0,
-                delivery_retry_count=0,
-                delivery_max_attempts=5,
-                delivery_next_attempt_at="2026-07-17T00:00:01+00:00",
                 delivery_history=[],
             ),
         }
@@ -216,16 +247,17 @@ class ReviewEnforcementTest(unittest.TestCase):
 
         self.run_reconcile(env, held)
         held_entry, queue = self.result(state, held)
-        released = self.run_authorize(
+        released = self.run_claim(
             env,
             successor,
+            "d-successor",
             "2026-07-17T00:00:02+00:00",
         )
 
         self.assertEqual(held_entry["status"], "review-required")
         self.assertNotIn("cross_family_review_ref", held_entry)
         self.assertIn("REVIEW-REQUIRED", queue)
-        self.assertTrue(released["authorized"])
+        self.assertEqual(released["delivery_state"], "in-progress")
 
     def test_b_reviewer_response_requires_explicit_settlement(self):
         t = "TASK-2026-07-15-0003-cccc"
@@ -269,13 +301,13 @@ class ReviewEnforcementTest(unittest.TestCase):
         self.assertEqual(entry["status"], "review-required")
         self.assertIn("REVIEW-REQUIRED", queue)
 
-    def test_c2_in_lane_capability_can_settle_reported_complete(self):
+    def test_c2_cross_family_reported_complete_still_requires_review(self):
         t = "TASK-2026-07-15-0005-eeee-complete"
         entry, queue = self.reconcile(
             {t: self._entry(specialist="codex-spec", to_model="gpt-codex", review_model="claude")},
             self._own_response(t, "gpt-codex", "complete"), t)
-        self.assertEqual(entry["status"], "complete")
-        self.assertNotIn("REVIEW-REQUIRED", queue)
+        self.assertEqual(entry["status"], "review-required")
+        self.assertIn("REVIEW-REQUIRED", queue)
 
     def test_c3_in_lane_needs_review_hold_settles_with_cross_family_review(self):
         t = "TASK-2026-07-19-in-lane-settle-deadlock"

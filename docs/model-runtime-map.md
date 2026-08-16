@@ -13,7 +13,9 @@ Chrono is the only controller. Each specialist runs as a freshly spawned, capabi
 
 ## Canonical Data
 
-The source of truth is `shared/specialist-runtime-map.tsv`: **73 specialist rows with exactly 29 tab-separated fields**. The current primary-lane distribution is **Claude 43 / Gemini 14 / Codex 12 / Kimi 4**. The columns, in order, are:
+The source of truth is `shared/specialist-runtime-map.tsv`. Derive the current row count and primary-lane
+distribution from that file instead of copying a mutable snapshot here. Its canonical schema has 29
+tab-separated fields, in this order:
 
 1. `specialist` — unique canonical specialist name.
 2. `source_namespace` — one of `coding | security | content | sysmgmt | research | shared`; storage/mailbox compatibility only.
@@ -21,7 +23,7 @@ The source of truth is `shared/specialist-runtime-map.tsv`: **73 specialist rows
 4. `safety_level` — `low | medium | high`.
 5. `safety_tags` — structured dual-use/privacy/financial and related tags.
 6. `tool_profile` — named tool-host constraint, or `none`.
-7. `primary_lane` — `codex | claude | gemini | kimi`; Kimi is default-deny except for the four allowlisted primaries `experimental-attacker`, `large-context-analyst`, `summarizer`, and `web-builder`.
+7. `primary_lane` — `codex | claude | gemini | kimi`; Kimi is default-deny except for the three allowlisted primaries `experimental-attacker`, `large-context-analyst`, and `summarizer`.
 8. `primary_profile` — model/effort/flags key in `shared/registries/profiles.tsv`.
 9. `backup_lane` — genuine cross-family operational backup.
 10. `backup_profile` — backup profile registry key.
@@ -57,7 +59,7 @@ Model binding is per specialist. These are the CLIs a specialist row can be boun
 | `codex` | OpenAI | implementation, repo edits, tests, refactors, PoC mechanics |
 | `claude` | Anthropic | judgment, safety review, privacy/auth reasoning, memory hygiene, adversarial challenge |
 | `gemini` | Google | multimodal analysis, media generation routes, visual/design review, grounded content |
-| `kimi` | Moonshot | four allowlisted primaries (`experimental-attacker`, `large-context-analyst`, `summarizer`, `web-builder`); otherwise throughput-only bulk/mechanical work under an explicit downshift gate |
+| `kimi` | Moonshot | three allowlisted primaries (`experimental-attacker`, `large-context-analyst`, `summarizer`); otherwise throughput-only bulk/mechanical work under an explicit downshift gate |
 
 ## Dispatch Algorithm
 

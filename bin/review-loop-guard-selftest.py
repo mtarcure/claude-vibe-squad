@@ -67,8 +67,6 @@ def task_entry(
         "delivery_generation": generation,
         "delivery_lane": lane,
         "delivery_attempt_count": 1 if state != "queued" else 0,
-        "delivery_max_attempts": 5,
-        "delivery_next_attempt_at": now,
         "write_scope": [],
     }
 
@@ -134,33 +132,18 @@ assert queue_after.count(f"| REVIEW-REQUIRED | coding/{FACTUAL} |") == 1
 assert queue_after.count(f"| REVIEW-REQUIRED | coding/{SECURITY} |") == 1
 print("PASS notification dedup keys task/state/generation and suppresses watcher-cycle repeats")
 
-# Terminal review work cannot be authorized, claimed, or advanced to redelivery.
-authorization = reconciler.authorize_delivery(FACTUAL)
-assert authorization == {
-    "authorized": False,
-    "reason": "status-review-required",
-    "task_id": FACTUAL,
-    "attempt_id": "attempt-7",
-}
+# Terminal review work cannot be claimed again.
 try:
     reconciler.claim_task(FACTUAL, "attempt-7")
 except ValueError as exc:
     assert "terminal" in str(exc)
 else:
     raise AssertionError("review-required task was claimable")
-try:
-    reconciler.advance_delivery(FACTUAL, "attempt-8", 8, "kimi")
-except ValueError as exc:
-    assert "delivery is closed" in str(exc)
-else:
-    raise AssertionError("review-required task advanced to a new delivery generation")
 
-# Positive control: genuinely queued/unclaimed work still uses bounded delivery and claim receipts.
-queued_auth = reconciler.authorize_delivery(QUEUED)
-assert queued_auth["authorized"] is True
+# Positive control: genuinely queued/unclaimed work still records one claim.
 claim = reconciler.claim_task(QUEUED, "attempt-1")
 assert claim["delivery_state"] == "in-progress" and claim["idempotent"] is False
-print("PASS only queued in-flight work redelivers; terminal review work cannot authorize/claim/advance")
+print("PASS only queued in-flight work is claimable; terminal review work remains closed")
 
 # Factual coordinator attestation must be controller-authored, cross-family, and response-hash-bound.
 factual_hash = hashlib.sha256(factual_response.read_bytes()).hexdigest()

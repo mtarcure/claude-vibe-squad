@@ -13,7 +13,6 @@ BASE="${LOG%.log}"
 DISPATCH="${BASE}.dispatch.json"
 read_json() { python3 -c "import json,sys,os;p='$1';print(json.load(open(p)).get('$2','') if os.path.exists(p) else '')" 2>/dev/null; }
 TASK="$(read_json "$DISPATCH" task_id)"; [ -n "$TASK" ] || TASK="spawn"
-PID="$(read_json "$DISPATCH" pid)"
 
 printf '\033[H\033[2J'
 printf '\033[1;38;5;45m── %s · live CLI ──\033[0m   press \033[1mq\033[0m to close · \033[1;38;5;203ms\033[0m to stop\n\n' "$TASK"
@@ -33,7 +32,7 @@ while kill -0 "$STREAM" 2>/dev/null; do
       s|S)
         cleanup
         printf '\n\033[1;38;5;203mstopping specialist…\033[0m\n'
-        VAULT_ROOT="$VAULT_ROOT" bash "$VAULT_ROOT/bin/vs-cancel-spawn.sh" "$TASK"
+        env VAULT_ROOT="$VAULT_ROOT" bash "$VAULT_ROOT/bin/vs-cancel-spawn.sh" "$LOG"
         printf '\033[2mpress any key to close\033[0m'; IFS= read -rsn1 _ 2>/dev/null
         break ;;
     esac

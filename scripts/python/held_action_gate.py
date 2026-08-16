@@ -13,9 +13,8 @@ top-level model instance.
 
 Composes the same primitives already reviewed and proven elsewhere this
 session rather than inventing new ones: an HMAC-signed, MAC-verified token
-(matching cred_broker.py's handle / runtime_envelope.py's sealed claims), and
-a durable, mkdir-locked, atomic-write consumption ledger (matching
-coordination.py's CoordinationStore).
+(matching runtime_envelope.py's sealed claims), and a durable, mkdir-locked,
+atomic-write consumption ledger (matching coordination.py's CoordinationStore).
 """
 
 from __future__ import annotations
@@ -33,16 +32,31 @@ import time
 from typing import Iterator
 
 
+# The controller-held effect categories, spelled in the canonical `operator_gate`
+# vocabulary that `shared/lane-policy.tsv` defines and `validate_specialists.py`
+# enforces against the runtime map. One vocabulary, one spelling: a specialist
+# row may only declare a gate the controller actually holds, and
+# `test_held_action_gate.py` pins exact equality among this set, that vocabulary,
+# and the Hard Rule 6 policy list so the three surfaces cannot drift.
+#
+# This set was hyphen-cased until 2026-08-08, which made it share zero values
+# with the vocabulary it was supposed to correspond to. Reconciling the spelling
+# exposed three gates -- cleanup, malware_detonation, offensive_execution -- that
+# specialist rows declared as operator-gated while the controller held none of
+# them; `cleanup` is named in Hard Rule 6 by name. `release` merged into
+# `public_release`: both meant "publication", and two names for one effect is how
+# a grant for one silently reads as a grant for the other.
 HELD_CATEGORIES = frozenset(
     {
-        "delete-from-main",
-        "public-push",
-        "spend",
-        "outreach",
-        "prod-mutation",
-        "credential-change",
-        "release",
-        "default-cutover",
+        "cleanup",
+        "credential_change",
+        "delete",
+        "live_outreach",
+        "malware_detonation",
+        "offensive_execution",
+        "paid_media",
+        "production_mutation",
+        "public_release",
     }
 )
 
@@ -370,7 +384,7 @@ def authorize(
 ) -> None:
     """The single entrypoint a caller uses before a held-category action.
 
-    Raises ``ValueError`` if ``category`` is not one of the 8 held
+    Raises ``ValueError`` if ``category`` is not one of the 9 held
     categories — a caller-side bug, not an authorization decision, since
     trusted in-scope work should never route through this function at all.
     Raises ``HeldActionDenied`` if no valid, unconsumed, exactly-matching

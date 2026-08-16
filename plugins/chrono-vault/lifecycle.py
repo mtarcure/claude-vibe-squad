@@ -9,6 +9,12 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import audit
+from clearance import (
+    require_controller_lifecycle,
+    require_memory_operation,
+    require_note_visible,
+)
 import index as vault_index
 import notes as vault_notes
 from vaultroot import resolve_vault_root
@@ -16,6 +22,39 @@ from vaultroot import resolve_vault_root
 
 OUTCOMES = frozenset({"used", "not_useful", "incorrect"})
 NOTE_ID_PATTERN = re.compile(r"mem-[0-9a-f]{12}")
+# A bound on the supersession walk: far above any real chain, it only exists so a
+# pre-existing corrupt cycle in the store can never spin the guard forever.
+MAX_SUPERSESSION_WALK = 4096
+
+
+def _creates_supersession_cycle(
+    root: Path, note_id: str, replacement_id: str
+) -> bool:
+    """Would making `replacement_id` supersede `note_id` close a cycle?
+
+    Marking `note_id` superseded-by `replacement_id` adds the edge
+    `replacement supersedes note_id`. That closes a cycle exactly when
+    `replacement_id` is already superseded (transitively) by `note_id`, so we
+    walk the `superseded_by` chain from the replacement: reaching `note_id` means
+    A-supersedes-B-supersedes-A (or a longer loop). The walk is bounded and
+    visited-guarded so a store that is *already* cyclic cannot hang it.
+    """
+    seen: set[str] = set()
+    current: str | None = replacement_id
+    for _ in range(MAX_SUPERSESSION_WALK):
+        if current is None:
+            return False
+        if current == note_id:
+            return True
+        if current in seen:
+            return False
+        seen.add(current)
+        try:
+            _, parsed = _find_note(root, current)
+        except (NoteNotFound, LifecycleError):
+            return False
+        current = parsed.get("superseded_by")
+    return False
 
 
 class LifecycleError(RuntimeError):
@@ -68,10 +107,12 @@ def _public_note(parsed: dict[str, Any]) -> dict[str, Any]:
 
 def get_note(id: str) -> dict[str, Any]:
     """Return one complete canonical note by stable ID."""
+    require_memory_operation("get_note")
     note_id = _validate_note_id(id)
     root = resolve_vault_root()
     with vault_index._locked(root):
         _, parsed = _find_note(root, note_id)
+        require_note_visible(parsed)
         return _public_note(parsed)
 
 
@@ -186,6 +227,19 @@ def _updated_notes(
             f"expected revision {expected_revision}, found {primary['revision']}"
         )
 
+    if replacement_id is not None:
+        # Verify the canonical (replacement) is itself current before superseding
+        # the predecessor. Superseding in favour of an unverified note would leave
+        # nothing verified as the live answer — the "nothing current" failure Sol
+        # warned about. A missing target keeps its existing NoteNotFound.
+        _, replacement_check = _find_note(root, replacement_id)
+        if replacement_check["status"] != "verified":
+            raise LifecycleError(
+                "replacement note must be verified before superseding predecessors"
+            )
+        if _creates_supersession_cycle(root, note_id, replacement_id):
+            raise LifecycleError("supersession would create a cycle")
+
     updates: dict[str, tuple[Path, dict[str, Any]]] = {
         note_id: (primary_path, dict(primary))
     }
@@ -243,6 +297,7 @@ def set_status(
     supersedes: str | None = None,
 ) -> dict[str, Any]:
     """Compare-and-swap a status and atomically update supersede pointers."""
+    require_controller_lifecycle()
     note_id = _validate_note_id(id)
     if not isinstance(new_status, str) or new_status not in vault_notes.STATUSES:
         raise LifecycleError(f"new_status must be one of {sorted(vault_notes.STATUSES)}")
@@ -259,65 +314,100 @@ def set_status(
             raise LifecycleError("supersedes is only valid with status superseded")
         replacement_id = None
 
+    # A status change is the one live lifecycle mutation, so it emits a
+    # `set_status` audit event whether it lands (`transitioned`) or a guard
+    # refuses it (`conflict`/`rejected`) — the reviewed, auditable record of what
+    # changed that a live transition must never happen without.
+    request_hash = audit.request_digest(
+        "set_status",
+        {
+            "id": note_id,
+            "new_status": new_status,
+            "supersedes": replacement_id,
+            "expected_revision": expected_revision,
+        },
+    )
+    result_code = audit.ERROR
+    updated_ids: list[str] = []
     root = resolve_vault_root()
     _ensure_index_for_write(root)
-    with vault_index._locked(root) as index_dir:
-        updates = _updated_notes(
-            root,
-            note_id,
-            new_status,
-            replacement_id,
-            expected_revision,
-        )
-        stages: list[dict[str, Any]] = []
-        connection: sqlite3.Connection | None = None
-        committed = False
-        try:
-            for current_id in sorted(updates):
-                path, note = updates[current_id]
-                stages.append(_stage_note(path, vault_notes._serialize(note)))
-
-            connection = vault_index._connect(index_dir / "kg.db", wal=True)
-            connection.execute("BEGIN IMMEDIATE")
-            for stage in stages:
-                _publish_stage(stage)
-            reparsed = [
-                vault_index._parse_note(stage["path"])
-                for stage in stages
-            ]
-            for note in reparsed:
-                vault_index._upsert_connection(connection, note)
-            generation = vault_index._generation(connection) + 1
-            vault_index._set_generation(connection, generation)
-            connection.commit()
-            committed = True
-        except (RevisionConflict, NoteNotFound, LifecycleError):
-            if connection is not None:
-                connection.rollback()
-            if not committed:
-                _restore_published(stages)
-            raise
-        except Exception as exc:
-            if connection is not None:
-                connection.rollback()
+    try:
+        with vault_index._locked(root) as index_dir:
+            updates = _updated_notes(
+                root,
+                note_id,
+                new_status,
+                replacement_id,
+                expected_revision,
+            )
+            stages: list[dict[str, Any]] = []
+            connection: sqlite3.Connection | None = None
+            committed = False
             try:
+                for current_id in sorted(updates):
+                    path, note = updates[current_id]
+                    stages.append(_stage_note(path, vault_notes._serialize(note)))
+
+                connection = vault_index._connect(index_dir / "kg.db", wal=True)
+                connection.execute("BEGIN IMMEDIATE")
+                for stage in stages:
+                    _publish_stage(stage)
+                reparsed = [
+                    vault_index._parse_note(stage["path"])
+                    for stage in stages
+                ]
+                for note in reparsed:
+                    vault_index._upsert_connection(connection, note)
+                generation = vault_index._generation(connection) + 1
+                vault_index._set_generation(connection, generation)
+                connection.commit()
+                committed = True
+            except (RevisionConflict, NoteNotFound, LifecycleError):
+                if connection is not None:
+                    connection.rollback()
                 if not committed:
                     _restore_published(stages)
-            except LifecycleError as rollback_error:
-                raise rollback_error from exc
-            raise LifecycleError("status update failed; canonical notes restored") from exc
-        finally:
-            if connection is not None:
-                connection.close()
-            for stage in stages:
-                _close_stage(stage)
+                raise
+            except Exception as exc:
+                if connection is not None:
+                    connection.rollback()
+                try:
+                    if not committed:
+                        _restore_published(stages)
+                except LifecycleError as rollback_error:
+                    raise rollback_error from exc
+                raise LifecycleError("status update failed; canonical notes restored") from exc
+            finally:
+                if connection is not None:
+                    connection.close()
+                for stage in stages:
+                    _close_stage(stage)
 
-        result = _public_note(updates[note_id][1])
-        return {
-            **result,
-            "reason": reason,
-            "index_generation": generation,
-        }
+            result = _public_note(updates[note_id][1])
+            updated_ids = sorted(updates)
+            result_code = audit.TRANSITIONED
+            return {
+                **result,
+                "reason": reason,
+                "index_generation": generation,
+            }
+    except RevisionConflict:
+        result_code = audit.CONFLICT
+        raise
+    except (NoteNotFound, LifecycleError):
+        result_code = audit.REJECTED
+        raise
+    except Exception:
+        result_code = audit.ERROR
+        raise
+    finally:
+        audit.emit(
+            "set_status",
+            result=result_code,
+            request_hash=request_hash,
+            returned_note_ids=updated_ids,
+            extra={"new_status": new_status, "replacement_id": replacement_id},
+        )
 
 
 def record_usage(
@@ -327,6 +417,8 @@ def record_usage(
     source_task: str | None = None,
 ) -> dict[str, Any]:
     """Persist one apply-feedback signal for a recalled note."""
+    context = require_memory_operation("recall")
+    require_memory_operation("record")
     if not isinstance(recall_id, str):
         raise LifecycleError("recall_id must be a UUID string")
     try:
@@ -342,12 +434,17 @@ def record_usage(
         not isinstance(source_task, str) or not source_task.strip()
     ):
         raise LifecycleError("source_task must be a non-empty string or null")
+    if context is not None:
+        if source_task not in {None, context["task_id"]}:
+            raise LifecycleError("source_task does not match the engagement")
+        source_task = context["task_id"]
 
     root = resolve_vault_root()
     _ensure_index_for_write(root)
     timestamp = vault_notes._utc_now()
     with vault_index._locked(root) as index_dir:
-        _find_note(root, validated_note_id)
+        _, parsed_note = _find_note(root, validated_note_id)
+        require_note_visible(parsed_note)
         connection = vault_index._connect(index_dir / "kg.db", wal=True)
         try:
             connection.execute("BEGIN IMMEDIATE")

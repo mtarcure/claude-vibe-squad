@@ -25,7 +25,7 @@
       "provides": [
         "arxiv_search",
         "firecrawl_scrape",
-        "perplexity_search_web",
+        "perplexity_search",
         "xai_search"
       ]
     },
@@ -237,7 +237,7 @@
           "evidence": "host-PATH"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -372,7 +372,7 @@
           "provided_by": "chrono-research-arsenal"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -436,7 +436,7 @@
           "provided_by": "chrono-research-arsenal"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -529,7 +529,7 @@
           "provided_by": "chrono-research-arsenal"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -745,7 +745,7 @@
           "provided_by": "chrono-research-arsenal"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -822,7 +822,7 @@
           "provided_by": "chrono-research-arsenal"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -1132,7 +1132,7 @@
           "provided_by": "chrono-research-arsenal"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -1239,7 +1239,7 @@
           "provided_by": "chrono-research-arsenal"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -1320,7 +1320,7 @@
           "provided_by": "chrono-research-arsenal"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -1399,7 +1399,7 @@
           "provided_by": "chrono-research-arsenal"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -1423,146 +1423,6 @@
         {
           "id": "chrono-research-arsenal",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "lane-inventory"
-        },
-        {
-          "id": "chrono-vault",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "lane-inventory"
-        },
-        {
-          "id": "sequential-thinking",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "lane-inventory"
-        }
-      ]
-    },
-    {
-      "specialist": "copywriter",
-      "lane": "claude",
-      "coverage": "partial",
-      "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
-      ],
-      "skills": [
-        {
-          "id": "cite-properly",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
-        },
-        {
-          "id": "writing-skills",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
-        }
-      ],
-      "tools": [],
-      "mcps": [
-        {
-          "id": "chrono-vault",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "lane-inventory"
-        },
-        {
-          "id": "sequential-thinking",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "lane-inventory"
-        }
-      ]
-    },
-    {
-      "specialist": "copywriter",
-      "lane": "gemini",
-      "coverage": "full",
-      "limitations": [],
-      "skills": [
-        {
-          "id": "copy-refinement",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        }
-      ],
-      "tools": [
-        {
-          "id": "firecrawl_scrape",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "chrono-research-arsenal",
-          "provided_by": "chrono-research-arsenal"
-        },
-        {
-          "id": "perplexity_search_web",
-          "requirement": "preferred",
-          "availability": "mcp-operation",
-          "evidence": "chrono-research-arsenal",
-          "provided_by": "chrono-research-arsenal"
-        }
-      ],
-      "mcps": [
-        {
-          "id": "chrono-research-arsenal",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "lane-inventory"
-        },
-        {
-          "id": "chrono-vault",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "lane-inventory"
-        },
-        {
-          "id": "sequential-thinking",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "lane-inventory"
-        }
-      ]
-    },
-    {
-      "specialist": "copywriter",
-      "lane": "gpt-codex",
-      "coverage": "partial",
-      "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan",
-        "authored from the codex lane inventory, shared registry, and host PATH — not codex-live-probed (board-supervisor exit-75 blocks a fresh codex CLI)"
-      ],
-      "skills": [
-        {
-          "id": "copy-refinement",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        }
-      ],
-      "tools": [
-        {
-          "id": "firecrawl_scrape",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "chrono-research-arsenal",
-          "provided_by": "chrono-research-arsenal"
-        },
-        {
-          "id": "perplexity_search_web",
-          "requirement": "preferred",
-          "availability": "mcp-operation",
-          "evidence": "chrono-research-arsenal",
-          "provided_by": "chrono-research-arsenal"
-        }
-      ],
-      "mcps": [
-        {
-          "id": "chrono-research-arsenal",
-          "requirement": "required",
           "availability": "available",
           "evidence": "lane-inventory"
         },
@@ -1698,7 +1558,7 @@
           "evidence": "host-PATH"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -1980,7 +1840,7 @@
           "provided_by": "chrono-research-arsenal"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -2513,7 +2373,7 @@
           "evidence": "host-PATH"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -3067,7 +2927,7 @@
           "evidence": "host-PATH"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -3639,12 +3499,6 @@
           "evidence": "host-PATH"
         },
         {
-          "id": "perplexity_search_web",
-          "requirement": "preferred",
-          "availability": "uninstalled",
-          "evidence": "host-PATH:absent"
-        },
-        {
           "id": "playwright",
           "requirement": "preferred",
           "availability": "available",
@@ -3972,7 +3826,7 @@
           "evidence": "host-PATH"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -4247,7 +4101,7 @@
           "evidence": "host-PATH"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -4385,135 +4239,6 @@
       ]
     },
     {
-      "specialist": "finance-analyst",
-      "lane": "claude",
-      "coverage": "full",
-      "limitations": [],
-      "skills": [
-        {
-          "id": "harness-baseline-audit",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
-        },
-        {
-          "id": "instinct-prune-loop",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
-        },
-        {
-          "id": "kg-vault-health-check",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
-        },
-        {
-          "id": "stale-knowledge-purge",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
-        }
-      ],
-      "tools": [
-        {
-          "id": "arxiv_search",
-          "requirement": "preferred",
-          "availability": "mcp-operation",
-          "evidence": "chrono-research-arsenal",
-          "provided_by": "chrono-research-arsenal"
-        },
-        {
-          "id": "pandas",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "repo-venv-interpreter"
-        },
-        {
-          "id": "pdftotext",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "host-PATH"
-        },
-        {
-          "id": "perplexity_search_web",
-          "requirement": "preferred",
-          "availability": "mcp-operation",
-          "evidence": "chrono-research-arsenal",
-          "provided_by": "chrono-research-arsenal"
-        },
-        {
-          "id": "plaid",
-          "requirement": "preferred",
-          "availability": "uninstalled",
-          "evidence": "host-PATH:absent"
-        },
-        {
-          "id": "polars",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "repo-venv-interpreter"
-        },
-        {
-          "id": "WebFetch",
-          "requirement": "preferred",
-          "availability": "harness-only",
-          "evidence": "runtime-map:requires_approval"
-        },
-        {
-          "id": "xai_search",
-          "requirement": "preferred",
-          "availability": "mcp-operation",
-          "evidence": "chrono-research-arsenal",
-          "provided_by": "chrono-research-arsenal"
-        }
-      ],
-      "mcps": [
-        {
-          "id": "chrono-research-arsenal",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "lane-inventory"
-        },
-        {
-          "id": "chrono-vault",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "lane-inventory"
-        },
-        {
-          "id": "sequential-thinking",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "lane-inventory"
-        }
-      ]
-    },
-    {
-      "specialist": "finance-analyst",
-      "lane": "gpt-codex",
-      "coverage": "partial",
-      "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
-      ],
-      "skills": [],
-      "tools": [],
-      "mcps": [
-        {
-          "id": "chrono-vault",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "lane-inventory"
-        },
-        {
-          "id": "sequential-thinking",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "lane-inventory"
-        }
-      ]
-    },
-    {
       "specialist": "frontend-engineer",
       "lane": "claude",
       "coverage": "full",
@@ -4561,7 +4286,7 @@
           "provided_by": "chrono-research-arsenal"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -4637,7 +4362,7 @@
           "provided_by": "chrono-research-arsenal"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -4995,7 +4720,7 @@
           "provided_by": "chrono-research-arsenal"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -5257,7 +4982,7 @@
           "provided_by": "chrono-research-arsenal"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -5556,7 +5281,7 @@
           "evidence": "host-PATH"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -5699,7 +5424,7 @@
           "provided_by": "chrono-research-arsenal"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -5771,7 +5496,7 @@
       "limitations": [
         "no shell, browser, or local tool surface on this lane: corpus files are supplied in-context and no extraction, conversion, or verification binary can be run here",
         "MCP is lead-brokered only, so chrono-research-arsenal operations are requested from the Kimi lead and never executed in-subagent",
-        "perplexity_search_web is not proven on Kimi and is therefore not claimed on this lane; cited-web research routes to the Opus 5 backup or a research-namespace dispatch"
+        "perplexity_search is not proven on Kimi and is therefore not claimed on this lane; cited-web research routes to the Opus 5 backup or a research-namespace dispatch"
       ],
       "skills": [
         {
@@ -5834,123 +5559,6 @@
         },
         {
           "id": "lead:sequential-thinking",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "lane-inventory"
-        }
-      ]
-    },
-    {
-      "specialist": "learning-coach",
-      "lane": "claude",
-      "coverage": "full",
-      "limitations": [],
-      "skills": [
-        {
-          "id": "cite-properly",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
-        },
-        {
-          "id": "evidence-level",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
-        },
-        {
-          "id": "find-sources",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
-        },
-        {
-          "id": "research-integrity-gate",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
-        },
-        {
-          "id": "source-triangulation",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
-        },
-        {
-          "id": "summarize-findings",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
-        }
-      ],
-      "tools": [
-        {
-          "id": "arxiv_search",
-          "requirement": "preferred",
-          "availability": "mcp-operation",
-          "evidence": "chrono-research-arsenal",
-          "provided_by": "chrono-research-arsenal"
-        },
-        {
-          "id": "perplexity_search_web",
-          "requirement": "preferred",
-          "availability": "mcp-operation",
-          "evidence": "chrono-research-arsenal",
-          "provided_by": "chrono-research-arsenal"
-        },
-        {
-          "id": "WebFetch",
-          "requirement": "preferred",
-          "availability": "harness-only",
-          "evidence": "runtime-map:requires_approval"
-        },
-        {
-          "id": "xai_search",
-          "requirement": "preferred",
-          "availability": "mcp-operation",
-          "evidence": "chrono-research-arsenal",
-          "provided_by": "chrono-research-arsenal"
-        }
-      ],
-      "mcps": [
-        {
-          "id": "chrono-research-arsenal",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "lane-inventory"
-        },
-        {
-          "id": "chrono-vault",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "lane-inventory"
-        },
-        {
-          "id": "sequential-thinking",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "lane-inventory"
-        }
-      ]
-    },
-    {
-      "specialist": "learning-coach",
-      "lane": "gpt-codex",
-      "coverage": "partial",
-      "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
-      ],
-      "skills": [],
-      "tools": [],
-      "mcps": [
-        {
-          "id": "chrono-vault",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "lane-inventory"
-        },
-        {
-          "id": "sequential-thinking",
           "requirement": "preferred",
           "availability": "available",
           "evidence": "lane-inventory"
@@ -6190,7 +5798,7 @@
           "provided_by": "chrono-research-arsenal"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -6361,7 +5969,7 @@
           "evidence": "host-PATH"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -6496,7 +6104,7 @@
           "provided_by": "chrono-research-arsenal"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -6770,7 +6378,7 @@
           "evidence": "platform-incompatible"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -6876,7 +6484,7 @@
           "evidence": "platform-incompatible"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -6915,111 +6523,6 @@
           "availability": "available",
           "evidence": "lane-inventory"
         },
-        {
-          "id": "chrono-vault",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "lane-inventory"
-        },
-        {
-          "id": "sequential-thinking",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "lane-inventory"
-        }
-      ]
-    },
-    {
-      "specialist": "personal-ops",
-      "lane": "claude",
-      "coverage": "full",
-      "limitations": [],
-      "skills": [
-        {
-          "id": "harness-baseline-audit",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
-        },
-        {
-          "id": "instinct-prune-loop",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
-        },
-        {
-          "id": "kg-vault-health-check",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
-        },
-        {
-          "id": "stale-knowledge-purge",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
-        }
-      ],
-      "tools": [
-        {
-          "id": "arxiv_search",
-          "requirement": "preferred",
-          "availability": "mcp-operation",
-          "evidence": "chrono-research-arsenal",
-          "provided_by": "chrono-research-arsenal"
-        },
-        {
-          "id": "perplexity_search_web",
-          "requirement": "preferred",
-          "availability": "mcp-operation",
-          "evidence": "chrono-research-arsenal",
-          "provided_by": "chrono-research-arsenal"
-        },
-        {
-          "id": "WebFetch",
-          "requirement": "preferred",
-          "availability": "harness-only",
-          "evidence": "runtime-map:requires_approval"
-        },
-        {
-          "id": "xai_search",
-          "requirement": "preferred",
-          "availability": "mcp-operation",
-          "evidence": "chrono-research-arsenal",
-          "provided_by": "chrono-research-arsenal"
-        }
-      ],
-      "mcps": [
-        {
-          "id": "chrono-research-arsenal",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "lane-inventory"
-        },
-        {
-          "id": "chrono-vault",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "lane-inventory"
-        },
-        {
-          "id": "sequential-thinking",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "lane-inventory"
-        }
-      ]
-    },
-    {
-      "specialist": "personal-ops",
-      "lane": "gpt-codex",
-      "coverage": "partial",
-      "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
-      ],
-      "skills": [],
-      "tools": [],
-      "mcps": [
         {
           "id": "chrono-vault",
           "requirement": "preferred",
@@ -7139,7 +6642,7 @@
           "provided_by": "chrono-research-arsenal"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -7262,7 +6765,7 @@
           "provided_by": "chrono-research-arsenal"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -7530,7 +7033,7 @@
           "evidence": "project-dependency"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -7648,7 +7151,7 @@
           "evidence": "project-dependency"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -7829,13 +7332,6 @@
         },
         {
           "id": "firecrawl_scrape",
-          "requirement": "preferred",
-          "availability": "mcp-operation",
-          "evidence": "chrono-research-arsenal",
-          "provided_by": "chrono-research-arsenal"
-        },
-        {
-          "id": "perplexity_search_web",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -8125,7 +7621,7 @@
           "evidence": "host-PATH:absent"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -8372,7 +7868,7 @@
           "evidence": "repo-venv-interpreter"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -8719,7 +8215,7 @@
           "evidence": "host-PATH"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -9108,7 +8604,7 @@
           "evidence": "host-PATH"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -9449,7 +8945,7 @@
           "evidence": "host-PATH"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -9605,7 +9101,7 @@
           "evidence": "host-PATH"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -10076,7 +9572,7 @@
           "provided_by": "chrono-research-arsenal"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -10186,7 +9682,7 @@
           "provided_by": "chrono-research-arsenal"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -10327,7 +9823,7 @@
           "provided_by": "chrono-research-arsenal"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -10601,7 +10097,7 @@
           "provided_by": "chrono-research-arsenal"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -10677,7 +10173,7 @@
           "provided_by": "chrono-research-arsenal"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -10808,7 +10304,7 @@
           "provided_by": "chrono-research-arsenal"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -11018,7 +10514,7 @@
           "provided_by": "chrono-research-arsenal"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -11101,7 +10597,7 @@
           "provided_by": "chrono-research-arsenal"
         },
         {
-          "id": "perplexity_search_web",
+          "id": "perplexity_search",
           "requirement": "preferred",
           "availability": "mcp-operation",
           "evidence": "chrono-research-arsenal",
@@ -11687,150 +11183,6 @@
         },
         {
           "id": "sequential-thinking",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "lane-inventory"
-        }
-      ]
-    },
-    {
-      "specialist": "web-builder",
-      "lane": "claude",
-      "coverage": "partial",
-      "limitations": [
-        "best-effort non-primary route: retained as the strong cross-family backup and escalation for the Kimi/K3 primary, and it is the lane that actually performs build, deploy, visual, and e2e verification; required capabilities remain anchored to the primary execution plan"
-      ],
-      "skills": [
-        {
-          "id": "accessibility-wcag",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        },
-        {
-          "id": "responsive-design",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        },
-        {
-          "id": "seo-fundamentals",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        },
-        {
-          "id": "web-performance-optimization",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        }
-      ],
-      "tools": [],
-      "mcps": [
-        {
-          "id": "chrono-vault",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "lane-inventory"
-        },
-        {
-          "id": "sequential-thinking",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "lane-inventory"
-        }
-      ]
-    },
-    {
-      "specialist": "web-builder",
-      "lane": "gpt-codex",
-      "coverage": "partial",
-      "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
-      ],
-      "skills": [
-        {
-          "id": "responsive-design",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        },
-        {
-          "id": "web-performance-optimization",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        }
-      ],
-      "tools": [],
-      "mcps": [
-        {
-          "id": "chrono-vault",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "lane-inventory"
-        },
-        {
-          "id": "sequential-thinking",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "lane-inventory"
-        }
-      ]
-    },
-    {
-      "specialist": "web-builder",
-      "lane": "kimi",
-      "coverage": "full",
-      "limitations": [
-        "no shell or browser surface on this lane: builds, dev servers, Lighthouse, screenshots, and e2e drives cannot run here, so visual and e2e verification route to the Opus 5 backup",
-        "deploy stays out of reach on this lane; Vercel and Firebase remain needs_tool:auth and every public_release, credential_change, and production_mutation gate is unchanged",
-        "MCP is lead-brokered only, so chrono-vault and sequential-thinking calls are requested from the Kimi lead"
-      ],
-      "skills": [
-        {
-          "id": "accessibility-wcag",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        },
-        {
-          "id": "responsive-design",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        },
-        {
-          "id": "seo-fundamentals",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        },
-        {
-          "id": "web-performance-optimization",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        }
-      ],
-      "tools": [
-        {
-          "id": "WebFetch",
-          "requirement": "preferred",
-          "availability": "harness-only",
-          "evidence": "runtime-map:requires_approval"
-        }
-      ],
-      "mcps": [
-        {
-          "id": "lead:chrono-vault",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "lane-inventory"
-        },
-        {
-          "id": "lead:sequential-thinking",
           "requirement": "preferred",
           "availability": "available",
           "evidence": "lane-inventory"

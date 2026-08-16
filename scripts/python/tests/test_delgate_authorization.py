@@ -1111,13 +1111,21 @@ class SupervisorThreadingTests(unittest.TestCase):
             self.text,
         )
 
-    def test_a_delete_carrying_packet_needs_the_operator_gate(self) -> None:
-        gate = self.text.index('if "delete-from-main" not in authority["operator_gates"]')
+    def test_a_delete_carrying_packet_needs_operator_approval_before_launch(self) -> None:
+        """The launch-side approval check must precede integration.
+
+        This also asserted a second branch requiring "delete" to be a
+        controller-held category. That branch was removed on 2026-08-08 as
+        provably unreachable: the authority check earlier in the same path
+        refuses dispatch unless operator_gates equals HELD_CATEGORIES exactly,
+        and "delete" is always a member, so the membership test was a constant.
+        Asserting its presence pinned dead code in place and made the file read
+        as though two independent controls guarded deletion. Only one ever did.
+        """
         approval = self.text.index('packet_frontmatter.get("operator_approved") is not True')
         integration = self.text.index("wti.integrate_worktree_commits(")
-        # Both launch-side checks must precede the launch, and so the integration.
-        self.assertLess(gate, integration)
         self.assertLess(approval, integration)
+        self.assertNotIn('"delete-from-main"', self.text)
 
     def test_the_authorization_is_threaded_into_integration(self) -> None:
         integration = self.text.index("wti.integrate_worktree_commits(")

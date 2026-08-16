@@ -489,7 +489,7 @@ class MemoryAcceptanceTests(unittest.TestCase):
                 {
                     "title": title,
                     "body": body,
-                    "target": "push-chain",
+                    "target": "example-chain",
                     "component": key,
                     "attack_class": "gold-eval",
                     "aliases": aliases,

@@ -14,9 +14,11 @@ SPECIALIST_CALL_LOG="$TMP_ROOT/specialist-calls.log"
 mkdir -p \
     "$TEST_REPO/.githooks" \
     "$TEST_REPO/bin" \
+    "$TEST_REPO/scripts/hooks" \
     "$TEST_REPO/shared/capabilities/project" \
     "$TEST_REPO/shared/registries"
 cp "$ROOT/.githooks/pre-commit" "$TEST_REPO/.githooks/pre-commit"
+cp "$ROOT/scripts/hooks/pre-commit" "$TEST_REPO/scripts/hooks/pre-commit"
 
 cat > "$TEST_REPO/bin/validate-capabilities.sh" <<'STUB'
 #!/usr/bin/env bash

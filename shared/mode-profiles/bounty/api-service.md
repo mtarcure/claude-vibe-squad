@@ -51,7 +51,7 @@ REST / GraphQL API bounties — BOLA (Broken Object Level Auth), rate limits, au
 
 ## Specialists most active
 
-- security namespace invokes `exploit-developer` via `Task` tool with `subagent_type: exploit-developer` (multi-model)
-- security namespace invokes `security-analyst` via `Task` tool with `subagent_type: security-analyst`
-- security namespace invokes `scout` via `Task` tool with `subagent_type: scout` (API endpoint discovery)
+- Chrono dispatches `exploit-developer` (multi-model)
+- Chrono dispatches `security-analyst`
+- Chrono dispatches `scout` (API endpoint discovery)
 - skeptic (BOLA findings need careful verification)

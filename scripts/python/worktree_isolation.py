@@ -20,7 +20,7 @@ from pathlib import Path, PurePosixPath
 import re
 import stat
 import subprocess
-from typing import Sequence
+from typing import Mapping, Sequence
 
 from launch_hygiene import run_sanitized
 from seatbelt_profile import CompiledProfile, ProfileSpec, compile_profile
@@ -227,6 +227,59 @@ class WorktreeIntegrationReceipt:
     # trail carries both what disappeared and under which authorization.
     deleted_paths: tuple[str, ...] = ()
     authorized_delete_paths: tuple[str, ...] = ()
+
+
+EVIDENCE_SELECTION_POLICY = (
+    "declared-write-scope+explicit-outputs+git-ignore+bounded-untracked/v1"
+)
+EVIDENCE_MAX_UNTRACKED_FILES = 256
+EVIDENCE_MAX_UNTRACKED_FILE_BYTES = 8 * 1024 * 1024
+EVIDENCE_MAX_UNTRACKED_TOTAL_BYTES = 32 * 1024 * 1024
+_EVIDENCE_PATH_SAMPLE_LIMIT = 32
+_EVIDENCE_PATH_DISPLAY_LIMIT = 256
+
+
+@dataclass(frozen=True)
+class AttemptEvidenceReceipt:
+    """Discoverability record for work retained on one private attempt branch.
+
+    ``evidence_location`` is a Git ref plus commit whenever a snapshot exists.
+    A bounded/non-regular untracked file that cannot be committed instead keeps
+    the attempt worktree named here and forces ``worktree_retained_required``.
+    Path arrays are bounded samples; their adjacent counts are authoritative.
+    """
+
+    status: str
+    task_id: str
+    attempt_id: str
+    selection_policy: str
+    evidence_ref: str
+    evidence_commit: str
+    evidence_location: str
+    worktree_location: str
+    base_commit: str
+    snapshot_created: bool
+    preserved_paths: tuple[str, ...]
+    preserved_path_count: int
+    tracked_residue_paths: tuple[str, ...]
+    tracked_residue_count: int
+    untracked_residue_paths: tuple[str, ...]
+    untracked_residue_count: int
+    explicit_output_paths: tuple[str, ...]
+    already_promoted_paths: tuple[str, ...]
+    divergent_promoted_paths: tuple[str, ...]
+    omitted_untracked_paths: tuple[str, ...]
+    omitted_untracked_count: int
+    omitted_untracked_bytes: int
+    non_regular_paths: tuple[str, ...]
+    non_regular_path_count: int
+    out_of_scope_paths: tuple[str, ...]
+    out_of_scope_path_count: int
+    preserved_untracked_bytes: int
+    untracked_file_limit: int
+    untracked_file_bytes_limit: int
+    untracked_total_bytes_limit: int
+    worktree_retained_required: bool
 
 
 class WorktreePool:
@@ -845,6 +898,414 @@ def _uncommitted_records(
 
 def _uncommitted_paths(worktree_root: Path) -> tuple[PurePosixPath, ...]:
     return tuple(path for _code, path in _uncommitted_records(worktree_root))
+
+
+def _evidence_path_sample(paths: Sequence[str]) -> tuple[str, ...]:
+    sampled = sorted(set(paths))[:_EVIDENCE_PATH_SAMPLE_LIMIT]
+    return tuple(
+        path
+        if len(path) <= _EVIDENCE_PATH_DISPLAY_LIMIT
+        else path[: _EVIDENCE_PATH_DISPLAY_LIMIT - 3] + "..."
+        for path in sampled
+    )
+
+
+def _same_regular_file(left: Path, right: Path) -> bool:
+    """Compare bounded explicit outputs without following either pathname."""
+
+    descriptors: list[int] = []
+    try:
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        descriptors.append(os.open(left, flags))
+        descriptors.append(os.open(right, flags))
+        states = [os.fstat(descriptor) for descriptor in descriptors]
+        if (
+            any(not stat.S_ISREG(state.st_mode) for state in states)
+            or states[0].st_size != states[1].st_size
+        ):
+            return False
+        while True:
+            chunks = [os.read(descriptor, 1024 * 1024) for descriptor in descriptors]
+            if chunks[0] != chunks[1]:
+                return False
+            if not chunks[0]:
+                return True
+    except OSError:
+        return False
+    finally:
+        for descriptor in descriptors:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+
+
+def _preserve_attempt_evidence(
+    handle: WorktreeHandle,
+    write_scope: Sequence[str],
+    *,
+    explicit_output_paths: Sequence[str] = (),
+    maximum_untracked_files: int = EVIDENCE_MAX_UNTRACKED_FILES,
+    maximum_untracked_file_bytes: int = EVIDENCE_MAX_UNTRACKED_FILE_BYTES,
+    maximum_untracked_total_bytes: int = EVIDENCE_MAX_UNTRACKED_TOTAL_BYTES,
+) -> AttemptEvidenceReceipt:
+    """Snapshot intentional terminal residue on the private attempt branch.
+
+    This deliberately PRESERVES instead of PROMOTING. It never writes the target
+    branch or a canonical return-artifact destination. The private attempt ref is
+    already keyed by task and attempt, survives worktree reclamation, and stores
+    exact bytes/modes more faithfully than a copied patch bundle. A Git commit is
+    also idempotent: a repeated terminalisation with no new residue merely names
+    the same ref and commit in the receipt.
+
+    Selection is authority based. Every tracked change inside ``write_scope`` is
+    evidence. Untracked files must additionally be visible to normal ``git
+    status`` (therefore project ignore rules discard build/cache residue), be a
+    regular file, and fit all three explicit bounds. The exact return artifact
+    and response envelope are privileged explicit outputs: they may be captured
+    even when ignored, but remain subject to the same regular-file/byte bounds.
+    Anything outside the scope or over a bound stays in the retained worktree and
+    is counted in the receipt; it is never silently swept into the snapshot.
+    """
+
+    _validate_task_attempt(handle.task_id, handle.attempt_id)
+    if (
+        isinstance(maximum_untracked_files, bool)
+        or not isinstance(maximum_untracked_files, int)
+        or maximum_untracked_files < 1
+        or isinstance(maximum_untracked_file_bytes, bool)
+        or not isinstance(maximum_untracked_file_bytes, int)
+        or maximum_untracked_file_bytes < 1
+        or isinstance(maximum_untracked_total_bytes, bool)
+        or not isinstance(maximum_untracked_total_bytes, int)
+        or maximum_untracked_total_bytes < 1
+    ):
+        raise WorktreeIsolationError("terminal evidence size bounds are invalid")
+
+    repo_root = _canonical_existing(handle.repo_root, "repo root")
+    worktree_root = worktree_write_scope_paths(handle.worktree_root, repo_root)[0]
+    scopes = tuple(
+        _normalized_relative(item, label="evidence write scope")
+        for item in write_scope
+    )
+    explicit = tuple(
+        _normalized_relative(item, label="explicit evidence output")
+        for item in explicit_output_paths
+        if item
+    )
+    if len(set(explicit)) != len(explicit):
+        raise WorktreeIsolationError("explicit evidence outputs contain duplicates")
+    if any(any(part in _CBSE_STRUCTURAL_SEGMENTS for part in path.parts) for path in explicit):
+        raise WorktreeIsolationError("explicit evidence output is a structural git/hook path")
+
+    current_worker_branch = _run_git(
+        ["symbolic-ref", "--quiet", "--short", "HEAD"],
+        cwd=worktree_root,
+    )
+    if (
+        current_worker_branch.returncode != 0
+        or current_worker_branch.stdout.strip() != handle.branch
+    ):
+        raise WorktreeIsolationError("terminal evidence worktree branch identity changed")
+    if not handle.base_commit or _resolve_commit(repo_root, handle.base_commit) != handle.base_commit:
+        raise WorktreeIsolationError("terminal evidence handle has no valid base commit")
+
+    records = _uncommitted_records(worktree_root)
+    record_by_path: dict[PurePosixPath, str] = {}
+    for code, path in records:
+        record_by_path[path] = code
+    explicit_set = set(explicit)
+
+    already_promoted: set[str] = set()
+    divergent_promoted: set[str] = set()
+    for path in explicit:
+        worker_path = worktree_root / path
+        canonical_path = repo_root / path
+        if not os.path.lexists(worker_path):
+            continue
+        if os.path.lexists(canonical_path):
+            if _same_regular_file(worker_path, canonical_path):
+                already_promoted.add(path.as_posix())
+            else:
+                # The canonical destination wins. Preserve the differing worker
+                # bytes only on this private branch and surface the conflict.
+                divergent_promoted.add(path.as_posix())
+
+    tracked_candidates: list[tuple[str, PurePosixPath]] = []
+    untracked_candidates: dict[PurePosixPath, tuple[str, bool]] = {}
+    out_of_scope: set[str] = set()
+    for code, path in records:
+        selected = _is_contained(path, scopes) or path in explicit_set
+        if not selected:
+            out_of_scope.add(path.as_posix())
+            continue
+        if path.as_posix() in already_promoted:
+            continue
+        if code == "??":
+            untracked_candidates[path] = (code, path in explicit_set)
+        else:
+            tracked_candidates.append((code, path))
+    # Git intentionally omits ignored paths. Add back only the two exact outputs
+    # named by trusted authority; no ignored directory walk is ever performed.
+    for path in explicit:
+        if (
+            path not in record_by_path
+            and path.as_posix() not in already_promoted
+            and os.path.lexists(worktree_root / path)
+        ):
+            untracked_candidates[path] = ("??", True)
+
+    non_regular: set[str] = set()
+    accepted_tracked: list[tuple[str, PurePosixPath]] = []
+    for code, path in sorted(tracked_candidates, key=lambda item: item[1].as_posix()):
+        candidate = worktree_root / path
+        try:
+            state = os.lstat(candidate)
+        except FileNotFoundError:
+            # A tracked deletion is still evidence; staging it records the intent.
+            accepted_tracked.append((code, path))
+            continue
+        except OSError:
+            non_regular.add(path.as_posix())
+            continue
+        if not stat.S_ISREG(state.st_mode):
+            non_regular.add(path.as_posix())
+            continue
+        accepted_tracked.append((code, path))
+
+    accepted_untracked: list[tuple[str, PurePosixPath]] = []
+    omitted_untracked: set[str] = set()
+    omitted_untracked_bytes = 0
+    preserved_untracked_bytes = 0
+    ordered_untracked = sorted(
+        untracked_candidates.items(),
+        key=lambda item: (not item[1][1], item[0].as_posix()),
+    )
+    for path, (code, _is_explicit) in ordered_untracked:
+        candidate = worktree_root / path
+        try:
+            state = os.lstat(candidate)
+        except OSError:
+            non_regular.add(path.as_posix())
+            continue
+        if not stat.S_ISREG(state.st_mode):
+            non_regular.add(path.as_posix())
+            continue
+        size = int(state.st_size)
+        exceeds_bound = (
+            len(accepted_untracked) >= maximum_untracked_files
+            or size > maximum_untracked_file_bytes
+            or preserved_untracked_bytes + size > maximum_untracked_total_bytes
+        )
+        if exceeds_bound:
+            omitted_untracked.add(path.as_posix())
+            omitted_untracked_bytes += size
+            continue
+        accepted_untracked.append((code, path))
+        preserved_untracked_bytes += size
+
+    selected_records = accepted_tracked + accepted_untracked
+    selected_paths = tuple(
+        sorted({path.as_posix() for _code, path in selected_records})
+    )
+    snapshot_created = False
+    if selected_paths:
+        stageable = tuple(
+            sorted(
+                {
+                    path.as_posix()
+                    for code, path in selected_records
+                    if len(code) == 2 and code[1] != " "
+                }
+            )
+        )
+        if stageable:
+            staged = _run_git(
+                [
+                    "add",
+                    "-f",
+                    "-A",
+                    "--",
+                    *(f":(literal){path}" for path in stageable),
+                ],
+                cwd=worktree_root,
+            )
+            if staged.returncode != 0:
+                raise WorktreeIsolationError(
+                    f"cannot stage terminal evidence: {staged.stderr.strip()}"
+                )
+        literal_selected = [f":(literal){path}" for path in selected_paths]
+        pending = _run_git(
+            ["diff", "--cached", "--quiet", "HEAD", "--", *literal_selected],
+            cwd=worktree_root,
+        )
+        if pending.returncode not in {0, 1}:
+            raise WorktreeIsolationError(
+                f"cannot inspect staged terminal evidence: {pending.stderr.strip()}"
+            )
+        if pending.returncode == 1:
+            committed = _run_git(
+                [
+                    "commit",
+                    "-q",
+                    "-m",
+                    (
+                        f"board: preserve terminal evidence for {handle.task_id} "
+                        f"({handle.attempt_id})"
+                    ),
+                    "--",
+                    *literal_selected,
+                ],
+                cwd=worktree_root,
+            )
+            if committed.returncode != 0:
+                raise WorktreeIsolationError(
+                    f"cannot commit terminal evidence: {committed.stderr.strip()}"
+                )
+            snapshot_created = True
+
+    head_after = _resolve_commit(worktree_root, "HEAD")
+    changed_records = (
+        _changed_records(repo_root, handle.base_commit, head_after)
+        if head_after != handle.base_commit
+        else ()
+    )
+    preserved_paths = tuple(sorted({path.as_posix() for _status, path in changed_records}))
+    partial = bool(omitted_untracked or non_regular)
+    if head_after != handle.base_commit:
+        status = "preserved_partial" if partial else (
+            "preserved" if snapshot_created else "preserved_existing"
+        )
+        evidence_ref = f"refs/heads/{handle.branch}"
+        evidence_location = f"{evidence_ref}@{head_after}"
+    elif partial:
+        status = "retained_bounded"
+        evidence_ref = f"refs/heads/{handle.branch}"
+        evidence_location = str(worktree_root)
+    else:
+        status = "none"
+        evidence_ref = f"refs/heads/{handle.branch}"
+        evidence_location = ""
+
+    tracked_paths = tuple(path.as_posix() for _code, path in accepted_tracked)
+    untracked_paths = tuple(path.as_posix() for _code, path in accepted_untracked)
+    return AttemptEvidenceReceipt(
+        status=status,
+        task_id=handle.task_id,
+        attempt_id=handle.attempt_id,
+        selection_policy=EVIDENCE_SELECTION_POLICY,
+        evidence_ref=evidence_ref,
+        evidence_commit=head_after if head_after != handle.base_commit else "",
+        evidence_location=evidence_location,
+        worktree_location=str(worktree_root),
+        base_commit=handle.base_commit,
+        snapshot_created=snapshot_created,
+        preserved_paths=_evidence_path_sample(preserved_paths),
+        preserved_path_count=len(preserved_paths),
+        tracked_residue_paths=_evidence_path_sample(tracked_paths),
+        tracked_residue_count=len(set(tracked_paths)),
+        untracked_residue_paths=_evidence_path_sample(untracked_paths),
+        untracked_residue_count=len(set(untracked_paths)),
+        explicit_output_paths=_evidence_path_sample(
+            tuple(path.as_posix() for path in explicit)
+        ),
+        already_promoted_paths=_evidence_path_sample(tuple(already_promoted)),
+        divergent_promoted_paths=_evidence_path_sample(tuple(divergent_promoted)),
+        omitted_untracked_paths=_evidence_path_sample(tuple(omitted_untracked)),
+        omitted_untracked_count=len(omitted_untracked),
+        omitted_untracked_bytes=omitted_untracked_bytes,
+        non_regular_paths=_evidence_path_sample(tuple(non_regular)),
+        non_regular_path_count=len(non_regular),
+        out_of_scope_paths=_evidence_path_sample(tuple(out_of_scope)),
+        out_of_scope_path_count=len(out_of_scope),
+        preserved_untracked_bytes=preserved_untracked_bytes,
+        untracked_file_limit=maximum_untracked_files,
+        untracked_file_bytes_limit=maximum_untracked_file_bytes,
+        untracked_total_bytes_limit=maximum_untracked_total_bytes,
+        worktree_retained_required=partial or bool(out_of_scope),
+    )
+
+
+def preserve_terminal_evidence(
+    authority: Mapping[str, object],
+    *,
+    base_branch: str | None = None,
+    maximum_untracked_files: int = EVIDENCE_MAX_UNTRACKED_FILES,
+    maximum_untracked_file_bytes: int = EVIDENCE_MAX_UNTRACKED_FILE_BYTES,
+    maximum_untracked_total_bytes: int = EVIDENCE_MAX_UNTRACKED_TOTAL_BYTES,
+) -> AttemptEvidenceReceipt:
+    """Reconstruct an authenticated attempt and preserve its terminal evidence.
+
+    The terminal receipt funnel and the cancel/reap paths have the sealed launch
+    authority but not the in-memory ``WorktreeHandle``. Reconstruct only the
+    deterministic private branch/worktree identity, then derive its immutable
+    comparison base as the merge-base with the current integration branch. If
+    the worker head was already integrated, that merge-base is the worker head,
+    so only genuinely unpromoted explicit outputs can create a new snapshot.
+    """
+
+    if not isinstance(authority, Mapping):
+        raise WorktreeIsolationError("terminal evidence authority is not a mapping")
+    task_id = authority.get("task_id")
+    attempt_id = authority.get("attempt_id")
+    repo_value = authority.get("repo_root")
+    pool_value = authority.get("pool_root")
+    write_scope = authority.get("write_paths")
+    if (
+        not isinstance(task_id, str)
+        or not isinstance(attempt_id, str)
+        or not isinstance(repo_value, str)
+        or not isinstance(pool_value, str)
+        or not isinstance(write_scope, list)
+        or any(not isinstance(item, str) for item in write_scope)
+    ):
+        raise WorktreeIsolationError("terminal evidence authority fields are invalid")
+    _validate_task_attempt(task_id, attempt_id)
+    repo_root = _canonical_existing(Path(repo_value), "terminal evidence repo root")
+    raw_pool = Path(pool_value)
+    if not raw_pool.is_absolute():
+        raise WorktreeIsolationError("terminal evidence pool root must be absolute")
+    pool_root = Path(os.path.realpath(raw_pool))
+    worktree_root = pool_root / attempt_id
+    if not worktree_root.is_dir():
+        raise WorktreeIsolationError("terminal evidence attempt worktree is unavailable")
+    canonical_worktree = worktree_write_scope_paths(worktree_root, repo_root)[0]
+    if canonical_worktree.parent != pool_root or canonical_worktree.name != attempt_id:
+        raise WorktreeIsolationError("terminal evidence worktree identity is invalid")
+    branch = _branch_name(task_id, attempt_id)
+    selected_base_branch = base_branch or os.environ.get("SQUAD_BASE_BRANCH", "v2")
+    target_commit = _resolve_commit(repo_root, f"refs/heads/{selected_base_branch}")
+    worker_head = _resolve_commit(canonical_worktree, "HEAD")
+    merge_base = _run_git(
+        ["merge-base", worker_head, target_commit],
+        cwd=repo_root,
+    )
+    base_commit = merge_base.stdout.strip()
+    if merge_base.returncode != 0 or not _OBJECT_ID_RE.fullmatch(base_commit):
+        raise WorktreeIsolationError(
+            f"cannot derive terminal evidence base: {merge_base.stderr.strip()}"
+        )
+    handle = WorktreeHandle(
+        task_id=task_id,
+        attempt_id=attempt_id,
+        branch=branch,
+        worktree_root=canonical_worktree,
+        repo_root=repo_root,
+        base_commit=base_commit,
+    )
+    explicit_outputs = tuple(
+        value
+        for key in ("expected_result_path", "expected_outbox_path")
+        if isinstance((value := authority.get(key)), str) and value
+    )
+    return _preserve_attempt_evidence(
+        handle,
+        write_scope,
+        explicit_output_paths=explicit_outputs,
+        maximum_untracked_files=maximum_untracked_files,
+        maximum_untracked_file_bytes=maximum_untracked_file_bytes,
+        maximum_untracked_total_bytes=maximum_untracked_total_bytes,
+    )
 
 
 def commit_worker_residue(
@@ -1486,11 +1947,17 @@ __all__ = [
     "WorktreeIsolationError",
     "WorktreeHandle",
     "WorktreeIntegrationReceipt",
+    "AttemptEvidenceReceipt",
+    "EVIDENCE_SELECTION_POLICY",
+    "EVIDENCE_MAX_UNTRACKED_FILES",
+    "EVIDENCE_MAX_UNTRACKED_FILE_BYTES",
+    "EVIDENCE_MAX_UNTRACKED_TOTAL_BYTES",
     "WorktreePool",
     "git_common_dir",
     "worktree_write_scope_paths",
     "scan_cbse_artifacts",
     "freeze_delete_authorization",
+    "preserve_terminal_evidence",
     "integrate_worktree_commits",
     "linked_worktree_commit_write_dirs",
     "to_board_task",

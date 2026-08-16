@@ -44,7 +44,7 @@ See `model-lanes/ROSTER.md`.
 | build, implement, refactor | project | `architect`, `backend-engineer`, `frontend-engineer`, `test-engineer`, `code-reviewer` |
 | bounty, vuln, exploit, report | bounty | `scout`, `security-analyst`, `threat-modeler`, `exploit-developer`, `impact-validator`, `technical-writer` |
 | research, compare, investigate | research | `research`, `data-extraction-engineer`, `large-context-analyst`, `synthesizer`, `skeptic` |
-| write, edit, design, media | content | `editor`, `brand-voice`, `copywriter`, `technical-writer`; media generation: `image-designer` / `video-director` / `music-composer` |
+| write, edit, design, media | content | `editor`, `brand-voice`, `technical-writer`; media generation: `image-designer` / `video-director` / `music-composer` |
 | cleanup, doctor, routines | maintenance | `mac-ops`, `agentops`, `harness-optimizer`, `memory-curator`, `knowledge-librarian` |
 | urgent broken system | incident | `mac-ops`, `systems-engineer`, `security-analyst`, implementation specialist, `technical-writer` |
 | unclear request | triage | `triage`, `summarizer`, `planner` |

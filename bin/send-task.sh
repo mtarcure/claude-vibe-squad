@@ -1,20 +1,12 @@
 #!/bin/bash
 # bin/send-task.sh — Dispatch a TASK file to a source namespace inbox.
 #
-# Spec 1.5 safety features baked in:
-#   Item 3: per-task version dirs (opt-in via per_task_versioning: true)
-#   Item 4: no-delete rule injection (via shared/dispatch-toolkit.sh)
-#   Item 5: write_scope conflict detection against active-tasks.json
-#   Item 7: active-task registry update (_state/active-tasks.json)
-#
 # Usage:
-#   bin/send-task.sh <task-file> [--nudge-pane <tmux-target>] [--dry-run]
+#   bin/send-task.sh <task-file> [--dry-run]
 #       [--panel a,b,c] [--panel-policy evidence-synthesis]
 #       [--panel-quorum all|N] [--panel-timeout SECONDS]
 #       [--fanout --panel-assignment TEXT --panel-assignment TEXT]
 #       [--swarm claude,gpt-codex,gemini,kimi] [--swarm-timeout SECONDS]
-#       [--subswarm-directive PATH]
-#       [--subswarm-assignment '<lane>:subNN=TEXT' ...]
 #   bin/send-task.sh --close-task <TASK-ID>  # evidence-gated reconciliation
 #
 # Required frontmatter in task file:
@@ -26,6 +18,8 @@
 # Optional frontmatter:
 #   write_scope: [path1, path2]     — conflict-checked against active tasks
 #   per_task_versioning: true       — rewrites return_artifact to include TASK-ID subdir
+#   memory_aperture: rich | focused | cold | pool_blind | none (default: cold)
+#   memory_focus: <exact note target> — required only for focused
 #
 # Exit codes:
 #   0  — dispatched successfully
@@ -35,20 +29,57 @@
 set -euo pipefail
 export PATH="${HOME}/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:${PATH}"
 
+# SQUAD_CODE_ROOT holds shipped code; ACTIVE_REGISTRY stays on mutable VAULT_ROOT.
+# Builder/supervisor preserve fixture overrides; otherwise the builder uses
+# shipped code so an operated-on vault need not itself be a checkout.
 # shellcheck source-path=SCRIPTDIR source=../shared/repo-root.sh disable=SC1091
 source "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")/.." && pwd -P)/shared/repo-root.sh"
+SQUAD_CODE_ROOT="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")/.." && pwd -P)"
 ACTIVE_REGISTRY="${VAULT_ROOT}/_state/active-tasks.json"
-TOOLKIT="${VAULT_ROOT}/shared/dispatch-toolkit.sh"
-RUNTIME_MAP="${VAULT_ROOT}/shared/specialist-runtime-map.tsv"
-FAILOVER_CONTROL="${VAULT_ROOT}/bin/failover-control.py"
-DAEMON_REQUIREMENTS="${VAULT_ROOT}/daemon/requirements.txt"
-CAPABILITY_DISPATCH="${VAULT_ROOT}/scripts/python/capability_dispatch.py"
-VERIFICATION_CONTRACT_HELPER="${VAULT_ROOT}/scripts/python/verification_contract.py"
-DISPATCH_CONTEXT_BUILDER="${VAULT_ROOT}/scripts/python/dispatch_context_builder.py"
+
+# Dispatch only from the main checkout. Invoked from a linked worktree this
+# script is silently wrong in two independent ways, both measured 2026-08-15:
+#
+#   1. `_state/` is gitignored, so the worktree has no registry. This script
+#      CREATES a stub holding only the task being dispatched, and the write_scope
+#      conflict check then compares against ~1 entry instead of the real ~1900 --
+#      reporting "no conflicts" because it can no longer see any. A check whose
+#      failure is indistinguishable from its success.
+#   2. The base branch derives from the checkout this script lives in, so lanes
+#      branch off Chrono's working branch. Chrono rebases that branch; the lane's
+#      base is then rewritten mid-flight and integration dies with "target branch
+#      no longer descends from the worktree base" -- discarding the finished work.
+#      Lane 6100 was lost exactly this way.
+#
+# The main checkout's branch only ever moves forward (board integration appends),
+# so it is the one safe base. Nothing legitimate dispatches from a worktree:
+# board-supervisor never re-invokes this script, and workers do not dispatch.
+if [[ "$(git -C "$VAULT_ROOT" rev-parse --git-dir 2>/dev/null)" \
+   != "$(git -C "$VAULT_ROOT" rev-parse --git-common-dir 2>/dev/null)" ]]; then
+    _vs_main_checkout="$(cd "$(git -C "$VAULT_ROOT" rev-parse --git-common-dir)/.." && pwd -P)"
+    echo "ERROR: refusing to dispatch from a linked worktree (${VAULT_ROOT})." >&2
+    echo "  The task registry here is a stub, so write_scope conflict detection would" >&2
+    echo "  silently pass, and lanes would branch off a branch that gets rebased." >&2
+    echo "  Run from the main checkout instead: ${_vs_main_checkout}" >&2
+    exit 1
+fi
+TOOLKIT="${SQUAD_CODE_ROOT}/shared/dispatch-toolkit.sh"
+RUNTIME_MAP="${SQUAD_CODE_ROOT}/shared/specialist-runtime-map.tsv"
+CAPABILITY_DISPATCH="${SQUAD_CODE_ROOT}/scripts/python/capability_dispatch.py"
+VERIFICATION_CONTRACT_HELPER="${SQUAD_CODE_ROOT}/scripts/python/verification_contract.py"
+DISPATCH_CONTEXT_BUILDER="${SQUAD_CODE_ROOT}/scripts/python/dispatch_context_builder.py"
+if [[ -f "${VAULT_ROOT}/scripts/python/dispatch_context_builder.py" && ! "${VAULT_ROOT}/scripts/python/dispatch_context_builder.py" -ef "$DISPATCH_CONTEXT_BUILDER" ]]; then
+    DISPATCH_CONTEXT_BUILDER="${VAULT_ROOT}/scripts/python/dispatch_context_builder.py"
+fi
+PLAN_ITEM_BINDING="${SQUAD_CODE_ROOT}/scripts/python/plan_item_binding.py"
+DISPATCH_PREFLIGHT="${SQUAD_CODE_ROOT}/scripts/python/dispatch_preflight.py"
+if [[ -f "${VAULT_ROOT}/scripts/python/dispatch_preflight.py" && ! "${VAULT_ROOT}/scripts/python/dispatch_preflight.py" -ef "$DISPATCH_PREFLIGHT" ]]; then
+    DISPATCH_PREFLIGHT="${VAULT_ROOT}/scripts/python/dispatch_preflight.py"
+fi
 BOARD_SUPERVISOR="${VAULT_ROOT}/bin/board-supervisor.sh"
 SQUAD_DISPATCH_MODE="${SQUAD_DISPATCH_MODE:-board}"
-BOARD_PRE_REGISTERED="${BOARD_PRE_REGISTERED:-0}"
-# Board dispatch base branch: derive from the current branch so board dispatch works
+BOARD_PRE_REGISTERED=0 BOARD_BATCH_ADMITTED=0 BOARD_PACKET_FINAL=0 BOARD_PREPARE_TARGET="" BOARD_ADMITTED_INDEX=0
+BOARD_ADMITTED_PATHS=() BOARD_ADMITTED_TASK_IDS=() BOARD_ADMITTED_HASHES=()
 # on any branch (consolidation, etc.), not just a hardcoded v2. Falls back to v2.
 SQUAD_BASE_BRANCH="${SQUAD_BASE_BRANCH:-$(git -C "$VAULT_ROOT" branch --show-current 2>/dev/null || true)}"
 [[ -n "$SQUAD_BASE_BRANCH" ]] || SQUAD_BASE_BRANCH="v2"
@@ -56,23 +87,17 @@ export SQUAD_BASE_BRANCH
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
-# Friction F5 residual. Once the task is written to the active-task registry it
-# holds its write_scope, and every error exit between that write and a confirmed
-# launch strands the scope: the reconciler's never-launched backstop only frees
-# it after NEVER_LAUNCHED_GRACE (120s), so re-dispatching the same paths blocks
-# meanwhile. Flipped to 1 immediately after the registry write, and back to 0 by
-# the settle helper (which must never recurse into `die`).
+# Armed after registry insertion; the settle helper fails closed unless it can
+# prove either queued/no-attempt or an exact descriptor-absent detach abort.
 TASK_REGISTERED=0
+BOARD_ABORT_PROVEN=0
 
-# Release a registered-but-never-launched task in this process. Fail closed: the
-# clauses below must independently prove nothing reached a lane, so a `die` after
-# the delivery-start transition leaves the task to the supervisor. Mirrors
-# registry_reconciler.never_launched_reason(), minus the grace timer — the
-# dispatcher is first-hand authority that this attempt never launched.
 settle_registered_task_cancelled() {
     [[ "$TASK_REGISTERED" == "1" ]] || return 0
     TASK_REGISTERED=0
-    SETTLE_REASON_VALUE="$1" python3 - "$VAULT_ROOT" "$TASK_ID" <<'PYEOF' >&2 || true
+    SETTLE_REASON_VALUE="$1" BOARD_ABORT_PROVEN_VALUE="${BOARD_ABORT_PROVEN:-0}" \
+        BOARD_ATTEMPT_VALUE="${DELIVERY_ATTEMPT_ID:-}" BOARD_GENERATION_VALUE="${DELIVERY_GENERATION:-0}" \
+        python3 - "$VAULT_ROOT" "$TASK_ID" <<'PYEOF' >&2 || true
 import json
 import os
 import sys
@@ -91,15 +116,26 @@ with rr.locked_registry():
     entry = registry.get(task_id)
     if not isinstance(entry, dict):
         raise SystemExit(0)
-    if (
-        entry.get("status") != "in-flight"
-        or entry.get("delivery_state") != "queued"
-        or int(entry.get("delivery_attempt_count") or 0) != 0
-        or entry.get("claimed_at")
-        or entry.get("started_at")
-    ):
+    queued = entry.get("delivery_state") == "queued" and int(entry.get("delivery_attempt_count") or 0) == 0 \
+        and not entry.get("claimed_at") and not entry.get("started_at")
+    attempt = os.environ.get("BOARD_ATTEMPT_VALUE", "")
+    generation = int(os.environ.get("BOARD_GENERATION_VALUE") or 0)
+    safe_attempt = attempt.isascii() and 0 < len(attempt) <= 200 and all(char.isalnum() or char in "._-" for char in attempt)
+    base = root / "_state" / "board-dispatch" / f"{task_id}.{attempt}"
+    history = entry.get("delivery_history")
+    exact_board_marker = isinstance(history, list) and any(isinstance(item, dict)
+        and item.get("event") == "in-progress" and item.get("transport") == "board-supervisor"
+        and item.get("attempt_id") == attempt and type(item.get("generation")) is int
+        and item.get("generation") == generation for item in history)
+    detach_abort = os.environ.get("BOARD_ABORT_PROVEN_VALUE") == "1" and safe_attempt \
+        and entry.get("delivery_state") == "in-progress" and entry.get("delivery_attempt_id") == attempt \
+        and type(entry.get("delivery_generation")) is int and entry.get("delivery_generation") == generation \
+        and entry.get("claimed_at") \
+        and entry.get("started_at") and exact_board_marker and not entry.get("delivery_worker_id") \
+        and not any(os.path.lexists(f"{base}{suffix}") for suffix in (".dispatch.json", ".receipt.json"))
+    if entry.get("status") != "in-flight" or not (queued or detach_abort):
         raise SystemExit(0)
-    rr.mark_delivery_terminal(entry, now, "never-launched")
+    rr.mark_delivery_terminal(task_id, entry, now, "never-launched")
     entry["status"] = "cancelled"
     entry["never_launched_reason"] = (
         f"dispatcher aborted before launch: {reason}" if reason
@@ -116,17 +152,10 @@ print(f"  → Released write_scope for {task_id} (cancelled; never launched)")
 PYEOF
 }
 
-die()  { settle_registered_task_cancelled "$*"; echo "ERROR: $*" >&2; exit 1; }
+die()  { settle_registered_task_cancelled "$*"; [[ -z "${WORKING_COPY:-}" || ! -f "$WORKING_COPY" || -L "$WORKING_COPY" ]] || rm -f -- "$WORKING_COPY"; echo "ERROR: $*" >&2; exit 1; }
 info() { echo "  → $*"; }
 
-# `dispatch_context_builder blocked` requires a repo-relative return_artifact:
-# _safe_relative() rejects absolute paths as a containment gate. A packet may
-# still carry an absolute one, which made the blocked-settlement escape hatch
-# fail with "contains an unsafe path" — stranding the task with neither an
-# envelope nor a released scope. Strip a VAULT_ROOT prefix so settlement
-# succeeds. A path outside the vault is returned unchanged: fabricating an
-# in-repo destination for it would defeat the gate, and the `die` path releases
-# the scope in that case.
+# Normalize only an in-vault absolute artifact for blocked settlement.
 board_settlement_artifact() {
     local artifact="$1" logical physical
     [[ "$artifact" == /* ]] || { printf '%s\n' "$artifact"; return 0; }
@@ -139,54 +168,52 @@ board_settlement_artifact() {
     esac
 }
 
-board_host_admit_batch() {
-    local requested_workers="$1"
-    local host_state active_workers higher_priority
-    host_state="$(
-        python3 - "$ACTIVE_REGISTRY" <<'PYEOF'
-import json
-import sys
-
-try:
-    with open(sys.argv[1], encoding="utf-8") as stream:
-        registry = json.load(stream)
-except FileNotFoundError:
-    registry = {}
-active = 0
-higher = False
-for entry in registry.values():
-    if not isinstance(entry, dict):
-        continue
-    if entry.get("delivery_state") == "in-progress":
-        active += 1
-    if (
-        entry.get("delivery_state") == "queued"
-        and entry.get("priority_class") in {"high", "urgent"}
-    ):
-        higher = True
-print(active, "1" if higher else "0")
-PYEOF
-    )" || die "board host-admission registry snapshot failed"
-    read -r active_workers higher_priority <<<"$host_state"
-    local -a admission_args=(
-        --live
-        --hard-max 12
-        --requested-workers "$requested_workers"
-        --task-path "$VAULT_ROOT"
-        --workload-class light-text
-        --active-workers "$active_workers"
-        --priority-state-known
-        --broker-port-available
-        --provider-budget-available
-        --interval 2
-    )
-    [[ "$higher_priority" == "1" ]] && admission_args+=(--higher-priority-queued)
-    local decision
-    if ! decision="$(python3 "${VAULT_ROOT}/scripts/python/host_admission.py" "${admission_args[@]}")"; then
-        die "board batch host admission refused ${requested_workers} workers: ${decision}"
-    fi
-    info "Board batch host admission: ${decision}"
+board_host_admit() {
+    local packet physical task_id decision digest vector_sha admitted_vector preflight preflight_hash
+    local -a admission_args=(--repo-root "$VAULT_ROOT") vector_fields=()
+    BOARD_ADMITTED_PATHS=() BOARD_ADMITTED_TASK_IDS=() BOARD_ADMITTED_HASHES=()
+    (( $# > 0 )) || die "board host admission requires a candidate vector"
+    [[ -f "$DISPATCH_PREFLIGHT" ]] || die "missing dispatch preflight: ${DISPATCH_PREFLIGHT}"
+    for packet in "$@"; do
+        physical="$(cd "$(dirname "$packet")" && pwd -P)/$(basename "$packet")" || die "cannot resolve admission packet"
+        task_id="$(frontmatter_field "$physical" "id")" || die "cannot read admission task id"
+        # Stdout is the machine channel consumed below; leave stderr inherited
+        # so warnings and refusal diagnostics remain visible without corrupting
+        # the single JSON verdict.
+        if ! preflight="$(python3 "$DISPATCH_PREFLIGHT" --repo-root "$VAULT_ROOT" --packet "$physical")"; then die "dispatch preflight refused: ${preflight}"; fi
+        preflight_hash="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("packet_sha256", ""))' <<<"$preflight")" || die "dispatch preflight returned invalid JSON"
+        digest="$(shasum -a 256 "$physical" | awk '{print $1}')" || die "cannot hash admission packet"
+        [[ "$digest" == "$preflight_hash" ]] || die "dispatch preflight packet binding changed before host admission"
+        info "Dispatch preflight: ${preflight}"
+        BOARD_ADMITTED_PATHS+=("$physical") BOARD_ADMITTED_TASK_IDS+=("$task_id") BOARD_ADMITTED_HASHES+=("$digest")
+        vector_fields+=("$physical" "$task_id" "$digest")
+        admission_args+=(--candidate "$physical" "$task_id" "$digest")
+    done
+    vector_sha="$(printf '%s\0' "${vector_fields[@]}" | shasum -a 256 | awk '{print $1}')" || die "cannot hash admission vector"
+    admission_args+=(--vector-sha256 "$vector_sha")
+    if ! decision="$(python3 "${VAULT_ROOT}/scripts/python/host_admission.py" "${admission_args[@]}")"; then die "board host admission queued candidate vector: ${decision}"; fi
+    admitted_vector="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("candidate_vector_sha256", ""))' <<<"$decision")" || die "board host admission returned invalid JSON"
+    [[ "$admitted_vector" == "$vector_sha" ]] || die "candidate vector binding mismatch"
+    info "Board host admission: ${decision}"
 }
+
+admitted_packet_bytes() {
+    local file="$1" index="${2:-$BOARD_ADMITTED_INDEX}" digest task_id
+    [[ "$index" =~ ^[0-9]+$ && -n "${BOARD_ADMITTED_HASHES[$index]+x}" ]] || return 1
+    digest="$(shasum -a 256 "$file" | awk '{print $1}')" || return 1; task_id="$(frontmatter_field "$file" "id")" || return 1
+    [[ "$digest" == "${BOARD_ADMITTED_HASHES[$index]}" && "$task_id" == "${BOARD_ADMITTED_TASK_IDS[$index]}" ]]
+}
+
+dispatch_admitted_child() (
+    local pre_registered="$1" packet="$2"
+    BOARD_ADMITTED_INDEX="$3" BOARD_BATCH_ADMITTED=1 BOARD_PACKET_FINAL=1 BOARD_PRE_REGISTERED="$pre_registered"
+    send_task_main "$packet"
+)
+
+prepare_admission_child() (
+    BOARD_PREPARE_TARGET="$1"
+    send_task_main "$1"
+)
 
 frontmatter_field() {
     local file="$1" field="$2"
@@ -220,19 +247,7 @@ try:
 except UnicodeDecodeError as exc:
     raise SystemExit("task file is not valid UTF-8") from exc
 
-# R-1: str.splitlines() breaks on nine separators that the rest of the
-# toolchain does not (\v \f \r \x1c \x1d \x1e \x85 U+2028 U+2029), while awk
-# frontmatter_field and the swarm builder's ^---\n(.*?)\n--- regex break on \n
-# alone. A "---" introduced by one of those characters therefore ended THIS
-# parse early, hiding the remainder of the region -- including a
-# dispatcher-owned field such as dispatch_kind -- from the reserved-field gate,
-# even though every \n-only consumer of the delivered packet still read it as a
-# top-level key. Splitting on \n alone closes that direction; rejecting the nine
-# outright closes the mirror image, where a \n-only parse sees one inert value
-# and a splitlines() consumer (read_yaml_frontmatter, which the board
-# supervisor's deletion gate reads operator_approved through) sees an extra
-# field. Together they make this the STRICTEST view of the region: no consumer,
-# whichever splitter it uses, can see a frontmatter key this parse did not.
+# Reject every non-newline separator that could split parser interpretations.
 LINE_SPLIT_LOOKALIKES = {
     "\v": "\\v",
     "\f": "\\f",
@@ -461,12 +476,7 @@ if authorized_delete_paths:
 print(json.dumps(admission, separators=(",", ":")))
 PYEOF
     )" || die "failed to build verification contract admission"
-    # Friction F7 remainder: the helper already prints `verification contract
-    # error: <reason>` naming the offending field, but on its own stderr line.
-    # Anything that surfaces only this die (the friction log, a wrapper
-    # reporting the last error line) lost the reason. Fold stderr into the
-    # message so one greppable line carries it. The helper writes stderr only
-    # on the failure path, so a success still yields clean JSON on stdout.
+    # Preserve the helper's typed field-level reason on the single failure line.
     if ! result="$(python3 "$VERIFICATION_CONTRACT_HELPER" derive --admission-json "$admission_json" 2>&1)"; then
         die "typed verification contract admission failed: $(
             printf '%s' "$result" | tr '\n' ' ' | sed 's/  */ /g; s/ *$//'
@@ -479,7 +489,7 @@ PYEOF
 
 inject_verification_contract() {
     local contract_copy
-    contract_copy=$(mktemp "${TASK_FILE%.md}.verification.XXXXXX.md")
+    contract_copy=$(mktemp "${TASK_FILE%.md}.verification.md.XXXXXX")
     awk \
         -v author_family="$AUTHOR_FAMILY" \
         -v contract="$VERIFICATION_CONTRACT_JSON" \
@@ -505,19 +515,7 @@ map_field() {
     awk -F '\t' -v s="$specialist" -v idx="$field_index" '$1 == s {print $idx; exit}' "$RUNTIME_MAP"
 }
 
-# Mirror of registry_reconciler._is_read_only_review_task: true only for a
-# verdict-producing role dispatched with an empty write scope. Every verdict
-# role is safety_level:high, so without this the high-safety gate below demands
-# mandatory_review of a REVIEW -- i.e. a review of a review, which regresses
-# infinitely and left cross-family review packets undispatchable.
-#
-# Single source of truth: the role set is imported from the reconciler rather
-# than restated here, and the scope is parsed with the same expression the
-# registration block uses to build entry["write_scope"], so the dispatcher can
-# never classify a packet differently from the reconciler that settles it.
-# Values travel by environment, not heredoc interpolation, so a packet field
-# cannot inject Python. Any failure (missing module, import error) fails
-# CLOSED -- no exemption is granted and the high-safety gate still fires.
+# Mirror the reconciler's exact read-only verdict exemption; errors fail closed.
 is_read_only_verdict_task() {
     local specialist="$1" scope_json="$2"
     VAULT_ROOT="$VAULT_ROOT" VERDICT_SPECIALIST="$specialist" VERDICT_WRITE_SCOPE_JSON="$scope_json" \
@@ -578,54 +576,6 @@ validate_native_adapter() {
     python3 "${VAULT_ROOT}/scripts/python/lane_adapter_registry.py" \
         --repo-root "$VAULT_ROOT" --lane "$model" --validate-adapter "$adapter" >/dev/null \
         || die "predispatch blocked: adapter violates the ${model} lane capability registry for specialist '${specialist}'"
-}
-
-# Concurrency admission: refuse to launch onto a saturated machine.
-# board_router's capacity system governs batch/fan-out scheduling, but single
-# dispatches declare no resource claims, so N sequential dispatches all launch.
-# Observed 2026-08-02: seven concurrent lanes drove load to 56 and an eighth
-# failed with "trusted launch failed: child timed out after 5s" -- recorded as
-# `blocked`, indistinguishable in the registry from a config fault.
-#
-# FAILS OPEN by design: any error in this check must never block dispatch.
-# A blind gate on the critical path once broke every board dispatch, and only a
-# live launch canary caught it.
-check_launch_capacity() {
-    local target_model="$1"
-    [[ -n "${SEND_TASK_SKIP_CAPACITY:-}" ]] && return 0
-    local global_max="${SEND_TASK_MAX_LANES:-6}"
-    local lane_max
-    case "$target_model" in
-        claude|gpt-codex) lane_max="${SEND_TASK_MAX_PER_LANE:-2}" ;;
-        gemini|kimi)      lane_max=1 ;;
-        *)                lane_max=2 ;;
-    esac
-    local counts
-    counts="$(python3 - "$VAULT_ROOT" "$target_model" <<'PYCAP' 2>/dev/null
-import json, sys
-from pathlib import Path
-root, model = sys.argv[1], sys.argv[2]
-try:
-    data = json.loads(Path(root, "_state/active-tasks.json").read_text())
-except Exception:
-    sys.exit(0)                      # fail open: unreadable registry never blocks
-live = {"in-flight", "dispatched", "queued", "claimed"}
-rows = [v for v in data.values() if isinstance(v, dict) and v.get("status") in live]
-print(f"{len(rows)} {sum(1 for v in rows if v.get('to_model') == model)}")
-PYCAP
-)"
-    [[ -z "$counts" ]] && return 0    # fail open
-    local total lane
-    total="${counts%% *}"; lane="${counts##* }"
-    [[ "$total" =~ ^[0-9]+$ ]] || return 0
-    [[ "$lane"  =~ ^[0-9]+$ ]] || return 0
-    if (( total >= global_max )); then
-        die "predispatch blocked: ${total} lanes already in flight (limit ${global_max}). Wait for lanes to settle, or set SEND_TASK_MAX_LANES / SEND_TASK_SKIP_CAPACITY to override. Launching onto a saturated machine fails as a 5s launch timeout recorded as 'blocked'."
-    fi
-    if (( lane >= lane_max )); then
-        die "predispatch blocked: ${lane} ${target_model} lanes already in flight (per-lane limit ${lane_max}). Wait, or set SEND_TASK_MAX_PER_LANE / SEND_TASK_SKIP_CAPACITY to override."
-    fi
-    return 0
 }
 
 validate_task_capabilities() {
@@ -738,9 +688,8 @@ fi
 
 # ── arg parse ─────────────────────────────────────────────────────────────────
 
+send_task_main() {
 TASK_FILE=""
-NUDGE_PANE=""
-NUDGE_UNAVAILABLE_REASON=""
 DRY_RUN=false
 PANEL_ENABLED=false
 PANEL_MEMBERS_RAW=""
@@ -752,14 +701,10 @@ declare -a PANEL_ASSIGNMENTS=()
 SWARM_ENABLED=false
 SWARM_LANES_RAW=""
 SWARM_TIMEOUT_SECONDS="900"
-SUBSWARM_ENABLED=false
-SUBSWARM_DIRECTIVE=""
-declare -a SUBSWARM_ASSIGNMENTS=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --nudge-pane) NUDGE_PANE="$2"; shift 2 ;;
-        --nudge-unavailable) NUDGE_UNAVAILABLE_REASON="$2"; shift 2 ;;
+        --nudge-pane|--nudge-unavailable) die "pane nudge options are unsupported" ;;
         --panel) PANEL_ENABLED=true; PANEL_MEMBERS_RAW="$2"; shift 2 ;;
         --panel-policy) PANEL_POLICY="$2"; shift 2 ;;
         --panel-quorum) PANEL_QUORUM="$2"; shift 2 ;;
@@ -768,23 +713,21 @@ while [[ $# -gt 0 ]]; do
         --panel-assignment) PANEL_ASSIGNMENTS+=("$2"); shift 2 ;;
         --swarm) SWARM_ENABLED=true; SWARM_LANES_RAW="$2"; shift 2 ;;
         --swarm-timeout) SWARM_TIMEOUT_SECONDS="$2"; shift 2 ;;
-        --subswarm-directive) SUBSWARM_ENABLED=true; SUBSWARM_DIRECTIVE="$2"; shift 2 ;;
-        --subswarm-assignment) SUBSWARM_ASSIGNMENTS+=("$2"); shift 2 ;;
+        --subswarm-directive|--subswarm-assignment) \
+            die "subswarm dispatch is unsupported; use board swarm or fan-out" ;;
         --dry-run)    DRY_RUN=true; shift ;;
         *)            TASK_FILE="$1"; shift ;;
     esac
 done
 
-[[ -z "$TASK_FILE" ]] && die "Usage: $0 <task-file> [--nudge-pane <target>] [--dry-run] [--panel ... | --swarm lanes]"
+[[ -z "$TASK_FILE" ]] && die "Usage: $0 <task-file> [--dry-run] [--panel ... | --swarm lanes]"
 [[ -f "$TASK_FILE" ]] || die "Task file not found: $TASK_FILE"
-case "$SQUAD_DISPATCH_MODE" in
-    pane|board) ;;
-    *) die "invalid SQUAD_DISPATCH_MODE '${SQUAD_DISPATCH_MODE}'; expected pane or board" ;;
-esac
+[[ "$SQUAD_DISPATCH_MODE" == "board" ]] \
+    || die "pane transport is unsupported; expected SQUAD_DISPATCH_MODE=board"
 [[ "$BOARD_PRE_REGISTERED" == "0" || "$BOARD_PRE_REGISTERED" == "1" ]] \
     || die "BOARD_PRE_REGISTERED is an internal boolean"
-[[ "$BOARD_PRE_REGISTERED" == "0" || "$SQUAD_DISPATCH_MODE" == "board" ]] \
-    || die "BOARD_PRE_REGISTERED is valid only for board transport"
+[[ "$BOARD_PACKET_FINAL" == "0" || "$BOARD_PACKET_FINAL" == "1" ]] \
+    || die "BOARD_PACKET_FINAL is an internal boolean"
 
 if ! $PANEL_ENABLED; then
     [[ "$PANEL_POLICY" == "evidence-synthesis" ]] || die "--panel-policy requires --panel"
@@ -796,14 +739,8 @@ elif ! $FANOUT_ENABLED && (( ${#PANEL_ASSIGNMENTS[@]} > 0 )); then
     die "--panel-assignment requires --fanout"
 fi
 $PANEL_ENABLED && $SWARM_ENABLED && die "--panel and --swarm are distinct dispatch kinds and cannot be combined"
-$SUBSWARM_ENABLED && $PANEL_ENABLED && die "--subswarm-directive and --panel are distinct dispatch modes and cannot be combined"
-$SUBSWARM_ENABLED && $SWARM_ENABLED && die "--subswarm-directive and --swarm are distinct dispatch modes and cannot be combined"
-if [[ "$SQUAD_DISPATCH_MODE" == "board" ]] \
-    && { { $PANEL_ENABLED && ! $FANOUT_ENABLED; } || $SUBSWARM_ENABLED; }; then
-    die "board dispatch supports single, swarm, and fan-out packets; review panels and subswarms remain lane-native"
-fi
-if ! $SUBSWARM_ENABLED; then
-    (( ${#SUBSWARM_ASSIGNMENTS[@]} == 0 )) || die "--subswarm-assignment requires --subswarm-directive"
+if $PANEL_ENABLED && ! $FANOUT_ENABLED; then
+    die "board dispatch supports single, swarm, and fan-out packets; review panels remain lane-native"
 fi
 if ! $SWARM_ENABLED; then
     [[ "$SWARM_TIMEOUT_SECONDS" == "900" ]] || die "--swarm-timeout requires --swarm"
@@ -850,14 +787,18 @@ LEGACY_LEAD_DIRECT_ALLOWED=$(task_frontmatter_field "lead_direct_allowed")
 PARALLEL_SAFE=$(task_frontmatter_field "parallel_safe")
 PANEL_MEMBER_WRITE_SCOPE=$(task_frontmatter_field "panel_member_write_scope")
 RETURN_ARTIFACT=$(task_frontmatter_field "return_artifact")
+PLAN_ITEM_IDS_RAW=$(task_frontmatter_field "plan_item_ids") PHASE=$(task_frontmatter_field "phase")
 MODE=$(task_frontmatter_field "mode")
 CAPABILITY=$(task_frontmatter_field "capability")
 CAPABILITY_DEGRADATION_ACK=$(task_frontmatter_field "capability_degradation_ack")
+MEMORY_APERTURE=$(task_frontmatter_field "memory_aperture")
+MEMORY_FOCUS=$(task_frontmatter_field "memory_focus")
 CAPABILITY_SNAPSHOT_JSON=""
 CAPABILITY_PRESENT=false
 AUTHOR_FAMILY=""
 VERIFICATION_CONTRACT_JSON=""
 VERIFICATION_CONTRACT_SHA256=""
+PRESERVE_DISPATCHED_CONTRACT=false
 task_frontmatter_has_field "capability" && CAPABILITY_PRESENT=true
 MAP_BACKUP="none"
 MAP_OPERATOR_GATE="[]"
@@ -879,21 +820,39 @@ fi
 
 # Snapshot fields are dispatcher-owned. Accepting author-provided values would
 # let a packet forge the immutable contract recorded in the active-task ledger.
-for RESERVED_CAPABILITY_FIELD in \
-    capability_id capability_card_path capability_card_sha256 \
-    capability_derived_state capability_gates \
-    author_family verification_contract verification_contract_sha256 \
-    dispatch_kind swarm_parent_id swarm_spec swarm_spec_sha256 swarm_role \
-    swarm_member_result swarm_diff_path \
-    subswarm_directive_sha256 subswarm_dispatch_sha256 \
-    subswarm_member_bundle subswarm_max_concurrency; do
-    ! task_frontmatter_has_field "$RESERVED_CAPABILITY_FIELD" \
-        || die "task packet may not pre-populate dispatcher-owned field '${RESERVED_CAPABILITY_FIELD}'"
-done
+if [[ "$BOARD_PACKET_FINAL" != "1" ]]; then
+    for RESERVED_CAPABILITY_FIELD in \
+        capability_id capability_card_path capability_card_sha256 \
+        capability_derived_state capability_gates \
+        author_family verification_contract verification_contract_sha256 \
+        dispatch_kind swarm_parent_id swarm_spec swarm_spec_sha256 swarm_role \
+        swarm_member_result swarm_diff_path; do
+        ! task_frontmatter_has_field "$RESERVED_CAPABILITY_FIELD" \
+            || die "task packet may not pre-populate dispatcher-owned field '${RESERVED_CAPABILITY_FIELD}'"
+    done
+else
+    [[ "$BOARD_BATCH_ADMITTED" == "1" ]] \
+        || die "final board packet lacks batch admission"
+    if [[ "$BOARD_PRE_REGISTERED" == "1" ]]; then
+        [[ "$(task_frontmatter_field "dispatch_kind")" == "swarm" \
+            && "$(task_frontmatter_field "swarm_role")" == "member" ]] \
+            || die "pre-registered admitted child is not a swarm member"
+    else
+        [[ -n "$(task_frontmatter_field "fanout_parent_id")" \
+            && -n "$(task_frontmatter_field "fanout_member_id")" ]] \
+            || die "admitted final child is not a fan-out member"
+    fi
+    AUTHOR_FAMILY="$(task_frontmatter_field "author_family")"
+    VERIFICATION_CONTRACT_JSON="$(task_frontmatter_field "verification_contract")"
+    VERIFICATION_CONTRACT_SHA256="$(task_frontmatter_field "verification_contract_sha256")"
+    [[ -n "$AUTHOR_FAMILY" && -n "$VERIFICATION_CONTRACT_JSON" \
+        && "$VERIFICATION_CONTRACT_SHA256" =~ ^[0-9a-f]{64}$ ]] \
+        || die "pre-registered swarm child contract is incomplete"
+    PRESERVE_DISPATCHED_CONTRACT=true
+fi
 if $CAPABILITY_PRESENT && [[ -z "$CAPABILITY" ]]; then
     die "task packet carries an empty capability field; use a valid slug or 'none'"
 fi
-
 # A5 mode consolidation (10 → 2): resolve a legacy domain-mode capability id
 # (content/outreach/research/maintenance) to its canonical folded project id up
 # front, so a retired-mode packet dispatches through the project lifecycle with
@@ -973,18 +932,23 @@ case "$REVIEW_MODEL" in
     gpt-codex|claude|gemini|kimi|none) ;;
     *) die "invalid review_model '${REVIEW_MODEL}'. Expected gpt-codex|claude|gemini|kimi|none." ;;
 esac
-# Advisory only -- never fatal. An unrecognised mode derives no verification contract,
-# so --dry-run passes and the launch then fails with the misleading
-# "missing required frontmatter field: verification_contract", after a blocked registry
-# entry already exists. Three advisory packets were lost to that in one session.
-# This warns rather than blocks: modes were consolidated 10 -> 2, but `advisory`, `build`,
-# `research` and others ran historically and this script is not the place to decide they
-# are retired. Chrono reads the warning and chooses.
+# Legacy modes remain warnings here; the typed contract/launch boundary decides.
 case "$MODE" in
     bounty|project) ;;
     "") printf 'WARNING: task packet has no mode; expected bounty|project. No verification contract will be derived and the launch will fail.\n' >&2 ;;
     *) printf 'WARNING: mode %s is not bounty|project. If no verification contract is derived, the launch fails with a misleading "missing verification_contract" error.\n' "$MODE" >&2 ;;
 esac
+[[ -n "$MEMORY_APERTURE" ]] || MEMORY_APERTURE="cold"
+case "$MEMORY_APERTURE" in
+    rich|focused|cold|pool_blind|none) ;;
+    *) die "invalid memory_aperture '${MEMORY_APERTURE}'" ;;
+esac
+if [[ "$MEMORY_APERTURE" == "focused" ]]; then
+    [[ -n "$MEMORY_FOCUS" && "$MEMORY_FOCUS" != *$'\n'* && "$MEMORY_FOCUS" != *$'\r'* ]] \
+        || die "focused memory requires one exact memory_focus"
+elif [[ -n "$MEMORY_FOCUS" ]]; then
+    die "memory_focus is valid only with memory_aperture focused"
+fi
 case "$SOURCE_NAMESPACE" in
     coding|security|content|sysmgmt|research|shared|chrono) ;;
     *) die "invalid source_namespace '${SOURCE_NAMESPACE}'." ;;
@@ -1000,6 +964,12 @@ case "$MANDATORY_REVIEW" in
     true|false) ;;
     *) die "mandatory_review must be true or false, got '${MANDATORY_REVIEW}'." ;;
 esac
+if [[ "$MANDATORY_REVIEW" == "true" ]]; then
+    [[ "$REVIEW_MODEL" != "none" ]] \
+        || die "mandatory_review:true requires a distinct-family review_model"
+    [[ "$REVIEW_MODEL" != "$TO_MODEL" ]] \
+        || die "mandatory_review:true requires review_model to differ from to_model"
+fi
 case "$REVIEW_CLASS" in
     standard|factual|security-finding) ;;
     *) die "review_class must be standard, factual, or security-finding, got '${REVIEW_CLASS}'." ;;
@@ -1028,17 +998,55 @@ if ! WRITE_SCOPE_JSON="$(parse_inline_path_list "$WRITE_SCOPE_RAW" write_scope 2
     die "invalid write_scope: ${WRITE_SCOPE_JSON}"
 fi
 
-# Deletion-gate authorization passthrough. The deletion gate is enforced by the
-# board supervisor (launch-side) and worktree_isolation (integration-side) from
-# the PINNED verification contract, so an operator-approved deletion list is
-# inert until the dispatcher carries it from the packet into that contract. The
-# list is parsed here and handed to the contract builder as DATA; every path
-# rule (repo-relative, literal, file-precise, deduplicated, capped) stays in
-# verification_contract.normalize_authorized_delete_path, the single authority.
+# Refuse a structural path HERE rather than after the worker has done the work.
+# worktree_isolation refuses any worker commit touching a structural segment
+# (.git, .githooks) regardless of write_scope -- and that refusal discards the
+# ENTIRE lane's output, not just the offending file. Granting the path in
+# write_scope therefore reads as authorization and behaves as a guaranteed total
+# loss. Measured 2026-08-15: lane 6200 lost a full documentation pass this way.
+# The segment set is imported, never restated, so this cannot drift from the
+# enforcer it is predicting.
+if ! STRUCTURAL_SCOPE_ERR="$(
+    SEND_TASK_WRITE_SCOPE_JSON="$WRITE_SCOPE_JSON" \
+    SEND_TASK_CODE_ROOT="$SQUAD_CODE_ROOT" python3 - <<'PYEOF' 2>&1
+import json, os, sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(os.environ["SEND_TASK_CODE_ROOT"]) / "scripts" / "python"))
+from worktree_isolation import _CBSE_STRUCTURAL_SEGMENTS  # single home for this fact
+
+offenders = sorted(
+    {
+        f"{entry} (segment: {part})"
+        for entry in json.loads(os.environ["SEND_TASK_WRITE_SCOPE_JSON"])
+        for part in Path(entry).parts
+        if part in _CBSE_STRUCTURAL_SEGMENTS
+    }
+)
+if offenders:
+    print("; ".join(offenders), end="")
+    sys.exit(1)
+PYEOF
+)"; then
+    die "write_scope names a structural path a worker can never commit: ${STRUCTURAL_SCOPE_ERR}. \
+The isolation layer refuses ANY worker commit touching these segments regardless of scope, and the \
+refusal discards the whole lane's work. Make the change Chrono-side and drop the path from write_scope."
+fi
+
+# Carry deletion authorization as data; verification_contract owns every path rule.
 if ! AUTHORIZED_DELETE_PATHS_JSON="$(
     parse_inline_path_list "$AUTHORIZED_DELETE_PATHS_RAW" authorized_delete_paths 2>&1
 )"; then
     die "invalid authorized_delete_paths: ${AUTHORIZED_DELETE_PATHS_JSON}"
+fi
+
+# Resolve one binding fact: an explicit field wins by presence; otherwise a
+# detailed phase is derived. The canonical validator rejects free-form phases,
+# while bare phase groupings stay admitted but unbound.
+declare -a PLAN_ITEM_PHASE_ARGS=(); task_frontmatter_has_field "plan_item_ids" || PLAN_ITEM_PHASE_ARGS=(--phase="$PHASE")
+if ! PLAN_ITEM_IDS_JSON="$(parse_inline_path_list "$PLAN_ITEM_IDS_RAW" plan_item_ids 2>&1)" \
+    || ! PLAN_ITEM_IDS_JSON="$(python3 "$PLAN_ITEM_BINDING" declare --json "$PLAN_ITEM_IDS_JSON" "${PLAN_ITEM_PHASE_ARGS[@]}" 2>&1)"; then
+    die "invalid plan_item_ids: ${PLAN_ITEM_IDS_JSON}"
 fi
 
 PANEL_MEMBERS_CSV=""
@@ -1133,14 +1141,6 @@ if $PANEL_ENABLED; then
         || die "panel timeout must be a positive integer, got '${PANEL_TIMEOUT_SECONDS}'"
     (( PANEL_TIMEOUT_SECONDS <= 86400 )) \
         || die "panel timeout exceeds 86400 seconds"
-    if $FANOUT_ENABLED && [[ "$SQUAD_DISPATCH_MODE" != "board" ]]; then
-        if [[ "$TO_MODEL" == "gpt-codex" ]]; then
-            die "fan-out on gpt-codex is gated pending a live proof of concurrent native subagents, MCP inheritance, and structured parent-message return"
-        fi
-        [[ "$TO_MODEL" == "claude" ]] \
-            || die "fan-out supports only the claude lane; gpt-codex is gated and gemini/kimi are disabled"
-    fi
-
     [[ -z "$(task_frontmatter_field "dispatch_kind")" ]] \
         || die "task already contains dispatch_kind; do not combine a pre-panelized packet with --panel"
     [[ -n "$PANEL_MEMBERS_RAW" ]] || die "--panel requires a comma-separated member list"
@@ -1161,8 +1161,7 @@ if $PANEL_ENABLED; then
         PANEL_COUNT=$((PANEL_COUNT + 1))
     done
     PANEL_LIMIT=3
-    [[ "$SQUAD_DISPATCH_MODE" == "board" && "$FANOUT_ENABLED" == "true" ]] \
-        && PANEL_LIMIT=12
+    $FANOUT_ENABLED && PANEL_LIMIT=12
     (( PANEL_COUNT >= 2 && PANEL_COUNT <= PANEL_LIMIT )) \
         || die "panel-v1 requires 2-${PANEL_LIMIT} members for this transport, got ${PANEL_COUNT}"
 
@@ -1201,9 +1200,8 @@ if $PANEL_ENABLED; then
     fi
 
     PANEL_MEMBER_WRITE_SCOPE="${PANEL_MEMBER_WRITE_SCOPE:-[]}"
-    if [[ "$PANEL_MEMBER_WRITE_SCOPE" =~ departments/.*/outbox \
-        || "$PANEL_MEMBER_WRITE_SCOPE" =~ _state/failover/staging ]]; then
-        die "panel member write scope may not include outbox or failover staging: ${PANEL_MEMBER_WRITE_SCOPE}"
+    if [[ "$PANEL_MEMBER_WRITE_SCOPE" =~ departments/.*/outbox ]]; then
+        die "panel member write scope may not include outbox: ${PANEL_MEMBER_WRITE_SCOPE}"
     fi
 
     for member in "${PANEL_MEMBERS[@]}"; do
@@ -1270,9 +1268,6 @@ if [[ "$SPECIALIST" != "none" ]]; then
     if [[ "$SOURCE_NAMESPACE" != "$MAP_NAMESPACE" && "$MAP_NAMESPACE" != "shared" ]]; then
         die "source_namespace '${SOURCE_NAMESPACE}' does not match model map (${MAP_NAMESPACE})"
     fi
-    if [[ "$MANDATORY_REVIEW" == "true" && "$REVIEW_MODEL" == "none" ]]; then
-        die "mandatory_review:true requires review_model"
-    fi
     if [[ "$MAP_SAFETY" == "high" && "$MANDATORY_REVIEW" != "true" ]]; then
         # A read-only verdict-role packet is the ONE exemption: requiring its
         # own review is an infinite regress (see is_read_only_verdict_task).
@@ -1284,14 +1279,8 @@ if [[ "$SPECIALIST" != "none" ]]; then
             die "high-safety specialist '${SPECIALIST}' requires mandatory_review:true"
         fi
     fi
-    # Non-blocking heads-up: a genuine cross-family mandatory_review task will NOT
-    # auto-settle to complete until a separate reviewer-lane response lands
-    # (enforced by scripts/python/registry_reconciler.py). gpt-codex->claude runs
-    # in-lane, so it is exempt; every other cross-lane pair needs the follow-up.
-    if [[ "$MANDATORY_REVIEW" == "true" && "$REVIEW_MODEL" != "none" \
-        && "$MAP_MODEL" != "$REVIEW_MODEL" \
-        && ! ( "$MAP_MODEL" == "gpt-codex" && "$REVIEW_MODEL" == "claude" ) ]]; then
-        info "cross-family review required: ${SPECIALIST} (${MAP_MODEL}) will stay review-required until a ${REVIEW_MODEL} review response lands."
+    if [[ "$MANDATORY_REVIEW" == "true" ]]; then
+        info "cross-family review required: ${SPECIALIST} (${TO_MODEL}) will stay review-required until a ${REVIEW_MODEL} review response lands."
     fi
 fi
 
@@ -1321,11 +1310,9 @@ if $CAPABILITY_PRESENT && [[ "$CAPABILITY" != "none" ]]; then
     info "Capability snapshot: id=${CAPABILITY_ID} state=${CAPABILITY_STATE} sha256=${CAPABILITY_HASH}"
 fi
 
-# Validate only the author-authored packet here. The registry-derived toolkit is
-# intentionally appended later and may backtick cross-lane status rows. State
-# failures remain hard gates above; a `yes` lane mismatch is only a warning, so a
-# future ordering change cannot make the toolkit falsely block its own packet.
-if $SWARM_ENABLED; then
+if [[ "$BOARD_PACKET_FINAL" == "1" ]]; then
+    : # The exact source packet was validated before final controller injection.
+elif $SWARM_ENABLED; then
     for lane in "${SWARM_LANES[@]}"; do
         validate_task_capabilities "$TASK_FILE" "$lane" \
             || die "task references unavailable or unverified live capability for swarm lane ${lane}"
@@ -1334,12 +1321,7 @@ else
     validate_task_capabilities "$TASK_FILE" "$TO_MODEL" || die "task references unavailable or unverified live capability"
 fi
 
-# Promotion expectation: only `return_artifact` is promoted out of the worktree.
-# Every other write_scope path is silently stranded, and because _state/** is
-# gitignored the failure is invisible rather than an error. This stranded a PoC,
-# a harness suite, a sealed cross-check file and a program record in one session.
-# Warn rather than block: writing harnesses into a gitignored target tree is
-# legitimate and useful -- the defect is Chrono ASSUMING those paths come back.
+# Warn when declared writes other than the return artifact will not be promoted.
 warn_unpromoted_write_scope() {
     python3 - "$TASK_FILE" "$VAULT_ROOT" <<'PYWARN' 2>/dev/null || true
 import re, subprocess, sys
@@ -1375,10 +1357,7 @@ print(
 )
 PYWARN
 }
-# A full disk does not fail a lane, it DEGRADES it: the Go linker cannot write a
-# test binary, every harness silently fails to build, and the lane reports
-# UNDETERMINED for a reason that has nothing to do with the target. Two lanes
-# burned their full budget on this before anyone looked at df.
+# Warn before low disk produces unrelated toolchain failures.
 warn_low_disk() {
     local free_mb
     free_mb=$(df -Pm "$VAULT_ROOT" 2>/dev/null | awk 'NR==2 {print $4}')
@@ -1392,15 +1371,9 @@ warn_low_disk() {
 warn_low_disk
 warn_unpromoted_write_scope
 
-# Concurrency admission runs after capability validation and before any state is
-# mutated, so a refusal leaves no registry row, no inbox copy and no worktree.
-if $SWARM_ENABLED; then
-    for lane in "${SWARM_LANES[@]}"; do check_launch_capacity "$lane"; done
-else
-    check_launch_capacity "$TO_MODEL"
-fi
-
-if [[ ( "$MODE" == "project" || "$MODE" == "bounty" || "$MODE" == "advisory" ) && "$SWARM_ENABLED" == "false" ]]; then
+if $PRESERVE_DISPATCHED_CONTRACT; then
+    info "Using dispatcher-pinned final packet verification contract"
+elif [[ ( "$MODE" == "project" || "$MODE" == "bounty" || "$MODE" == "advisory" ) && "$SWARM_ENABLED" == "false" ]]; then
     derive_verification_contract_snapshot
     info "Verification contract: version=verification-contract/v1 sha256=${VERIFICATION_CONTRACT_SHA256}"
     if [[ "$AUTHORIZED_DELETE_PATHS_JSON" != "[]" ]]; then
@@ -1413,112 +1386,6 @@ elif [[ "$AUTHORIZED_DELETE_PATHS_JSON" != "[]" ]]; then
     # dropping an operator approval. (advisory mode reaches the builder above
     # and is refused there: advisory work cannot authorize deletions.)
     die "authorized_delete_paths requires a typed non-swarm packet (mode: project or bounty); got mode='${MODE}' swarm=${SWARM_ENABLED}"
-fi
-
-# Lead-internal sub-swarms are an explicit single-dispatch prompt contract. They
-# do not use mailbox workers, leases, panel member-N identities, or cross-lane
-# swarm children. Seal the P2 directive and bind every objective hash to the
-# exact assignment text before anything is published.
-SUBSWARM_DIRECTIVE_SHA256=""
-SUBSWARM_DISPATCH_SHA256=""
-SUBSWARM_MAX_CONCURRENCY=""
-SUBSWARM_MEMBER_BUNDLE=""
-SUBSWARM_BRIEF_MARKDOWN=""
-SUBSWARM_ASSIGNMENT_MARKDOWN=""
-if $SUBSWARM_ENABLED; then
-    [[ -f "$SUBSWARM_DIRECTIVE" ]] \
-        || die "subswarm directive file not found: ${SUBSWARM_DIRECTIVE}"
-    (( ${#SUBSWARM_ASSIGNMENTS[@]} >= 2 )) \
-        || die "subswarm dispatch requires at least two --subswarm-assignment values"
-    [[ -n "$RETURN_ARTIFACT" ]] \
-        || die "subswarm dispatch requires return_artifact"
-    case "$RETURN_ARTIFACT" in
-        *.*) SUBSWARM_MEMBER_BUNDLE="${RETURN_ARTIFACT%.*}-member-bundle.json" ;;
-        *) SUBSWARM_MEMBER_BUNDLE="${RETURN_ARTIFACT}-member-bundle.json" ;;
-    esac
-    if ! SUBSWARM_ENVELOPE_JSON="$(
-        SQUAD_SUBSWARM_ORCHESTRATION_ENABLED=1 \
-        python3 - "$VAULT_ROOT" "$SUBSWARM_DIRECTIVE" "$TASK_ID" "$TO_MODEL" \
-            "$WRITE_SCOPE_JSON" "${SUBSWARM_ASSIGNMENTS[@]}" <<'PYEOF'
-import hashlib
-import json
-import sys
-from pathlib import Path, PurePosixPath
-
-root = Path(sys.argv[1])
-directive_path = Path(sys.argv[2])
-task_id = sys.argv[3]
-lane = sys.argv[4]
-write_scope_json = sys.argv[5]
-assignment_args = sys.argv[6:]
-sys.path.insert(0, str(root / "scripts/python"))
-from swarm_diff import SwarmDiffError, build_orchestration_dispatch
-
-try:
-    raw = json.loads(directive_path.read_text(encoding="utf-8"))
-    dispatch = build_orchestration_dispatch(raw)
-except (OSError, json.JSONDecodeError, SwarmDiffError) as exc:
-    raise SystemExit(f"invalid subswarm directive: {exc}") from exc
-directive = dispatch["directive"]
-if directive["parent_task_id"] != task_id:
-    raise SystemExit("subswarm directive parent_task_id does not match task id")
-if directive["lane"] != lane:
-    raise SystemExit("subswarm directive lane does not match task to_model")
-
-write_scope = [
-    PurePosixPath(item.rstrip("/"))
-    for item in json.loads(write_scope_json)
-    if item.rstrip("/")
-]
-declared = {member["member_id"]: member for member in directive["members"]}
-for member_id, member in declared.items():
-    output_path = PurePosixPath(member["output_path"])
-    if not any(scope == output_path or scope in output_path.parents for scope in write_scope):
-        raise SystemExit(
-            f"subswarm output_path is outside packet write_scope: {member_id} -> {output_path}"
-        )
-assignments = {}
-for raw_assignment in assignment_args:
-    member_id, separator, text = raw_assignment.partition("=")
-    text = text.strip()
-    if not separator or not member_id or not text or "\n" in text or "\r" in text:
-        raise SystemExit("subswarm assignments must be '<lane>:subNN=single-line text'")
-    if member_id in assignments:
-        raise SystemExit(f"duplicate subswarm assignment: {member_id}")
-    assignments[member_id] = text
-if set(assignments) != set(declared):
-    raise SystemExit("subswarm assignments must cover every directive member exactly once")
-for member_id, text in assignments.items():
-    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
-    if digest != declared[member_id]["objective_sha256"]:
-        raise SystemExit(f"subswarm assignment objective hash mismatch: {member_id}")
-assignment_markdown = "\n## Bound native-subagent assignments\n\n"
-for member_id in sorted(assignments):
-    assignment_markdown += f"### {member_id}\n\n{assignments[member_id]}\n\n"
-    assignment_markdown += f"Machine output: `{declared[member_id]['output_path']}`\n\n"
-assignment_markdown += (
-    "Use `scripts/python/swarm_runtime.py subswarm-run` with real native runtime "
-    "subagents for these assignments so dependencies, live host admission, and "
-    "replica output isolation are machine-enforced. Do not create member "
-    "mailbox tasks, claims, leases, or outboxes. Preserve each raw child return and "
-    "its SHA-256; a malformed or missing return becomes a typed gap. The lead alone "
-    "seals the declared swarm-member-bundle/v1 at the dispatcher-provided path, "
-    "decomposes it exhaustively, and publishes the single task response.\n"
-)
-print(json.dumps({
-    "dispatch": dispatch,
-    "assignment_markdown": assignment_markdown,
-}, separators=(",", ":"), ensure_ascii=False))
-PYEOF
-    )"; then
-        die "subswarm directive/assignment validation failed"
-    fi
-    SUBSWARM_DIRECTIVE_SHA256="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["dispatch"]["directive"]["directive_sha256"])' <<<"$SUBSWARM_ENVELOPE_JSON")"
-    SUBSWARM_DISPATCH_SHA256="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["dispatch"]["dispatch_sha256"])' <<<"$SUBSWARM_ENVELOPE_JSON")"
-    SUBSWARM_MAX_CONCURRENCY="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["dispatch"]["directive"]["max_concurrency"])' <<<"$SUBSWARM_ENVELOPE_JSON")"
-    SUBSWARM_BRIEF_MARKDOWN="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["dispatch"]["brief_markdown"], end="")' <<<"$SUBSWARM_ENVELOPE_JSON")"
-    SUBSWARM_ASSIGNMENT_MARKDOWN="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["assignment_markdown"], end="")' <<<"$SUBSWARM_ENVELOPE_JSON")"
-    info "Subswarm directive: sha256=${SUBSWARM_DIRECTIVE_SHA256} members=${#SUBSWARM_ASSIGNMENTS[@]} cap=${SUBSWARM_MAX_CONCURRENCY}"
 fi
 
 DEPARTMENTS_ROOT="${VAULT_ROOT}/departments"
@@ -1561,9 +1428,6 @@ if $DRY_RUN; then
     if $SWARM_ENABLED; then
         echo "[DRY RUN] dispatch_kind=swarm lanes=${SWARM_LANES_CSV} child_ids=${SWARM_CHILD_IDS_CSV} roles=${SWARM_MEMBER_ROLES_CSV} quorum=all timeout=${SWARM_TIMEOUT_SECONDS} write_scope=[]"
         echo "[DRY RUN] swarm_spec_sha256=${SWARM_SPEC_SHA256} mandatory_review=true"
-    fi
-    if $SUBSWARM_ENABLED; then
-        echo "[DRY RUN] dispatch_kind=single subswarm_directive_sha256=${SUBSWARM_DIRECTIVE_SHA256} dispatch_sha256=${SUBSWARM_DISPATCH_SHA256} members=${#SUBSWARM_ASSIGNMENTS[@]} cap=${SUBSWARM_MAX_CONCURRENCY} bundle=${SUBSWARM_MEMBER_BUNDLE}"
     fi
     if [[ -n "$VERIFICATION_CONTRACT_SHA256" ]]; then
         echo "[DRY RUN] verification_contract=verification-contract/v1 sha256=${VERIFICATION_CONTRACT_SHA256}"
@@ -1630,7 +1494,7 @@ fi
 # Board-native fan-out lowers every advisory assignment into an independent
 # ordinary board packet. The parent remains the sole coordinator/outbox owner.
 BOARD_FANOUT_CHILD_IDS_CSV=""
-if [[ "$SQUAD_DISPATCH_MODE" == "board" && "$PANEL_ENABLED" == "true" && "$FANOUT_ENABLED" == "true" ]]; then
+if $PANEL_ENABLED && $FANOUT_ENABLED; then
     BOARD_FANOUT_ROOT="${VAULT_ROOT}/_state/board-dispatch"
     mkdir -p "$BOARD_FANOUT_ROOT"
     BOARD_FANOUT_BUILD_DIR="$(mktemp -d "${BOARD_FANOUT_ROOT}/${TASK_ID}.fanout.XXXXXX")"
@@ -1655,6 +1519,10 @@ if [[ "$SQUAD_DISPATCH_MODE" == "board" && "$PANEL_ENABLED" == "true" && "$FANOU
     )
     (( ${#BOARD_FANOUT_PACKETS[@]} == PANEL_COUNT )) \
         || die "board fan-out member packet count changed"
+    for member_packet in "${BOARD_FANOUT_PACKETS[@]}"; do
+        prepare_admission_child "$member_packet" \
+            || die "board fan-out final packet preparation failed"
+    done
     BOARD_BATCH_ARGS=()
     for member_packet in "${BOARD_FANOUT_PACKETS[@]}"; do
         BOARD_BATCH_ARGS+=(--task-file "$member_packet")
@@ -1671,13 +1539,13 @@ if [[ "$SQUAD_DISPATCH_MODE" == "board" && "$PANEL_ENABLED" == "true" && "$FANOU
     )"
     [[ -z "$BOARD_BATCH_WAIT" ]] \
         || die "board fan-out scheduler rejected unsafe assignments: ${BOARD_BATCH_WAIT}"
-    board_host_admit_batch "$PANEL_COUNT"
+    board_host_admit "${BOARD_FANOUT_PACKETS[@]}"
     declare -a BOARD_FANOUT_CHILD_IDS=()
-    for member_packet in "${BOARD_FANOUT_PACKETS[@]}"; do
+    for fanout_index in "${!BOARD_FANOUT_PACKETS[@]}"; do
+        member_packet="${BOARD_FANOUT_PACKETS[$fanout_index]}"
         child_id="$(frontmatter_field "$member_packet" "id")"
         BOARD_FANOUT_CHILD_IDS+=("$child_id")
-        SQUAD_DISPATCH_MODE=board BOARD_PRE_REGISTERED=0 \
-            bash "$0" "$member_packet" \
+        dispatch_admitted_child 0 "$member_packet" "$fanout_index" \
             || die "board fan-out child launch failed: ${child_id}"
     done
     BOARD_FANOUT_CHILD_IDS_CSV="$(IFS=,; echo "${BOARD_FANOUT_CHILD_IDS[*]}")"
@@ -1748,11 +1616,13 @@ fi
 # Swarm-v1 publishes independent child packets and one controller ledger record.
 # The preflight above validates the complete lane/adapter set before this branch.
 if $SWARM_ENABLED; then
-    SWARM_BUILD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/swarm-dispatch.XXXXXX")"
+    mkdir -p "${VAULT_ROOT}/_state/board-dispatch"
+    SWARM_BUILD_DIR="$(mktemp -d "${VAULT_ROOT}/_state/board-dispatch/${TASK_ID}.swarm.XXXXXX")"
     SWARM_BUILD_DIR_VALUE="$SWARM_BUILD_DIR" SWARM_SPEC_VALUE="$SWARM_SPEC_JSON" \
     SWARM_SPEC_SHA_VALUE="$SWARM_SPEC_SHA256" SWARM_LANES_VALUE="$SWARM_LANES_CSV" \
     SWARM_ROLES_VALUE="$SWARM_MEMBER_ROLES_CSV" CAPABILITY_SNAPSHOT_VALUE="$CAPABILITY_SNAPSHOT_JSON" \
     MAP_OPERATOR_GATE_VALUE="$MAP_OPERATOR_GATE" COMPAT_NAMESPACE_VALUE="$COMPAT_NAMESPACE" \
+    REVIEW_CLASS_VALUE="$REVIEW_CLASS" \
     python3 - "$TASK_FILE" "$VERIFICATION_CONTRACT_HELPER" <<'PYEOF'
 import hashlib
 import importlib.util
@@ -1766,6 +1636,7 @@ from pathlib import Path
 
 source = Path(sys.argv[1])
 helper_path = Path(sys.argv[2])
+sys.path.insert(0, str(helper_path.parent))
 build = Path(os.environ["SWARM_BUILD_DIR_VALUE"])
 spec = json.loads(os.environ["SWARM_SPEC_VALUE"])
 spec_sha = os.environ["SWARM_SPEC_SHA_VALUE"]
@@ -1894,6 +1765,7 @@ This is the independent `{lane}` child of `{parent_id}`. Work from the shared ob
         "source_namespace": source_namespace,
         "review_model": "claude" if lane == "gpt-codex" else "gpt-codex",
         "mandatory_review": "true",
+        "review_class": os.environ["REVIEW_CLASS_VALUE"],
         "parallel_safe": parallel_safe,
         "direct_lane_work_allowed": direct_allowed,
         "dispatched_at": now.isoformat(),
@@ -1905,11 +1777,7 @@ This is the independent `{lane}` child of `{parent_id}`. Work from the shared ob
         "delivery_generation": 1,
         "delivery_lane": lane,
         "delivery_attempt_count": 0,
-        "delivery_retry_count": 0,
-        "delivery_max_attempts": 5,
-        "delivery_first_attempt_at": None,
         "delivery_last_attempt_at": None,
-        "delivery_next_attempt_at": now.isoformat(),
         "claimed_at": None,
         "started_at": None,
         "delivery_terminal_at": None,
@@ -1953,6 +1821,7 @@ parent = {
     "swarm_taxonomy_path": "shared/finding-taxonomy.md",
     "swarm_deadline_at": (now + timedelta(seconds=int(spec["timeout_seconds"]))).isoformat(),
     "mandatory_review": "true",
+    "review_class": os.environ["REVIEW_CLASS_VALUE"],
     "return_artifact": field("return_artifact"),
     "expected_response_path": f"departments/{namespace}/outbox/{parent_id}-response.md",
     "write_scope": [],
@@ -1966,70 +1835,146 @@ PYEOF
     for (( swarm_index=0; swarm_index<SWARM_COUNT; swarm_index++ )); do
         lane="${SWARM_LANES[$swarm_index]}"
         child_id="${SWARM_CHILD_IDS[$swarm_index]}"
-        bash "$TOOLKIT" "$COMPAT_NAMESPACE" "$lane" >> "${SWARM_BUILD_DIR}/${child_id}.md"
+        bash "$TOOLKIT" "$COMPAT_NAMESPACE" "$lane" "$MODE" "$SPECIALIST" >> "${SWARM_BUILD_DIR}/${child_id}.md"
     done
 
+    BOARD_BATCH_ARGS=()
+    BOARD_BATCH_TASKS=()
+    for child_id in "${SWARM_CHILD_IDS[@]}"; do
+        batch_task="${SWARM_BUILD_DIR}/${child_id}.md"
+        BOARD_BATCH_TASKS+=("$batch_task")
+        BOARD_BATCH_ARGS+=(--task-file "$batch_task")
+    done
+    BOARD_BATCH_RESULT="$(
+        python3 "$DISPATCH_CONTEXT_BUILDER" schedule-batch \
+            --repo-root "$VAULT_ROOT" \
+            --concurrency "$SWARM_COUNT" \
+            "${BOARD_BATCH_ARGS[@]}"
+    )" || die "board swarm scheduler preflight failed"
+    BOARD_BATCH_WAIT="$(
+        python3 -c 'import json,sys; print(",".join(json.load(sys.stdin)["must_wait"]))' \
+            <<<"$BOARD_BATCH_RESULT"
+    )"
+    [[ -z "$BOARD_BATCH_WAIT" ]] \
+        || die "board swarm scheduler rejected unsafe children: ${BOARD_BATCH_WAIT}"
+    board_host_admit "${BOARD_BATCH_TASKS[@]}"
+    info "Board swarm scheduler admitted ${SWARM_COUNT} isolated children"
+
+    # Publish the complete admitted packet vector before registering it. There is
+    # no specialist inbox consumer: fresh CLIs are launched explicitly below, so
+    # an unregistered packet is inert. Hard-linking a synced inbox temp gives us
+    # no-clobber publication; an exact prior packet is a safe crash/restart replay.
+    for swarm_publish_index in "${!SWARM_CHILD_IDS[@]}"; do
+        child_id="${SWARM_CHILD_IDS[$swarm_publish_index]}"
+        child_source="${SWARM_BUILD_DIR}/${child_id}.md"
+        child_dest="${INBOX}/${child_id}.md"
+        if [[ -e "$child_dest" || -L "$child_dest" ]]; then
+            [[ -f "$child_dest" && ! -L "$child_dest" ]] \
+                && cmp -s "$child_source" "$child_dest" \
+                && admitted_packet_bytes "$child_dest" "$swarm_publish_index" \
+                || die "refusing to replace conflicting swarm child packet: ${child_id}"
+            info "Reused exact swarm child ${COMPAT_NAMESPACE}/inbox/${child_id}.md"
+            continue
+        fi
+        child_temp="$(mktemp "${INBOX}/.${child_id}.tmp.XXXXXX")"
+        if ! cp "$child_source" "$child_temp" \
+            || ! cmp -s "$child_source" "$child_temp" \
+            || ! admitted_packet_bytes "$child_temp" "$swarm_publish_index" \
+            || ! python3 - "$child_temp" <<'PYEOF'
+import os
+import sys
+
+with open(sys.argv[1], "rb") as stream:
+    os.fsync(stream.fileno())
+PYEOF
+        then
+            rm -f "$child_temp"
+            die "failed to stage swarm child ${child_id}"
+        fi
+        if ! ln "$child_temp" "$child_dest"; then
+            [[ -f "$child_dest" && ! -L "$child_dest" ]] \
+                && cmp -s "$child_source" "$child_dest" \
+                && admitted_packet_bytes "$child_dest" "$swarm_publish_index" \
+                || { rm -f "$child_temp"; die "refusing to replace conflicting swarm child packet: ${child_id}"; }
+        fi
+        rm -f "$child_temp"
+        python3 - "$INBOX" <<'PYEOF' \
+            || die "failed to sync inbox after publishing swarm child ${child_id}"
+import os
+import sys
+
+descriptor = os.open(sys.argv[1], os.O_RDONLY)
+try:
+    os.fsync(descriptor)
+finally:
+    os.close(descriptor)
+PYEOF
+        [[ -f "$child_dest" && ! -L "$child_dest" ]] \
+            && cmp -s "$child_source" "$child_dest" \
+            && admitted_packet_bytes "$child_dest" "$swarm_publish_index" \
+            || die "published swarm child changed before registration: ${child_id}"
+        info "Published swarm child ${COMPAT_NAMESPACE}/inbox/${child_id}.md"
+    done
+    for admission_index in "${!SWARM_CHILD_IDS[@]}"; do
+        admitted_packet_bytes "${INBOX}/${SWARM_CHILD_IDS[$admission_index]}.md" "$admission_index" \
+            || die "swarm candidate vector changed before registry publication"
+    done
     PARENT_ENTRY_JSON="$(<"${SWARM_BUILD_DIR}/parent-entry.json")"
     MEMBER_ENTRIES_JSON="$(<"${SWARM_BUILD_DIR}/member-entries.json")"
     "${VAULT_ROOT}/bin/registry-reconciler.sh" --register-swarm "$TASK_ID" \
         --parent-entry-json "$PARENT_ENTRY_JSON" --member-entries-json "$MEMBER_ENTRIES_JSON" \
         || die "atomic swarm registry registration failed"
+    SWARM_LAUNCH_FAILURES=()
+    for swarm_child_index in "${!SWARM_CHILD_IDS[@]}"; do
+        child_id="${SWARM_CHILD_IDS[$swarm_child_index]}"
+        if ! child_launch_state="$(python3 - "$VAULT_ROOT" "$TASK_ID" "$child_id" <<'PYEOF'
+import os
+import sys
 
-    for child_id in "${SWARM_CHILD_IDS[@]}"; do
-        swarm_publish_index=0
-        for (( lookup_index=0; lookup_index<SWARM_COUNT; lookup_index++ )); do
-            [[ "${SWARM_CHILD_IDS[$lookup_index]}" == "$child_id" ]] && swarm_publish_index=$lookup_index
-        done
-        child_source="${SWARM_BUILD_DIR}/${child_id}.md"
-        child_temp="$(mktemp "${INBOX}/.${child_id}.tmp.XXXXXX")"
-        if ! cp "$child_source" "$child_temp" || ! mv -f "$child_temp" "${INBOX}/${child_id}.md"; then
-            unpublished_csv="$(IFS=,; echo "${SWARM_CHILD_IDS[*]:$swarm_publish_index}")"
-            unpublished_json="$(UNPUBLISHED_CSV="$unpublished_csv" python3 - <<'PYEOF'
-import json, os
-print(json.dumps([item for item in os.environ["UNPUBLISHED_CSV"].split(",") if item]))
+root, parent_id, child_id = sys.argv[1:]
+os.environ["VAULT_ROOT"] = root
+sys.path.insert(0, os.path.join(root, "scripts", "python"))
+import registry_reconciler as rr
+
+with rr.locked_registry():
+    entry = rr.load_registry().get(child_id)
+if not isinstance(entry, dict) or entry.get("swarm_role") != "member" or entry.get("swarm_parent_id") != parent_id:
+    raise SystemExit("swarm child registry identity is invalid")
+status, state = entry.get("status"), entry.get("delivery_state")
+if status == "in-flight" and state == "queued":
+    print("launch")
+elif status == "in-flight" and state == "in-progress":
+    print("in-progress")
+elif state == "terminal" or status != "in-flight":
+    print(f"terminal:{status}")
+else:
+    raise SystemExit("swarm child delivery state is invalid")
 PYEOF
-            )"
-            "${VAULT_ROOT}/bin/registry-reconciler.sh" \
-                --mark-swarm-publication-failed "$TASK_ID" \
-                --unpublished-children-json "$unpublished_json" \
-                --failure-detail "mailbox publication failed at ${child_id}" \
-                || echo "WARNING: could not mark swarm publication failure" >&2
-            die "failed to publish swarm child ${child_id}; partial batch preserved in registry"
+        )"; then
+            SWARM_LAUNCH_FAILURES+=("${child_id}:invalid-state")
+            continue
         fi
-        info "Published swarm child ${COMPAT_NAMESPACE}/inbox/${child_id}.md"
+        case "$child_launch_state" in
+            launch)
+                dispatch_admitted_child 1 "${INBOX}/${child_id}.md" "$swarm_child_index" \
+                    || SWARM_LAUNCH_FAILURES+=("${child_id}:launch")
+                ;;
+            in-progress)
+                info "Skipping already-started swarm child ${child_id}"
+                ;;
+            terminal:*)
+                info "Skipping settled swarm child ${child_id} (${child_launch_state#terminal:})"
+                ;;
+            *)
+                SWARM_LAUNCH_FAILURES+=("${child_id}:invalid-state")
+                ;;
+        esac
     done
-    if [[ "$SQUAD_DISPATCH_MODE" == "board" ]]; then
-        BOARD_BATCH_ARGS=()
-        for child_id in "${SWARM_CHILD_IDS[@]}"; do
-            BOARD_BATCH_ARGS+=(--task-file "${INBOX}/${child_id}.md")
-        done
-        BOARD_BATCH_RESULT="$(
-            python3 "$DISPATCH_CONTEXT_BUILDER" schedule-batch \
-                --repo-root "$VAULT_ROOT" \
-                --concurrency "$SWARM_COUNT" \
-                "${BOARD_BATCH_ARGS[@]}"
-        )" || die "board swarm scheduler preflight failed"
-        BOARD_BATCH_WAIT="$(
-            python3 -c 'import json,sys; print(",".join(json.load(sys.stdin)["must_wait"]))' \
-                <<<"$BOARD_BATCH_RESULT"
-        )"
-        [[ -z "$BOARD_BATCH_WAIT" ]] \
-            || die "board swarm scheduler rejected unsafe children: ${BOARD_BATCH_WAIT}"
-        board_host_admit_batch "$SWARM_COUNT"
-        info "Board swarm scheduler admitted ${SWARM_COUNT} isolated children"
-        for child_id in "${SWARM_CHILD_IDS[@]}"; do
-            BOARD_PRE_REGISTERED=1 SQUAD_DISPATCH_MODE=board \
-                bash "$0" "${INBOX}/${child_id}.md" \
-                || die "board swarm child launch failed: ${child_id}"
-        done
-    fi
+    (( ${#SWARM_LAUNCH_FAILURES[@]} == 0 )) \
+        || die "board swarm child launch/replay failures: $(IFS=,; echo "${SWARM_LAUNCH_FAILURES[*]}")"
     for build_file in "${SWARM_BUILD_DIR}"/*; do rm -f "$build_file"; done
     rmdir "$SWARM_BUILD_DIR"
-    if [[ "$SQUAD_DISPATCH_MODE" == "board" ]]; then
-        echo "✓ Dispatched board swarm ${TASK_ID} → ${SWARM_LANES_CSV} (${SWARM_COUNT} detached fresh CLIs; review required)"
-    else
-        echo "✓ Dispatched swarm ${TASK_ID} → ${SWARM_LANES_CSV} (${SWARM_COUNT} independent children; review required)"
-    fi
+        echo "✓ Board swarm ${TASK_ID} → ${SWARM_LANES_CSV} (${SWARM_COUNT} children launched or already settled; review required)"
     exit 0
 fi
 
@@ -2037,7 +1982,10 @@ fi
 # shared/dispatch-toolkit.sh emits per-namespace tool/specialist roster AND the
 # hard no-delete rule block. Append to a working copy of the task file.
 
-WORKING_COPY=$(mktemp "${TASK_FILE%.md}.XXXXXX.md")
+if [[ "$BOARD_PACKET_FINAL" == "1" ]]; then
+    ACTUAL_TASK_FILE="$TASK_FILE"
+else
+WORKING_COPY=$(mktemp "${TASK_FILE%.md}.working.md.XXXXXX")
 if $PANEL_ENABLED; then
     PANEL_MODE="review"
     $FANOUT_ENABLED && PANEL_MODE="fanout"
@@ -2083,12 +2031,12 @@ This is an opt-in panel dispatch governed by `shared/modes/panel.md`.
 
 1. Validate every named member and create `_state/runtime/lane-activity/<task-id>.json` with `bin/panel-activity.sh create` before spawning; add `--fanout` when `panel_mode: fanout`. Review-panel member IDs are specialist names; fan-out member IDs are the injected `member-N` values and MUST be used for activity updates and result attribution.
 2. Spawn all members in parallel, never serially. Reserve the coordinator as the fourth thread.
-3. Members may use only the packet's read/write scope and MUST NEVER write `departments/*/outbox/` or `_state/failover/staging/`.
+3. Members may use only the packet's read/write scope and MUST NEVER write `departments/*/outbox/`.
 4. Claude requires coordinator-pull plus deterministic `_state/scratch/<task-id>/<member-id>.md` file return. Codex uses native parent-message return primarily; a scratch file is optional for oversized results.
 5. Normalize only returns already available to the coordinator; never make a blocking receive. Update activity state on spawn, return, failure, refusal, and timeout.
 6. Run the mandatory bounded collection loop from `shared/modes/panel.md`: drain immediately available returns, then call `timeout 5 bin/panel-activity.sh poll --task-id <id> --quorum <panel_quorum> --timeout <panel_timeout_seconds>` exactly once per iteration. For `outcome: waiting`, use only a bounded short sleep (`timeout 2 sleep 1`) before repeating. Stop immediately on `quorum_met` or `timed_out`. The first poll persists a monotonic deadline; deadline expiry atomically marks every queued/running member `timed_out`. Numeric quorum closure also atomically marks any remaining queued/running members `timed_out` as explicit gaps. Guard the complete shell-side collection phase with `timeout` no greater than `panel_timeout_seconds + 15`, and guard every potentially blocking step with at most two minutes. A late, failed, refused, or timed-out member is a coverage gap and never blocks the outbox.
 7. Aggregate by deterministic collation followed by evidence synthesis. Preserve attribution, unique findings, contradictions, refusals, failures, and limitations. Never majority-vote or fake unanimity.
-8. The coordinator alone writes exactly one canonical outbox. Close/archive the activity record in a finally path. One parent task remains one failover attempt and one artifact.
+8. The coordinator alone writes exactly one canonical outbox. Close/archive the activity record in a finally path. One parent task remains one delivery attempt and one artifact.
 
 ### Required member-result schema
 
@@ -2121,7 +2069,7 @@ PANEL_EOF
             fi
         done
     } >> "$WORKING_COPY"
-    if [[ "$SQUAD_DISPATCH_MODE" == "board" && "$FANOUT_ENABLED" == "true" ]]; then
+    if $FANOUT_ENABLED; then
         cat >> "$WORKING_COPY" <<EOF
 
 ## Board-native fan-out coordinator override
@@ -2141,34 +2089,12 @@ else
     cp "$TASK_FILE" "$WORKING_COPY"
 fi
 
-if $SUBSWARM_ENABLED; then
-    SUBSWARM_COPY=$(mktemp "${TASK_FILE%.md}.subswarm.XXXXXX.md")
-    awk \
-        -v directive_sha="$SUBSWARM_DIRECTIVE_SHA256" \
-        -v dispatch_sha="$SUBSWARM_DISPATCH_SHA256" \
-        -v bundle="$SUBSWARM_MEMBER_BUNDLE" \
-        -v cap="$SUBSWARM_MAX_CONCURRENCY" '
-        NR == 1 && $0 == "---" { in_frontmatter=1; print; next }
-        in_frontmatter && $0 == "---" && !inserted {
-            print "subswarm_directive_sha256: " directive_sha
-            print "subswarm_dispatch_sha256: " dispatch_sha
-            print "subswarm_member_bundle: " bundle
-            print "subswarm_max_concurrency: " cap
-            inserted=1
-            in_frontmatter=0
-        }
-        { print }
-        END { if (!inserted) exit 42 }
-    ' "$WORKING_COPY" > "$SUBSWARM_COPY" \
-        || die "failed to inject subswarm frontmatter"
-    mv "$SUBSWARM_COPY" "$WORKING_COPY"
-    printf '\n%s\n%s\n' "$SUBSWARM_BRIEF_MARKDOWN" "$SUBSWARM_ASSIGNMENT_MARKDOWN" >> "$WORKING_COPY"
-fi
 
 if [[ -n "$CAPABILITY_SNAPSHOT_JSON" ]]; then
     CAPABILITY_CARD_PATH="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["capability_card_path"])' <<<"$CAPABILITY_SNAPSHOT_JSON")"
     CAPABILITY_GATES="$(python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["capability_gates"], separators=(",",":")))' <<<"$CAPABILITY_SNAPSHOT_JSON")"
-    SNAPSHOT_COPY=$(mktemp "${TASK_FILE%.md}.capability.XXXXXX.md")
+    if ! $PRESERVE_DISPATCHED_CONTRACT; then
+    SNAPSHOT_COPY=$(mktemp "${TASK_FILE%.md}.capability.md.XXXXXX")
     awk \
         -v capability_id="$CAPABILITY_ID" \
         -v capability_path="$CAPABILITY_CARD_PATH" \
@@ -2190,14 +2116,15 @@ if [[ -n "$CAPABILITY_SNAPSHOT_JSON" ]]; then
     ' "$WORKING_COPY" > "$SNAPSHOT_COPY" \
         || die "failed to inject capability snapshot frontmatter"
     mv "$SNAPSHOT_COPY" "$WORKING_COPY"
+    fi
 fi
 
-if [[ -n "$VERIFICATION_CONTRACT_SHA256" ]]; then
+if [[ -n "$VERIFICATION_CONTRACT_SHA256" ]] && ! $PRESERVE_DISPATCHED_CONTRACT; then
     inject_verification_contract
 fi
 
 if [[ -x "$TOOLKIT" ]]; then
-    bash "$TOOLKIT" "$COMPAT_NAMESPACE" "$TO_MODEL" >> "$WORKING_COPY"
+    bash "$TOOLKIT" "$COMPAT_NAMESPACE" "$TO_MODEL" "$MODE" "$SPECIALIST" >> "$WORKING_COPY"
     info "Toolkit injected for ${COMPAT_NAMESPACE}/${TO_MODEL}"
 fi
 
@@ -2243,51 +2170,30 @@ if [[ "$PER_TASK_VERSIONING" == "true" ]]; then
         ART_DIR=$(dirname "$RETURN_ARTIFACT")
         ART_FILE=$(basename "$RETURN_ARTIFACT")
         NEW_ART="${ART_DIR}/${TASK_ID}/${ART_FILE}"
-        VERSIONED_COPY=$(mktemp "${TASK_FILE%.md}.versioned.XXXXXX.md")
+        VERSIONED_COPY=$(mktemp "${TASK_FILE%.md}.versioned.md.XXXXXX")
         sed "s|return_artifact:.*|return_artifact: ${NEW_ART}|" "$WORKING_COPY" > "$VERSIONED_COPY"
         ACTUAL_TASK_FILE="$VERSIONED_COPY"
         RETURN_ARTIFACT="$NEW_ART"
         info "Per-task versioning: return_artifact → ${NEW_ART}"
     fi
 fi
+fi
 
-# ── conservative failover control ────────────────────────────────────────────
-# The packet given to a lane names an attempt-specific staging artifact.  The
-# durable ledger retains the canonical path, and only failover-control may CAS
-# publish it.  This removes direct multi-lane writes to the shared outbox path.
+if [[ -n "$BOARD_PREPARE_TARGET" ]]; then
+    [[ "$BOARD_PREPARE_TARGET" == "$TASK_FILE" \
+        && "$(cd "$(dirname "$TASK_FILE")" && pwd -P)" == "$(cd "$BOARD_FANOUT_BUILD_DIR" && pwd -P)" ]] \
+        || die "fan-out preparation target is outside its build directory"
+    PREPARED_TEMP=$(mktemp "${TASK_FILE}.final.XXXXXX")
+    cp "$ACTUAL_TASK_FILE" "$PREPARED_TEMP" \
+        && mv -f "$PREPARED_TEMP" "$TASK_FILE" \
+        || die "failed to materialize final fan-out packet"
+    rm -f "$WORKING_COPY"
+    [[ "$ACTUAL_TASK_FILE" != "$WORKING_COPY" ]] && rm -f "$ACTUAL_TASK_FILE"
+    return 0
+fi
 
-# GATED (F1, 2026-07-13 Fable review): the conservative failover control plane is
-# OPT-IN and defaults OFF pending mandatory re-review and a controlled activation
-# (watcher restart + canary). Flag OFF = legacy behavior: canonical
-# return_artifact, no ledger, direct outbox — the proven rail. Enable with
-# FAILOVER_CONTROL_ENABLED=1 or by creating _state/failover/ENABLED.
-CONTROL_ACTIVE=0
-CONTROL_ATTEMPT_ID=""
-if [[ "${FAILOVER_CONTROL_ENABLED:-0}" == "1" || -f "${VAULT_ROOT}/_state/failover/ENABLED" ]]; then
-    [[ -f "$FAILOVER_CONTROL" ]] || die "missing conservative failover controller: ${FAILOVER_CONTROL}"
-    command -v uv >/dev/null 2>&1 || die "uv is required by the conservative failover controller"
-    CONTROL_RUN=(uv run --with-requirements "$DAEMON_REQUIREMENTS" python "$FAILOVER_CONTROL")
-    CONTROL_ARGS=(
-        init-dispatch
-        --task-file "$ACTUAL_TASK_FILE"
-        --primary-lane "$TO_MODEL"
-        --backup-lane "$MAP_BACKUP"
-        --lease-owner "dispatch:${TO_MODEL}:$$"
-        --effective-model "$TO_MODEL"
-        --redispatch-path "${INBOX}/${TASK_ID}.md"
-    )
-    # Gate authority is durable ledger state, never a publish-call choice.
-    # Explicit packet frontmatter is also consumed by failover-control.py.
-    if [[ "$SPECIALIST" == "content-verifier" \
-        || "$SPECIALIST" == "asset-provenance-and-rights-auditor" \
-        || ( "$MAP_SAFETY" == "high" && "$MAP_OPERATOR_GATE" =~ (public_release|paid_media) ) ]]; then
-        CONTROL_ARGS+=(--gate-required)
-    fi
-    CONTROL_RESULT="$("${CONTROL_RUN[@]}" "${CONTROL_ARGS[@]}")" \
-        || die "failed to initialize durable attempt ledger for ${TASK_ID}"
-    CONTROL_ATTEMPT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("attempt_id", ""))' <<<"$CONTROL_RESULT")"
-    [[ -n "$CONTROL_ATTEMPT_ID" ]] && CONTROL_ACTIVE=1
-    info "Attempt ledger initialized: ${CONTROL_RESULT}"
+if [[ "$BOARD_PACKET_FINAL" != "1" ]]; then
+    board_host_admit "$ACTUAL_TASK_FILE"
 fi
 
 # ── copy to source namespace inbox ────────────────────────────────────────────
@@ -2310,8 +2216,11 @@ if [[ "$BOARD_PRE_REGISTERED" == "1" ]]; then
     DEST_PHYS="$(cd "$(dirname "$DEST")" && pwd -P)/$(basename "$DEST")"
     [[ "$TASK_FILE_PHYS" == "$DEST_PHYS" && -f "$DEST" ]] \
         || die "pre-registered board child must already be the canonical inbox packet"
+    admitted_packet_bytes "$TASK_FILE" || die "pre-registered packet bytes were not admitted"
 elif ! INBOX_TEMP=$(mktemp "${INBOX}/.${TASK_ID}.tmp.XXXXXX") \
     || ! cp "$ACTUAL_TASK_FILE" "$INBOX_TEMP" \
+    || ! cmp -s "$ACTUAL_TASK_FILE" "$INBOX_TEMP" \
+    || ! admitted_packet_bytes "$INBOX_TEMP" \
     || ! python3 - "$INBOX_TEMP" <<'PYEOF'
 import os
 import sys
@@ -2320,48 +2229,32 @@ with open(sys.argv[1], "rb") as inbox_temp:
     os.fsync(inbox_temp.fileno())
 PYEOF
 then
-    if [[ "$CONTROL_ACTIVE" == "1" ]]; then
-        "${CONTROL_RUN[@]}" signal \
-            --task-id "$TASK_ID" \
-            --attempt-id "$CONTROL_ATTEMPT_ID" \
-            --signal dispatch_ack_failure >/dev/null \
-            || echo "WARNING: failed to record inbox delivery failure for ${TASK_ID}" >&2
-    fi
     die "failed to deliver ${TASK_ID} to ${INBOX}"
 fi
 if [[ "$BOARD_PRE_REGISTERED" != "1" ]] && ! mv -f "$INBOX_TEMP" "$DEST"; then
-    if [[ "$CONTROL_ACTIVE" == "1" ]]; then
-        "${CONTROL_RUN[@]}" signal \
-            --task-id "$TASK_ID" \
-            --attempt-id "$CONTROL_ATTEMPT_ID" \
-            --signal dispatch_ack_failure >/dev/null \
-            || echo "WARNING: failed to record inbox delivery failure for ${TASK_ID}" >&2
-    fi
     die "failed to deliver ${TASK_ID} to ${INBOX}"
 fi
-rm -f "$WORKING_COPY"
-[[ "$ACTUAL_TASK_FILE" != "$WORKING_COPY" ]] && rm -f "$ACTUAL_TASK_FILE"
+if [[ "$BOARD_PRE_REGISTERED" != "1" ]] && ! python3 - "$INBOX" <<'PYEOF'
+import os
+import sys
+
+directory_fd = os.open(sys.argv[1], os.O_RDONLY)
+try:
+    os.fsync(directory_fd)
+finally:
+    os.close(directory_fd)
+PYEOF
+then
+    die "failed to sync inbox directory after delivering ${TASK_ID}"
+fi
+if [[ "$BOARD_PACKET_FINAL" != "1" ]]; then
+    rm -f "$WORKING_COPY"
+    [[ "$ACTUAL_TASK_FILE" != "$WORKING_COPY" ]] && rm -f "$ACTUAL_TASK_FILE"
+fi
 if [[ "$BOARD_PRE_REGISTERED" == "1" ]]; then
     info "Using pre-registered board child ${COMPAT_NAMESPACE}/inbox/${TASK_ID}.md"
 else
     info "Copied to ${COMPAT_NAMESPACE}/inbox/${TASK_ID}.md"
-fi
-
-if [[ "$CONTROL_ACTIVE" == "1" ]]; then
-    "${CONTROL_RUN[@]}" event \
-        --task-id "$TASK_ID" \
-        --attempt-id "$CONTROL_ATTEMPT_ID" \
-        --event inbox_delivered \
-        --detail "$DEST" >/dev/null \
-        || die "inbox delivery succeeded but could not be recorded for ${TASK_ID}"
-    if [[ -z "$NUDGE_PANE" ]]; then
-        "${CONTROL_RUN[@]}" event \
-            --task-id "$TASK_ID" \
-            --attempt-id "$CONTROL_ATTEMPT_ID" \
-            --event dispatch_nudge_unavailable \
-            --detail "${NUDGE_UNAVAILABLE_REASON:-not-requested}" >/dev/null \
-            || die "failed to record deferred inbox pickup for ${TASK_ID}"
-    fi
 fi
 
 # ── ITEM 7: active-task registry ─────────────────────────────────────────────
@@ -2387,6 +2280,7 @@ if (
 print(json.dumps(entry, separators=(",", ":")))
 PYEOF
     )" || die "pre-registered board child lookup failed"
+    TASK_REGISTERED=1
     info "Pre-registered board child validated"
 elif REGISTRY_ENTRY_JSON="$(
     WRITE_SCOPE_JSON_VALUE="$WRITE_SCOPE_JSON" \
@@ -2398,13 +2292,9 @@ elif REGISTRY_ENTRY_JSON="$(
     RETURN_ARTIFACT_VALUE="$RETURN_ARTIFACT" \
     PANEL_ENABLED_VALUE="$PANEL_ENABLED" PANEL_MEMBERS_CSV_VALUE="$PANEL_MEMBERS_CSV" \
     PANEL_MEMBER_IDS_CSV_VALUE="$PANEL_MEMBER_IDS_CSV" FANOUT_ENABLED_VALUE="$FANOUT_ENABLED" \
-    CAPABILITY_SNAPSHOT_VALUE="$CAPABILITY_SNAPSHOT_JSON" CONTROL_ATTEMPT_VALUE="$CONTROL_ATTEMPT_ID" \
+    CAPABILITY_SNAPSHOT_VALUE="$CAPABILITY_SNAPSHOT_JSON" \
     AUTHOR_FAMILY_VALUE="$AUTHOR_FAMILY" VERIFICATION_CONTRACT_VALUE="$VERIFICATION_CONTRACT_JSON" \
     VERIFICATION_CONTRACT_SHA256_VALUE="$VERIFICATION_CONTRACT_SHA256" \
-    SUBSWARM_DIRECTIVE_SHA256_VALUE="$SUBSWARM_DIRECTIVE_SHA256" \
-    SUBSWARM_DISPATCH_SHA256_VALUE="$SUBSWARM_DISPATCH_SHA256" \
-    SUBSWARM_MEMBER_BUNDLE_VALUE="$SUBSWARM_MEMBER_BUNDLE" \
-    SUBSWARM_MAX_CONCURRENCY_VALUE="$SUBSWARM_MAX_CONCURRENCY" \
     python3 - <<'PYEOF'
 import json
 import os
@@ -2414,7 +2304,7 @@ from datetime import datetime, timezone
 scope = json.loads(os.environ["WRITE_SCOPE_JSON_VALUE"])
 
 dispatched_at = datetime.now(timezone.utc).isoformat()
-delivery_attempt_id = os.environ.get("CONTROL_ATTEMPT_VALUE") or f"d-{uuid.uuid4().hex}"
+delivery_attempt_id = f"d-{uuid.uuid4().hex}"
 entry = {
     "compatibility_namespace": os.environ["COMPAT_NAMESPACE_VALUE"],
     "specialist": os.environ["SPECIALIST_VALUE"],
@@ -2434,11 +2324,7 @@ entry = {
     "delivery_generation": 1,
     "delivery_lane": os.environ["TO_MODEL_VALUE"],
     "delivery_attempt_count": 0,
-    "delivery_retry_count": 0,
-    "delivery_max_attempts": 5,
-    "delivery_first_attempt_at": None,
     "delivery_last_attempt_at": None,
-    "delivery_next_attempt_at": dispatched_at,
     "claimed_at": None,
     "started_at": None,
     "delivery_terminal_at": None,
@@ -2492,12 +2378,6 @@ if contract_raw:
     entry["author_family"] = os.environ["AUTHOR_FAMILY_VALUE"]
     entry["verification_contract"] = json.loads(contract_raw)
     entry["verification_contract_sha256"] = os.environ["VERIFICATION_CONTRACT_SHA256_VALUE"]
-subswarm_directive_sha256 = os.environ.get("SUBSWARM_DIRECTIVE_SHA256_VALUE", "")
-if subswarm_directive_sha256:
-    entry["subswarm_directive_sha256"] = subswarm_directive_sha256
-    entry["subswarm_dispatch_sha256"] = os.environ["SUBSWARM_DISPATCH_SHA256_VALUE"]
-    entry["subswarm_member_bundle"] = os.environ["SUBSWARM_MEMBER_BUNDLE_VALUE"]
-    entry["subswarm_max_concurrency"] = int(os.environ["SUBSWARM_MAX_CONCURRENCY_VALUE"])
 print(json.dumps(entry, separators=(",", ":")))
 PYEOF
 )" && "${VAULT_ROOT}/bin/registry-reconciler.sh" \
@@ -2510,7 +2390,6 @@ else
 fi
 DELIVERY_ATTEMPT_ID=""
 DELIVERY_GENERATION=""
-if [[ "$SQUAD_DISPATCH_MODE" == "board" ]]; then
     DELIVERY_ATTEMPT_ID="$(
         python3 -c 'import json,sys; print(json.load(sys.stdin)["delivery_attempt_id"])' \
             <<<"$REGISTRY_ENTRY_JSON"
@@ -2519,7 +2398,6 @@ if [[ "$SQUAD_DISPATCH_MODE" == "board" ]]; then
         python3 -c 'import json,sys; print(json.load(sys.stdin)["delivery_generation"])' \
             <<<"$REGISTRY_ENTRY_JSON"
     )"
-fi
 
 # ── central dispatch log ─────────────────────────────────────────────────────
 
@@ -2533,7 +2411,6 @@ info "Dispatch log updated"
 
 # ── dispatch through selected reversible rail ─────────────────────────────────
 
-if [[ "$SQUAD_DISPATCH_MODE" == "board" ]]; then
     [[ -f "$DISPATCH_CONTEXT_BUILDER" ]] \
         || die "missing board context builder: ${DISPATCH_CONTEXT_BUILDER}"
     [[ -x "$BOARD_SUPERVISOR" ]] \
@@ -2557,12 +2434,19 @@ if [[ "$SQUAD_DISPATCH_MODE" == "board" ]]; then
             --output "$BOARD_CONTEXT" 2>&1
     )"; then
         BOARD_LANE="${TO_MODEL/gpt-codex/codex}"
+        BOARD_FAILURE_ARGS=()
+        if [[ "$BOARD_BUILD_ERROR" == *"error: trusted lane executable is unavailable: "* ]]; then
+            BOARD_FAILURE_ARGS=(--failure-class cli_missing)
+        fi
         if ! python3 "$DISPATCH_CONTEXT_BUILDER" blocked \
             --repo-root "$VAULT_ROOT" \
             --task-id "$TASK_ID" \
             --lane "$BOARD_LANE" \
             --return-artifact "$BOARD_SETTLEMENT_ARTIFACT" \
             --compatibility-namespace "$COMPAT_NAMESPACE" \
+            ${BOARD_FAILURE_ARGS[@]+"${BOARD_FAILURE_ARGS[@]}"} \
+            --attempt-id "$DELIVERY_ATTEMPT_ID" \
+            --generation "$DELIVERY_GENERATION" \
             --reason "context builder failed: ${BOARD_BUILD_ERROR}" >/dev/null; then
             die "board context build and blocked settlement both failed: ${BOARD_BUILD_ERROR}"
         fi
@@ -2571,8 +2455,10 @@ if [[ "$SQUAD_DISPATCH_MODE" == "board" ]]; then
             >/dev/null || true
         die "board context builder failed: ${BOARD_BUILD_ERROR}"
     fi
-    ( set -o noclobber; : > "$BOARD_LOG"; : > "$BOARD_RECEIPT" ) \
-        || die "refusing to overwrite existing board log or receipt"
+    ( set -o noclobber; : > "$BOARD_LOG" ) \
+        || die "refusing to overwrite existing board log"
+    [[ ! -e "$BOARD_RECEIPT" && ! -L "$BOARD_RECEIPT" ]] \
+        || die "refusing to overwrite existing board receipt"
     BOARD_FAILURE_MARKER="${BOARD_STATE_DIR}/${TASK_ID}.${DELIVERY_ATTEMPT_ID}.settlement-error"
     if ! BOARD_START_ERROR="$(
         python3 - "$VAULT_ROOT" "$TASK_ID" "$DELIVERY_ATTEMPT_ID" \
@@ -2604,10 +2490,7 @@ with rr.locked_registry():
         raise RuntimeError("board task registry identity or queued state changed")
     entry["delivery_state"] = "in-progress"
     entry["delivery_attempt_count"] = int(entry.get("delivery_attempt_count") or 0) + 1
-    entry["delivery_retry_count"] = max(0, entry["delivery_attempt_count"] - 1)
-    entry["delivery_first_attempt_at"] = entry.get("delivery_first_attempt_at") or now
     entry["delivery_last_attempt_at"] = now
-    entry["delivery_next_attempt_at"] = None
     entry["claimed_at"] = entry.get("claimed_at") or now
     entry["started_at"] = entry.get("started_at") or now
     history = entry.setdefault("delivery_history", [])
@@ -2651,98 +2534,82 @@ PYEOF
     fi
     BOARD_LANE="${TO_MODEL/gpt-codex/codex}"
     BOARD_PID="$(
-        python3 - "$BOARD_SUPERVISOR" "$BOARD_CONTEXT" "$BOARD_LOG" \
+        BOARD_PLAN_ITEM_IDS_JSON="$PLAN_ITEM_IDS_JSON" \
+        python3 - "$BOARD_SUPERVISOR" "${VAULT_ROOT}/scripts/python" \
+            "$BOARD_METADATA" "$TASK_ID" "$DELIVERY_ATTEMPT_ID" \
+            "$DELIVERY_GENERATION" "$BOARD_CONTEXT" "$BOARD_LOG" \
             "$BOARD_RECEIPT" "$BOARD_FAILURE_MARKER" "$DISPATCH_CONTEXT_BUILDER" \
             "$VAULT_ROOT" "$TASK_ID" "$BOARD_LANE" "$BOARD_SETTLEMENT_ARTIFACT" \
             "$COMPAT_NAMESPACE" "${VAULT_ROOT}/bin/registry-reconciler.sh" <<'PYEOF'
-import subprocess
-import sys
-
-with open("/dev/null", "rb") as stdin, open("/dev/null", "ab") as output:
-    child = subprocess.Popen(
-        [sys.argv[1], "detached-launch", *sys.argv[2:]],
-        stdin=stdin,
-        stdout=output,
-        stderr=output,
-        close_fds=True,
-        start_new_session=True,
-    )
-print(child.pid)
-PYEOF
-    )" || die "failed to detach board supervisor"
-    [[ "$BOARD_PID" =~ ^[0-9]+$ ]] \
-        || die "detached board supervisor returned an invalid PID"
-    python3 - "$BOARD_METADATA" "$TASK_ID" "$DELIVERY_ATTEMPT_ID" \
-        "$DELIVERY_GENERATION" "$BOARD_PID" "$BOARD_CONTEXT" "$BOARD_LOG" \
-        "$BOARD_RECEIPT" <<'PYEOF'
 import json
 import os
-from pathlib import Path
+import subprocess
 import sys
+import time
 
-path = Path(sys.argv[1])
-payload = {
-    "schema": "board-dispatch-process/v1",
-    "task_id": sys.argv[2],
-    "attempt_id": sys.argv[3],
-    "generation": int(sys.argv[4]),
-    "pid": int(sys.argv[5]),
-    "context_path": sys.argv[6],
-    "log_path": sys.argv[7],
-    "receipt_path": sys.argv[8],
-}
-fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-with os.fdopen(fd, "w", encoding="utf-8") as stream:
-    json.dump(payload, stream, sort_keys=True)
-    stream.write("\n")
-    stream.flush()
-    os.fsync(stream.fileno())
+sys.path.insert(0, sys.argv[2])
+from board_process_truth import atomic_write_json, observe_process, utc_now
+
+metadata_path = sys.argv[3]
+environment = os.environ.copy()
+environment["BOARD_DISPATCH_DESCRIPTOR_PATH"] = metadata_path
+child = None
+try:
+    with open("/dev/null", "rb") as stdin, open("/dev/null", "ab") as output:
+        child = subprocess.Popen(
+            ["/bin/bash", sys.argv[1], "detached-launch", *sys.argv[7:]],
+            stdin=stdin, stdout=output, stderr=output, close_fds=True,
+            start_new_session=True, env=environment,
+        )
+    identity = None
+    for _ in range(100):
+        identity = observe_process(child.pid)
+        if identity is not None:
+            break
+        if child.poll() is not None:
+            raise RuntimeError("detached board supervisor exited before identity capture")
+        time.sleep(0.01)
+    if identity is None or identity["pgid"] != child.pid:
+        raise RuntimeError("detached board supervisor process identity is unavailable")
+    payload = {
+        "schema": "board-dispatch-process/v2",
+        "task_id": sys.argv[4],
+        "attempt_id": sys.argv[5],
+        "generation": int(sys.argv[6]),
+        "created_at": utc_now(),
+        **identity,
+        "context_path": sys.argv[7],
+        "log_path": sys.argv[8],
+        "receipt_path": sys.argv[9],
+    }
+    # By environment, not argv: sys.argv[7:] is the exact detached-supervisor
+    # argument list, and a slot inserted ahead of it would shift every parameter.
+    declared = json.loads(os.environ.get("BOARD_PLAN_ITEM_IDS_JSON") or "[]")
+    if declared:
+        payload["plan_item_ids"] = declared
+    if not atomic_write_json(metadata_path, payload, exclusive=True):
+        raise RuntimeError("board dispatch descriptor already exists")
+except Exception:
+    if child is not None:
+        child.terminate()
+        try:
+            child.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            child.kill()
+            child.wait()
+    if not os.path.lexists(metadata_path):
+        print("BOARD_DETACH_ABORT_PROVEN")
+    raise
+print(child.pid)
 PYEOF
+    )" || { [[ "$BOARD_PID" != "BOARD_DETACH_ABORT_PROVEN" ]] || BOARD_ABORT_PROVEN=1; die "failed to detach board supervisor"; }
+    [[ "$BOARD_PID" =~ ^[0-9]+$ ]] \
+        || die "detached board supervisor returned an invalid PID"
     info "Board dispatch detached pid=${BOARD_PID} context=${BOARD_CONTEXT} log=${BOARD_LOG}"
-elif [[ "$SQUAD_DISPATCH_MODE" == "pane" && -n "$NUDGE_PANE" ]]; then
-    # Disarm the never-launched release for the whole pane rail. Unlike the
-    # board rail there is no delivery-start transition to fence on, and the
-    # packet is already in the inbox: the watcher can pick it up even when the
-    # nudge fails ("inbox watcher pickup remains authoritative" below). From
-    # here the dispatcher can no longer prove the task never launched, so a
-    # later die must leave it to the reconciler rather than cancel live work.
-    TASK_REGISTERED=0
-    set +e
-    env VAULT_ROOT="$VAULT_ROOT" bash "${VAULT_ROOT}/bin/nudge-task.sh" "$DEST"
-    NUDGE_RC=$?
-    set -e
-    if [[ "$NUDGE_RC" -eq 0 ]]; then
-        info "Nudged pane ${NUDGE_PANE}"
-        if [[ "$CONTROL_ACTIVE" == "1" ]]; then
-            "${CONTROL_RUN[@]}" event \
-                --task-id "$TASK_ID" \
-                --attempt-id "$CONTROL_ATTEMPT_ID" \
-                --event pane_delivery_attempted \
-                --detail "send-task-direct-nudge" >/dev/null \
-                || die "pane delivery succeeded but could not be recorded for ${TASK_ID}"
-        fi
-    elif [[ "$NUDGE_RC" -eq 3 ]]; then
-        info "Delivery deferred by the locked per-lane queue for ${TASK_ID}"
-    else
-        if [[ "$CONTROL_ACTIVE" == "1" ]]; then
-            "${CONTROL_RUN[@]}" event \
-                --task-id "$TASK_ID" \
-                --attempt-id "$CONTROL_ATTEMPT_ID" \
-                --event dispatch_nudge_failed \
-                --detail "$NUDGE_PANE" >/dev/null \
-                || die "failed to record dispatch nudge failure for ${TASK_ID}"
-        fi
-        echo "WARNING: Failed to nudge pane ${NUDGE_PANE}; inbox watcher pickup remains authoritative" >&2
-    fi
-fi
 
 echo "✓ Dispatched ${TASK_ID} → ${TO_MODEL}/${SPECIALIST} (${COMPAT_NAMESPACE} mailbox)"
 
-# A dispatch is not finished until someone is WATCHING it. Board completion
-# alerts are addressed to a fixed tmux pane, so any controller that does not
-# occupy that pane (a background job, a fresh session) is never told the lane
-# landed. Measured repeatedly: lanes finished and sat unread until the operator
-# noticed. Emitting the exact command removes the "I meant to attach one" step.
+# Print the watcher command required by sessions without a board alert.
 cat <<WATCHER
   ATTACH A WATCHER — this session gets no board alert when the lane lands:
     OUT=${VAULT_ROOT}/departments/${COMPAT_NAMESPACE}/outbox/${TASK_ID}-response.md
@@ -2754,3 +2621,6 @@ cat <<WATCHER
     done; echo TIMEOUT
   Run it BACKGROUNDED so its exit re-invokes the session. One watcher per batch is enough.
 WATCHER
+}
+
+send_task_main "$@"

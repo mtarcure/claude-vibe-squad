@@ -124,6 +124,7 @@ os.utime(artifact_path, (old, old))
 PY_EOF
 
 export TMUX_LOG
+export CHRONO_CANONICAL_VAULT_ROOT="${FIXTURE_ROOT}"
 FIRST_OUTPUT="$(
     VAULT_ROOT="${FIXTURE_ROOT}" \
     STATE_DIR="${STATE_DIR}" \

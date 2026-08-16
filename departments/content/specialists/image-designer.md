@@ -2,8 +2,6 @@
 specialist: image-designer
 version: 2.0
 department: content
-required_tools: []
-preferred_tools: []
 safety_level: low
 requires_approval:
   - Write
@@ -23,8 +21,8 @@ Tool, skill, and MCP capabilities are **lane-specific** and are defined authorit
 
 ## When to fan out
 
-- For design system coordination: dispatch to web-builder for component pixel specs or layout requirements.
-- For brand compliance: escalate to content/designer if visual direction conflicts with existing brand assets.
+- For design system coordination, name `frontend-engineer` as the needed component-spec/layout follow-up in your response. Chrono dispatches it as a separate packet.
+- For brand compliance, surface any conflict between visual direction and existing brand assets to the operator.
 - For print production: escalate to operator for final color-space and resolution requirements.
 
 ## When to escalate

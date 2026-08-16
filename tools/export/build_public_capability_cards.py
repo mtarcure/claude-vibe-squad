@@ -28,6 +28,10 @@ asserts OUR liveness inside THEIR repo, which is the same error the toolchain
 catalog banner warns about: whether a tool works on our machine is not a fact
 about anyone else's.
 
+The set is audited BEFORE anything is written, and is written only if every
+card in it is clean. See the two-pass note in `main` for what the previous
+write-then-audit order cost.
+
     python3 tools/export/build_public_capability_cards.py [--check]
 """
 
@@ -178,45 +182,87 @@ def main() -> int:
         print("no capability cards found", file=sys.stderr)
         return 1
 
+    # PASS 1 -- transform and audit the WHOLE set in memory. Nothing touches the
+    # filesystem here, and that ordering is the point.
+    #
+    # This loop used to write each card as it went and evaluate `leaks` only
+    # after the loop had finished. A leak in the last card was therefore
+    # reported by a process that had already written the preceding 27, and the
+    # destination `shared/capabilities/public/` was a `public_exceptions` entry
+    # -- evaluated before every deny rule -- so those 27 were publishable no
+    # matter what the exit status said. The guard ran after the door was open.
+    #
+    # A card set is published as a set or not at all: one leaking card means the
+    # transform is wrong, and a transform that is wrong about one card has not
+    # earned the other twenty-eight.
+    rendered_cards: list[tuple[Path, str]] = []
     leaks: list[str] = []
-    stale: list[str] = []
-    written = 0
 
     for src in sources:
         rendered = transform(src.read_text(encoding="utf-8"))
-        leaks.extend(audit(src.name, rendered))
         # Preserve the mode subdirectory. Flattening collided
         # bounty/smart-contract-web3.md with project/smart-contract-web3.md and
         # silently dropped one -- 29 sources produced 28 files, and the count
-        # said so before anyone noticed.
+        # said so before anyone noticed. The audit label carries the same
+        # subdirectory for the same reason: two cards share a bare filename.
         target = root / OUTPUT_DIR / src.parent.name / src.name
-        if args.check:
-            current = target.read_text(encoding="utf-8") if target.exists() else ""
-            if current != rendered:
-                stale.append(str(target))
-            continue
+        leaks.extend(audit(f"{src.parent.name}/{src.name}", rendered))
+        rendered_cards.append((target, rendered))
+
+    if leaks:
+        print("PRIVATE STATE SURVIVED THE TRANSFORM; NOTHING WAS WRITTEN:", file=sys.stderr)
+        for leak in leaks:
+            print(f"  {leak}", file=sys.stderr)
+        return 1
+
+    if args.check:
+        expected_targets = {target for target, _ in rendered_cards}
+        actual_targets = {
+            path
+            for path in (root / OUTPUT_DIR).rglob("*.md")
+            if path.is_file()
+        }
+        missing = sorted(expected_targets - actual_targets, key=str)
+        unexpected = sorted(actual_targets - expected_targets, key=str)
+        stale = [
+            str(target)
+            for target, rendered in rendered_cards
+            if (target.read_text(encoding="utf-8") if target.exists() else "") != rendered
+        ]
+        if missing or unexpected:
+            print("public capability card source/output sets differ:", file=sys.stderr)
+            if missing:
+                print("  expected output card(s) missing:", file=sys.stderr)
+                for path in missing:
+                    print(f"    {path}", file=sys.stderr)
+            if unexpected:
+                print("  output card(s) without a private source:", file=sys.stderr)
+                for path in unexpected:
+                    print(f"    {path}", file=sys.stderr)
+        if stale:
+            print("public capability cards are stale; regenerate with "
+                  "python3 tools/export/build_public_capability_cards.py", file=sys.stderr)
+            for path in stale:
+                print(f"  {path}", file=sys.stderr)
+        if missing or unexpected or stale:
+            return 1
+        print(f"checked {len(sources)} of {len(sources)} public capability card(s); "
+              f"no private state detected")
+        return 0
+
+    # PASS 2 -- the whole set audited clean, so publish it.
+    written = 0
+    for target, rendered in rendered_cards:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(rendered, encoding="utf-8")
         written += 1
 
-    if leaks:
-        print("PRIVATE STATE SURVIVED THE TRANSFORM:", file=sys.stderr)
-        for leak in leaks:
-            print(f"  {leak}", file=sys.stderr)
-        return 1
-    if stale:
-        print("public capability cards are stale; regenerate with "
-              "python3 tools/export/build_public_capability_cards.py", file=sys.stderr)
-        for path in stale:
-            print(f"  {path}", file=sys.stderr)
-        return 1
-
-    if not args.check and written != len(sources):
+    if written != len(sources):
         print(f"card count mismatch: {len(sources)} sources -> {written} written",
               file=sys.stderr)
         return 1
-    print(f"{'checked' if args.check else 'wrote'} {len(sources) if args.check else written}"
-          f" of {len(sources)} public capability card(s); no private state detected")
+    print(f"wrote {written} of {len(sources)} public capability card(s); "
+          f"no private state detected")
     return 0
 
 

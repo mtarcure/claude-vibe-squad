@@ -7,7 +7,7 @@
 # This wrapper generates standard TASK frontmatter, then routes the packet
 # through bin/send-task.sh so normal Chrono dispatches get the same safety path
 # as prepared task files: write-scope checks, toolkit injection,
-# active registry updates, dispatch logging, and optional pane nudging.
+# active registry updates, dispatch logging, and board launch.
 
 set -euo pipefail
 
@@ -40,20 +40,34 @@ if ! is_compatibility_namespace "${COMPAT_NAMESPACE}"; then
     exit 1
 fi
 
-if [[ -z "${TO_MODEL}" ]]; then
-    TO_MODEL="$(namespace_default_model "${COMPAT_NAMESPACE}")"
-fi
-[[ "${TO_MODEL}" == "codex" ]] && TO_MODEL="gpt-codex"
-
 map_field() {
     local specialist="$1" field_index="$2"
     awk -F '\t' -v s="$specialist" -v idx="$field_index" '$1 == s {print $idx; exit}' "${RUNTIME_MAP}"
 }
 
+if [[ -z "${TO_MODEL}" ]]; then
+    # A namespace selects mailbox storage, never a model. The only valid
+    # omitted-model fallback is the specialist's primary lane in the runtime map.
+    if [[ "${SPECIALIST}" == "none" ]]; then
+        echo "ERROR: omitted to-model requires a canonical specialist"
+        exit 1
+    fi
+    if [[ ! -r "${RUNTIME_MAP}" ]]; then
+        echo "ERROR: specialist runtime map is unavailable: ${RUNTIME_MAP}"
+        exit 1
+    fi
+    TO_MODEL="$(map_field "${SPECIALIST}" 7)"
+    if [[ -z "${TO_MODEL}" ]]; then
+        echo "ERROR: specialist is absent from runtime map: ${SPECIALIST}"
+        exit 1
+    fi
+fi
+[[ "${TO_MODEL}" == "codex" ]] && TO_MODEL="gpt-codex"
+
 REVIEW_MODEL="none"
 MANDATORY_REVIEW="false"
 if [[ "${SPECIALIST}" != "none" && -f "${RUNTIME_MAP}" ]]; then
-    # New 28-col schema (2026-07-13): source_namespace=2 safety_level=4 primary_lane=7 review_lane=14
+    # Canonical map fields used here: source_namespace=2 safety_level=4 primary_lane=7 review_lane=14
     mapped_model="$(map_field "${SPECIALIST}" 7)"
     mapped_review="$(map_field "${SPECIALIST}" 14)"
     mapped_namespace="$(map_field "${SPECIALIST}" 2)"
@@ -68,14 +82,9 @@ if [[ "${SPECIALIST}" != "none" && -f "${RUNTIME_MAP}" ]]; then
     fi
 fi
 
-# Derive a valid dispatch mode. `mode: none` makes bin/send-task.sh SKIP
-# verification_contract generation (it only runs for project|bounty|advisory),
-# which the context builder then rejects. Advisors are read-only advisory;
-# everything else defaults to the project lifecycle.
-case "${SPECIALIST}" in
-    sol|fable) MODE="advisory" ;;
-    *)         MODE="project"  ;;
-esac
+# This convenience wrapper authors ordinary project packets. Bounty packets use
+# the prepared-packet path so their operator-approved contract stays explicit.
+MODE="project"
 
 if [[ ! -x "${HARDENED_DISPATCH}" ]]; then
     echo "ERROR: hardened dispatcher not executable: ${HARDENED_DISPATCH}"
@@ -124,27 +133,7 @@ EOF
 
 sync "${TASK_FILE}" 2>/dev/null || true
 
-ARGS=("${TASK_FILE}")
-NUDGE_UNAVAILABLE_REASON=""
-if [[ -n "${SKIP_NUDGE:-}" ]]; then
-    NUDGE_UNAVAILABLE_REASON="SKIP_NUDGE"
-elif ! command -v tmux >/dev/null 2>&1; then
-    NUDGE_UNAVAILABLE_REASON="tmux-unavailable"
-elif ! tmux has-session -t squad 2>/dev/null; then
-    NUDGE_UNAVAILABLE_REASON="tmux-session-missing"
-else
-    TARGET_WIN="$(runtime_window_name "${TO_MODEL}")"
-    if tmux list-windows -t squad -F '#{window_name}' 2>/dev/null | grep -qx "${TARGET_WIN}"; then
-        ARGS+=("--nudge-pane" "squad:${TARGET_WIN}")
-    else
-        NUDGE_UNAVAILABLE_REASON="tmux-window-missing:${TARGET_WIN}"
-    fi
-fi
-if [[ -n "$NUDGE_UNAVAILABLE_REASON" ]]; then
-    ARGS+=("--nudge-unavailable" "$NUDGE_UNAVAILABLE_REASON")
-fi
-
-VAULT_ROOT="${VAULT_ROOT}" "${HARDENED_DISPATCH}" "${ARGS[@]}"
+VAULT_ROOT="${VAULT_ROOT}" "${HARDENED_DISPATCH}" "${TASK_FILE}"
 
 echo "  File: ${VAULT_ROOT}/departments/${COMPAT_NAMESPACE}/inbox/${TASK_ID}.md"
 echo "  Reply expected at: ${VAULT_ROOT}/departments/${COMPAT_NAMESPACE}/outbox/${TASK_ID}-response.md"

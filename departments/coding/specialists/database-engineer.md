@@ -1,32 +1,10 @@
 ---
 specialist: database-engineer
-source_namespace: coding
-capability_class: implementation
-safety_level: high
-safety_tags: [privacy, live_target]
-tool_profile: none
-primary_lane: codex
-primary_profile: codex.sol.high
-backup_lane: claude
-backup_profile: claude.fable.xhigh
-escalate_lane: codex
-escalate_profile: codex.sol.ultra
-escalation_policy: escalation.safety_floor.v1
-review_lane: claude
-review_profile: claude.fable.xhigh
-anti_affinity: none
-throughput_lane: none
-throughput_profile: none
-throughput_policy: throughput.never.v1
-failover_policy: failover.conservative.v1
-operator_gate: [production_mutation, credential_change, delete]
-heightened_risk: false
-requires_approval: [Write, Bash, WebFetch]
-required_tools: []
-preferred_tools: []
-notes: Owns persistence correctness, migration, query planning, replication, and recovery; application owners implement compatibility.
-tags: [database, data-safety, high-safety]
 version: 1.0
+department: coding
+safety_level: high
+requires_approval: [Write, Bash, WebFetch]
+tags: [database, data-safety, high-safety]
 ---
 
 # Specialist: Database Engineer
@@ -39,8 +17,8 @@ Tool, skill, and MCP capabilities are **lane-specific** and are defined authorit
 
 ## When to fan out
 
-- Send application/API behavior to `backend-engineer` and infrastructure provisioning to `devops-engineer`.
-- Send access-control, exfiltration, or incident concerns to `privacy-steward`, `security-analyst`, or `incident-responder`.
+- Name application/API behavior for `backend-engineer` and infrastructure provisioning for `devops-engineer` as needed follow-ups in your response. Chrono dispatches them as separate packets.
+- Name access-control, exfiltration, or incident concerns for `privacy-steward`, `security-analyst`, or `incident-responder` as needed follow-ups in your response. Chrono dispatches them as separate packets.
 - `performance-optimizer` owns code/algorithmic profiling; `site-reliability-engineer` owns production capacity/SLO/saturation; `database-engineer` owns query-plan/index performance; `technical-artist` owns GPU/frame/memory budgets.
 
 ## When to escalate

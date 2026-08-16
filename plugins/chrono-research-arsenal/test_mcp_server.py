@@ -11,10 +11,34 @@ from unittest.mock import patch
 
 
 SERVER_PATH = Path(__file__).with_name("mcp_server.py")
+PLUGIN_PATH = Path(__file__).parent / ".claude-plugin" / "plugin.json"
 SPEC = importlib.util.spec_from_file_location("chrono_research_arsenal_mcp_server", SERVER_PATH)
 assert SPEC and SPEC.loader
 server = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(server)
+
+
+class PluginConfigTest(unittest.TestCase):
+    def test_perplexity_is_served_locally_not_by_a_second_server(self) -> None:
+        """The standalone `perplexity` uvx server was removed on 2026-08-10.
+
+        It duplicated a capability this plugin's own server already provides:
+        `perplexity_search` is a tool on `chrono-research-arsenal`, sharing the same
+        PERPLEXITY_API_KEY. The duplicate was also the only one that could go
+        unhealthy, and an unhealthy authorized MCP used to hard-deny launches.
+
+        This asserts the capability survives and the duplicate has not returned.
+        """
+        plugin = json.loads(PLUGIN_PATH.read_text())
+        servers = plugin["mcpServers"]
+
+        self.assertNotIn("perplexity", servers)
+        self.assertIn("chrono-research-arsenal", servers)
+        self.assertIn(
+            "PERPLEXITY_API_KEY",
+            servers["chrono-research-arsenal"]["env"],
+        )
+        self.assertTrue(hasattr(server, "perplexity_search"))
 
 
 class _Response:

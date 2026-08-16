@@ -3,7 +3,7 @@ name: chain-construct-smart-contract
 status: authored
 ---
 
-<!-- inspired by mtarcure/chain-strike:attack-chain-builder; recreated against native CLIs -->
+<!-- attack-chain-builder pattern, recreated against native CLIs; no upstream code copied -->
 
 # chain-construct-smart-contract
 

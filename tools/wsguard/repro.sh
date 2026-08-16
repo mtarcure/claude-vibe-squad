@@ -7,14 +7,20 @@
 # it locates the anchor, inserts the block VERBATIM into a COPY of the dispatcher,
 # and runs the copy against a fixture whose write_scope names a gitignored path.
 #
-# bin/send-task.sh is never modified. The copy lives under tools/wsguard/out/.
+# bin/send-task.sh is never modified. The copy lives in a private temporary
+# directory and is removed when this harness exits.
 #
-# ONE adaptation is made to the copy, and only to the copy: bin/send-task.sh line 39
+# Two bootstrap adaptations are made to the copy, and only to the copy:
+# bin/send-task.sh sources the repo-root resolver relative to its own location
+# and derives SQUAD_CODE_ROOT from that same location. A copy parked in a temp
+# directory cannot use either relative result, so both are repointed to the real
+# repository. Nothing in the guard block under test is changed.
+#
+# The first bootstrap line
 # bootstraps VAULT_ROOT by sourcing "<dir of this script>/../shared/repo-root.sh".
 # A copy parked three directories deep cannot resolve that relative path, so the
-# harness rewrites that single bootstrap line to an absolute source of the REAL
-# shared/repo-root.sh. Nothing else in the file is touched, and in particular the
-# block under test is inserted byte-for-byte as reported.
+# harness rewrites to an absolute source of the REAL shared/repo-root.sh; the
+# SQUAD_CODE_ROOT assignment is likewise pinned to the real root.
 #
 # Usage: bash tools/wsguard/repro.sh
 
@@ -22,12 +28,22 @@ set -uo pipefail
 
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 ROOT="$(cd -- "${HERE}/../.." && pwd -P)"
-OUT="${HERE}/out"
 SRC="${ROOT}/bin/send-task.sh"
-COPY="${OUT}/send-task-with-bash-block.sh"
 FIXTURE="${HERE}/fixtures/negative-control-gitignored.md"
 
-mkdir -p "$OUT"
+WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/vibesquad-wsguard-repro.XXXXXX")" || {
+    echo "ERROR: could not create temporary wsguard directory" >&2
+    exit 1
+}
+COPY="${WORK_DIR}/send-task-with-bash-block.sh"
+TWIN_LOG="${WORK_DIR}/twin.log"
+TRACE_LOG="${WORK_DIR}/trace.log"
+
+cleanup() {
+    rm -f -- "$COPY" "$TWIN_LOG" "$TRACE_LOG"
+    rmdir -- "$WORK_DIR" 2>/dev/null || true
+}
+trap cleanup EXIT
 
 hr() { printf '\n========== %s ==========\n' "$*"; }
 
@@ -40,12 +56,15 @@ echo 'every top-level case statement in the file:'
 grep -n '^case .* in$' "$SRC"
 
 hr "E2: git check-ignore on the fixture path, from the repo root"
-echo '+ git -C "$ROOT" check-ignore -v _state/bounty/rigs/newthing/'
-git -C "$ROOT" check-ignore -v '_state/bounty/rigs/newthing/'
+echo '+ git -C "$ROOT" check-ignore -v _state/wsguard/rigs/newthing/'
+if ! git -C "$ROOT" check-ignore -v '_state/wsguard/rigs/newthing/'; then
+    echo "ERROR: negative-control path is not gitignored" >&2
+    exit 1
+fi
 echo "exit=$?"
 
 hr "E3: build the patched copy (block VERBATIM, above line 983)"
-python3 - "$SRC" "$COPY" "$ROOT" <<'PYEOF'
+if ! python3 - "$SRC" "$COPY" "$ROOT" <<'PYEOF'
 import sys
 src, dst, root = sys.argv[1], sys.argv[2], sys.argv[3]
 lines = open(src, encoding="utf-8").read().splitlines(keepends=True)
@@ -57,6 +76,18 @@ for i, line in enumerate(lines):
         lines[i] = f'source "{root}/shared/repo-root.sh"\n'
         print(f"bootstrap line {i+1} repointed to {root}/shared/repo-root.sh")
         break
+else:
+    raise SystemExit("VAULT_ROOT bootstrap line was not found")
+
+# Adaptation 2 (harness-only): helpers are shipped under SQUAD_CODE_ROOT, which
+# a temp copy would otherwise derive as the temp directory itself.
+for i, line in enumerate(lines):
+    if line.startswith('SQUAD_CODE_ROOT='):
+        lines[i] = f'SQUAD_CODE_ROOT="{root}"\n'
+        print(f"SQUAD_CODE_ROOT line {i+1} repointed to {root}")
+        break
+else:
+    raise SystemExit("SQUAD_CODE_ROOT bootstrap line was not found")
 
 # The block exactly as reported, unmodified.
 block = '''if [[ -n "${WRITE_SCOPE_RAW:-}" ]]; then
@@ -73,22 +104,41 @@ lines.insert(982, block)   # immediately above original line 983
 open(dst, "w", encoding="utf-8").write("".join(lines))
 print(f"wrote {dst}; block inserted above original line 983")
 PYEOF
+then
+    echo "ERROR: could not build the defective dispatcher twin" >&2
+    exit 1
+fi
 
 echo "+ bash -n (syntax check)"
-bash -n "$COPY" && echo "syntax OK"
+if ! bash -n "$COPY"; then
+    echo "ERROR: defective dispatcher twin failed syntax validation" >&2
+    exit 1
+fi
+echo "syntax OK"
 
 hr "E4: run the PATCHED COPY on the gitignored fixture"
 echo "+ bash $COPY <negative-control fixture> --dry-run"
-bash "$COPY" "$FIXTURE" --dry-run 2>&1
-echo "[exit=$?]"
+TWIN_RC=0
+bash "$COPY" "$FIXTURE" --dry-run >"$TWIN_LOG" 2>&1 || TWIN_RC=$?
+cat "$TWIN_LOG"
+echo "[exit=${TWIN_RC}]"
+if [[ "$TWIN_RC" -ne 2 ]]; then
+    echo "ERROR: defective dispatcher twin did not reach the expected dry-run exit 2" >&2
+    exit 1
+fi
 
 hr "E5: same copy under bash -x, tracing the inserted loop only"
-bash -x "$COPY" "$FIXTURE" --dry-run 2>&1 \
-    | grep -E '_ws_path|check-ignore' | head -20
+TRACE_RC=0
+bash -x "$COPY" "$FIXTURE" --dry-run >"$TRACE_LOG" 2>&1 || TRACE_RC=$?
+grep -E '_ws_path|check-ignore' "$TRACE_LOG" | head -20 || true
+if [[ "$TRACE_RC" -ne 2 ]]; then
+    echo "NOTE: diagnostic bash -x run exited ${TRACE_RC}; E4 is the gated execution" >&2
+fi
 echo "(trace lines mentioning _ws_path / check-ignore)"
 
 hr "E6: the split pipeline in isolation (byte-exact, \$ marks end of line)"
-WS='[departments/shared/outbox/TASK-2026-08-04-1100-wsgneg-response.md, _state/bounty/rigs/newthing/]'
+WS='[departments/shared/outbox/TASK-2026-08-04-1100-wsgneg-response.md, _state/wsguard/rigs/newthing/]'
 printf '%s' "$WS" | tr -d '[]' | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | cat -e
 
 hr "DONE"
+echo "WSGUARD_REPRO_COMPLETE"

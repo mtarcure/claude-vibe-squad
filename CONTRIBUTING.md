@@ -25,15 +25,24 @@ No patch should introduce silent live sends, silent deletes, credential changes,
 
 ## Development Checks
 
-Run the relevant checks before opening a PR:
+Run the relevant checks before opening a PR. These work in any clone, including the public one:
 
 ```bash
 bash -n bin/*.sh scripts/*.sh shared/*.sh
 python3 -m py_compile scripts/python/*.py bin/*.py
 bash bin/validate-specialists.sh
-bash bin/product-hygiene.sh --public-export
 bash bin/doctor.sh
 ```
+
+In a public clone, `validate-specialists.sh` prints non-fatal `registry-not-published` warnings: the private skill-tool registry is deliberately withheld from the public tree, so registry-backed cross-checks run only on the maintainer checkout. A warning there is expected; a non-zero exit is a real failure in either tree.
+
+Maintainer-only (reads the private identifier denylist, which the public tree does not carry — it exits early in a public clone):
+
+```bash
+bash bin/product-hygiene.sh --public-export
+```
+
+The public repo's CI (`.github/workflows/public-validate.yml`) validates what the public tree actually carries on every push and PR.
 
 For dispatch changes, smoke test at least one cross-namespace route where `source_namespace` and `to_model` differ.
 

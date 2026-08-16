@@ -48,11 +48,11 @@ For traditional web bounties — XSS, SQLi, IDOR, SSRF, auth bypass, business lo
 
 ## Specialists most active
 
-- security namespace invokes `exploit-developer` via `Task` tool with `subagent_type: exploit-developer` (multi-model)
-- security namespace invokes `security-analyst` via `Task` tool with `subagent_type: security-analyst`
-- security namespace invokes `scout` via `Task` tool with `subagent_type: scout`
-- security namespace invokes `skeptic` via `Task` tool with `subagent_type: skeptic` (cross-cutting)
-- security namespace invokes `impact-validator` via `Task` tool with `subagent_type: impact-validator` (CVSS scoring)
+- Chrono dispatches `exploit-developer` (multi-model)
+- Chrono dispatches `security-analyst`
+- Chrono dispatches `scout`
+- Chrono dispatches `skeptic` (cross-cutting)
+- Chrono dispatches `impact-validator` (CVSS scoring)
 
 ## Common pitfalls
 

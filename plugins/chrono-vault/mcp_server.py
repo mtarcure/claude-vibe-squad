@@ -13,14 +13,17 @@ from pathlib import Path
 from typing import Any, Literal
 
 from mcp.server.fastmcp import FastMCP
-from clearance import ClearanceError, can_read, lane_clearance
+from clearance import (
+    ClearanceError,
+    require_memory_operation,
+)
 import index as vault_index
 from lifecycle import LifecycleError
 from lifecycle import get_note as lifecycle_get_note
 from lifecycle import record_usage as lifecycle_record_usage
 from lifecycle import set_status as lifecycle_set_status
 from notes import NOTE_TYPES, record as record_note
-from recall import RecallError, _read_index, recall as recall_notes
+from recall import RecallError, _load_weights, _read_index, recall as recall_notes
 from vaultroot import VaultRootError, read_sentinel, resolve_vault_root
 
 mcp = FastMCP("chrono-vault")
@@ -37,10 +40,7 @@ UsageOutcome = Literal["used", "not_useful", "incorrect"]
 
 
 def _get_note_for_lane(note_id: str) -> dict[str, Any]:
-    note = lifecycle_get_note(note_id)
-    if not can_read(note.get("sensitivity"), lane_clearance()):
-        raise ClearanceError("note is unavailable at the current clearance")
-    return note
+    return lifecycle_get_note(note_id)
 
 
 CANONICAL_SEVERITIES = frozenset({"critical", "high", "medium", "low", "info"})
@@ -210,6 +210,10 @@ def recall(
     notes written at or after it. Use it to compartment a campaign: recalling
     with the campaign's start time keeps a later phase from inheriting an
     earlier phase's conclusions as if they were prior knowledge.
+
+    Each returned note carries `disputed` (bool): True when a later write flagged
+    it as contradicting an active note on the same subject and never reconciled
+    it. Treat a disputed note's claim as contested, not settled.
     """
     return recall_notes(query=query, filters=filters, limit=limit)
 
@@ -322,16 +326,28 @@ def _index_health(
     root: Path,
     note_signatures: dict[str, tuple[int, int, str]],
     unsafe_notes: bool,
-) -> tuple[int, bool]:
+) -> tuple[int, bool, bool]:
+    """Return (generation, index_dirty, recall_ready).
+
+    recall_ready is separate from index_dirty on purpose. `recall` refuses
+    outright when the index user_version or FTS columns differ from what it
+    expects, and that refusal used to collapse into index_dirty=True -- the same
+    value meaning "a routine sync is due". Measured 2026-08-08: health returned
+    root_valid:true while every recall errored "index schema is stale", so a
+    caller gating on health treated a dead read path as usable, and a
+    zero-result recall in that window was a tool failure being read as a
+    negative. Dirtiness and unreadability are different conditions and now
+    report separately.
+    """
     try:
         with _read_index(root) as connection:
             if connection is None:
-                return 0, True
+                return 0, True, False
             generation_row = connection.execute(
                 "SELECT value FROM state WHERE key='generation'"
             ).fetchone()
             if generation_row is None:
-                return 0, True
+                return 0, True, False
             generation = int(generation_row[0])
             indexed = {
                 row[0]: (int(row[1]), int(row[2]), row[3])
@@ -348,9 +364,19 @@ def _index_health(
                 or indexed != note_signatures
                 or quarantined > 0
             )
-            return generation, dirty
+            # recall_ready must mean "recall would succeed", so it has to clear
+            # every query-time prerequisite recall itself enforces -- not just
+            # the ones health happened to check. Cross-family review found the
+            # gap: deleting only the config.bm25_weights row left health
+            # reporting recall_ready=True while every recall raised
+            # "index is missing BM25 weights", which is precisely the
+            # tool-failure-read-as-empty-result this field exists to prevent.
+            # _load_weights is the same function recall calls, so the two can
+            # no longer disagree.
+            _load_weights(connection)
+            return generation, dirty, True
     except (RecallError, OSError, sqlite3.Error, TypeError, ValueError):
-        return 0, True
+        return 0, True, False
 
 
 def _legacy_stores(root: Path | None) -> list[str]:
@@ -411,11 +437,14 @@ def health() -> dict[str, Any]:
             "note_counts": {note_type: 0 for note_type in sorted(NOTE_TYPES)},
             "index_generation": 0,
             "index_dirty": True,
+            "recall_ready": False,
             "legacy_stores": _legacy_stores(None),
         }
 
     note_counts, note_signatures, unsafe_notes = _note_inventory(root)
-    generation, index_dirty = _index_health(root, note_signatures, unsafe_notes)
+    generation, index_dirty, recall_ready = _index_health(
+        root, note_signatures, unsafe_notes
+    )
     return {
         "vault_id": sentinel["vault_id"],
         "root_valid": True,
@@ -424,6 +453,7 @@ def health() -> dict[str, Any]:
         "note_counts": note_counts,
         "index_generation": generation,
         "index_dirty": index_dirty,
+        "recall_ready": recall_ready,
         "legacy_stores": _legacy_stores(root),
     }
 
@@ -454,6 +484,7 @@ def _degraded(reason: str, **extra: Any) -> dict[str, Any]:
 @mcp.tool()
 def vault_list(glob_pattern: str = "") -> dict[str, Any]:
     """List vault files via Obsidian Local REST API. Optional glob filter."""
+    require_memory_operation("browse")
     if not _obsidian_headers():
         return _degraded("missing OBSIDIAN_REST_API_KEY")
     httpx = _load_httpx()
@@ -481,6 +512,7 @@ def vault_list(glob_pattern: str = "") -> dict[str, Any]:
 @mcp.tool()
 def vault_get(path: str) -> dict[str, Any]:
     """Get a single vault file's content."""
+    require_memory_operation("browse")
     if not _obsidian_headers():
         return _degraded("missing OBSIDIAN_REST_API_KEY")
     httpx = _load_httpx()
@@ -506,6 +538,7 @@ def vault_get(path: str) -> dict[str, Any]:
 @mcp.tool()
 def vault_search(query: str, mode: str = "text") -> dict[str, Any]:
     """Human-only legacy Obsidian search; never a memory correctness path."""
+    require_memory_operation("browse")
     legacy = {"human_only": True, "legacy": True}
     if not _obsidian_headers():
         return {**_degraded("missing OBSIDIAN_REST_API_KEY"), **legacy}

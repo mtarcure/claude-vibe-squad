@@ -1,6 +1,6 @@
 # Memory Discipline — Universal Rules
 
-How every memory in this system is written, verified, decayed, and purged.
+How every memory in this system is written, verified, superseded, and archived.
 
 This is the single source of truth for cross-cutting memory rules. Each namespace `memory.md` cites this file and may add source-specific rules on top. Specialists inherit both layers.
 
@@ -14,9 +14,19 @@ This system has three distinct persistence layers. Knowing which to use is rule 
 |-------|------|-------|-------------|
 | **Auto-memory** | `~/.claude/projects/<repo-name>/memory/` | Cross-session for the controller (Chrono / Claude Code) | User profile, feedback, project context, references — anything that needs to survive across sessions outside the vault |
 | **Squad memory.md** | `departments/<source_namespace>/memory.md` | Namespace-specific durable knowledge | Distilled learnings: "Library X has issue Y," "This bounty program requires Z," "Research source A is authoritative for topic B" |
-| **chrono-vault** | Obsidian + KG (chrono-vault MCP) | Canonical semantic graph | Facts that need wiki-link cross-referencing, attempts/findings/decisions that should be queryable across the squad, anything benefiting from graph navigation |
+| **chrono-vault** | Private Markdown + disposable FTS5/BM25 index (chrono-vault MCP) | Cross-squad durable notes | Typed attempts/findings/learnings that should be recalled across tasks. Explicit links are preserved in Markdown; graph expansion is benchmark work, not current runtime truth. |
 
-**Never duplicate across layers.** A memory belongs in exactly one layer. If the same fact lives in two places, one is stale or obsoletes the other — purge the duplicate.
+**Status of the Squad `memory.md` layer (verified against `.gitignore` and `git ls-files`).** This layer is
+**operator-local and gitignored — not tracked, not shared.** `.gitignore:86` excludes
+`departments/*/memory.md` (alongside `:85` `departments/*/current.md` and `:88` `chrono/memory.md`), so these
+files are never committed, never published in a clone or export, and never travel to another machine or lane.
+They are created on demand and **may not exist at all** — at this writing none do. There is also **no
+`departments/shared/memory.md`**: the shared namespace has no `memory.md` file, consistent with shared
+specialists having no `departments/shared` mailbox (`shared/protocol.md` § Lifecycle). Treat this layer as a
+private, per-machine scratch of distilled learnings — anything that must survive a clone or reach another lane
+belongs in `chrono-vault`.
+
+**Never duplicate truth across layers.** A memory belongs in one authoritative layer. Other layers may point to it. When two durable notes overlap, preserve provenance and mark the older note `superseded` or `archived`; do not delete it.
 
 **Graduation rule**: a memory in `memory.md` graduates to `chrono-vault` when more than one namespace would benefit from it, it would be more useful with wiki-link context, or it is referenced by 3+ tasks. Memory-curator handles graduations weekly.
 
@@ -26,7 +36,7 @@ This system has three distinct persistence layers. Knowing which to use is rule 
 
 ### 1. Timestamp + source citation required
 
-Every memory entry includes the date written and the source it was derived from (task ID, URL, file path, conversation ref). Memories without provenance are stripped on next purge.
+Every memory entry includes the date written and the source it was derived from (task ID, URL, file path, conversation ref). Missing provenance is a curation defect: quarantine or surface it for review rather than silently deleting it.
 
 ```markdown
 - **2026-05-03**: a target program requires KYC for payouts (source: engagement task record)
@@ -39,15 +49,15 @@ Not:
 
 ### 2. Verify before relying on memory > 2 weeks old
 
-Memory captures what was true *when written*. Before acting on a memory older than 2 weeks, verify against current state — read the file, check the live API, query the source. If verification contradicts memory, **purge the stale entry, don't append a new contradicting one**.
+Memory captures what was true *when written*. Before acting on a memory older than 2 weeks, verify against current state — read the file, check the live API, query the source. If verification contradicts a chrono-vault note, record the corrected note and mark the old one `invalidated` or `superseded` with provenance. Never erase the historical signal.
 
 Domain rules can override this universal default (e.g., Security may keep findings indefinitely; see per-model-lane overrides below).
 
-### 3. Purge in place — don't accumulate contradictions
+### 3. Resolve contradictions through lifecycle state
 
-When a memory is wrong, REMOVE the wrong entry. Don't add a contradicting line below it. Stale knowledge that accumulates is a vibecoding failure mode.
+For chrono-vault, do not remove or rewrite a wrong note. Record the corrected note, then use the compare-and-swap lifecycle transition to mark the old note `invalidated` or `superseded`. A reviewer can see both the original claim and why it stopped being active.
 
-If the wrong memory was load-bearing for past decisions, leave a 1-line `# superseded YYYY-MM-DD: <reason>` marker in commit history, not in memory.md.
+For a namespace `memory.md` — operator-local and gitignored (see the layer status above), not a tracked file — correct the prose in place and leave a concise supersession reason when the old statement was load-bearing. Do not keep two unlabeled active claims.
 
 ### 4. Don't substitute memory for current-state verification
 
@@ -78,7 +88,7 @@ If a memory needs to reference a secret-bearing artifact (e.g., "the .env at pat
 
 When a namespace rule contradicts a universal rule, the namespace rule wins for that source domain, but memory-curator must surface the conflict to the operator instead of silently auto-applying. Examples that should always surface:
 
-- Security namespace says "never auto-purge findings"; universal says "verify >2wk old." Namespace rule wins, no auto-purge, but verification still happens.
+- Security namespace says findings retain indefinitely; universal says "verify >2wk old." Retention wins, and verification still happens. No namespace rule authorizes physical deletion.
 - Research namespace says "primary sources only"; universal says "any sourced citation OK." Namespace rule wins.
 
 Never let a contradiction live silently. Either reconcile or surface.
@@ -117,15 +127,15 @@ Memory-curator (under SysMgmt) handles three sweeps:
 
 1. **Nightly light**: structural hygiene (orphan notes, broken links, duplicates, empties) via `brain_cleanup.py`. Proposals only — operator approves.
 2. **Weekly deep**: contradiction detection (semantic, not structural — currently unimplemented; tracked as gap), confidence-decay sweep (entries with confidence <0.3 and age >180d), graduation candidates (memory.md → chrono-vault).
-3. **On-demand**: when a model lead reports "memory contradicted by current state," memory-curator runs a focused purge on the affected category.
+3. **On-demand**: when a model lead reports "memory contradicted by current state," memory-curator proposes exact lifecycle transitions for the affected notes.
 
-All purges write proposals to `_state/cleanup-logs/<date>-brain.md`. **Auto-deletion is forbidden** — purges always go through operator approval, except the universal "purge stale entry on contradiction" which is performed by the contradiction-finder Lead inline (rule #3).
+All curation runs write proposals to `_state/cleanup-logs/<date>-brain.md`. **Auto-deletion is forbidden.** A model may propose `superseded`, `invalidated`, or `archived`; the canonical writer applies reviewed transitions. Physical removal requires the separate deletion gate and is never implied by contradiction or age.
 
 ---
 
 ## Anti-patterns (what NOT to do)
 
-- ❌ Append a contradiction below the wrong entry instead of replacing it
+- ❌ Leave two contradictory notes active instead of invalidating or superseding the old one
 - ❌ Save a memory of "I just looked at X" — that's session state, not durable knowledge
 - ❌ Copy a memory across multiple memory.md files — pick one home, cite from elsewhere
 - ❌ Save a memory without source citation
@@ -145,4 +155,4 @@ All purges write proposals to `_state/cleanup-logs/<date>-brain.md`. **Auto-dele
 
 ## Why this discipline exists
 
-Memory is fast and feels like investigation. It isn't. It's a hypothesis primer with decay characteristics. Treat it as such: verify before relying, purge when wrong, cite when writing, override deliberately. The system that flooded itself with stale "facts" 6 months ago is the same system that recommends nonexistent functions today.
+Memory is fast and feels like investigation. It isn't. It's a hypothesis primer with decay characteristics. Treat it as such: verify before relying, preserve corrections, cite when writing, and override deliberately. The system that flooded itself with stale "facts" six months ago is the same system that recommends nonexistent functions today.

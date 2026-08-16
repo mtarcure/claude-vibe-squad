@@ -65,6 +65,27 @@ class RemoteRefAuditTests(unittest.TestCase):
         statuses = {r["ref"]: r["status"] for r in records}
         self.assertEqual(statuses["refs/heads/gh-pages"], "allowlisted")
 
+    def test_cli_reports_fetch_failure_without_a_traceback(self) -> None:
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(EXPORT_DIR / "remote_ref_audit.py"),
+                "--repo",
+                str(self.work),
+                "--remote",
+                "missing",
+                "--clean-ref",
+                "refs/remotes/missing/main",
+            ],
+            text=True,
+            capture_output=True,
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("remote-ref audit could not complete", result.stderr)
+        self.assertIn("git fetch --quiet missing exited 128", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

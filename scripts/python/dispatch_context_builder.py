@@ -11,40 +11,68 @@ from __future__ import annotations
 import argparse
 import csv
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
 import re
 import secrets
+import subprocess
 import tempfile
 import time
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Mapping, NoReturn, Sequence
 
 try:
     import board_router
+    from durable_publish import rename_noreplace
     from held_action_gate import HELD_CATEGORIES
     from lane_capability_enforcement import adapter_path_for
     from launch_hygiene import SETTLED_T1P1_BUNDLE_SHA256
-    from seatbelt_profile import LANE_CLI_PATHS
+    from seatbelt_profile import DEFAULT_LANE_PATH, LANE_CLI_PATHS
+    import specialist_capability_source as scs
+    from verification_contract import (
+        ContractError as VerificationContractError,
+        read_yaml_frontmatter,
+        validate_verification_contract as validate_contract_schema,
+    )
 except ImportError:  # pragma: no cover - package-context fallback
     from . import board_router  # type: ignore[no-redef]
+    from .durable_publish import rename_noreplace  # type: ignore[no-redef]
     from .held_action_gate import HELD_CATEGORIES  # type: ignore[no-redef]
     from .lane_capability_enforcement import adapter_path_for  # type: ignore[no-redef]
     from .launch_hygiene import SETTLED_T1P1_BUNDLE_SHA256  # type: ignore[no-redef]
-    from .seatbelt_profile import LANE_CLI_PATHS  # type: ignore[no-redef]
+    from .seatbelt_profile import DEFAULT_LANE_PATH, LANE_CLI_PATHS  # type: ignore[no-redef]
+    from . import specialist_capability_source as scs  # type: ignore[no-redef]
+    from .verification_contract import (  # type: ignore[no-redef]
+        ContractError as VerificationContractError,
+        read_yaml_frontmatter,
+        validate_verification_contract as validate_contract_schema,
+    )
 
 
 CONTEXT_SCHEMA = "go-live-trusted-context/v1"
 AUTHORITY_SCHEMA = "go-live-authority/v1"
-TASK_RE = re.compile(r"^TASK-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}-[A-Za-z0-9][A-Za-z0-9-]*$")
+TASK_RE = re.compile(
+    r"^TASK-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}-[A-Za-z0-9][A-Za-z0-9-]*$"
+)
 ATTEMPT_RE = re.compile(r"^d-[0-9a-f]{32}$")
+# Hard ceiling on the assembled trusted-launch prompt (injected briefing +
+# packet). The briefing differs per lane, so this bounds the SUM, never the
+# packet alone -- a packet size that launched on one family proves nothing
+# about another.
+TRUSTED_LAUNCH_PROMPT_LIMIT = 32768
 IDENTIFIER_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 NAMESPACES = frozenset(
     {"coding", "security", "content", "sysmgmt", "research", "shared"}
 )
 MAILBOX_NAMESPACES = frozenset(NAMESPACES - {"shared"})
+CLI_TRANSPORT_FAILURE_CLASSES = frozenset({"cli_missing", "cli_nonzero", "cli_timeout"})
+MEMORY_APERTURES = frozenset({"rich", "focused", "cold", "pool_blind", "none"})
+# One bound for the creation-time selector and the promotion-time validator, so
+# a packet can never declare evidence that promotion would later refuse to read.
+MAXIMUM_EVIDENCE_OUTPUTS = 16
 MODEL_TO_LANE = {
     "gpt-codex": "codex",
     "claude": "claude",
@@ -52,10 +80,24 @@ MODEL_TO_LANE = {
     "kimi": "kimi",
 }
 LANE_TO_MODEL = {value: key for key, value in MODEL_TO_LANE.items()}
+WORKLOAD_CLASS_BY_CAPABILITY = {
+    "implementation": "repo-build-test",
+    "media_production": "browser-media",
+    "code_review": "cpu-light",
+    "content_text": "cpu-light",
+    "extraction": "cpu-light",
+    "game_design": "cpu-light",
+    "judgment": "cpu-light",
+    "research_synthesis": "cpu-light",
+    "security_defense": "cpu-light",
+    "security_reasoning": "cpu-light",
+}
 LANE_NETWORK_SCOPE = {
     "codex": "openai-subscription",
     "claude": "anthropic-subscription",
-    "gemini": "google-subscription",
+    # Gemini remains a native-CLI lane, but its supported authentication is
+    # the explicit API-key exception rather than subscription OAuth.
+    "gemini": "gemini-api-key",
     "kimi": "moonshot-subscription",
 }
 _TRUSTED_LANE_BASE_ARGS = {
@@ -82,20 +124,29 @@ _TRUSTED_LANE_BASE_ARGS = {
         "--thinking",
     ),
 }
-_PROVEN_LANE_MODELS = {
-    "gemini": "gemini-3.6-flash",
-    "kimi": "kimi-code/kimi-for-coding",
-}
 
 
 def timeout_budget_for_mode(mode: str) -> int:
-    """Return the bounded backstop; short modes keep ``"timeout_seconds": 1800``."""
+    """Return the bounded backstop; non-bounty modes use ``"timeout_seconds": 2700``.
 
-    return 3600 if mode == "bounty" else 1800
+    Raised from 1800 to 2700 for non-bounty modes on 2026-08-10, operator-approved,
+    from measured distribution rather than from the wall deaths. Across 52 dispatches
+    over two days: median successful run 12m, but 11 of 45 successes landed in the
+    20-30m band -- crowding the ceiling, so any retry or slow tool call truncated
+    legitimate work. The four tasks that DIED at 1800s were over-scoped packets, and
+    a larger wall would not have saved them; only right-sizing does that.
+    Bounty stays at 3600.
+    """
+
+    return 3600 if mode == "bounty" else 2700
 
 
 class DispatchContextError(ValueError):
     """A packet or bridge operation cannot be represented safely."""
+
+
+class ModeExitVerificationError(DispatchContextError):
+    """A declared mode-close manifest did not earn envelope publication."""
 
 
 def schedule_board_batch(
@@ -198,13 +249,12 @@ def build_board_fanout_members(
     if not 2 <= len(assignments) <= 12:
         raise DispatchContextError("board fan-out requires 2..12 assignments")
     if any(
-        not isinstance(item, str)
-        or not item.strip()
-        or "\n" in item
-        or "\r" in item
+        not isinstance(item, str) or not item.strip() or "\n" in item or "\r" in item
         for item in assignments
     ):
-        raise DispatchContextError("board fan-out assignments must be non-empty single lines")
+        raise DispatchContextError(
+            "board fan-out assignments must be non-empty single lines"
+        )
 
     fields, body = parse_task_packet(parent)
     parent_id = _unquote(fields.get("id", ""))
@@ -220,24 +270,41 @@ def build_board_fanout_members(
             or contract.get("run_id") != _unquote(fields.get("run_id", ""))
             or contract.get("mode") != _unquote(fields.get("mode", ""))
         ):
-            raise DispatchContextError("supplied fan-out verification contract is invalid")
+            raise DispatchContextError(
+                "supplied fan-out verification contract is invalid"
+            )
     original_scope = parse_scope(fields.get("write_scope", "[]"), field="write_scope")
     output = Path(output_dir).resolve(strict=False)
     try:
         output.relative_to(root / "_state" / "board-dispatch")
     except ValueError as exc:
-        raise DispatchContextError("fan-out build directory is outside board state") from exc
+        raise DispatchContextError(
+            "fan-out build directory is outside board state"
+        ) from exc
     output.mkdir(parents=True, exist_ok=True)
     if any(output.iterdir()):
         raise DispatchContextError("fan-out build directory must be empty")
 
     replaced = {
-        "id", "return_artifact", "write_scope", "read_scope",
-        "mandatory_review", "review_model", "model_override_reason",
-        "dispatch_kind", "panel_id", "panel_mode", "panel_members",
-        "panel_member_ids", "panel_policy", "panel_quorum",
-        "panel_timeout_seconds", "panel_max_parallel", "panel_return_contract",
-        "panel_member_write_scope", "verification_contract",
+        "id",
+        "return_artifact",
+        "write_scope",
+        "read_scope",
+        "mandatory_review",
+        "review_model",
+        "model_override_reason",
+        "dispatch_kind",
+        "panel_id",
+        "panel_mode",
+        "panel_members",
+        "panel_member_ids",
+        "panel_policy",
+        "panel_quorum",
+        "panel_timeout_seconds",
+        "panel_max_parallel",
+        "panel_return_contract",
+        "panel_member_write_scope",
+        "verification_contract",
         "verification_contract_sha256",
     }
     parent_lines = parent.read_text(encoding="utf-8").splitlines()
@@ -293,6 +360,15 @@ def build_board_fanout_members(
 
 
 @dataclass(frozen=True)
+class PreparedEvidenceOutput:
+    relative_path: str
+    role: str
+    declared_by: str
+    data: bytes
+    content_sha256: str
+
+
+@dataclass(frozen=True)
 class PreparedWorktreeOutputs:
     task_id: str
     result_relative: str
@@ -300,6 +376,11 @@ class PreparedWorktreeOutputs:
     result_bytes: bytes
     envelope_bytes: bytes
     status: str
+    mode: str = ""
+    attempt_id: str = ""
+    generation: int = 0
+    run_id: str = ""
+    evidence_outputs: tuple[PreparedEvidenceOutput, ...] = ()
 
 
 def _sha256_bytes(value: bytes) -> str:
@@ -310,7 +391,9 @@ def _sha256_file(path: Path) -> str:
     try:
         return _sha256_bytes(Path(path).read_bytes())
     except OSError as exc:
-        raise DispatchContextError(f"required file is unavailable: {path}: {exc}") from exc
+        raise DispatchContextError(
+            f"required file is unavailable: {path}: {exc}"
+        ) from exc
 
 
 def _canonical_json(value: object) -> bytes:
@@ -338,6 +421,10 @@ def parse_task_packet(path: Path) -> tuple[dict[str, str], str]:
         text = Path(path).read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
         raise DispatchContextError(f"task packet is unreadable UTF-8: {exc}") from exc
+    return _parse_task_text(text)
+
+
+def _parse_task_text(text: str) -> tuple[dict[str, str], str]:
     if "\x00" in text:
         raise DispatchContextError("task packet contains NUL")
     lines = text.splitlines(keepends=True)
@@ -359,12 +446,10 @@ def parse_task_packet(path: Path) -> tuple[dict[str, str], str]:
         if not line.strip() or line.lstrip().startswith("#"):
             continue
         key, separator, value = line.partition(":")
-        if (
-            not separator
-            or not re.fullmatch(r"[a-z][a-z0-9_]*", key)
-            or key in fields
-        ):
-            raise DispatchContextError(f"invalid or duplicate frontmatter row: {line!r}")
+        if not separator or not re.fullmatch(r"[a-z][a-z0-9_]*", key) or key in fields:
+            raise DispatchContextError(
+                f"invalid or duplicate frontmatter row: {line!r}"
+            )
         fields[key] = value.strip()
     return fields, "".join(lines[closing + 1 :])
 
@@ -443,13 +528,12 @@ def validate_verification_contract(fields: Mapping[str, str]) -> dict[str, Any]:
     declared_hash = _unquote(fields.get("verification_contract_sha256", ""))
     if not str(raw_contract).strip():
         raise DispatchContextError(
-            "task packet is missing required frontmatter field: "
-            "verification_contract"
+            "task packet is missing required frontmatter field: verification_contract"
         )
     try:
-        contract = json.loads(raw_contract)
-    except json.JSONDecodeError as exc:
-        raise DispatchContextError(f"verification_contract is invalid JSON: {exc}") from exc
+        contract = validate_contract_schema(json.loads(raw_contract))
+    except (json.JSONDecodeError, VerificationContractError) as exc:
+        raise DispatchContextError(f"verification_contract is invalid: {exc}") from exc
     if not isinstance(contract, dict):
         raise DispatchContextError("verification_contract must be an object")
     if not declared_hash:
@@ -515,6 +599,47 @@ def _runtime_row(repo_root: Path, specialist: str) -> dict[str, str]:
     return rows[0]
 
 
+def dispatcher_workload_class(repo_root: Path, specialist: str) -> str:
+    """Classify only from the canonical runtime map; unknowns fail closed.
+
+    Workload class is a RESOURCE model -- how much memory and how many processes
+    an attempt is expected to need. It is deliberately not derived from safety
+    tags. `live_target` used to short-circuit to the `security-untrusted` policy
+    here, and that conflated two unrelated axes with a concrete cost: that policy
+    ships `calibrated=False`, an uncalibrated policy fails host-admission clause 4
+    unconditionally, and on 2026-08-08 the runtime map began tagging 15 of 73
+    specialists `live_target`. Every offensive role -- exploit-developer,
+    experimental-attacker, red-team-operator, scout, impact-validator -- became
+    categorically undispatchable, reported as "projected resident use exceeds
+    budget" on a host with 75% memory free.
+
+    The 15 were never one resource shape either: some are `implementation`
+    (repo-build-test) and some `judgment`/`security_reasoning` (cpu-light).
+
+    Nothing is weakened by removing it, because the tag enforced nothing else --
+    measured 2026-08-09, this line was `live_target`'s ONLY consumer in the entire
+    codebase. Risk for these roles is carried where it belongs and still is:
+    `safety_level: high`, `heightened_risk: true`,
+    `requires_approval: [Write, Bash, WebFetch]`, and `operator_gate` entries such
+    as red-team-operator's `[offensive_execution, production_mutation]`.
+    """
+
+    row = _runtime_row(Path(repo_root), specialist)
+    safety_raw = row.get("safety_tags", "")
+    if not safety_raw.startswith("[") or not safety_raw.endswith("]"):
+        raise DispatchContextError("runtime-map safety_tags are invalid")
+    safety_tags = [item.strip() for item in safety_raw[1:-1].split(",") if item.strip()]
+    if any(not re.fullmatch(r"[a-z][a-z0-9_]*", item) for item in safety_tags):
+        raise DispatchContextError("runtime-map safety_tags are invalid")
+    capability_class = row.get("capability_class", "")
+    try:
+        return WORKLOAD_CLASS_BY_CAPABILITY[capability_class]
+    except KeyError as exc:
+        raise DispatchContextError(
+            f"runtime-map capability class is unmeasured: {capability_class!r}"
+        ) from exc
+
+
 def _selected_profile(row: Mapping[str, str], lane: str) -> str:
     matches = []
     for prefix in ("primary", "backup", "escalate", "review", "throughput"):
@@ -524,9 +649,7 @@ def _selected_profile(row: Mapping[str, str], lane: str) -> str:
             if profile and profile != "none":
                 matches.append(profile)
     if not matches:
-        raise DispatchContextError(
-            f"runtime map does not select a {lane} profile"
-        )
+        raise DispatchContextError(f"runtime map does not select a {lane} profile")
     # The packet selects a lane, not an escalation tier. Prefer the primary
     # profile whenever that lane is primary; otherwise use the first routed
     # tier in the canonical primary→backup→escalate→review→throughput order.
@@ -547,7 +670,9 @@ def _profile_row(
             reader = csv.DictReader(handle, delimiter="\t")
             required = {"profile_id", "lane", "model_id", "effort", "flags", "usage"}
             if not required.issubset(set(reader.fieldnames or ())):
-                raise DispatchContextError("profile registry is missing required fields")
+                raise DispatchContextError(
+                    "profile registry is missing required fields"
+                )
             matches = [row for row in reader if row.get("profile_id") == profile_id]
     except OSError as exc:
         raise DispatchContextError(f"profile registry is unavailable: {exc}") from exc
@@ -579,15 +704,7 @@ def selected_model_sha256_for(
     )
 
 
-def trusted_lane_args_for(
-    repo_root: Path,
-    *,
-    lane: str,
-    specialist: str,
-) -> tuple[str, ...]:
-    row = _runtime_row(Path(repo_root), specialist)
-    profile_id = _selected_profile(row, lane)
-    profile = _profile_row(Path(repo_root), lane=lane, profile_id=profile_id)
+def _trusted_lane_args(lane: str, profile: Mapping[str, str]) -> tuple[str, ...]:
     model = profile["model_id"]
     effort = profile["effort"]
     base = _TRUSTED_LANE_BASE_ARGS[lane]
@@ -601,9 +718,127 @@ def trusted_lane_args_for(
         )
     if lane == "claude":
         return (*base, "--model", model, "--effort", effort)
-    if lane == "gemini":
-        return (*base, "--model", _PROVEN_LANE_MODELS["gemini"])
-    return (*base, "--model", _PROVEN_LANE_MODELS["kimi"])
+    return (*base, "--model", model)
+
+
+def trusted_lane_args_for(
+    repo_root: Path, *, lane: str, specialist: str
+) -> tuple[str, ...]:
+    return _trusted_lane_args(
+        lane,
+        _profile_row(
+            Path(repo_root),
+            lane=lane,
+            profile_id=_selected_profile(
+                _runtime_row(Path(repo_root), specialist), lane
+            ),
+        ),
+    )
+
+
+def _lane_version(executable: Path) -> str:
+    environment = {
+        "PATH": DEFAULT_LANE_PATH,
+        "NO_COLOR": "1",
+        "HOME": os.environ.get("HOME", ""),
+    }
+    completed = subprocess.run(
+        (str(executable), "--version"),
+        capture_output=True,
+        text=True,
+        stdin=subprocess.DEVNULL,
+        env=environment,
+        timeout=5,
+        close_fds=True,
+    )
+    if (
+        completed.returncode != 0
+        or not (lines := completed.stdout.splitlines())
+        or not lines[0].strip()
+    ):
+        raise DispatchContextError("lane version probe failed")
+    return lines[0].replace("\t", " ")[:256]
+
+
+def lane_policy_evidence_for(repo_root: Path, lane: str) -> dict[str, str]:
+    path = Path(repo_root) / "model-lanes/lane-capabilities.tsv"
+    try:
+        with path.open(encoding="utf-8", newline="") as stream:
+            rows = [
+                row
+                for row in csv.DictReader(stream, delimiter="\t")
+                if MODEL_TO_LANE.get(row.get("lane", ""), row.get("lane", "")) == lane
+            ]
+    except OSError as exc:
+        raise DispatchContextError(f"lane policy is unavailable: {exc}") from exc
+    if len(rows) != 1:
+        raise DispatchContextError(f"lane policy must contain exactly one {lane!r} row")
+    policy = rows[0].get("auth_policy", "")
+    auth_class = policy.removesuffix("-drop-provider-keys").removesuffix("-only")
+    expected = {
+        "codex": "subscription",
+        "claude": "subscription",
+        "gemini": "gemini-api-key",
+        "kimi": "managed-login",
+    }.get(lane)
+    if auth_class != expected:
+        raise DispatchContextError("lane auth policy is outside the closed contract")
+    return {
+        "auth_class": auth_class,
+        "lane_policy_row_sha256": _sha256_bytes(_canonical_json(rows[0])),
+    }
+
+
+def lane_runtime_inventory(
+    repo_root: Path,
+    *,
+    version_reader: Callable[[Path], str] | None = None,
+) -> tuple[dict[str, Any], ...]:
+    try:
+        with (repo_root / "shared/specialist-runtime-map.tsv").open(
+            newline=""
+        ) as stream:
+            runtime_rows = list(csv.DictReader(stream, delimiter="\t"))
+    except OSError as exc:
+        raise DispatchContextError(
+            f"lane inventory source is unavailable: {exc}"
+        ) from exc
+    results = []
+    for lane, executable in LANE_CLI_PATHS.items():
+        policy_evidence = lane_policy_evidence_for(repo_root, lane)
+        selections = {}
+        for row in runtime_rows:
+            for tier in ("primary", "backup", "escalate", "review", "throughput"):
+                profile_id = (
+                    row.get(f"{tier}_profile")
+                    if row.get(f"{tier}_lane") == lane
+                    else None
+                )
+                if not profile_id or profile_id == "none":
+                    continue
+                profile = _profile_row(repo_root, lane=lane, profile_id=profile_id)
+                args = _trusted_lane_args(lane, profile)
+                selections[profile_id] = {
+                    "profile_id": profile_id,
+                    "registry_model": profile["model_id"],
+                    "effective_model": args[args.index("--model") + 1],
+                }
+        try:
+            version = (version_reader or _lane_version)(executable)
+        except (OSError, subprocess.SubprocessError, DispatchContextError):
+            version = ""
+        results.append(
+            {
+                "lane": lane,
+                "literal_executable": str(executable),
+                "resolved_executable": os.path.realpath(executable),
+                "version": version,
+                "installed": bool(version),
+                "auth_class": policy_evidence["auth_class"],
+                "selections": tuple(selections[key] for key in sorted(selections)),
+            }
+        )
+    return tuple(results)
 
 
 def _canonical_role(repo_root: Path, row: Mapping[str, str]) -> Path:
@@ -613,17 +848,15 @@ def _canonical_role(repo_root: Path, row: Mapping[str, str]) -> Path:
         candidate = repo_root / "shared" / "specialists" / f"{specialist}.md"
     else:
         candidate = (
-            repo_root
-            / "departments"
-            / namespace
-            / "specialists"
-            / f"{specialist}.md"
+            repo_root / "departments" / namespace / "specialists" / f"{specialist}.md"
         )
     try:
         resolved = candidate.resolve(strict=True)
         resolved.relative_to(repo_root.resolve(strict=True))
     except (OSError, ValueError) as exc:
-        raise DispatchContextError(f"canonical role is unavailable or outside repo: {exc}") from exc
+        raise DispatchContextError(
+            f"canonical role is unavailable or outside repo: {exc}"
+        ) from exc
     if not resolved.is_file() or resolved.is_symlink():
         raise DispatchContextError("canonical role must be a regular non-symlink file")
     return resolved
@@ -656,6 +889,217 @@ def _contains(scope: str, target: str) -> bool:
     return scope_path == target_path or scope_path in target_path.parents
 
 
+def packet_evidence_outputs(
+    fields: Mapping[str, str],
+    write_scope: Sequence[str],
+) -> tuple[dict[str, str], ...]:
+    """Return every evidence path the packet declares at creation time.
+
+    Two exact declarations are honored, and nothing else -- this never scans a
+    worktree, infers evidence, or guesses at what a worker produced:
+
+    ``swarm_member_result``
+        The swarm member sidecar. Valid only for a swarm member.
+    ``evidence_outputs``
+        A YAML inline list of PoCs, harnesses, logs, and other unique outputs,
+        valid for **every** packet shape. Ordinary evidence is the majority
+        case and the one that has actually been stranding in pruned worktrees;
+        selecting only the swarm sidecar left the common case unprotected.
+
+    Each declared path must be worktree-relative, inside ``write_scope``, and
+    distinct. A declared file that the worker did not produce blocks promotion
+    upstream rather than being skipped: declaring evidence is a commitment.
+    """
+
+    outputs: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    raw = _unquote(fields.get("swarm_member_result", ""))
+    if raw:
+        if (
+            _unquote(fields.get("dispatch_kind", "")) != "swarm"
+            or _unquote(fields.get("swarm_role", "")) != "member"
+        ):
+            raise DispatchContextError(
+                "swarm_member_result is valid only for a swarm member"
+            )
+        relative = _safe_relative(raw, field="swarm_member_result")
+        if not any(_contains(scope, relative) for scope in write_scope):
+            raise DispatchContextError(
+                "swarm_member_result is outside packet write_scope"
+            )
+        seen.add(relative)
+        outputs.append(
+            {
+                "path": relative,
+                "role": "swarm-member-result",
+                "declared_by": "swarm_member_result",
+            }
+        )
+
+    declared = _unquote(fields.get("evidence_outputs", "")).strip()
+    if declared:
+        # `_safe_relative` normalizes a trailing slash away, so a directory has
+        # to be rejected from the raw text: a scope is a prefix, an evidence
+        # output is one exact file whose bytes are hashed at creation.
+        for raw_part in declared.strip("[]").split(","):
+            if raw_part.strip().endswith("/"):
+                raise DispatchContextError(
+                    "evidence_outputs must name exact files, not directories: "
+                    + raw_part.strip()
+                )
+        for relative in parse_scope(declared, field="evidence_outputs"):
+            if relative in seen:
+                raise DispatchContextError(
+                    f"evidence_outputs declares a duplicate path: {relative}"
+                )
+            if not any(_contains(scope, relative) for scope in write_scope):
+                raise DispatchContextError(
+                    f"evidence_outputs path is outside packet write_scope: {relative}"
+                )
+            seen.add(relative)
+            outputs.append(
+                {
+                    "path": relative,
+                    "role": "declared-evidence",
+                    "declared_by": "evidence_outputs",
+                }
+            )
+
+    if len(outputs) > MAXIMUM_EVIDENCE_OUTPUTS:
+        raise DispatchContextError(
+            f"a packet may declare at most {MAXIMUM_EVIDENCE_OUTPUTS} evidence outputs"
+        )
+    return tuple(outputs)
+
+
+def packet_memory_contract(fields: Mapping[str, str]) -> tuple[str, str | None]:
+    """Validate and return the packet's trusted-launch memory aperture."""
+
+    memory_aperture = _unquote(fields.get("memory_aperture", "")) or "cold"
+    if memory_aperture not in MEMORY_APERTURES:
+        raise DispatchContextError("memory_aperture is invalid")
+    memory_focus = _unquote(fields.get("memory_focus", "")) or None
+    if memory_focus is not None and (
+        len(memory_focus) > 256
+        or any(character in memory_focus for character in "\x00\r\n")
+    ):
+        raise DispatchContextError("memory_focus is invalid")
+    if (memory_aperture == "focused") != (memory_focus is not None):
+        raise DispatchContextError("focused memory requires one exact memory_focus")
+    return memory_aperture, memory_focus
+
+
+def gitignored_read_scope_note(
+    read_scope: Sequence[str], canonical_root: str
+) -> str:
+    """Tell the worker where gitignored read_scope entries actually resolve.
+
+    `_state/` is gitignored, so it does not exist in the worker's worktree. A
+    read_scope naming `_state/...` is therefore unreachable at that relative
+    path, and workers have burned turns rediscovering that the artifacts live
+    in the primary checkout. The authorization is unchanged -- this only says
+    where the authorized paths are.
+    """
+
+    absent = [p for p in read_scope if isinstance(p, str) and p.startswith("_state/")]
+    if not absent:
+        return ""
+    listed = ", ".join(f"`{p}`" for p in sorted(dict.fromkeys(absent)))
+    return (
+        "## Where your gitignored read scope resolves\n\n"
+        f"{listed} — these are under `_state/`, which is **gitignored and therefore absent from "
+        "your worktree**. Read them from the primary checkout at "
+        f"`{canonical_root}/` (for example `{canonical_root}/{sorted(absent)[0]}`). "
+        "Your authorization is unchanged; this only tells you where the authorized paths are, "
+        "so you do not spend turns discovering that the relative path does not exist.\n"
+    )
+
+
+def delivery_contract_note(
+    return_artifact: str, write_scope: Sequence[str]
+) -> str:
+    """State the three ways a lane's work gets discarded for non-work reasons.
+
+    Observed 2026-08-15: four lanes died on mechanics rather than the task --
+    two CLI timeouts, one scope violation (`worker committed paths outside the
+    integration scope`), and one `return artifact is missing, non-regular, or a
+    symlink`. In each case the fix itself may have been sound and was thrown
+    away. The packet cannot prevent these; the launch prompt can.
+    """
+
+    if not return_artifact:
+        return ""
+    scope = ", ".join(f"`{p}`" for p in write_scope) or "(none declared)"
+    return (
+        "## Delivery contract — three ways good work gets discarded\n\n"
+        f"1. **Write `{return_artifact}` as a plain file EARLY**, then update it as you go. Not a "
+        "symlink, not a directory, and not left to the end. A lane whose artifact is missing at "
+        "completion is discarded whole, however good the fix was.\n"
+        f"2. **Write only inside your write scope**: {scope}. Integration refuses a commit touching "
+        "anything else and discards the entire attempt — it does not partially apply. If the task "
+        "genuinely needs another path, stop and report it: a scope request costs one turn, a scope "
+        "violation costs the lane.\n"
+        "3. **If you are running long, land what is complete and write the artifact anyway.** A "
+        "truthful partial naming what remains is a useful result; being killed mid-flight with no "
+        "artifact is not.\n"
+    )
+
+
+def assemble_trusted_launch_prompt(
+    packet_text: str,
+    *,
+    task_id: str,
+    attempt_id: str,
+    generation: int,
+    memory_aperture: str,
+    read_scope: Sequence[str] = (),
+    canonical_root: str = "",
+    return_artifact: str = "",
+    write_scope: Sequence[str] = (),
+) -> str:
+    """Assemble the exact prompt whose bytes are bounded before launch."""
+
+    if memory_aperture == "none":
+        memory_instructions = (
+            "This engagement has memory aperture `none`. Do not call recall, record, "
+            "get_note, lifecycle, or vault browse tools. Memory is not a task gate."
+        )
+    else:
+        recall_instruction = (
+            '- Recall prior context ONCE: `recall(query="<task-specific terms>", limit=5)`. '
+            "Pass no filters; the vault enforces this engagement's aperture."
+            if memory_aperture in {"rich", "focused"}
+            else f"- Do not call recall or get_note: aperture `{memory_aperture}` forbids reads."
+        )
+        memory_instructions = (
+            "Durable memory is BEST-EFFORT telemetry. Make each permitted call at most "
+            "once, never search the repo for schemas, and never retry. A memory error is "
+            "never a task gate: note it briefly in the artifact and continue. The server "
+            "aperture overrides any generic memory-policy wording in the packet.\n"
+            f"{recall_instruction}\n"
+            "- Write the return artifact and completion envelope FIRST. Only afterward, "
+            "record the outcome once with: "
+            f'`record(note_type="learning", fields={{"title":"<one-line outcome>",'
+            f'"body":"<two or three short sentences referencing {task_id}>",'
+            '"target":"<component or target>","attack_class":"none"}})`. '
+            "The server binds source_task, candidate status, sensitivity floor, and focused "
+            "target; do not add or override them. Do not call record_usage or set_status."
+        )
+    return (
+        "Execute the exact task packet below as a fresh isolated specialist CLI. "
+        "Do not claim or redispatch it; this launch is already bound to the registry "
+        f"attempt {attempt_id}, generation {generation}. Write the declared return "
+        "artifact and response envelope inside this worktree. The supervisor validates "
+        "and promotes the artifact first and the envelope last.\n\n"
+        f"{memory_instructions}\n\n"
+        f"{gitignored_read_scope_note(read_scope, canonical_root)}"
+        f"{delivery_contract_note(return_artifact, write_scope)}\n"
+        "## Exact task packet\n\n"
+        f"{packet_text.rstrip()}\n"
+    )
+
+
 def build_context(
     repo_root: Path,
     task_file: Path,
@@ -677,9 +1121,7 @@ def build_context(
     return_artifact = _safe_relative(
         fields.get("return_artifact", ""), field="return_artifact"
     )
-    canary_autoclean_raw = _unquote(
-        fields.get("board_canary_autoclean", "false")
-    )
+    canary_autoclean_raw = _unquote(fields.get("board_canary_autoclean", "false"))
     if canary_autoclean_raw not in {"true", "false"}:
         raise DispatchContextError("board_canary_autoclean must be true or false")
     canary_autoclean = canary_autoclean_raw == "true"
@@ -687,7 +1129,11 @@ def build_context(
         raise DispatchContextError("task id is invalid")
     if not ATTEMPT_RE.fullmatch(attempt_id):
         raise DispatchContextError("attempt id is not a registry delivery identity")
-    if isinstance(generation, bool) or not isinstance(generation, int) or generation <= 0:
+    if (
+        isinstance(generation, bool)
+        or not isinstance(generation, int)
+        or generation <= 0
+    ):
         raise DispatchContextError("generation must be a positive integer")
     if not IDENTIFIER_RE.fullmatch(specialist):
         raise DispatchContextError("specialist identifier is invalid")
@@ -707,7 +1153,9 @@ def build_context(
             repo_root=root, lane=lane, specialist=specialist
         ).resolve(strict=True)
     except Exception as exc:  # noqa: BLE001 - convert capability boundary
-        raise DispatchContextError(f"native lane adapter cannot be resolved: {exc}") from exc
+        raise DispatchContextError(
+            f"native lane adapter cannot be resolved: {exc}"
+        ) from exc
     try:
         adapter.relative_to(root)
     except ValueError as exc:
@@ -716,10 +1164,17 @@ def build_context(
     if executable is None:
         raise DispatchContextError(f"no trusted executable for lane {lane}")
     resolved_executable = Path(os.path.realpath(executable))
-    if not executable.is_absolute() or not resolved_executable.is_file():
-        raise DispatchContextError(f"trusted lane executable is unavailable: {executable}")
+    if (
+        not executable.is_absolute()
+        or not resolved_executable.is_file()
+        or not os.access(resolved_executable, os.X_OK)
+    ):
+        raise DispatchContextError(
+            f"trusted lane executable is unavailable: {executable}"
+        )
 
     write_scope = parse_scope(fields.get("write_scope", ""), field="write_scope")
+    evidence_outputs = packet_evidence_outputs(fields, write_scope)
     # A read-only verdict role declares no artifact and an empty write_scope;
     # `any()` over an empty scope is always False, so this containment check
     # rejected it unconditionally. Nothing to contain means nothing to check.
@@ -736,9 +1191,7 @@ def build_context(
         raise DispatchContextError(
             "board canary auto-clean is restricted to isolated inventory canaries"
         )
-    explicit_reads = parse_scope(
-        fields.get("read_scope", "[]"), field="read_scope"
-    )
+    explicit_reads = parse_scope(fields.get("read_scope", "[]"), field="read_scope")
     required_reads = (
         packet_path.relative_to(root).as_posix(),
         canonical_role.relative_to(root).as_posix(),
@@ -752,10 +1205,15 @@ def build_context(
     if not isinstance(author_family, str) or not author_family:
         raise DispatchContextError("verification contract author_family is invalid")
 
-    capability_source = root / "model-lanes" / "specialist-lane-capabilities.v1.json"
-    # Read and hash the capability source at context construction time so a
-    # missing controller dependency fails before launch.
-    _sha256_file(capability_source)
+    source_lane = LANE_TO_MODEL[lane]
+    try:
+        capability_entries, _ = scs.load_source(root)
+        capability_entry = capability_entries[(specialist, source_lane)]
+        capability_surface_sha256 = scs.role_surface_sha256(capability_entry)
+    except (scs.CapabilitySourceError, KeyError) as exc:
+        raise DispatchContextError(
+            "specialist capability surface is unavailable"
+        ) from exc
     plan = {
         "schema": "board-dispatch-plan/v1",
         "task_id": task_id,
@@ -768,55 +1226,45 @@ def build_context(
         "expected_result_path": return_artifact,
     }
     created_at = int(time.time()) if now is None else now
-    if isinstance(created_at, bool) or not isinstance(created_at, int) or created_at <= 0:
+    if (
+        isinstance(created_at, bool)
+        or not isinstance(created_at, int)
+        or created_at <= 0
+    ):
         raise DispatchContextError("creation time must be a positive integer")
     launch_nonce = secrets.token_hex(32) if nonce is None else nonce
     if not SHA256_RE.fullmatch(launch_nonce) or launch_nonce == "0" * 64:
         raise DispatchContextError("nonce must be a nonzero 64-hex value")
 
+    memory_aperture, memory_focus = packet_memory_contract(fields)
+    memory_context = {
+        "schema": "chrono-vault-context/v1",
+        "task_id": task_id,
+        "attempt_id": attempt_id,
+        "generation": generation,
+        "mode": mode,
+        "aperture": memory_aperture,
+        "focus": memory_focus,
+        "engagement_start": datetime.fromtimestamp(
+            created_at, tz=timezone.utc
+        ).isoformat().replace("+00:00", "Z"),
+    }
     packet_text = packet_path.read_text(encoding="utf-8")
-    fanout_member = bool(_unquote(fields.get("fanout_parent_id", "")))
-    panel_fanout = _unquote(fields.get("panel_mode", "")) == "fanout"
-    task_prompt = (
-        "Execute the exact task packet below as a fresh isolated specialist CLI. "
-        "Do not claim or redispatch it; this launch is already bound to the registry "
-        f"attempt {attempt_id}, generation {generation}. Write the declared return "
-        "artifact and response envelope inside this worktree. The supervisor validates "
-        "and promotes the artifact first and the envelope last.\n\n"
-        # Best-effort, one-attempt memory (2026-07-24): the burn AND a hard task-block came
-        # from the memory ceremony being mandatory + fatal. `record_usage` failed live enum
-        # validation (its `outcome` enum ['incorrect','not_useful','used'] is NOT declared in
-        # the exposed schema, so the model cannot call it correctly) and the prompt told the
-        # CLI to settle `blocked` on any memory failure — so trivial telemetry killed the
-        # whole implementation before a file was written (TASK-2026-07-24-9102). Memory is now
-        # explicitly BEST-EFFORT and never a gate; record_usage is removed. recall+record use
-        # exact shapes so they succeed first-try and satisfy any recall/record contract.
-        "Durable memory is BEST-EFFORT telemetry — make each call at most ONCE with the exact "
-        "shapes below; do NOT search the repo for schemas and do NOT retry on error. A memory "
-        "call is NEVER a gate: if any memory call errors, note it in one line in the artifact "
-        "and CONTINUE the task. Do NOT settle blocked and do NOT skip implementation because "
-        "of a memory bookkeeping failure.\n"
-        "- Recall prior context ONCE: `recall(query=\"<task-specific terms>\", limit=5)` — "
-        "pass no `filters` unless the runtime supplies accepted filter keys.\n"
-        "- Just before the completion envelope, record the outcome ONCE with this exact, "
-        "schema-complete shape (every field is valid; UNKNOWN FIELDS ARE REJECTED, so add "
-        "no others):\n"
-        f'    record(note_type="learning", fields={{"title": "<one-line outcome>", '
-        f'"body": "<what/why; reference {task_id} in the text>", "target": "<component or '
-        f'target>", "attack_class": "none", "source_task": "{task_id}"}})\n'
-        "  For security/bounty work use note_type \"finding\" or \"attempt\" and a real "
-        "attack_class. Include the returned memory id in the artifact.\n"
-        "- Do NOT call `record_usage` — its outcome enum is not exposed in the schema and has "
-        "caused hard blocks; usage bookkeeping is optional and must never gate work.\n\n"
-        "## Exact task packet\n\n"
-        f"{packet_text.rstrip()}\n"
+    task_prompt = assemble_trusted_launch_prompt(
+        packet_text,
+        task_id=task_id,
+        attempt_id=attempt_id,
+        generation=generation,
+        memory_aperture=memory_aperture,
+        read_scope=read_scope,
+        canonical_root=root.as_posix(),
+        return_artifact=return_artifact,
+        write_scope=write_scope,
     )
-    if len(task_prompt.encode("utf-8")) > 32768:
+    if len(task_prompt.encode("utf-8")) > TRUSTED_LAUNCH_PROMPT_LIMIT:
         raise DispatchContextError("task packet is too large for trusted launch prompt")
 
-    expected_outbox = (
-        f"departments/{mailbox_namespace}/outbox/{task_id}-response.md"
-    )
+    expected_outbox = f"departments/{mailbox_namespace}/outbox/{task_id}-response.md"
     authority = {
         "schema": AUTHORITY_SCHEMA,
         "task_id": task_id,
@@ -824,9 +1272,10 @@ def build_context(
         "generation": generation,
         "run_id": run_id,
         "author_family": author_family,
-        "workload_class": "cpu-light",
+        "workload_class": dispatcher_workload_class(root, specialist),
         "specialist": specialist,
         "lane": lane,
+        **lane_policy_evidence_for(root, lane),
         "mode_profile": mode,
         "execution_kind": "lane",
         "repo_root": str(root),
@@ -859,6 +1308,7 @@ def build_context(
         },
         "expected_result_path": return_artifact,
         "expected_outbox_path": expected_outbox,
+        "evidence_outputs": list(evidence_outputs),
         # CC-03: the pins/fences the reconciler requires the landed response to
         # echo, snapshotted from trusted launch-time sources (packet frontmatter
         # + the locked registry) so promotion can rebuild them without trusting
@@ -883,6 +1333,8 @@ def build_context(
             specialist=specialist,
         ),
         "profile_bundle_sha256": SETTLED_T1P1_BUNDLE_SHA256,
+        "capability_surface_sha256": capability_surface_sha256,
+        "memory_context": memory_context,
         "active_board_tasks": [],
         "created_at": created_at,
         "expires_at": created_at + 600,
@@ -932,13 +1384,18 @@ def cleanup_canary(
     ]
     if len(packet_candidates) != 1:
         raise DispatchContextError("canary cleanup packet identity is ambiguous")
-    packet_path = root / packet_candidates[0]
-    if (
-        packet_path.is_symlink()
-        or not packet_path.is_file()
-        or _sha256_file(packet_path) != authority.get("packet_sha256")
-    ):
+    inbox_path = root / packet_candidates[0]
+    archived_path = inbox_path.parent.parent / "archive" / inbox_path.name
+    matching_packets = [
+        path
+        for path in (inbox_path, archived_path)
+        if not path.is_symlink()
+        and path.is_file()
+        and _sha256_file(path) == authority.get("packet_sha256")
+    ]
+    if len(matching_packets) != 1:
         raise DispatchContextError("canary cleanup packet no longer matches authority")
+    packet_path = matching_packets[0]
     packet_fields, _packet_body = parse_task_packet(packet_path)
     if _unquote(packet_fields.get("board_canary_autoclean", "false")) != "true":
         return {"status": "not-requested"}
@@ -969,18 +1426,19 @@ def cleanup_canary(
         if not isinstance(registry, dict):
             raise DispatchContextError("canary cleanup registry has the wrong schema")
         entry = registry.get(task_id)
-        if entry is not None:
-            if (
-                not isinstance(entry, dict)
-                or entry.get("delivery_attempt_id") != attempt_id
-                or int(entry.get("delivery_generation") or 0) != generation
-            ):
-                raise DispatchContextError(
-                    "canary cleanup registry identity changed"
-                )
-            del registry[task_id]
-            data = json.dumps(registry, indent=2, ensure_ascii=False) + "\n"
-            rr.atomic_write(registry_path, data)
+        if (
+            not isinstance(entry, dict)
+            or entry.get("delivery_attempt_id") != attempt_id
+            or type(entry.get("delivery_generation")) is not int
+            or entry.get("delivery_generation") != generation
+            or entry.get("status") != "complete"
+        ):
+            raise DispatchContextError(
+                "canary cleanup registry identity changed or is not terminal"
+            )
+        del registry[task_id]
+        data = json.dumps(registry, indent=2, ensure_ascii=False) + "\n"
+        rr.atomic_write(registry_path, data)
         packet_path.unlink()
         packet_directory_fd = os.open(packet_path.parent, os.O_RDONLY)
         try:
@@ -1011,7 +1469,9 @@ def _read_contained_regular(
         resolved.relative_to(root)
         data = candidate.read_bytes()
     except (OSError, ValueError) as exc:
-        raise DispatchContextError(f"{label} is unavailable or escapes worktree") from exc
+        raise DispatchContextError(
+            f"{label} is unavailable or escapes worktree"
+        ) from exc
     if not data or len(data) > maximum_bytes:
         raise DispatchContextError(f"{label} is empty or exceeds size bound")
     return data
@@ -1040,37 +1500,35 @@ WORKER_AUTHORABLE_STATUSES = frozenset(
     {"complete", "needs_review", "needs_human", "blocked"}
 )
 
-_CANONICAL_ENVELOPE_STATUSES = frozenset(
-    {*WORKER_AUTHORABLE_STATUSES, "completed"}
-)
+_CANONICAL_ENVELOPE_STATUSES = frozenset({*WORKER_AUTHORABLE_STATUSES, "completed"})
+
+# Exact historical spellings that existing workers may still emit. Keep this
+# closed: fuzzy matching lets failure prose inherit a successful status merely
+# because it contains text such as ``complete``, ``done``, or even ``ok``.
+_RECOGNIZED_STATUS_SPELLINGS = {
+    **{status: status for status in _CANONICAL_ENVELOPE_STATUSES},
+    "complete_with_scoped_exclusion": "complete",
+    "done": "complete",
+    "failed": "blocked",
+    "blocked_on_review": "blocked",
+    "needs human": "needs_human",
+    "needs human review": "needs_human",
+    "awaiting operator approval": "needs_human",
+}
 
 
 def _coerce_status(raw: str) -> str:
     """Map a worker-authored status onto a canonical settleable value.
 
-    Already-canonical values pass through verbatim (the reconciler further
-    canonicalizes ``completed`` -> ``complete``). Anything else is coerced by
-    intent to the nearest canonical status, defaulting to ``needs_review`` so
-    questionable or unmappable work surfaces to the controller rather than
-    silently auto-closing. Ordering is by escalation strength: ``blocked``
-    intent wins over everything, then ``needs_human`` (an operator decision is
-    owed) over a bare review request, so a worker that reports a genuine block
-    or a hard operator gate is never quietly downgraded (audit CC-17).
+    Canonical values and a closed set of historical spellings are recognized
+    exactly (case-insensitively); the reconciler further canonicalizes
+    ``completed`` -> ``complete``. Anything else defaults to ``needs_review``
+    so questionable or unmappable work surfaces to the controller rather than
+    silently auto-closing. Never infer status intent from a substring of prose.
     """
 
-    value = (raw or "").strip()
-    if value in _CANONICAL_ENVELOPE_STATUSES:
-        return value
-    lowered = value.lower()
-    if any(token in lowered for token in ("block", "fail", "abort", "error")):
-        return "blocked"
-    if any(token in lowered for token in ("human", "operator", "approval")):
-        return "needs_human"
-    if any(token in lowered for token in ("review", "needs", "partial")):
-        return "needs_review"
-    if any(token in lowered for token in ("complete", "done", "success", "pass", "ok")):
-        return "complete"
-    return "needs_review"
+    value = (raw or "").strip().lower()
+    return _RECOGNIZED_STATUS_SPELLINGS.get(value, "needs_review")
 
 
 # ── CC-03: reconciliation pin/fence echoes ───────────────────────────────────
@@ -1078,7 +1536,7 @@ def _coerce_status(raw: str) -> str:
 # every pin and fence its registry entry carries:
 #   * capability_response_issue -> capability_card_sha256
 #   * swarm_response_issue      -> swarm_spec_sha256
-#   * worker_response_issue     -> the worker-pool delivery fence
+#   * worker_response_issue     -> the legacy assigned-worker delivery fence
 # Output promotion rebuilds the envelope from the trusted launch authority, and
 # it used to emit only the seven identity rows -- silently discarding every one
 # of those echoes, so capability/swarm/worker completions could never settle
@@ -1157,50 +1615,48 @@ def registry_reconciliation_echo(
     attempt_id: str,
     generation: int,
 ) -> dict[str, str]:
-    """Snapshot the worker-pool delivery fence from the locked registry.
+    """Snapshot the delivery fence, plus legacy assigned-worker fields, at launch."""
 
-    Only a pool-assigned task carries a fence (`worker_response_issue` returns
-    clean when `delivery_worker_id` is unset), so an ordinary board dispatch
-    yields an empty mapping. Snapshotting at LAUNCH time preserves staleness
-    detection: a requeue advances the registry fence, so a response promoted
-    from the superseded attempt no longer matches and is correctly held.
-    """
+    echo = {
+        "delivery_attempt_id": attempt_id,
+        "delivery_generation": str(generation),
+    }
 
     registry_path = Path(repo_root) / "_state" / "active-tasks.json"
     if registry_path.is_symlink() or not registry_path.is_file():
-        return {}
+        return validate_reconciliation_echo(echo)
     try:
         import registry_reconciler as rr
     except ImportError:
-        # The registry controller is optional at context-build time; an ordinary
-        # dispatch needs no fence, and a pool dispatch fails closed downstream
-        # (the reconciler keeps it open) rather than launching on a guess.
-        return {}
+        return validate_reconciliation_echo(echo)
     try:
         with rr.locked_registry():
             registry = rr.load_registry()
             entry = registry.get(task_id) if isinstance(registry, dict) else None
     except (OSError, ValueError):
-        return {}
-    if not isinstance(entry, dict) or not entry.get("delivery_worker_id"):
-        return {}
+        return validate_reconciliation_echo(echo)
+    if not isinstance(entry, dict):
+        return validate_reconciliation_echo(echo)
     if (
         entry.get("delivery_attempt_id") != attempt_id
-        or int(entry.get("delivery_generation") or 0) != generation
+        or type(entry.get("delivery_generation")) is not int
+        or entry.get("delivery_generation") != generation
     ):
         raise DispatchContextError(
             "registry delivery fence does not match the launch attempt"
         )
-    echo = {
-        "delivery_attempt_id": str(entry.get("delivery_attempt_id") or ""),
-        "delivery_generation": str(int(entry.get("delivery_generation") or 1)),
-        "delivery_worker_id": str(entry.get("delivery_worker_id") or ""),
-        "worker_epoch": str(entry.get("worker_epoch") or ""),
-        "lease_generation": str(int(entry.get("lease_generation") or 0)),
-        "delivery_lane": str(
-            entry.get("delivery_lane") or entry.get("to_model") or ""
-        ),
-    }
+    if not entry.get("delivery_worker_id"):
+        return validate_reconciliation_echo(echo)
+    echo.update(
+        {
+            "delivery_worker_id": str(entry.get("delivery_worker_id") or ""),
+            "worker_epoch": str(entry.get("worker_epoch") or ""),
+            "lease_generation": str(int(entry.get("lease_generation") or 0)),
+            "delivery_lane": str(
+                entry.get("delivery_lane") or entry.get("to_model") or ""
+            ),
+        }
+    )
     for optional in ("replica_index", "member_id"):
         if entry.get(optional) is not None:
             echo[optional] = str(entry[optional])
@@ -1215,6 +1671,7 @@ def _render_response_envelope(
     status: str,
     summary: str,
     reconciliation_echo: Mapping[str, str] | None = None,
+    failure_class: str | None = None,
 ) -> bytes:
     """Reconstruct a canonical response envelope from the trusted authority.
 
@@ -1227,6 +1684,7 @@ def _render_response_envelope(
 
     echo = validate_reconciliation_echo(reconciliation_echo)
     echo_rows = "".join(f"{key}: {echo[key]}\n" for key in sorted(echo))
+    failure_row = f"failure_class: {failure_class}\n" if failure_class else ""
     body = summary.strip("\n")
     return (
         "---\n"
@@ -1236,11 +1694,109 @@ def _render_response_envelope(
         "to: chrono\n"
         "type: RESULT\n"
         f"status: {status}\n"
+        f"{failure_row}"
         f"return_artifact: {result_relative}\n"
         f"{echo_rows}"
         "---\n\n"
         f"{body}\n"
     ).encode("utf-8")
+
+
+# Deliberately the same key charset as `bin/outbox-watcher.sh::frontmatter_field`.
+# The two parsers read the SAME envelope on either side of promotion, so a shape
+# one accepts and the other rejects is an inconsistency, not a safety margin --
+# and this side is the destructive one (a rejection here strands the finished
+# artifact, where the watcher merely holds the envelope in place). Nothing
+# downstream reads a worker-authored key other than `status`: the published
+# envelope is re-rendered from the launch authority by _render_response_envelope.
+FLAT_FRONTMATTER_KEY_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
+
+
+def _frontmatter_records(text: str) -> list[str]:
+    """Split text into awk's record model: `\\n` only, no empty trailing record.
+
+    `str.splitlines` also splits on `\\v`, `\\f`, `\\x1c`-`\\x1e`, `\\x85` and the
+    Unicode separators, which awk does not. Line numbers cited in a diagnostic
+    have to mean the same line in both parsers, so the split has to match.
+    """
+
+    records = text.split("\n")
+    if records and records[-1] == "":
+        records.pop()
+    return records
+
+
+def _parse_flat_frontmatter(
+    records: list[str], *, subject: str
+) -> tuple[dict[str, str], int]:
+    """Parse flat-scalar frontmatter, naming what is wrong and where.
+
+    Behavioural twin of `bin/outbox-watcher.sh::frontmatter_field`, down to the
+    rejection sentences -- `scripts/python/tests/test_envelope_parser_pair.py`
+    drives the shipped awk program and this function over the same fixtures and
+    fails if they diverge on either verdict or wording.
+
+    Nested mappings stay rejected: the flat-scalar contract is deliberate and
+    other consumers depend on it. What changes is that the worker is told which
+    key nested and on which line, which is repairable, rather than that its
+    frontmatter is "invalid", which is not.
+
+    Returns (fields, closing_line_number), the latter 1-based.
+    """
+
+    def reject(message: str) -> NoReturn:
+        raise DispatchContextError(f"{subject} {message}")
+
+    if not records:
+        reject("frontmatter is empty; an exact --- delimiter is required at line 1")
+    if records[0] != "---":
+        reject("frontmatter must begin with an exact --- delimiter at line 1")
+
+    fields: dict[str, str] = {}
+    declared_at: dict[str, int] = {}
+    empty_key = ""
+    empty_line = 0
+    closing = 0
+    for number, line in enumerate(records[1:], start=2):
+        if line == "---":
+            closing = number
+            break
+        # Blank and comment rows do not end an empty-key lookahead: an indented
+        # child after either still belongs to that empty key.
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if line[0] in " \t\v\f\r":
+            if empty_key:
+                reject(
+                    f"frontmatter key {empty_key!r} at line {empty_line} has "
+                    f"nested content at line {number}; flat scalar values are "
+                    "required"
+                )
+            reject(
+                f"frontmatter line {number} is indented; top-level flat scalar "
+                "key/value pairs are required"
+            )
+        key, separator, value = line.partition(":")
+        if not separator:
+            reject(
+                f"frontmatter line {number} is not a top-level key/value pair; "
+                "flat scalar values are required"
+            )
+        if not FLAT_FRONTMATTER_KEY_RE.fullmatch(key):
+            reject(f"frontmatter line {number} has an invalid key")
+        if key in declared_at:
+            reject(
+                f"frontmatter key {key!r} is duplicated at line {number} (first "
+                f"declared at line {declared_at[key]}); one flat scalar per key "
+                "is required"
+            )
+        declared_at[key] = number
+        fields[key] = _unquote(value)
+        empty_key = "" if value.strip() else key
+        empty_line = 0 if value.strip() else number
+    if not closing:
+        reject("frontmatter is unclosed; an exact --- delimiter is required")
+    return fields, closing
 
 
 def _parse_response_envelope(data: bytes) -> tuple[dict[str, str], str]:
@@ -1249,35 +1805,21 @@ def _parse_response_envelope(data: bytes) -> tuple[dict[str, str], str]:
     The envelope is worker-authored metadata; the valuable, separately-gated
     part is the committed artifact and the integrated code residue. Only
     structurally-malformed frontmatter (not UTF-8, missing/unclosed fence,
-    non-conforming or duplicate keys) and a genuinely-empty summary body are
-    hard failures here. Field-*set* deviations -- a missing required field or an
-    unexpected extra -- are NOT rejected; ``prepare_worktree_outputs`` normalizes
-    them against the trusted launch authority rather than stranding a finished
-    run. See ``_state/consults/envelope-prevalidation-fix.md``.
+    non-conforming or duplicate keys, a nested mapping) and a genuinely-empty
+    summary body are hard failures here. Field-*set* deviations -- a missing
+    required field or an unexpected extra -- are NOT rejected;
+    ``prepare_worktree_outputs`` normalizes them against the trusted launch
+    authority rather than stranding a finished run. See
+    ``_state/consults/envelope-prevalidation-fix.md``.
     """
 
     try:
         text = data.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise DispatchContextError("response envelope is not UTF-8") from exc
-    lines = text.splitlines()
-    if not lines or lines[0] != "---":
-        raise DispatchContextError("response envelope lacks frontmatter")
-    try:
-        closing = lines[1:].index("---") + 1
-    except ValueError as exc:
-        raise DispatchContextError("response envelope frontmatter is unclosed") from exc
-    fields: dict[str, str] = {}
-    for line in lines[1:closing]:
-        key, separator, value = line.partition(":")
-        if (
-            not separator
-            or not re.fullmatch(r"[a-z][a-z0-9_]*", key)
-            or key in fields
-        ):
-            raise DispatchContextError("response envelope has invalid frontmatter")
-        fields[key] = _unquote(value)
-    summary = "\n".join(lines[closing + 1 :]).strip()
+    records = _frontmatter_records(text)
+    fields, closing = _parse_flat_frontmatter(records, subject="response envelope")
+    summary = "\n".join(records[closing:]).strip()
     if not summary:
         raise DispatchContextError("response envelope summary is empty")
     return fields, summary
@@ -1290,14 +1832,17 @@ def _is_board_blocked_stub(data: bytes, task_id: str) -> bool:
         text = data.decode("utf-8")
     except UnicodeDecodeError:
         return False
-    return re.fullmatch(
-        (
-            r"blocked\n\n"
-            rf"# Board dispatch blocked — {re.escape(task_id)}\n\n"
-            r"Controller reason: [^\r\n]{1,2000}\n"
-        ),
-        text,
-    ) is not None
+    return (
+        re.fullmatch(
+            (
+                r"blocked\n\n"
+                rf"# Board dispatch blocked — {re.escape(task_id)}\n\n"
+                r"Controller reason: [^\r\n]{1,2000}\n"
+            ),
+            text,
+        )
+        is not None
+    )
 
 
 def _validate_destination(
@@ -1401,29 +1946,37 @@ def _atomic_publish(
             stream.write(data)
             stream.flush()
             os.fsync(stream.fileno())
-        if reclaim_blocked_stub:
-            if (
-                destination.is_symlink()
-                or not destination.is_file()
-                or not _is_board_blocked_stub(
-                    destination.read_bytes(),
-                    str(reclaim_board_blocked_stub_for),
-                )
-            ):
-                raise DispatchContextError(
-                    f"{label} destination changed during blocked-stub reclaim"
-                )
-            os.replace(temporary_name, destination)
-        else:
-            try:
-                os.link(temporary_name, destination)
-            except FileExistsError as exc:
-                raise DispatchContextError(
-                    f"{label} destination appeared concurrently"
-                ) from exc
-            os.unlink(temporary_name)
         directory_fd = os.open(destination.parent, os.O_RDONLY)
         try:
+            if reclaim_blocked_stub:
+                if (
+                    destination.is_symlink()
+                    or not destination.is_file()
+                    or not _is_board_blocked_stub(
+                        destination.read_bytes(),
+                        str(reclaim_board_blocked_stub_for),
+                    )
+                ):
+                    raise DispatchContextError(
+                        f"{label} destination changed during blocked-stub reclaim"
+                    )
+                os.replace(temporary_name, destination)
+            else:
+                try:
+                    rename_noreplace(
+                        Path(temporary_name).name,
+                        destination.name,
+                        src_dir_fd=directory_fd,
+                        dst_dir_fd=directory_fd,
+                    )
+                except FileExistsError as exc:
+                    # The synced staging file is the losing writer's durable
+                    # record. Sync the directory before surfacing the conflict;
+                    # never unlink evidence from a failed publication race.
+                    os.fsync(directory_fd)
+                    raise DispatchContextError(
+                        f"{label} destination appeared concurrently"
+                    ) from exc
             os.fsync(directory_fd)
         finally:
             os.close(directory_fd)
@@ -1496,14 +2049,19 @@ def prepare_worktree_outputs(
         field="expected_outbox_path",
     )
     write_paths = authority.get("write_paths")
+    raw_evidence_outputs = authority.get("evidence_outputs", [])
     if (
         not TASK_RE.fullmatch(task_id)
         or lane not in LANE_TO_MODEL
         or not isinstance(write_paths, list)
         or any(not isinstance(item, str) for item in write_paths)
         or not any(_contains(item, result_relative) for item in write_paths)
+        or not isinstance(raw_evidence_outputs, list)
+        or len(raw_evidence_outputs) > MAXIMUM_EVIDENCE_OUTPUTS
     ):
-        raise DispatchContextError("bridge authority identity or write scope is invalid")
+        raise DispatchContextError(
+            "bridge authority identity or write scope is invalid"
+        )
     outbox_match = re.fullmatch(
         r"departments/([^/]+)/outbox/([^/]+)-response\.md",
         outbox_relative,
@@ -1558,6 +2116,68 @@ def prepare_worktree_outputs(
             authority.get("reconciliation_echo")
         ),
     )
+    prepared_evidence: list[PreparedEvidenceOutput] = []
+    evidence_paths: set[str] = set()
+    total_evidence_bytes = 0
+    for index, raw_output in enumerate(raw_evidence_outputs):
+        if not isinstance(raw_output, Mapping) or set(raw_output) != {
+            "path",
+            "role",
+            "declared_by",
+        }:
+            raise DispatchContextError(
+                f"evidence_outputs[{index}] has the wrong schema"
+            )
+        relative = _safe_relative(
+            str(raw_output["path"]), field=f"evidence_outputs[{index}].path"
+        )
+        role = str(raw_output["role"])
+        declared_by = str(raw_output["declared_by"])
+        if (
+            relative in evidence_paths
+            or relative in {result_relative, outbox_relative}
+            or not IDENTIFIER_RE.fullmatch(role)
+            or not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", declared_by)
+            or not any(_contains(scope, relative) for scope in write_paths)
+        ):
+            raise DispatchContextError(
+                f"evidence_outputs[{index}] is duplicate, malformed, or out of scope"
+            )
+        data = _read_contained_regular(
+            Path(worktree_root),
+            relative,
+            label=f"evidence output {relative}",
+            maximum_bytes=8 * 1024 * 1024,
+        )
+        total_evidence_bytes += len(data)
+        if total_evidence_bytes > 32 * 1024 * 1024:
+            raise DispatchContextError("evidence outputs exceed aggregate size bound")
+        evidence_paths.add(relative)
+        prepared_evidence.append(
+            PreparedEvidenceOutput(
+                relative_path=relative,
+                role=role,
+                declared_by=declared_by,
+                data=data,
+                content_sha256=_sha256_bytes(data),
+            )
+        )
+    attempt_id = str(authority.get("attempt_id", ""))
+    generation = authority.get("generation", 0)
+    run_id = str(authority.get("run_id", ""))
+    mode = str(authority.get("mode_profile", ""))
+    if prepared_evidence and (
+        not ATTEMPT_RE.fullmatch(attempt_id)
+        or isinstance(generation, bool)
+        or not isinstance(generation, int)
+        or generation <= 0
+        or not run_id
+        or run_id != run_id.strip()
+        or any(character in run_id for character in ("\x00", "\n", "\r"))
+    ):
+        raise DispatchContextError(
+            "evidence promotion producer provenance is invalid"
+        )
     _validate_destination(
         Path(repo_root),
         result_relative,
@@ -1571,6 +2191,13 @@ def prepare_worktree_outputs(
         normalized_bytes,
         label="response envelope",
     )
+    for output in prepared_evidence:
+        _validate_destination(
+            Path(repo_root),
+            output.relative_path,
+            output.data,
+            label=f"evidence output {output.relative_path}",
+        )
     return PreparedWorktreeOutputs(
         task_id=task_id,
         result_relative=result_relative,
@@ -1578,6 +2205,11 @@ def prepare_worktree_outputs(
         result_bytes=result_bytes,
         envelope_bytes=normalized_bytes,
         status=canonical_status,
+        mode=mode,
+        attempt_id=attempt_id,
+        generation=int(generation) if isinstance(generation, int) else 0,
+        run_id=run_id,
+        evidence_outputs=tuple(prepared_evidence),
     )
 
 
@@ -1598,12 +2230,180 @@ def validate_worktree_outputs(
     }
 
 
+def _project_mode_exit_manifest(
+    prepared: PreparedWorktreeOutputs,
+) -> PreparedEvidenceOutput | None:
+    """Return the authenticated Project-close manifest declaration, if any."""
+
+    if prepared.mode != "project" or not prepared.run_id:
+        return None
+    expected = f"_state/runs/{prepared.run_id}/manifest.yaml"
+    return next(
+        (
+            output
+            for output in prepared.evidence_outputs
+            if output.relative_path == expected
+        ),
+        None,
+    )
+
+
+def _verifier_failure_detail(
+    completed: subprocess.CompletedProcess[str],
+    *,
+    record_path: Path,
+) -> str:
+    verdict = "missing"
+    if record_path.is_file() and not record_path.is_symlink():
+        try:
+            verdict = str(read_yaml_frontmatter(record_path).get("verdict") or "missing")
+        except (OSError, VerificationContractError):
+            verdict = "unreadable"
+    combined = " ".join(
+        ((completed.stdout or "") + "\n" + (completed.stderr or "")).split()
+    )[-600:]
+    return (
+        f"exit={completed.returncode} verdict={verdict} "
+        f"record={record_path}{' output=' + combined if combined else ''}"
+    )
+
+
+def _invoke_project_mode_exit_verifier(
+    repo_root: Path,
+    prepared: PreparedWorktreeOutputs,
+) -> dict[str, object] | None:
+    """Run the canonical full verifier before publishing a close envelope.
+
+    The exact manifest evidence path is the activation signal. It is part of
+    the authenticated launch authority, so neither the worker nor this bridge
+    infers that an ordinary phase task is a mode close.
+    """
+
+    if _project_mode_exit_manifest(prepared) is None:
+        return None
+    root = Path(repo_root).resolve(strict=True)
+    code_root = Path(__file__).resolve().parents[2]
+    wrapper = code_root / "bin" / "vibecoding-check.sh"
+    if not wrapper.is_file() or wrapper.is_symlink():
+        raise ModeExitVerificationError(
+            f"mode-exit verifier wrapper is unavailable: {wrapper}"
+        )
+    record_relative = _safe_relative(
+        f"_state/vibecoding-check/{prepared.run_id}.md",
+        field="mode-exit verifier record",
+    )
+    record_path = root / record_relative
+    command = (
+        "/bin/bash",
+        str(wrapper),
+        "--run-id",
+        prepared.run_id,
+        "--quiet",
+    )
+    environment = dict(os.environ)
+    environment["VAULT_ROOT"] = str(root)
+    environment["UV_CACHE_DIR"] = environment.get("UV_CACHE_DIR") or "/tmp/uv-cache"
+    # Dependency resolution must use the prewarmed cache or fail closed. It may
+    # not turn a settlement gate into an unbounded network operation.
+    environment["UV_OFFLINE"] = "1"
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=str(root),
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=660,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ModeExitVerificationError(
+            f"mode-exit verifier failed to execute: {exc}"
+        ) from exc
+
+    accepted = {
+        0: ("PASS", "Verdict tier: 0 (PASS)"),
+        1: ("PASS-AFTER-AUTOFIX", "Verdict tier: 1 (AUTOFIX)"),
+    }
+    expected = accepted.get(completed.returncode)
+    combined_output = (completed.stdout or "") + "\n" + (completed.stderr or "")
+    if expected is None:
+        raise ModeExitVerificationError(
+            "mode-exit verifier blocked settlement: "
+            + _verifier_failure_detail(completed, record_path=record_path)
+        )
+    expected_verdict, expected_handshake = expected
+    try:
+        report = read_yaml_frontmatter(record_path)
+    except (OSError, VerificationContractError) as exc:
+        raise ModeExitVerificationError(
+            "mode-exit verifier returned a success code without a readable report: "
+            f"{record_path}: {exc}"
+        ) from exc
+    state_handshake = f"State: {record_path}"
+    if (
+        report.get("run_id") != prepared.run_id
+        or report.get("mode") != prepared.mode
+        or report.get("verdict") != expected_verdict
+        or expected_handshake not in combined_output
+        or state_handshake not in combined_output
+    ):
+        raise ModeExitVerificationError(
+            "mode-exit verifier success handshake/report mismatch: "
+            + _verifier_failure_detail(completed, record_path=record_path)
+        )
+    return {
+        "schema": "mode-exit-verification/v1",
+        "command": list(command),
+        "returncode": completed.returncode,
+        "verdict": expected_verdict,
+        "record_path": record_relative,
+    }
+
+
 def publish_prepared_worktree_outputs(
     repo_root: Path,
     prepared: PreparedWorktreeOutputs,
 ) -> dict[str, object]:
-    """Publish the exact bytes captured before code integration."""
+    """Publish captured bytes, gating a declared Project close before commit.
 
+    Ordinary packets are unchanged. A Project close opts in through the
+    already-authenticated evidence-output rail by declaring the exact
+    ``_state/runs/<run-id>/manifest.yaml`` file. Evidence is published first so
+    the canonical checker can resolve the manifest and every newly-produced
+    file it references. The return artifact and watcher-visible envelope remain
+    withheld until the full checker writes a matching PASS report.
+    """
+
+    promotions: list[dict[str, object]] = []
+    for output in prepared.evidence_outputs:
+        destination, idempotent = _atomic_publish(
+            Path(repo_root),
+            output.relative_path,
+            output.data,
+            label=f"evidence output {output.relative_path}",
+        )
+        promotions.append(
+            {
+                "schema": "artifact-promotion/v1",
+                "role": output.role,
+                "declared_by": output.declared_by,
+                "source_path": output.relative_path,
+                "destination_path": destination.relative_to(
+                    Path(repo_root).resolve(strict=True)
+                ).as_posix(),
+                "content_sha256": output.content_sha256,
+                "size_bytes": len(output.data),
+                "idempotent": idempotent,
+                "producer": {
+                    "task_id": prepared.task_id,
+                    "attempt_id": prepared.attempt_id,
+                    "generation": prepared.generation,
+                    "run_id": prepared.run_id,
+                },
+            }
+        )
+    mode_exit = _invoke_project_mode_exit_verifier(Path(repo_root), prepared)
     result_path, result_idempotent = _atomic_publish(
         Path(repo_root),
         prepared.result_relative,
@@ -1623,6 +2423,8 @@ def publish_prepared_worktree_outputs(
         "artifact_idempotent": result_idempotent,
         "artifact_path": str(result_path),
         "artifact_sha256": _sha256_bytes(prepared.result_bytes),
+        "artifact_promotions": promotions,
+        "mode_exit_verification": mode_exit,
         "envelope_published": True,
         "envelope_idempotent": envelope_idempotent,
         "envelope_path": str(envelope_path),
@@ -1651,6 +2453,9 @@ def publish_blocked_completion(
     return_artifact: str,
     compatibility_namespace: str,
     reason: str,
+    failure_class: str | None = None,
+    attempt_id: str | None = None,
+    generation: int | None = None,
 ) -> dict[str, object]:
     if (
         not TASK_RE.fullmatch(task_id)
@@ -1659,11 +2464,23 @@ def publish_blocked_completion(
         or not isinstance(reason, str)
         or not reason.strip()
         or "\x00" in reason
+        or (
+            failure_class is not None
+            and failure_class not in CLI_TRANSPORT_FAILURE_CLASSES
+        )
+        or ((attempt_id is None) != (generation is None))
+        or (
+            attempt_id is not None
+            and (
+                not ATTEMPT_RE.fullmatch(attempt_id)
+                or isinstance(generation, bool)
+                or not isinstance(generation, int)
+                or generation < 1
+            )
+        )
     ):
         raise DispatchContextError("blocked completion identity is invalid")
-    artifact_relative = _safe_relative(
-        return_artifact, field="return_artifact"
-    )
+    artifact_relative = _safe_relative(return_artifact, field="return_artifact")
     reason_line = " ".join(reason.strip().split())[:2000]
     artifact_bytes = (
         "blocked\n\n"
@@ -1673,18 +2490,23 @@ def publish_blocked_completion(
     outbox_relative = (
         f"departments/{compatibility_namespace}/outbox/{task_id}-response.md"
     )
-    envelope_bytes = (
-        "---\n"
-        f"id: {task_id}-response\n"
-        f"in_response_to: {task_id}\n"
-        f"from: {LANE_TO_MODEL[lane]}\n"
-        "to: chrono\n"
-        "type: RESULT\n"
-        "status: blocked\n"
-        f"return_artifact: {artifact_relative}\n"
-        "---\n\n"
-        f"Board dispatch was blocked by the controller: {reason_line}\n"
-    ).encode("utf-8")
+    echo = (
+        {
+            "delivery_attempt_id": attempt_id,
+            "delivery_generation": str(generation),
+        }
+        if attempt_id is not None
+        else {}
+    )
+    envelope_bytes = _render_response_envelope(
+        task_id=task_id,
+        lane=lane,
+        result_relative=artifact_relative,
+        status="blocked",
+        summary=f"Board dispatch was blocked by the controller: {reason_line}",
+        reconciliation_echo=echo,
+        failure_class=failure_class,
+    )
     if not artifact_relative or artifact_relative == outbox_relative:
         # `not artifact_relative` is the read-only verdict role (write_scope: []
         # and no return_artifact): there is no artifact to publish, so the
@@ -1730,6 +2552,53 @@ def publish_blocked_completion(
     }
 
 
+def blocked_context_fence(
+    repo_root: Path, context_file: Path, task_id: str
+) -> tuple[str, int]:
+    """Read the blocked envelope fence from the trusted launch context."""
+    root = Path(repo_root).resolve(strict=True)
+    context_path = Path(context_file)
+    if not context_path.is_absolute():
+        context_path = root / context_path
+    if context_path.is_symlink() or not context_path.is_file():
+        raise DispatchContextError("blocked context is missing or non-regular")
+    context_path = context_path.resolve(strict=True)
+    try:
+        relative = context_path.relative_to(root)
+    except ValueError as exc:
+        raise DispatchContextError("blocked context escapes repository") from exc
+    if relative.parts[:2] != ("_state", "board-dispatch"):
+        raise DispatchContextError("blocked context is outside board dispatch state")
+    try:
+        context = json.loads(
+            _read_contained_regular(
+                root,
+                relative.as_posix(),
+                label="blocked context",
+                maximum_bytes=512 * 1024,
+            )
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise DispatchContextError("blocked context is invalid") from exc
+    authority = context.get("authority") if isinstance(context, dict) else None
+    attempt_id = authority.get("attempt_id") if isinstance(authority, dict) else None
+    generation = authority.get("generation") if isinstance(authority, dict) else None
+    if (
+        not isinstance(context, dict)
+        or context.get("schema") != CONTEXT_SCHEMA
+        or not isinstance(authority, dict)
+        or authority.get("schema") != AUTHORITY_SCHEMA
+        or authority.get("task_id") != task_id
+        or not isinstance(attempt_id, str)
+        or not ATTEMPT_RE.fullmatch(attempt_id)
+        or isinstance(generation, bool)
+        or not isinstance(generation, int)
+        or generation < 1
+    ):
+        raise DispatchContextError("blocked context delivery identity is invalid")
+    return attempt_id, generation
+
+
 def _write_context(path: Path, context: Mapping[str, object]) -> None:
     output = Path(path)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -1752,6 +2621,12 @@ def main(argv: list[str] | None = None) -> int:
     build.add_argument("--attempt-id", required=True)
     build.add_argument("--generation", type=int, required=True)
     build.add_argument("--output", type=Path)
+    # Preflight for --dry-run. build_context() is pure -- it writes nothing and
+    # returns a dict -- so the whole validation can be run against a real packet
+    # without registering, archiving or launching anything.
+    check = subparsers.add_parser("check")
+    check.add_argument("--repo-root", type=Path, required=True)
+    check.add_argument("--task-file", type=Path, required=True)
     blocked = subparsers.add_parser("blocked")
     blocked.add_argument("--repo-root", type=Path, required=True)
     blocked.add_argument("--task-id", required=True)
@@ -1759,6 +2634,12 @@ def main(argv: list[str] | None = None) -> int:
     blocked.add_argument("--return-artifact", required=True)
     blocked.add_argument("--compatibility-namespace", required=True)
     blocked.add_argument("--reason", required=True)
+    blocked.add_argument(
+        "--failure-class", choices=sorted(CLI_TRANSPORT_FAILURE_CLASSES)
+    )
+    blocked.add_argument("--attempt-id")
+    blocked.add_argument("--generation", type=int)
+    blocked.add_argument("--context-file", type=Path)
     cleanup = subparsers.add_parser("cleanup-canary")
     cleanup.add_argument("--repo-root", type=Path, required=True)
     cleanup.add_argument("--context-file", type=Path, required=True)
@@ -1772,6 +2653,8 @@ def main(argv: list[str] | None = None) -> int:
     fanout.add_argument("--output-dir", type=Path, required=True)
     fanout.add_argument("--assignment", action="append", required=True)
     fanout.add_argument("--verification-contract")
+    inventory = subparsers.add_parser("lane-inventory")
+    inventory.add_argument("--repo-root", type=Path, required=True)
     args = parser.parse_args(argv)
     command = args.command or "build"
     try:
@@ -1786,7 +2669,33 @@ def main(argv: list[str] | None = None) -> int:
                 _write_context(args.output, context)
             else:
                 print(json.dumps(context, sort_keys=True, indent=2))
+        elif command == "check":
+            # Same validation the real launch performs, with a placeholder
+            # identity: the attempt id never reaches disk because nothing is
+            # written. Any DispatchContextError propagates to the handler below
+            # and exits non-zero, which is exactly what --dry-run needs.
+            context = build_context(
+                args.repo_root,
+                args.task_file,
+                attempt_id="d-" + "0" * 32,
+                generation=1,
+            )
+            # build_context() has already enforced the trusted-launch bound and
+            # every other launch invariant by this point; reaching here means the
+            # packet would launch. The assembled prompt is not returned, so report
+            # the packet size only rather than a headroom figure we cannot measure.
+            packet = len(Path(args.task_file).read_bytes())
+            print(f"preflight OK: packet {packet} bytes would launch")
         elif command == "blocked":
+            attempt_id, generation = args.attempt_id, args.generation
+            if args.context_file is not None:
+                if attempt_id is not None or generation is not None:
+                    raise DispatchContextError(
+                        "blocked identity must come from either flags or context"
+                    )
+                attempt_id, generation = blocked_context_fence(
+                    args.repo_root, args.context_file, args.task_id
+                )
             receipt = publish_blocked_completion(
                 repo_root=args.repo_root,
                 task_id=args.task_id,
@@ -1794,6 +2703,9 @@ def main(argv: list[str] | None = None) -> int:
                 return_artifact=args.return_artifact,
                 compatibility_namespace=args.compatibility_namespace,
                 reason=args.reason,
+                failure_class=args.failure_class,
+                attempt_id=attempt_id,
+                generation=generation,
             )
             print(json.dumps(receipt, sort_keys=True))
         elif command == "cleanup-canary":
@@ -1809,12 +2721,17 @@ def main(argv: list[str] | None = None) -> int:
                 concurrency=args.concurrency,
                 logical_only=True,
             )
-            print(json.dumps({
-                "run_now": list(result.run_now),
-                "must_wait": list(result.must_wait),
-                "reasons": result.reasons,
-                "reservation_snapshot_sha256": result.reservation_snapshot_sha256,
-            }, sort_keys=True))
+            print(
+                json.dumps(
+                    {
+                        "run_now": list(result.run_now),
+                        "must_wait": list(result.must_wait),
+                        "reasons": result.reasons,
+                        "reservation_snapshot_sha256": result.reservation_snapshot_sha256,
+                    },
+                    sort_keys=True,
+                )
+            )
         elif command == "build-fanout":
             packets = build_board_fanout_members(
                 args.repo_root,
@@ -1828,6 +2745,25 @@ def main(argv: list[str] | None = None) -> int:
                 ),
             )
             print(json.dumps([str(path) for path in packets]))
+        elif command == "lane-inventory":
+            for row in lane_runtime_inventory(args.repo_root):
+                selections = ";".join(
+                    f"{item['profile_id']}:{item['registry_model']}->{item['effective_model']}"
+                    for item in row["selections"]
+                )
+                print(
+                    "\t".join(
+                        (
+                            row["lane"],
+                            str(row["installed"]).lower(),
+                            row["literal_executable"],
+                            row["resolved_executable"],
+                            row["version"] or "unavailable",
+                            row["auth_class"],
+                            selections,
+                        )
+                    )
+                )
         else:  # pragma: no cover - argparse owns this
             parser.error("a command is required")
     except DispatchContextError as exc:

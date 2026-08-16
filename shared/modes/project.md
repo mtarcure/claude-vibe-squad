@@ -16,7 +16,8 @@ lead.
 
 ## The model (`Mode → Capability → Protocol`)
 
-There are **two work modes** — `project` and `bounty` (plus `advisory` for consults). A **Capability** is
+There are exactly **two work modes** — `project` and `bounty`. A consult may remain advisory in tone, but
+`advisory` is not a third mode. A **Capability** is
 one distinctive protocol inside a mode. The retired domain modes (`content`, `research`, `outreach`,
 `maintenance`, `incident`) are now project Capabilities, tagged with a `profile_family` frontmatter field —
 **not** a `profile:` schema noun (retired) and **not** a folder layer. A family tunes the default
@@ -25,9 +26,12 @@ specialists, overlays, and gates, but reuses the same lifecycle + contract.
 **Gates and overlays are per-card, never per-folder.** Folding a card into `project/` does not weaken its
 controls: every mode-implied gate was re-anchored onto its card (content → Truth/Rights overlay; outreach →
 `live_outreach` gate; operations → delete/cleanup/credential/production gates) **before** the move, and the
-capability-alias resolver preserves them for any legacy packet id. `capability_state` is **derived** and
-machine-checked by `bin/validate-capabilities.sh` (not hand-set), so this index stays honest by
-construction. Cards live in `shared/capabilities/project/`.
+capability-alias resolver preserves them for any legacy packet id. Each card's declared `capability_state`
+is machine-checked by `bin/validate-capabilities.sh` against the state derived from the tool registry: a
+card may declare a **more conservative** state (e.g. the zero-key `needs_tool` headline) but never one more
+generous than derived. The cards are the source of truth. The **State** column below mirrors each card's
+declared `capability_state`; it is a hand-maintained summary that is **not** itself validated against the
+cards, so keep it in step whenever a card's state changes. Cards live in `shared/capabilities/project/`.
 
 ## Capabilities (by `profile_family`)
 
@@ -35,14 +39,14 @@ construction. Cards live in `shared/capabilities/project/`.
 
 | Capability | State | When |
 |---|---|---|
-| [Backend service / API (server, persistence, data flows)](../capabilities/project/backend-service-api.md) | `live` | headless server / API / data-flow — protocol, persistence, concurrency |
-| [Data pipeline (ETL / analytics / ML-wiring)](../capabilities/project/data-pipeline.md) | `live` | ETL / analytics plumbing, or wire data into an ML/serving system |
-| [AI / LLM application (agents · RAG · tool-use · evals)](../capabilities/project/ai-llm-application.md) | `live` | ship an AI-enabled product — agents, RAG, tool-use, eval harnesses |
-| [Smart-contract / web3 BUILD — EVM/Solidity](../capabilities/project/smart-contract-web3.md) | `live` | author/test/deploy EVM/Solidity contracts (non-bounty) |
-| [Platform / release (CI · IaC · release rails)](../capabilities/project/platform-release.md) | `live` | CI/CD, IaC, release rails, production reliability |
-| [Self-extension — MCP servers · plugins · skills · agents](../capabilities/project/self-extension-agent-tooling.md) | `live` | build or change the agent/tool platform itself |
-| [Web application (browser UI / SaaS)](../capabilities/project/web-app.md) | `live` | browser-facing app / SaaS UI — browser build + required visual-verify + e2e gate |
-| [Game production (browser game — design · build · playtest)](../capabilities/project/game-production.md) | `live` | browser game — mechanics/levels/narrative + build, visual-verify + e2e + human playtest sign-off |
+| [Backend service / API (server, persistence, data flows)](../capabilities/project/backend-service-api.md) | `needs_tool` | headless server / API / data-flow — protocol, persistence, concurrency |
+| [Data pipeline (ETL / analytics / ML-wiring)](../capabilities/project/data-pipeline.md) | `needs_tool` | ETL / analytics plumbing, or wire data into an ML/serving system |
+| [AI / LLM application (agents · RAG · tool-use · evals)](../capabilities/project/ai-llm-application.md) | `needs_tool` | ship an AI-enabled product — agents, RAG, tool-use, eval harnesses |
+| [Smart-contract / web3 BUILD — EVM/Solidity](../capabilities/project/smart-contract-web3.md) | `needs_tool` | author/test/deploy EVM/Solidity contracts (non-bounty) |
+| [Platform / release (CI · IaC · release rails)](../capabilities/project/platform-release.md) | `needs_tool` | CI/CD, IaC, release rails, production reliability |
+| [Self-extension — MCP servers · plugins · skills · agents](../capabilities/project/self-extension-agent-tooling.md) | `needs_tool` | build or change the agent/tool platform itself |
+| [Web application (browser UI / SaaS)](../capabilities/project/web-app.md) | `needs_tool` | browser-facing app / SaaS UI — browser build + required visual-verify + e2e gate |
+| [Game production (browser game — design · build · playtest)](../capabilities/project/game-production.md) | `needs_tool` | browser game — mechanics/levels/narrative + build, visual-verify + e2e + human playtest sign-off |
 | [Systems / low-level (cross-arch · SIMD · runtime)](../capabilities/project/systems-low-level.md) | `needs_tool` | cross-arch / SIMD / runtime — build+emulation toolchain not cataloged |
 
 ### Content / media (`profile_family`: content — **Truth/Rights overlay on any publish**)
@@ -53,24 +57,24 @@ operator-gated.
 
 | Capability | State | When |
 |---|---|---|
-| [Editorial / technical longform](../capabilities/project/editorial-longform.md) | `live` | articles, docs, ADRs, technical longform |
-| [Marketing campaign](../capabilities/project/marketing-campaign.md) | `live` | landing/product/blog copy + social — creation live, send is `needs_tool` |
-| [Search / discoverability](../capabilities/project/search-discoverability.md) | `live` | on-page SEO / schema / growth — authoring live, measured impact `needs_tool` |
-| [Image asset generation](../capabilities/project/image.md) | `live` | stills / graphics — governed `generate_image` wrapper (raw `higgsfield__*` forbidden) |
-| [Video / motion asset generation](../capabilities/project/video.md) | `live` | video / motion — governed `generate_video` wrapper |
-| [Audio assets (music · SFX · voice · interactive)](../capabilities/project/audio-assets.md) | `live` | music/SFX/voice/interactive — `generate_audio` wrapper; ElevenLabs is Claude-lane-only |
+| [Editorial / technical longform](../capabilities/project/editorial-longform.md) | `needs_tool` | articles, docs, ADRs, technical longform |
+| [Marketing campaign](../capabilities/project/marketing-campaign.md) | `needs_tool` | landing/product/blog copy + social — creation live, send is `needs_tool` |
+| [Search / discoverability](../capabilities/project/search-discoverability.md) | `needs_tool` | on-page SEO / schema / growth — authoring live, measured impact `needs_tool` |
+| [Image asset generation](../capabilities/project/image.md) | `needs_tool` | stills / graphics — governed `generate_image` wrapper (raw `higgsfield__*` forbidden) |
+| [Video / motion asset generation](../capabilities/project/video.md) | `needs_tool` | video / motion — governed `generate_video` wrapper |
+| [Audio assets (music · SFX · voice · interactive)](../capabilities/project/audio-assets.md) | `needs_tool` | music/SFX/voice/interactive — `generate_audio` wrapper; ElevenLabs is Claude-lane-only |
 
 ### Research (`profile_family`: research — source-first, citation-heavy)
 
 Load-bearing web claims route through the Rule-8 grounding path — `Google Search grounding`
-(gemini · yes · subscription, verified cited results); the metered `perplexity_search_web` is unverifiable ⇒
+(gemini · yes · subscription, verified cited results); the metered `perplexity_search` is unverifiable ⇒
 `needs_tool`, not PASS. Review overlay on high-impact claims.
 
 | Capability | State | When |
 |---|---|---|
-| [Multi-source investigation + synthesis](../capabilities/project/investigation-synthesis.md) | `live` | deep research / competitive / literature → cited synthesis |
-| [Data extraction + dataset wrangling](../capabilities/project/data-extraction-dataset.md) | `live` | machine-readable extraction/wrangling — PDF/OCR is `needs_tool` |
-| [Learning + study](../capabilities/project/learning-study.md) | `live` | study plans, drills, learning paths |
+| [Multi-source investigation + synthesis](../capabilities/project/investigation-synthesis.md) | `needs_tool` | deep research / competitive / literature → cited synthesis |
+| [Data extraction + dataset wrangling](../capabilities/project/data-extraction-dataset.md) | `needs_tool` | machine-readable extraction/wrangling — PDF/OCR is `needs_tool` |
+| [Learning + study](../capabilities/project/learning-study.md) | `needs_tool` | study plans, drills, learning paths |
 
 ### Outreach (`profile_family`: outreach — **`live_outreach` gate; no automatic send**)
 
@@ -79,7 +83,7 @@ whenever private contact/email/calendar state is touched.
 
 | Capability | State | When |
 |---|---|---|
-| [Prospecting / outreach](../capabilities/project/prospecting-outreach.md) | `live` | client-acquisition / job-search / prospecting — draft live, send is `needs_tool` + `live_outreach` |
+| [Prospecting / outreach](../capabilities/project/prospecting-outreach.md) | `needs_tool` | client-acquisition / job-search / prospecting — draft live, send is `needs_tool` + `live_outreach` |
 
 ### Operations / maintenance (`profile_family`: operations — delete/cleanup/credential/production gates)
 
@@ -89,11 +93,11 @@ operator-gated (Hard Rule 6). See the Memory Curation Sweep note below.
 
 | Capability | State | When |
 |---|---|---|
-| [Environment / repo health](../capabilities/project/environment-repo-health.md) | `live` | repo/env hygiene, cleanup, upgrades, refactors |
-| [Dependency / release integrity](../capabilities/project/dependency-release-integrity.md) | `live` | dep trust / supply-chain / advisory — signing/attestation is `needs_tool` |
-| [Memory / vault hygiene](../capabilities/project/memory-vault-hygiene.md) | `live` | durable-knowledge curation — legacy `chrono-kg` retired |
-| [Harness audit / compatibility](../capabilities/project/harness-audit-compatibility.md) | `live` | prompt/tool/script drift + MCP reachability (audit-only) |
-| [Personal operations](../capabilities/project/personal-operations.md) | `live` | routines / reminders / draft — send + calendar-write are `needs_tool` |
+| [Environment / repo health](../capabilities/project/environment-repo-health.md) | `needs_tool` | repo/env hygiene, cleanup, upgrades, refactors |
+| [Dependency / release integrity](../capabilities/project/dependency-release-integrity.md) | `needs_tool` | dep trust / supply-chain / advisory — signing/attestation is `needs_tool` |
+| [Memory / vault hygiene](../capabilities/project/memory-vault-hygiene.md) | `needs_tool` | durable-knowledge curation — legacy `chrono-kg` runtime-retired and protected pending migration |
+| [Harness audit / compatibility](../capabilities/project/harness-audit-compatibility.md) | `needs_tool` | prompt/tool/script drift + MCP reachability (audit-only) |
+| [Personal operations](../capabilities/project/personal-operations.md) | `needs_tool` | routines / reminders / draft — send + calendar-write are `needs_tool` |
 
 ### Incident (reactive, safety-critical — 0 cards)
 
@@ -120,7 +124,7 @@ flow note under Gates.
 ## Profile family notes (what each folded family adds)
 
 - **Content / media (Phase 3 asset routing):** dispatch the real media specialist for the deliverable —
-  `copywriter` (text), `image-designer` (image), `video-director`/`video-editor` (video),
+  `brand-voice` (text), `image-designer` (image), `video-director`/`video-editor` (video),
   `music-composer`/`sound-designer` (music/SFX), `voice-narrator`/`voice-agent-builder` (voice),
   `interactive-audio-designer` (interactive). Media generation runs through the live
   `generate_image`/`generate_video`/`generate_audio` wrappers of the chrono-media-studio plugin — never the
@@ -149,7 +153,7 @@ flow note under Gates.
   source-backed, and review provenance exists; `invalidated` when contradicted; `superseded` (linked) when
   duplicate; `archived` when task-local/stale/non-reusable. **Never delete; never promote or invalidate from
   age, confidence, or usage-count alone.**
-- **Capacity gate:** each pass reports total note count, candidate count, and vault/index bytes. At **10,000
+- **Capacity gate:** each pass reports total note count, candidate count, and the vault index size in bytes. At **10,000
   notes or 250 MiB**, stop and surface to the operator before any capture-pause or physical-retention change
   — never silent purge, never silent disable.
 
@@ -168,18 +172,27 @@ flow note under Gates.
 - **`panel` / `swarm` / `triage` are dispatch mechanics, not modes** — any can be invoked under this mode.
   They select *how* work is dispatched, never *what* mode it is (mechanics described in `shared/routing.md`).
 - Only one writer owns a file path at a time.
-- Run `vibecoding-check` before declaring the mode complete.
 
 ## Gates
 
 - Operator approval before implementing a broad design.
 - Operator approval before destructive changes, credential changes, dependency trust changes, cleanup
   actions, live-production mutation, public release actions, force pushes, live outreach sends, or paid media
-  generation — the per-family gates above are the operator-gate tokens (`delete` · `cleanup` ·
-  `credential_change` · `production_mutation` · `public_release` · `live_outreach` · `paid_media`).
+  generation — the per-family gates above are project's subset of the nine held-category operator-gate tokens
+  (`cleanup` · `credential_change` · `delete` · `live_outreach` · `malware_detonation` · `offensive_execution` ·
+  `paid_media` · `production_mutation` · `public_release`); `malware_detonation` and `offensive_execution` are
+  held for offensive work, not project-family engineering.
 - Content publish fires the Truth (Rule-8) and Rights (Rule-6) gates; outreach send fires `live_outreach`.
 - **Incident:** operator approval before destructive actions, rollback, credential changes, public
   disclosure, broad cleanup, or live production mutation; preserve evidence first.
 - Mandatory multi-model review for security, privacy, auth, release, incident, and high-blast-radius
   changes.
-- Run `vibecoding-check` before the final package.
+- **Machine-enforced close boundary:** the final Project close packet declares
+  a JSON-compatible YAML `_state/runs/<run-id>/manifest.yaml` and every newly produced file that
+  manifest references in `evidence_outputs`, all inside its `write_scope`; the operator-owned approval
+  record must already exist.
+  The ordinary supervisor bridge promotes that declared evidence, runs
+  `bash bin/vibecoding-check.sh --run-id <run-id> --quiet`, and publishes the close task's return artifact
+  and settlement envelope only after a fresh matching `PASS` (or strictly attested
+  `PASS-AFTER-AUTOFIX`) report. Ordinary phase packets without that exact run-bound manifest declaration
+  do not trigger the mode-close gate.

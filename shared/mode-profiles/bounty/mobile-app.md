@@ -53,10 +53,10 @@ iOS and Android bounties — deep-link handling, IPC, keychain/keystore, certifi
 
 ## Specialists most active
 
-- security namespace invokes `exploit-developer` via `Task` tool with `subagent_type: exploit-developer` (multi-model)
-- security namespace invokes `security-analyst` via `Task` tool with `subagent_type: security-analyst` (static analysis)
-- security namespace invokes `scout` via `Task` tool with `subagent_type: scout` (component discovery)
-- security namespace invokes `skeptic` via `Task` tool with `subagent_type: skeptic` for reproducibility checks across device states
+- Chrono dispatches `exploit-developer` (multi-model)
+- Chrono dispatches `security-analyst` (static analysis)
+- Chrono dispatches `scout` (component discovery)
+- Chrono dispatches `skeptic` for reproducibility checks across device states
 
 ## Tools-specific notes
 

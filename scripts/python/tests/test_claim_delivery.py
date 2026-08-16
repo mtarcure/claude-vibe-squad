@@ -1,13 +1,11 @@
-"""Deterministic delivery-claim, redelivery, serialization, and restart tests."""
+"""Deterministic registration, claim, and legacy-fence compatibility tests."""
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 import json
 import os
 from pathlib import Path
-import stat
 import subprocess
 import sys
 import tempfile
@@ -16,8 +14,6 @@ import unittest
 
 REPO = Path(__file__).resolve().parents[3]
 RECONCILER = REPO / "scripts/python/registry_reconciler.py"
-NUDGE = REPO / "bin/nudge-task.sh"
-NUDGE_RECEIPTS = REPO / "scripts/python/nudge_receipts.py"
 
 
 class DeliveryFixture(unittest.TestCase):
@@ -55,9 +51,6 @@ class DeliveryFixture(unittest.TestCase):
             "delivery_generation": 1,
             "delivery_lane": lane,
             "delivery_attempt_count": 0,
-            "delivery_retry_count": 0,
-            "delivery_max_attempts": 5,
-            "delivery_next_attempt_at": at,
             "delivery_history": [
                 {
                     "event": "queued",
@@ -111,21 +104,6 @@ class ClaimAndRedeliveryTests(DeliveryFixture):
         self.assertIn("outcome=idempotent", idempotent.stdout)
         self.assertEqual(before, (self.root / "_state/active-tasks.json").read_bytes())
 
-        retry["subswarm_directive_sha256"] = "a" * 64
-        retry["subswarm_dispatch_sha256"] = "b" * 64
-        retry["subswarm_member_bundle"] = "_state/deploy-member-bundle.json"
-        retry["subswarm_max_concurrency"] = 2
-        conflict = self.run_cli(
-            "--register-task", task, "--entry-json", json.dumps(retry), check=False
-        )
-        self.assertEqual(conflict.returncode, 3)
-        self.assertIn("conflicting task re-registration", conflict.stderr)
-        self.assertEqual(before, (self.root / "_state/active-tasks.json").read_bytes())
-
-        retry.pop("subswarm_directive_sha256")
-        retry.pop("subswarm_dispatch_sha256")
-        retry.pop("subswarm_member_bundle")
-        retry.pop("subswarm_max_concurrency")
         retry["return_artifact"] = "_state/conflicting.md"
         conflict = self.run_cli(
             "--register-task", task, "--entry-json", json.dumps(retry), check=False
@@ -134,302 +112,152 @@ class ClaimAndRedeliveryTests(DeliveryFixture):
         self.assertIn("conflicting task re-registration", conflict.stderr)
         self.assertEqual(before, (self.root / "_state/active-tasks.json").read_bytes())
 
-    def test_dropped_first_delivery_retries_same_attempt_and_claims_once(self):
-        task = "TASK-drop-first"
-        attempt = "d-stable"
-        start = datetime(2026, 7, 17, tzinfo=UTC)
-        self.write_registry({task: self.entry(task, at=start.isoformat(), attempt=attempt)})
-
-        first = self.action("--authorize-delivery", task, "--now", start.isoformat())
-        too_early = self.action(
-            "--authorize-delivery", task, "--now", (start + timedelta(seconds=1)).isoformat()
-        )
-        retry = self.action(
-            "--authorize-delivery", task, "--now", (start + timedelta(seconds=2)).isoformat()
-        )
-        claimed = self.action(
-            "--claim-task",
-            task,
-            "--attempt-id",
-            attempt,
-            "--now",
-            (start + timedelta(seconds=3)).isoformat(),
-        )
-        duplicate_claim = self.action(
-            "--claim-task", task, "--attempt-id", attempt, "--now", start.isoformat()
-        )
-
-        self.assertTrue(first["authorized"])
-        self.assertFalse(too_early["authorized"])
-        self.assertEqual(too_early["reason"], "not-due")
-        self.assertTrue(retry["authorized"])
-        self.assertEqual(first["attempt_id"], retry["attempt_id"])
-        self.assertEqual(claimed["delivery_state"], "in-progress")
-        self.assertTrue(duplicate_claim["idempotent"])
-        entry = self.registry()[task]
-        self.assertEqual(entry["delivery_attempt_count"], 2)
-        self.assertEqual(entry["delivery_retry_count"], 1)
-        self.assertEqual(
-            [item["event"] for item in entry["delivery_history"]].count("claimed"), 1
-        )
-
-    def test_duplicate_authorizations_are_lock_serialized(self):
-        task = "TASK-duplicate-nudge"
-        at = "2026-07-17T00:00:00+00:00"
-        self.write_registry({task: self.entry(task, at=at, attempt="d-one")})
-
-        def authorize(_index: int) -> dict:
-            return self.action("--authorize-delivery", task, "--now", at)
-
-        with ThreadPoolExecutor(max_workers=8) as pool:
-            results = list(pool.map(authorize, range(8)))
-        self.assertEqual(sum(bool(item["authorized"]) for item in results), 1)
-        entry = self.registry()[task]
-        self.assertEqual(entry["delivery_attempt_count"], 1)
-        self.assertEqual(entry["delivery_attempt_id"], "d-one")
-
-    def test_stale_generation_claim_is_rejected_without_mutation(self):
-        task = "TASK-stale-generation"
-        at = "2026-07-17T00:00:00+00:00"
-        self.write_registry({task: self.entry(task, at=at, attempt="d-gen1")})
-        advanced = self.action(
-            "--advance-delivery",
-            task,
-            "--attempt-id",
-            "d-gen2",
-            "--generation",
-            "2",
-            "--lane",
-            "claude",
-            "--now",
-            at,
-        )
-        self.assertEqual(advanced["generation"], 2)
+    def test_claim_is_idempotent_lane_ordered_and_stale_attempt_rejected(self):
+        at = datetime(2026, 7, 17, tzinfo=UTC)
+        first, second = "TASK-lane-1", "TASK-lane-2"
+        self.write_registry({
+            first: self.entry(first, at=at.isoformat(), attempt="d-first"),
+            second: self.entry(
+                second, at=(at + timedelta(seconds=1)).isoformat(), attempt="d-second"
+            ),
+        })
         before = (self.root / "_state/active-tasks.json").read_bytes()
         stale = self.run_cli(
-            "--claim-task", task, "--attempt-id", "d-gen1", "--now", at, check=False
+            "--claim-task", first, "--attempt-id", "d-stale", "--now", at.isoformat(),
+            check=False,
         )
         self.assertEqual(stale.returncode, 3)
-        self.assertIn("stale delivery attempt", stale.stderr)
         self.assertEqual(before, (self.root / "_state/active-tasks.json").read_bytes())
-        current = self.action(
-            "--claim-task", task, "--attempt-id", "d-gen2", "--now", at
+        blocked = self.run_cli(
+            "--claim-task", second, "--attempt-id", "d-second", "--now", at.isoformat(),
+            check=False,
         )
-        self.assertEqual(current["delivery_state"], "in-progress")
-
-    def test_lane_head_blocks_next_until_response_terminalizes_current(self):
-        first = "TASK-lane-1"
-        second = "TASK-lane-2"
-        at = datetime(2026, 7, 17, tzinfo=UTC)
-        self.write_registry(
-            {
-                first: self.entry(first, at=at.isoformat(), attempt="d-first"),
-                second: self.entry(
-                    second,
-                    at=(at + timedelta(seconds=1)).isoformat(),
-                    attempt="d-second",
-                ),
-            }
+        self.assertIn("not the head", blocked.stderr)
+        claimed = self.action(
+            "--claim-task", first, "--attempt-id", "d-first", "--now", at.isoformat()
         )
-        self.action("--authorize-delivery", first, "--now", at.isoformat())
-        self.action("--claim-task", first, "--attempt-id", "d-first", "--now", at.isoformat())
-        blocked = self.action(
-            "--authorize-delivery",
-            second,
-            "--now",
-            (at + timedelta(seconds=2)).isoformat(),
+        duplicate = self.action(
+            "--claim-task", first, "--attempt-id", "d-first", "--now", at.isoformat()
         )
-        self.assertEqual(blocked["reason"], "lane-head-blocked")
-        self.assertEqual(blocked["blocked_by"], first)
-
+        self.assertFalse(claimed["idempotent"])
+        self.assertTrue(duplicate["idempotent"])
         response = self.root / f"departments/coding/outbox/{first}-response.md"
         response.parent.mkdir(parents=True)
         response.write_text(
-            f"---\nid: {first}-response\nin_response_to: {first}\nstatus: complete\n---\n\ndone\n",
+            f"---\nin_response_to: {first}\nstatus: complete\n---\n\ndone\n",
             encoding="utf-8",
         )
         self.run_cli("--task-id", first)
-        self.assertEqual(self.registry()[first]["delivery_state"], "terminal")
         released = self.action(
-            "--authorize-delivery",
-            second,
-            "--now",
-            (at + timedelta(seconds=2)).isoformat(),
+            "--claim-task", second, "--attempt-id", "d-second", "--now", at.isoformat()
         )
-        self.assertTrue(released["authorized"])
-
-    def test_review_required_legacy_task_does_not_hold_delivery_lane(self):
-        review_hold = "TASK-review-hold-legacy"
-        successor = "TASK-review-hold-successor"
-        at = datetime(2026, 7, 17, tzinfo=UTC)
-        legacy = self.entry(
-            review_hold,
-            lane="claude",
-            at=at.isoformat(),
-            attempt="d-legacy-unused",
+        self.assertEqual(released["delivery_state"], "in-progress")
+        history = self.registry()[first]["delivery_history"]
+        self.assertEqual([item["event"] for item in history].count("claimed"), 1)
+    def test_legacy_worker_claim_fences_duplicate_and_expiry(self):
+        now = datetime(2026, 7, 18, tzinfo=UTC)
+        task = "TASK-worker-fence"
+        base = self.entry(task, at=now.isoformat(), attempt="d-one")
+        base.update(
+            delivery_worker_id="codex-r01", worker_epoch="epoch-a", lease_generation=7,
+            lease_expires_at=(now + timedelta(seconds=30)).isoformat(),
+            worker_assignment_state="assigned",
         )
-        legacy["status"] = "review-required"
-        for key in tuple(legacy):
-            if key.startswith("delivery_"):
-                legacy.pop(key)
-        self.write_registry(
-            {
-                review_hold: legacy,
-                successor: self.entry(
-                    successor,
-                    lane="claude",
-                    at=(at + timedelta(seconds=1)).isoformat(),
-                    attempt="d-successor",
-                ),
+        def claim(task_id: str, **over: str) -> subprocess.CompletedProcess[str]:
+            values = {
+                "attempt": "d-one", "worker": "codex-r01", "epoch": "epoch-a",
+                "lease": "7", "lane": "gpt-codex", **over,
             }
-        )
-
-        released = self.action(
-            "--authorize-delivery",
-            successor,
-            "--now",
-            (at + timedelta(seconds=2)).isoformat(),
-        )
-
-        self.assertTrue(released["authorized"])
-        self.assertEqual(self.registry()[review_hold]["status"], "review-required")
-
-    def test_review_required_receipted_task_does_not_hold_delivery_lane(self):
-        review_hold = "TASK-review-hold-receipted"
-        successor = "TASK-review-hold-receipted-successor"
-        at = datetime(2026, 7, 17, tzinfo=UTC)
-        delivered = self.entry(
-            review_hold,
-            lane="claude",
-            at=at.isoformat(),
-            attempt="d-delivered",
-        )
-        delivered.update(
-            status="review-required",
-            delivery_state="terminal",
-            delivery_terminal_at=at.isoformat(),
-            delivery_next_attempt_at=None,
-        )
-        self.write_registry(
-            {
-                review_hold: delivered,
-                successor: self.entry(
-                    successor,
-                    lane="claude",
-                    at=(at + timedelta(seconds=1)).isoformat(),
-                    attempt="d-successor",
-                ),
-            }
-        )
-
-        released = self.action(
-            "--authorize-delivery",
-            successor,
-            "--now",
-            (at + timedelta(seconds=2)).isoformat(),
-        )
-
-        self.assertTrue(released["authorized"])
-        self.assertEqual(self.registry()[review_hold]["status"], "review-required")
-
-    def test_restart_respects_persisted_backoff_and_retry_bound(self):
-        task = "TASK-restart-bounded"
-        attempt = "d-restart"
-        start = datetime(2026, 7, 17, tzinfo=UTC)
-        self.write_registry({task: self.entry(task, at=start.isoformat(), attempt=attempt)})
-        due_offsets = [0, 2, 6, 14, 30]
-        for offset in due_offsets:
-            result = self.action(
-                "--authorize-delivery",
-                task,
-                "--attempt-id",
-                attempt,
-                "--now",
-                (start + timedelta(seconds=offset)).isoformat(),
+            return self.run_cli(
+                "--claim-task", task_id, "--attempt-id", values["attempt"],
+                "--worker-id", values["worker"], "--worker-epoch", values["epoch"],
+                "--lease-generation", values["lease"], "--worker-lane", values["lane"],
+                "--now", now.isoformat(), check=False,
             )
-            self.assertTrue(result["authorized"])
-        exhausted = self.action(
-            "--authorize-delivery",
-            task,
-            "--attempt-id",
-            attempt,
-            "--now",
-            (start + timedelta(hours=1)).isoformat(),
+        self.write_registry({task: base})
+        for key, value, message in (
+            ("worker", "other", "assignment mismatch"),
+            ("epoch", "old", "stale worker epoch"),
+            ("lease", "6", "stale lease generation"),
+            ("lane", "claude", "worker lane mismatch"),
+        ):
+            with self.subTest(message=message):
+                before = (self.root / "_state/active-tasks.json").read_bytes()
+                result = claim(task, **{key: value})
+                self.assertEqual(result.returncode, 3)
+                self.assertIn(message, result.stderr)
+                self.assertEqual(before, (self.root / "_state/active-tasks.json").read_bytes())
+        self.assertEqual(json.loads(claim(task).stdout)["delivery_state"], "in-progress")
+        duplicate = self.entry("TASK-worker-duplicate", at=now.isoformat(), attempt="d-two")
+        duplicate.update({key: base[key] for key in (
+            "delivery_worker_id", "worker_epoch", "lease_generation",
+            "lease_expires_at", "worker_assignment_state",
+        )})
+        self.write_registry({
+            task: {**base, "delivery_state": "in-progress"},
+            "TASK-worker-duplicate": duplicate,
+        })
+        self.assertIn(
+            "already has active task", claim("TASK-worker-duplicate", attempt="d-two").stderr
         )
-        self.assertEqual(exhausted["reason"], "retry-budget-exhausted")
-        entry = self.registry()[task]
-        self.assertEqual(entry["delivery_attempt_count"], 5)
-        self.assertEqual(entry["delivery_retry_count"], 4)
-
-
-class PromptInjectionTests(DeliveryFixture):
-    def test_nudge_prepends_claim_and_duplicate_is_noop(self):
-        task = "TASK-prompt-claim"
-        at = "2026-07-17T00:00:00+00:00"
-        attempt = "d-prompt"
-        self.write_registry({task: self.entry(task, at=at, attempt=attempt)})
-        (self.root / "bin").mkdir()
-        (self.root / "shared").mkdir()
-        (self.root / "scripts/python").mkdir(parents=True)
-        (self.root / "departments/coding/inbox").mkdir(parents=True)
-        (self.root / "scripts/python/nudge_receipts.py").write_bytes(
-            NUDGE_RECEIPTS.read_bytes()
+        expired = {**base, "lease_expires_at": (now - timedelta(seconds=1)).isoformat()}
+        self.write_registry({task: expired})
+        self.assertIn("worker lease expired", claim(task).stderr)
+        self.assertEqual(self.registry()[task]["worker_assignment_state"], "expired")
+    def test_legacy_member_identity_remains_lane_bound(self):
+        at = "2026-07-18T00:00:00+00:00"
+        valid = self.entry("TASK-member", at=at, attempt="d-one")
+        valid.update(member_id="gpt-codex:sub02", replica_index=2)
+        self.run_cli("--register-task", "TASK-member", "--entry-json", json.dumps(valid))
+        self.assertEqual(self.registry()["TASK-member"]["member_id"], "gpt-codex:sub02")
+        invalid = self.entry("TASK-bad-member", at=at, attempt="d-two")
+        invalid.update(member_id="claude:r01", replica_index=1)
+        rejected = self.run_cli(
+            "--register-task", "TASK-bad-member", "--entry-json", json.dumps(invalid),
+            check=False,
         )
-        (self.root / "shared/lead-windows.sh").write_text(
-            'runtime_window_name() { printf "%s\\n" "$1"; }\n', encoding="utf-8"
+        self.assertIn("member_id must", rejected.stderr)
+    def test_preexpiry_worker_response_can_settle_review_after_expiry(self):
+        task = "TASK-delayed-review"
+        expiry = datetime.now(UTC) - timedelta(minutes=1)
+        landed = expiry - timedelta(seconds=1)
+        entry = self.entry(task, lane="claude", at="2026-07-18T00:00:00+00:00", attempt="d-one")
+        entry.update(
+            specialist="claude-spec", mandatory_review="true", review_model="gpt-codex",
+            review_class="standard",
+            delivery_state="in-progress", delivery_worker_id="claude-r01",
+            worker_epoch="epoch-a", lease_generation=1, lease_expires_at=expiry.isoformat(),
+            worker_assignment_state="in-progress",
         )
-        wrapper = self.root / "bin/registry-reconciler.sh"
-        wrapper.write_text(
-            f'#!/bin/bash\nexec "{sys.executable}" "{RECONCILER}" "$@"\n', encoding="utf-8"
+        self.write_registry({task: entry})
+        shared = self.root / "shared"
+        shared.mkdir()
+        (shared / "specialist-runtime-map.tsv").write_text(
+            "specialist\tc2\tc3\tc4\tc5\tc6\tprimary_lane\n"
+            "claude-spec\tx\tx\tx\tx\tx\tclaude\n", encoding="utf-8",
         )
-        wrapper.chmod(wrapper.stat().st_mode | stat.S_IXUSR)
-        tmux_log = self.root / "tmux.log"
-        fake_tmux = self.root / "fake-tmux"
-        fake_tmux.write_text(
-            "#!/bin/bash\n"
-            "case \"$1\" in\n"
-            "  has-session) exit 0 ;;\n"
-            "  list-windows) echo gpt-codex; exit 0 ;;\n"
-            "  load-buffer) cat >> \"$TMUX_LOG\"; exit 0 ;;\n"
-            "  paste-buffer) exit 0 ;;\n"
-            "  send-keys) printf '%s\\n' \"$*\" >> \"$TMUX_LOG\"; exit 0 ;;\n"
-            "esac\n"
-            "exit 1\n",
+        own = self.root / f"departments/coding/outbox/{task}-response.md"
+        own.parent.mkdir(parents=True)
+        own.write_text(
+            f"---\nin_response_to: {task}\nfrom: claude\nstatus: complete\n"
+            "delivery_attempt_id: d-one\ndelivery_generation: 1\n"
+            "delivery_worker_id: claude-r01\nworker_epoch: epoch-a\n"
+            "lease_generation: 1\ndelivery_lane: claude\n---\n\ntimely\n",
             encoding="utf-8",
         )
-        fake_tmux.chmod(fake_tmux.stat().st_mode | stat.S_IXUSR)
-        packet = self.root / f"departments/coding/inbox/{task}.md"
-        packet.write_text(
-            "---\n"
-            f"id: {task}\n"
-            "to_model: gpt-codex\n"
-            "specialist: systems-engineer\n"
-            "return_artifact: _state/result.md\n"
-            "---\n",
-            encoding="utf-8",
+        os.utime(own, (landed.timestamp(), landed.timestamp()))
+        self.run_cli("--task-id", task)
+        self.assertEqual(self.registry()[task]["status"], "review-required")
+        review = self.root / "departments/coding/outbox/REVIEW-delayed-response.md"
+        review.write_text(
+            f"---\nin_response_to: {task}\nfrom: gpt-codex\ntype: RESULT\nstatus: complete\n"
+            "verdict: APPROVE\n---\n\nreviewed\n", encoding="utf-8",
         )
-        env = {
-            **self.env,
-            "TMUX_BIN": str(fake_tmux),
-            "TMUX_LOG": str(tmux_log),
-            "SQUAD_SESSION": "test",
-            "DELIVERY_NOW": at,
-        }
-        first = subprocess.run(
-            ["bash", str(NUDGE), str(packet)], env=env, capture_output=True, text=True, timeout=10
+        self.run_cli(
+            "--settle-review", task,
+            "--review-ref", "departments/coding/outbox/REVIEW-delayed-response.md",
         )
-        self.assertEqual(first.returncode, 0, first.stderr)
-        logged = tmux_log.read_text()
-        claim_marker = f"FIRST ACTION REQUIRED: run bash '{self.root}/bin/claim-task.sh' '{task}' '{attempt}'"
-        self.assertIn(claim_marker, logged)
-        self.assertLess(logged.index("FIRST ACTION REQUIRED"), logged.index("TASK READY"))
-
-        duplicate = subprocess.run(
-            ["bash", str(NUDGE), str(packet)], env=env, capture_output=True, text=True, timeout=10
-        )
-        self.assertEqual(duplicate.returncode, 3)
-        self.assertEqual(tmux_log.read_text().count("FIRST ACTION REQUIRED"), 1)
-
+        self.assertEqual(self.registry()[task]["status"], "complete")
 
 if __name__ == "__main__":
     unittest.main()

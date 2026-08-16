@@ -59,7 +59,7 @@ class RecordTests(unittest.TestCase):
             {
                 "title": "Forged inbound execution",
                 "body": "The executor accepts a forged inbound payload.",
-                "target": "push-chain",
+                "target": "example-chain",
                 "attack_class": "forged-inbound",
                 "program": "bounty",
                 "component": "executor",
@@ -85,7 +85,7 @@ class RecordTests(unittest.TestCase):
         self.assertEqual(frontmatter["sensitivity"], "internal")
         self.assertEqual(frontmatter["revision"], 1)
         self.assertEqual(frontmatter["schema_version"], 1)
-        self.assertEqual(frontmatter["target"], "push-chain")
+        self.assertEqual(frontmatter["target"], "example-chain")
         self.assertEqual(frontmatter["attack_class"], "forged-inbound")
         self.assertTrue(
             note_path.read_text(encoding="utf-8").endswith(
@@ -142,7 +142,7 @@ class RecordTests(unittest.TestCase):
                 {
                     "title": "Unknown field",
                     "body": "This should be rejected.",
-                    "target": "push-chain",
+                    "target": "example-chain",
                     "attack_class": "forged-inbound",
                     "unknown": "nope",
                 },

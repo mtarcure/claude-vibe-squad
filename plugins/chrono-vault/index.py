@@ -11,6 +11,7 @@ import sqlite3
 import stat
 import tempfile
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -46,7 +47,11 @@ FRONTMATTER_FIELDS = (
     "evidence_refs",
     "revision",
 )
-INDEX_SCHEMA_VERSION = 2
+INDEX_SCHEMA_VERSION = 3
+META_COLUMNS = (
+    "docid", "id", "path", "size", "mtime_ns", "created_at_ns",
+    "content_hash", "status", "sensitivity", "note_type",
+)
 FTS_COLUMNS = (
     "title",
     "body",
@@ -128,6 +133,7 @@ def _initialize(connection: sqlite3.Connection) -> None:
             path TEXT UNIQUE NOT NULL,
             size INTEGER NOT NULL,
             mtime_ns INTEGER NOT NULL,
+            created_at_ns INTEGER NOT NULL,
             content_hash TEXT NOT NULL,
             status TEXT NOT NULL,
             sensitivity TEXT NOT NULL,
@@ -198,12 +204,16 @@ def _schema_is_current(connection: sqlite3.Connection) -> bool:
         columns = tuple(
             row[1] for row in connection.execute("PRAGMA table_info(notes_fts)")
         )
+        meta_columns = tuple(
+            row[1] for row in connection.execute("PRAGMA table_info(meta)")
+        )
     except (sqlite3.Error, TypeError, ValueError):
         return False
     return (
         user_version == INDEX_SCHEMA_VERSION
         and config_version == INDEX_SCHEMA_VERSION
         and columns == FTS_COLUMNS
+        and meta_columns == META_COLUMNS
     )
 
 
@@ -396,6 +406,14 @@ def _parse_note(path: Path) -> dict[str, Any]:
     _require_string(frontmatter["attack_class"], "attack_class")
     for field in ("created_at", "updated_at"):
         _require_string(frontmatter[field], field)
+    try:
+        created_at = datetime.fromisoformat(
+            frontmatter["created_at"].replace("Z", "+00:00")
+        )
+    except (OverflowError, ValueError) as exc:
+        raise MalformedNote("created_at is not ISO-8601") from exc
+    if created_at.tzinfo is None:
+        raise MalformedNote("created_at requires a timezone")
     for field in (
         "program",
         "component",
@@ -414,12 +432,20 @@ def _parse_note(path: Path) -> dict[str, Any]:
     _require_string_list(frontmatter["supersedes"], "supersedes")
     component = frontmatter["component"]
 
+    try:
+        created_at_ns = int(
+            created_at.astimezone(timezone.utc).timestamp() * 1_000_000_000
+        )
+    except (OSError, OverflowError, ValueError) as exc:
+        raise MalformedNote("created_at is outside the supported range") from exc
+
     return {
         **frontmatter,
         "body": body,
         "path": str(path),
         "size": stat_result.st_size,
         "mtime_ns": stat_result.st_mtime_ns,
+        "created_at_ns": created_at_ns,
         "content_hash": hashlib.sha256(raw).hexdigest(),
         "aliases_text": "\n".join(aliases),
         "keywords_text": "\n".join(keywords),
@@ -448,24 +474,26 @@ def _upsert_connection(connection: sqlite3.Connection, note: dict[str, Any]) -> 
         connection.execute("DELETE FROM notes_fts WHERE rowid=?", (docid,))
         connection.execute(
             """
-            UPDATE meta SET path=?, size=?, mtime_ns=?, content_hash=?, status=?,
-                sensitivity=?, note_type=? WHERE docid=?
+            UPDATE meta SET path=?, size=?, mtime_ns=?, created_at_ns=?,
+                content_hash=?, status=?, sensitivity=?, note_type=? WHERE docid=?
             """,
             (
-                note["path"], note["size"], note["mtime_ns"], note["content_hash"],
-                note["status"], note["sensitivity"], note["type"], docid,
+                note["path"], note["size"], note["mtime_ns"],
+                note["created_at_ns"], note["content_hash"], note["status"],
+                note["sensitivity"], note["type"], docid,
             ),
         )
     else:
         cursor = connection.execute(
             """
-            INSERT INTO meta(id, path, size, mtime_ns, content_hash, status,
-                sensitivity, note_type) VALUES(?,?,?,?,?,?,?,?)
+            INSERT INTO meta(id, path, size, mtime_ns, created_at_ns,
+                content_hash, status, sensitivity, note_type)
+            VALUES(?,?,?,?,?,?,?,?,?)
             """,
             (
                 note["id"], note["path"], note["size"], note["mtime_ns"],
-                note["content_hash"], note["status"], note["sensitivity"],
-                note["type"],
+                note["created_at_ns"], note["content_hash"], note["status"],
+                note["sensitivity"], note["type"],
             ),
         )
         docid = int(cursor.lastrowid)

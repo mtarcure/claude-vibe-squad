@@ -7,10 +7,18 @@
 #   git config core.hooksPath .githooks
 #
 # See docs/git-hooks.md. It runs, in order:
+#   0. private-memory leak guard (scripts/hooks/pre-commit; ALWAYS; blocking)
 #   1. capability validation + self-test (only for capability/registry changes)
 #   2. full specialist + capability-home validation, including live existence
 #   3. fast format checks (warnings only, non-blocking)
 #   4. moat Tier-A boundary check (only when moat/ files are staged; blocking)
+#
+# The leak guard runs FIRST and unconditionally. It rejects staged
+# private-memory artifacts (restricted-sensitivity notes, _state/bounty/ paths,
+# KG blobs), which is the one failure here that cannot be undone once pushed --
+# so it must gate before any slower or narrower check. The guard is invoked from
+# this tracked hook rather than from an untracked .git/hooks copy, so that a
+# single TRACKED file carries both checks and no clone depends on local setup.
 #
 # Break glass: `git commit --no-verify` bypasses all local hooks. Reserve that
 # escape hatch for an explicit emergency; required CI gates still run remotely.
@@ -25,6 +33,22 @@ export PATH="${HOME}/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:${PATH}"
 VAULT_ROOT="$(git rev-parse --show-toplevel)"
 cd "${VAULT_ROOT}" || exit 1
 CHANGED_FILES=$(git diff --cached --name-only)
+
+# ── 0. private-memory leak guard (blocking, unconditional) ────────────────────
+# Self-contained: reads staged index blobs itself, so unstaged working-tree
+# content can neither hide a restricted staged version nor cause a false reject.
+LEAK_GUARD="${VAULT_ROOT}/scripts/hooks/pre-commit"
+if [[ -f "${LEAK_GUARD}" ]]; then
+    if ! python3 "${LEAK_GUARD}"; then
+        echo "[pre-commit] BLOCKED: private-memory leak guard rejected staged content."
+        exit 1
+    fi
+else
+    # Absent guard is NOT a silent pass: this is the check whose failure is
+    # irreversible, so an indeterminate result must be loud.
+    echo "[pre-commit] BLOCKED: leak guard missing at ${LEAK_GUARD}" >&2
+    exit 1
+fi
 
 # Capability-file changes receive the focused validator pair here. The full
 # specialist/capability-home validator runs unconditionally below so live host
@@ -74,24 +98,32 @@ while IFS= read -r f; do
                 FORMAT_FAIL=true
             fi
             ;;
-        departments/*/inbox/TASK-*.md|departments/*/outbox/TASK-*.md)
-            # Task files must have required frontmatter fields
-            for field in id to_lead type status; do
-                if ! grep -q "^${field}:" "${VAULT_ROOT}/${f}"; then
-                    echo "[pre-commit] WARN: ${f} missing frontmatter field: ${field}"
-                    FORMAT_FAIL=true
-                fi
-            done
-            ;;
-        shared/dispatch-toolkit.sh)
-            # Must contain the no-delete rule marker (Spec 1.5 item 4)
-            if ! grep -q 'spec-1.5-no-delete-rule' "${VAULT_ROOT}/${f}"; then
-                echo "[pre-commit] WARN: dispatch-toolkit.sh missing no-delete rule block"
-                FORMAT_FAIL=true
-            fi
-            ;;
+        # A task-frontmatter arm is intentionally NOT present here. It cannot fire
+        # and would be wrong if it did:
+        #   * CHANGED_FILES is `git diff --cached`, and .gitignore:24,26 ignore
+        #     departments/*/{inbox,outbox}/*.md -- so a mailbox task file is never
+        #     staged. Zero possible subjects, permanently green.
+        #   * It required `to_lead`, which bin/send-task.sh keeps only as a
+        #     backward-compat bridge for older prepared packets. Current packets
+        #     carry to_model, so a revived check would warn on every one.
+        # Packet frontmatter is validated where it is actually read, at dispatch
+        # time in bin/send-task.sh. Do not reintroduce it here.
     esac
 done <<< "$CHANGED_FILES"
+
+# Single-file checks live OUTSIDE the case above, deliberately. `case` is
+# first-match-wins, so a `shared/dispatch-toolkit.sh)` arm placed after `*.sh)`
+# is unreachable -- the general pattern matches first and its `;;` ends the
+# case. That is how this check sat green and never once fired: the file does
+# carry `set -` flags, so the shadowing arm passed and nothing looked wrong.
+# Keep specific-file checks here where no pattern can shadow them.
+if grep -qx 'shared/dispatch-toolkit.sh' <<< "$CHANGED_FILES"; then
+    # Must contain the no-delete rule marker (Spec 1.5 item 4)
+    if ! grep -q 'spec-1.5-no-delete-rule' "${VAULT_ROOT}/shared/dispatch-toolkit.sh"; then
+        echo "[pre-commit] WARN: dispatch-toolkit.sh missing no-delete rule block"
+        FORMAT_FAIL=true
+    fi
+fi
 
 if $FORMAT_FAIL; then
     echo "[pre-commit] Format check warnings found. Commit proceeds (warnings only)."

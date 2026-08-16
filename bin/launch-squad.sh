@@ -6,17 +6,15 @@
 #
 # Usage:
 #   bash ~/Obsidian-Claude-Vibe-Squad/bin/launch-squad.sh
-#   bash ~/Obsidian-Claude-Vibe-Squad/bin/launch-squad.sh --safe
+#   bash ~/Obsidian-Claude-Vibe-Squad/bin/launch-squad.sh --safe  # suppress warning + skip doctor; permissions unchanged
 #
 # After launch:
 #   tmux attach -t squad     # attach to the session
-#   Ctrl-b + 0  → chrono (Coordinator, your conversation)
-#   Ctrl-b + 1  → gpt-codex
-#   Ctrl-b + 2  → claude
-#   Ctrl-b + 3  → gemini
-#   Ctrl-b + 4  → kimi
-#   Ctrl-b + 5  → watchers/status
+#   Ctrl-b + 0  → chrono (conversation + live four-lane status sidebar)
+#   Ctrl-b + 5  → watchers/status (outbox notifications + reconciliation)
+#   Ctrl-b + z  → zoom the current pane
 #   Ctrl-b + d  → detach (panes keep running)
+#   Specialists have no persistent windows; each board task starts a fresh CLI.
 #
 # Re-run this script to re-attach if the session was killed; if a session
 # already exists, it just reattaches without spawning duplicate panes.
@@ -27,6 +25,160 @@ SESSION="${SQUAD_SESSION:-squad}"
 # shellcheck source-path=SCRIPTDIR source=../shared/repo-root.sh disable=SC1091
 source "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")/.." && pwd -P)/shared/repo-root.sh"
 source "${VAULT_ROOT}/shared/lead-windows.sh"
+
+# Canonical value: launchd/com.vibesquad.daemon.plist. The lifecycle regression
+# test enforces this local shell copy because the launcher cannot import plist XML.
+DAEMON_LABEL="com.vibesquad.daemon"
+# Test seam, spelled exactly as in bin/install-routines.sh so both entry points
+# can be aimed at one throwaway LaunchAgents directory. Defaults to real behavior.
+LAUNCHAGENTS_DIR="${SQUAD_LAUNCHAGENTS_DIR:-${HOME}/Library/LaunchAgents}"
+DAEMON_PLIST="${LAUNCHAGENTS_DIR}/${DAEMON_LABEL}.plist"
+
+# ensure_daemon_loaded() exit vocabulary. The daemon is an OPTIONAL enhancement,
+# so "nobody installed one" is an ordinary answer rather than a failure -- it is
+# the state every fresh clone is in, and refusing to launch there made a
+# background launchd job a precondition for running the product at all.
+#
+#   0                  loaded and verified against the plist this checkout owns
+#   DAEMON_ABSENT_RC   no daemon is installed; the launch continues without it
+#   anything else      a fault, and the launch still stops
+#
+# The faults stay fatal on purpose. Each of them -- a foreign plist, an
+# unrendered template, a plist that fails plutil, a bootstrap that did not take
+# -- can only be reached by someone who DID install a daemon, and who therefore
+# needs to be told theirs is broken rather than quietly run without it.
+DAEMON_ABSENT_RC=3
+
+# Resolve symlinks in a path's directory so two spellings of one file compare
+# equal: launchd reports the physical path (/private/tmp/...) while a path built
+# from $HOME may traverse a symlink (/tmp/...), and comparing the raw strings
+# would call a correctly-installed daemon foreign. Mirrors resolve_path() in
+# bin/install-routines.sh.
+resolve_daemon_path() {
+    local p="$1" dir base
+    dir="$(dirname -- "${p}")"
+    base="$(basename -- "${p}")"
+    ( cd -- "${dir}" 2>/dev/null && printf '%s/%s\n' "$(pwd -P)" "${base}" ) || printf '%s\n' "${p}"
+}
+
+# Echo the plist path launchd actually loaded DAEMON_LABEL from, or nothing when
+# the label is not registered.
+#
+# The exit code of `launchctl print` is NOT a liveness signal for this daemon.
+# launchd is addressed by label over IPC, never through the filesystem, so it
+# answers for whichever session owns this uid regardless of which plist that
+# session was booted from -- and regardless of whether DAEMON_PLIST still exists
+# at all. Asking only "is the label known?" therefore returns rc=0, and a green
+# "already loaded", for a daemon whose plist has been removed or which belongs to
+# a different installation. Bind the answer to identity instead: compare the path
+# launchd reports against the plist this launch intends to run.
+#
+# "Not registered" is an ordinary answer, not a failure: launchctl exits 113 for
+# it, so absorb the status and let an empty string mean "not loaded".
+daemon_loaded_plist_path() {
+    local service="$1" out
+    out="$(launchctl print "${service}" 2>/dev/null || true)"
+    printf '%s\n' "${out}" | sed -n 's/^[[:space:]]*path = //p' | head -1
+}
+
+ensure_daemon_loaded() {
+    local launchd_domain service_target bootstrap_rc attempt live want
+    local verify_attempts="${SQUAD_DAEMON_VERIFY_ATTEMPTS:-20}"
+    local verify_delay="${SQUAD_DAEMON_VERIFY_DELAY:-0.1}"
+
+    if ! [[ "${verify_attempts}" =~ ^[1-9][0-9]*$ ]]; then
+        echo "ERROR: SQUAD_DAEMON_VERIFY_ATTEMPTS must be a positive integer." >&2
+        return 64
+    fi
+    if ! [[ "${verify_delay}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+        echo "ERROR: SQUAD_DAEMON_VERIFY_DELAY must be a non-negative number." >&2
+        return 64
+    fi
+    if ! command -v launchctl >/dev/null 2>&1; then
+        echo "ERROR: launchctl is unavailable; cannot start or verify the daemon." >&2
+        return 127
+    fi
+
+    launchd_domain="gui/$(id -u)"
+    service_target="${launchd_domain}/${DAEMON_LABEL}"
+    want="$(resolve_daemon_path "${DAEMON_PLIST}")"
+
+    live="$(daemon_loaded_plist_path "${service_target}")"
+    if [[ -n "${live}" ]]; then
+        if [[ "$(resolve_daemon_path "${live}")" == "${want}" ]]; then
+            echo "✓ Daemon already loaded in launchd: ${service_target}"
+            return 0
+        fi
+        # Same label, different file. The job launchd is running is not the one
+        # this checkout manages, so counting it as ours would credit this launch
+        # with another installation's state -- and bootstrapping over it would
+        # silently displace a daemon this launch does not own.
+        echo "ERROR: ${DAEMON_LABEL} is loaded from a DIFFERENT plist than this launch expects." >&2
+        echo "         loaded: ${live}" >&2
+        echo "         wanted: ${DAEMON_PLIST}" >&2
+        echo "Unload the other one first:  launchctl bootout ${service_target}" >&2
+        return 1
+    fi
+
+    if [[ ! -f "${DAEMON_PLIST}" ]]; then
+        # Not an error. Said once, here, and nowhere else: no other squad
+        # subcommand reaches this function, so an operator who never wants the
+        # daemon is not nagged by `squad status`, `squad doctor` or `squad attach`.
+        echo "NOTICE: the optional launchd daemon is not installed — continuing without it."
+        echo "        It adds two things: the live daemon/lane segment in the tmux status"
+        echo "        bar, and the /summarize endpoint the weekly-review routine calls."
+        echo "        Board dispatch, the outbox watcher, the reconciliation sweep and the"
+        echo "        Chrono coordinator do not use it. See docs/install/daemon.md."
+        echo "        Add it whenever you want it:  bash bin/install-routines.sh --daemon-only"
+        return "${DAEMON_ABSENT_RC}"
+    fi
+    if LC_ALL=C grep -Eq '__[A-Z][A-Z0-9_]*__' "${DAEMON_PLIST}"; then
+        echo "ERROR: installed daemon plist still contains a template token: ${DAEMON_PLIST}" >&2
+        echo "Refusing to bootstrap it; use the rendered-template restore procedure." >&2
+        return 1
+    fi
+    if ! plutil -lint "${DAEMON_PLIST}" >/dev/null; then
+        echo "ERROR: installed daemon plist failed plutil validation: ${DAEMON_PLIST}" >&2
+        return 1
+    fi
+
+    echo "Starting launchd daemon '${DAEMON_LABEL}' from its installed plist..."
+    bootstrap_rc=0
+    launchctl bootstrap "${launchd_domain}" "${DAEMON_PLIST}" || bootstrap_rc=$?
+
+    # Verify by observation rather than by the bootstrap exit code: bootstrap
+    # returns non-zero for "already loaded" races, and a zero exit is not by
+    # itself proof the job is registered from the plist just installed.
+    attempt=1
+    while [[ "${attempt}" -le "${verify_attempts}" ]]; do
+        live="$(daemon_loaded_plist_path "${service_target}")"
+        if [[ -n "${live}" ]] && [[ "$(resolve_daemon_path "${live}")" == "${want}" ]]; then
+            if [[ "${bootstrap_rc}" -ne 0 ]]; then
+                echo "WARNING: launchctl bootstrap returned ${bootstrap_rc}, but the daemon is loaded." >&2
+            fi
+            echo "✓ Daemon loaded and verified in launchd: ${service_target}"
+            return 0
+        fi
+        if [[ "${attempt}" -lt "${verify_attempts}" ]]; then
+            sleep "${verify_delay}"
+        fi
+        attempt=$((attempt + 1))
+    done
+
+    echo "ERROR: daemon is still absent after launchctl bootstrap (rc=${bootstrap_rc}): ${service_target}" >&2
+    if [[ -n "${live}" ]]; then
+        echo "       launchd reports ${DAEMON_LABEL} loaded from ${live}, not ${DAEMON_PLIST}." >&2
+    fi
+    return 1
+}
+
+# Hermetic regression seam: exercises only launchd lifecycle code. Production
+# launches never set this; it prevents tests from reaching doctor/tmux/processes.
+if [[ "${SQUAD_DAEMON_ENSURE_ONLY:-0}" == "1" ]]; then
+    ensure_daemon_loaded
+    exit $?
+fi
+
 WATCHER_FLEET_CHILD=0
 for arg in "$@"; do
     case "$arg" in
@@ -39,6 +191,32 @@ for arg in "$@"; do
             ;;
     esac
 done
+
+# Stable local state, deliberately outside the checkout and independent of
+# VAULT_ROOT/CHRONO_VAULT_ROOT.  board-supervisor.sh carries the same default so
+# a dispatch reached from a plain shell cannot lose the trail; the regression
+# test named there enforces that the two entry points stay identical.
+export CHRONO_VAULT_AUDIT_DIR="${CHRONO_VAULT_AUDIT_DIR:-${HOME:-/var/tmp/chrono-vault-${EUID}}/.local/state/chrono-vault/audit}"
+printf -v CHRONO_VAULT_AUDIT_DIR_SHELL '%q' "${CHRONO_VAULT_AUDIT_DIR}"
+
+# Doctor evidence shares the vault audit trail's root-independent local-state
+# pattern. The resolver is the single source for launch, nightly, and readers.
+# shellcheck source=doctor-log-home.sh disable=SC1091
+source "${VAULT_ROOT}/bin/doctor-log-home.sh" || exit $?
+export CHRONO_DOCTOR_LOG_DIR
+printf -v CHRONO_DOCTOR_LOG_DIR_SHELL '%q' "${CHRONO_DOCTOR_LOG_DIR}"
+
+export CHRONO_VAULT_ROOT="${CHRONO_VAULT_ROOT:-${HOME}/Obsidian-Chrono}"
+if ! bash "${VAULT_ROOT}/bin/doctor.sh" --check-private-vault-root; then
+    echo "ERROR: private memory vault root is invalid; squad startup blocked." >&2
+    exit 1
+fi
+if ! CHRONO_VAULT_ROOT="$(cd -- "${CHRONO_VAULT_ROOT}" && pwd -P)"; then
+    echo "ERROR: validated private memory vault root became unavailable." >&2
+    exit 1
+fi
+export CHRONO_VAULT_ROOT
+printf -v CHRONO_VAULT_ROOT_SHELL '%q' "${CHRONO_VAULT_ROOT}"
 
 SQUAD_UNSAFE_AUTONOMY="${SQUAD_UNSAFE_AUTONOMY:-1}"
 SQUAD_TRUST_CODEX_MCPS="${SQUAD_TRUST_CODEX_MCPS:-0}"
@@ -58,34 +236,41 @@ if [[ "$WATCHER_FLEET_CHILD" == 1 ]]; then
     }
     trap 'stop_watcher_children; exit 0' EXIT HUP INT TERM
     export SQUAD_SESSION="$SESSION"
-    for namespace in "${COMPATIBILITY_NAMESPACES[@]}"; do
-        bash -c 'while true; do bash "$1" "$2"; rc=$?; echo "watcher supervisor restart: kind=inbox namespace=$2 rc=$rc" >&2; sleep 2; done' \
-            "watcher-supervisor:inbox:${namespace}" "${VAULT_ROOT}/bin/inbox-watcher.sh" "$namespace" &
-        watcher_children+=("$!")
-        bash -c 'while true; do bash "$1" "$2"; rc=$?; echo "watcher supervisor restart: kind=outbox namespace=$2 rc=$rc" >&2; sleep 2; done' \
-            "watcher-supervisor:outbox:${namespace}" "${VAULT_ROOT}/bin/outbox-watcher.sh" "$namespace" &
-        watcher_children+=("$!")
-    done
+    # ONE consolidated watcher, not one per namespace. outbox-watcher.sh "all"
+    # derives the namespace per event from the path; measured 2026-08-08 as four
+    # simultaneous writes -> four detections in 31-48 ms, so the fan-in costs
+    # nothing in latency. The per-namespace fleet cost six supervisors plus six
+    # fswatch children, and because nothing reaped them across restarts it had
+    # grown to 43 stale processes by 2026-08-09 -- 25 of them still executing the
+    # retired inbox watcher script, which no longer exists in the repo. (Naming
+    # that script literally here would trip the guard asserting it never appears
+    # in this file.)
+    bash -c 'while true; do bash "$1" all; rc=$?; echo "watcher supervisor restart: kind=outbox namespace=all rc=$rc" >&2; sleep 2; done' \
+        "watcher-supervisor:outbox:all" "${VAULT_ROOT}/bin/outbox-watcher.sh" &
+    watcher_children+=("$!")
     bash -c 'while true; do python3 "$1" reconcile-sweep; rc=$?; echo "watcher supervisor restart: kind=reconcile-sweep rc=$rc" >&2; sleep 2; done' \
         'watcher-supervisor:reconcile-sweep' "${VAULT_ROOT}/scripts/python/swarm_runtime.py" &
-    watcher_children+=("$!")
-    bash -c 'while true; do python3 "$1" scan-consumer; rc=$?; echo "watcher supervisor restart: kind=scan-consumer rc=$rc" >&2; sleep 2; done' \
-        'watcher-supervisor:scan-consumer' "${VAULT_ROOT}/scripts/python/swarm_runtime.py" &
     watcher_children+=("$!")
     wait
     exit 0
 fi
 
+# Show the first-run autonomous warning here, but do NOT write its sentinel here.
+# The sentinel attests that a first autonomous launch was acknowledged AND made
+# it through every pre-flight gate below. Written at this point it would attest a
+# success that has not happened yet: a launch that then failed its dependency,
+# daemon, or doctor check would still leave a sentinel behind, and the warning
+# would be suppressed on every later run on the strength of a launch that never
+# worked. The write is deferred to just past the doctor gate.
 FIRST_RUN_SENTINEL="${VAULT_ROOT}/_state/.autonomous-launch-ack"
-if [[ "${SQUAD_UNSAFE_AUTONOMY}" == "1" ]]; then
-    mkdir -p "${VAULT_ROOT}/_state"
-    if [[ ! -f "${FIRST_RUN_SENTINEL}" ]]; then
-        echo "WARNING: launching autonomous daily-driver profile."
-        echo "This uses bypass/yolo-style permissions for model-lane panes. Use 'squad up --safe' for conservative permissions."
-        echo "Run 'squad doctor' first if this is a fresh install."
-        date -u +%FT%TZ > "${FIRST_RUN_SENTINEL}"
-        echo ""
-    fi
+FIRST_RUN_ACK_PENDING=0
+if [[ "${SQUAD_UNSAFE_AUTONOMY}" == "1" ]] && [[ ! -f "${FIRST_RUN_SENTINEL}" ]]; then
+    FIRST_RUN_ACK_PENDING=1
+    echo "WARNING: launching autonomous daily-driver profile."
+    echo "Board-spawned CLI permissions are fixed by the controller ABI; --safe does not change them."
+    echo "Use 'squad up --safe' only to suppress this warning and skip the pre-flight doctor check."
+    echo "Run 'squad doctor' first if this is a fresh install."
+    echo ""
 fi
 
 # Verify tmux is installed
@@ -99,6 +284,25 @@ if [[ "${#missing[@]}" -gt 0 ]]; then
     exit 1
 fi
 
+# `squad down` removes the KeepAlive job from the user domain. Reverse that
+# exact operation before any daemon-dependent health check. Only the installed,
+# already-rendered plist is accepted; the repository copy is a template.
+#
+# An absent daemon is not a failed launch (see DAEMON_ABSENT_RC). Every other
+# non-zero status still is, so a broken or foreign install stops here exactly as
+# it did before. DAEMON_PRESENT carries the answer forward to the closing
+# summary, so the last thing printed does not imply a subsystem that is not
+# running. (The status poller below decides for itself: it reports whatever it
+# can actually reach, which is the stronger signal.)
+DAEMON_PRESENT=1
+ensure_daemon_loaded || {
+    daemon_rc=$?
+    if [[ "${daemon_rc}" -ne "${DAEMON_ABSENT_RC}" ]]; then
+        exit "${daemon_rc}"
+    fi
+    DAEMON_PRESENT=0
+}
+
 # Pre-flight health gate. SQUAD_SKIP_DOCTOR=1 skips it ENTIRELY (doctor is never
 # even run) — important because a hung/slow doctor must never be able to freeze a
 # launch or restart. When it does run, hard-cap it with a timeout: a doctor that
@@ -106,17 +310,49 @@ fi
 if [[ "${SQUAD_UNSAFE_AUTONOMY}" == "1" ]] \
    && [[ "${SQUAD_SKIP_DOCTOR:-0}" != "1" ]] \
    && [[ -x "${VAULT_ROOT}/bin/doctor.sh" ]]; then
+    # Doctor's exit code is a THREE-valued contract (bin/doctor.sh, "Result
+    # vocabulary"), not a boolean: 1 = measured breakage, 2 = a mandatory check
+    # had its input present and could not read it, 0 = healthy. Collapsing all
+    # of them into "doctor reported issues" told a blocked user nothing about
+    # which of those had happened, and doctor's own report was sent to
+    # /dev/null, so there was nowhere to find out either.
+    #
+    # Every non-zero rc still blocks. What changes is that the reason is named
+    # and doctor's findings are shown. Relaxing the gate itself would let a
+    # genuinely broken install launch, which is the opposite of the fix.
     doctor_rc=0
-    timeout "${SQUAD_DOCTOR_TIMEOUT:-45}" "${VAULT_ROOT}/bin/doctor.sh" >/dev/null 2>&1 || doctor_rc=$?
+    doctor_report="$(timeout "${SQUAD_DOCTOR_TIMEOUT:-45}" \
+        "${VAULT_ROOT}/bin/doctor.sh" 2>&1)" || doctor_rc=$?
     if [[ "${doctor_rc}" -ne 0 ]]; then
-        if [[ "${doctor_rc}" -eq 124 ]]; then
-            echo "ERROR: doctor timed out (>${SQUAD_DOCTOR_TIMEOUT:-45}s) — autonomous launch blocked."
-        else
-            echo "ERROR: doctor reported issues; autonomous launch blocked."
+        case "${doctor_rc}" in
+            1)  echo "ERROR: doctor found measured problems with this installation; autonomous launch blocked." ;;
+            2)  echo "ERROR: doctor found a mandatory input that exists but could not be read; autonomous launch blocked." ;;
+            124) echo "ERROR: doctor timed out (>${SQUAD_DOCTOR_TIMEOUT:-45}s) — autonomous launch blocked." ;;
+            *)  echo "ERROR: doctor exited ${doctor_rc}, outside its documented 0/1/2 contract; autonomous launch blocked." ;;
+        esac
+        if [[ "${doctor_rc}" -ne 124 ]] && [[ -n "${doctor_report}" ]]; then
+            echo ""
+            printf '%s\n' "${doctor_report}" | tail -40
+            echo ""
         fi
         echo "Investigate: squad doctor   |   Override: SQUAD_SKIP_DOCTOR=1 squad up"
         exit 1
     fi
+fi
+
+# Every pre-flight gate above passed, so the first-run acknowledgement now
+# attests something that actually happened. See FIRST_RUN_SENTINEL above for why
+# this is not written at the point the warning is printed.
+if [[ "${FIRST_RUN_ACK_PENDING}" == "1" ]]; then
+    mkdir -p "${VAULT_ROOT}/_state"
+    date -u +%FT%TZ > "${FIRST_RUN_SENTINEL}"
+fi
+
+# Hermetic regression seam: stops immediately after the pre-flight gates, so the
+# gate ordering above can be exercised without reaching tmux or spawning
+# anything. Production launches never set this.
+if [[ "${SQUAD_PREFLIGHT_ONLY:-0}" == "1" ]]; then
+    exit 0
 fi
 
 # --- Live status poller ----------------------------------------------------
@@ -125,13 +361,32 @@ fi
 # here — before the has-session reattach guard — so a reattach also re-ensures
 # it's running. pgrep-guarded so we never spawn duplicate pollers.
 if ! pgrep -f 'vs-lane-status.sh' >/dev/null 2>&1; then
-    # Surgically extract ONLY the daemon token in a subshell. NEVER source the
-    # full secrets file into this launcher's env — every tmux pane inherits the
-    # launcher env, and API keys have leaked into terminal titles via exactly
-    # that path before. The inline command-prefix assignment scopes the token
-    # to the poller process alone; it never enters the launcher (or pane) env.
-    VIBESQUAD_DAEMON_TOKEN="$(zsh -c 'source "$HOME/.config/shell/secrets.zsh" 2>/dev/null; printf %s "${VIBESQUAD_DAEMON_TOKEN:-}"')" \
-        nohup bash "${VAULT_ROOT}/bin/vs-lane-status.sh" >/dev/null 2>&1 &
+    # The poller needs one of two sources, and picking the wrong one is silent.
+    # Its HTTP mode opens with `: "${VIBESQUAD_DAEMON_TOKEN:?...}"`, so with no
+    # token it exits at that guard the instant it starts -- under `nohup
+    # >/dev/null`, where nobody sees it -- and /tmp/vs-daemon.status is never
+    # written, leaving the status bar's daemon segment BLANK. Blank reads as
+    # "fine". A fresh clone has no secrets file and therefore no token, so that
+    # is the default a new user would have got.
+    #
+    # Ask whether the token exists WITHOUT capturing it, then, only on the HTTP
+    # branch, extract it in a second subshell. That preserves the original
+    # property exactly: the token is scoped by an inline command prefix to the
+    # poller process, and never enters this launcher's memory or env, let alone
+    # the panes that inherit it -- API keys have leaked into terminal titles
+    # through that path before. NEVER source the whole secrets file here.
+    if zsh -c 'source "$HOME/.config/shell/secrets.zsh" 2>/dev/null; [[ -n "${VIBESQUAD_DAEMON_TOKEN:-}" ]]'; then
+        VIBESQUAD_DAEMON_TOKEN="$(zsh -c 'source "$HOME/.config/shell/secrets.zsh" 2>/dev/null; printf %s "${VIBESQUAD_DAEMON_TOKEN:-}"')" \
+            nohup bash "${VAULT_ROOT}/bin/vs-lane-status.sh" >/dev/null 2>&1 &
+    else
+        # File mode instead, aimed at a path that is deliberately not there. The
+        # poller needs no token for it, reports `● daemon offline` every tick,
+        # and keeps rendering the panel/lane capsules it derives from local
+        # files -- which never depended on the daemon. The absence is now shown
+        # rather than hidden behind an empty status segment.
+        VS_DAEMON_TASKS_FILE="${VAULT_ROOT}/_state/runtime/no-daemon-tasks.json" \
+            nohup bash "${VAULT_ROOT}/bin/vs-lane-status.sh" >/dev/null 2>&1 &
+    fi
     disown 2>/dev/null || true
 fi
 
@@ -173,7 +428,7 @@ apply_squad_globals() {
     tmux set-option -g status-left-length 60
     tmux set-option -g status-right-length 180
     tmux set-option -g status-left "#[fg=colour74,bold] vibesquad #[fg=colour240]· #(cat /tmp/vs-daemon.status 2>/dev/null) "
-    tmux set-option -g status-right "#(cat /tmp/vs-swarm.status 2>/dev/null) #[fg=colour240]· #[fg=colour214]#(cat ${VAULT_ROOT}/_state/doctor-logs/\$(date +%%Y-%%m-%%d)-summary.json 2>/dev/null | jq -r 'if .issue_count>0 then \"issues:\"+(.issue_count|tostring) elif .warning_count>0 then \"warn:\"+(.warning_count|tostring) else \"healthy\" end' 2>/dev/null || echo 'doctor:?') #[fg=colour240]· #[fg=colour252]%H:%M "
+    tmux set-option -g status-right "#(cat /tmp/vs-swarm.status 2>/dev/null) #[fg=colour240]· #[fg=colour214]#(jq -r '\"pass:\"+((.healthy_count // 0)|tostring)+\" failure:\"+((.issue_count // 0)|tostring)+\" could-not-run:\"+((.unknown_count // 0)|tostring)+\" not-applicable:\"+((.skipped_count // 0)|tostring)+\" warnings:\"+((.warning_count // 0)|tostring)' ${CHRONO_DOCTOR_LOG_DIR_SHELL}/\$(date +%%Y-%%m-%%d)-summary.json 2>/dev/null || echo 'doctor:could-not-run') #[fg=colour240]· #[fg=colour252]%H:%M "
     tmux set-option -g "status-format[1]" "#[bg=colour233,fg=colour240] Tab / C-b <n>: lanes · C-b 0: chrono · C-b z: zoom · C-b Space: reset · C-b [: scroll · C-b d: detach "
 
     # Window tabs — accent the current lane, dim the rest.
@@ -193,9 +448,6 @@ apply_squad_globals() {
 }
 
 WATCHERS_WIN="$(lead_window_name watchers)"
-# Captured once from the sourced canonical namespace inventory; this array is
-# immutable for the lifetime of one launcher process.
-WATCHER_NAMESPACES="${COMPATIBILITY_NAMESPACES[*]}"
 WATCHER_FLEET_LOCK="${SESSION}-watcher-fleet-launch"
 WATCHER_FLEET_LOCK_HELD=0
 
@@ -247,32 +499,31 @@ print(count)
 }
 
 watcher_fleet_report() {
-    local namespace
-    for namespace in "${COMPATIBILITY_NAMESPACES[@]}"; do
-        printf 'inbox[%s]=%s/%s outbox[%s]=%s/%s (root/supervisor)\n' \
-            "$namespace" "$(watcher_script_count inbox "${VAULT_ROOT}/bin/inbox-watcher.sh" "$namespace")" \
-            "$(watcher_supervisor_count "watcher-supervisor:inbox:${namespace}")" \
-            "$namespace" "$(watcher_script_count outbox "${VAULT_ROOT}/bin/outbox-watcher.sh" "$namespace")" \
-            "$(watcher_supervisor_count "watcher-supervisor:outbox:${namespace}")"
-    done
-    printf 'reconcile-sweep=%s scan-consumer=%s\n' \
-        "$(watcher_supervisor_count watcher-supervisor:reconcile-sweep)" \
-        "$(watcher_supervisor_count watcher-supervisor:scan-consumer)"
+    printf 'outbox[all]=%s/%s (root/supervisor)\n' \
+        "$(watcher_script_count outbox "${VAULT_ROOT}/bin/outbox-watcher.sh" all)" \
+        "$(watcher_supervisor_count "watcher-supervisor:outbox:all")"
+    printf 'reconcile-sweep=%s\n' \
+        "$(watcher_supervisor_count watcher-supervisor:reconcile-sweep)"
 }
 
 watcher_fleet_healthy() {
-    local namespace index5_name
-    [[ "${#COMPATIBILITY_NAMESPACES[@]}" -gt 0 ]] || return 1
+    local index5_name
     index5_name="$(tmux list-windows -t "$SESSION" -F '#{window_index}|#{window_name}' 2>/dev/null | awk -F'|' '$1 == 5 {print $2}')"
     [[ "$index5_name" == "$WATCHERS_WIN" ]] || return 1
-    for namespace in "${COMPATIBILITY_NAMESPACES[@]}"; do
-        [[ "$(watcher_supervisor_count "watcher-supervisor:inbox:${namespace}")" == 1 ]] || return 1
-        [[ "$(watcher_supervisor_count "watcher-supervisor:outbox:${namespace}")" == 1 ]] || return 1
-        [[ "$(watcher_script_count inbox "${VAULT_ROOT}/bin/inbox-watcher.sh" "$namespace")" == 1 ]] || return 1
-        [[ "$(watcher_script_count outbox "${VAULT_ROOT}/bin/outbox-watcher.sh" "$namespace")" == 1 ]] || return 1
-    done
+    # No aggregate "watcher-supervisor:" count here. watcher_supervisor_count
+    # matches the marker as an EXACT argv element (`marker in argv[2:]`), and the
+    # spawned markers are "watcher-supervisor:outbox:all" and
+    # "watcher-supervisor:reconcile-sweep" -- so a bare "watcher-supervisor:"
+    # prefix matches nothing and the aggregate clause could never be satisfied.
+    #
+    # That bug predates the consolidation (it compared against
+    # ${#COMPATIBILITY_NAMESPACES[@]} + 1, equally unreachable) and is why the
+    # fleet never converged: health returned 1, the deterministic repair killed
+    # and respawned, and each cycle leaked processes until 43 were running.
+    # The two exact-marker checks below fully determine fleet health on their own.
+    [[ "$(watcher_supervisor_count "watcher-supervisor:outbox:all")" == 1 ]] || return 1
+    [[ "$(watcher_script_count outbox "${VAULT_ROOT}/bin/outbox-watcher.sh" all)" == 1 ]] || return 1
     [[ "$(watcher_supervisor_count watcher-supervisor:reconcile-sweep)" == 1 ]] || return 1
-    [[ "$(watcher_supervisor_count watcher-supervisor:scan-consumer)" == 1 ]] || return 1
 }
 
 watcher_cleanup_pids() {
@@ -320,7 +571,6 @@ def watcher_seed(command: str) -> bool:
     if not tokens:
         return False
     executable = os.path.basename(tokens[0])
-    inbox_script = f"{root}/bin/inbox-watcher.sh"
     outbox_script = f"{root}/bin/outbox-watcher.sh"
     runtime_script = f"{root}/scripts/python/swarm_runtime.py"
     mailbox_leaf = any(
@@ -330,12 +580,11 @@ def watcher_seed(command: str) -> bool:
     )
     return (
         any(token.startswith("watcher-supervisor:") for token in tokens)
-        or (executable in {"bash", "sh", "zsh"} and inbox_script in tokens)
         or (executable in {"bash", "sh", "zsh"} and outbox_script in tokens)
         or (
             executable.startswith("python")
             and runtime_script in tokens
-            and ("reconcile-sweep" in tokens or "scan-consumer" in tokens)
+            and "reconcile-sweep" in tokens
         )
         or (executable == "fswatch" and mailbox_leaf)
     )
@@ -425,7 +674,7 @@ start_watcher_fleet() {
     tmux new-window -d -t "${SESSION}:5" -n "$WATCHERS_WIN" -c "$VAULT_ROOT"
     mkdir -p "${VAULT_ROOT}/_state/tmux-logs"
     tmux pipe-pane -t "${SESSION}:${WATCHERS_WIN}" -o "cat >> ${VAULT_ROOT}/_state/tmux-logs/watchers-status.log"
-    child_command="exec env SQUAD_SESSION=${SESSION} bash ${VAULT_ROOT}/bin/launch-squad.sh --watcher-fleet-child"
+    child_command="exec env CHRONO_VAULT_ROOT=${CHRONO_VAULT_ROOT_SHELL} CHRONO_VAULT_AUDIT_DIR=${CHRONO_VAULT_AUDIT_DIR_SHELL} CHRONO_DOCTOR_LOG_DIR=${CHRONO_DOCTOR_LOG_DIR_SHELL} SQUAD_SESSION=${SESSION} bash ${VAULT_ROOT}/bin/launch-squad.sh --watcher-fleet-child"
     tmux send-keys -l -t "${SESSION}:${WATCHERS_WIN}" "$child_command"
     tmux send-keys -t "${SESSION}:${WATCHERS_WIN}" Enter
     for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
@@ -528,25 +777,11 @@ done
 # Ensure ~/.local/bin is on PATH inside every tmux pane (claude + kimi live there)
 PATH_PREFIX='export PATH="$HOME/.local/bin:$HOME/go/bin:$PATH"'
 
-# Drop API-key env vars so each CLI falls back to its OAuth/subscription auth
-# (Max plan, ChatGPT login, Gemini personal OAuth, Kimi login). Without this,
-# headless calls bill against potentially-empty API keys instead of subscriptions.
-# Interactive launches typically prefer OAuth anyway, but this is belt-and-suspenders.
-# Private knowledge-vault root — chrono-vault MCP fail-closes without this (P0-8 fix).
-AUTH_PREFIX='export CHRONO_VAULT_ROOT="$HOME/Obsidian-Chrono"; unset ANTHROPIC_API_KEY OPENAI_API_KEY GEMINI_API_KEY GOOGLE_API_KEY'
-
 # Claude panes host Claude plugins, including chrono-media-studio. Keep the
 # OpenAI key only there so Sora can authenticate without exposing media creds to
-# non-media model lanes.
-MEDIA_AUTH_PREFIX='export CHRONO_VAULT_ROOT="$HOME/Obsidian-Chrono"; unset ANTHROPIC_API_KEY GEMINI_API_KEY GOOGLE_API_KEY'
-
-# Gemini lane is the exception: Google deprecated the individual Code Assist
-# OAuth client (2026-07), so the gemini CLI can no longer log in via
-# subscription and MUST authenticate with GEMINI_API_KEY (settings.json auth
-# selectedType: gemini-api-key). Source secrets to guarantee the key is present,
-# but still unset GOOGLE_API_KEY — the secrets.zsh note warns gemini-cli grabbing
-# the GCP project key routes Gemini calls through the wrong project (403).
-GEMINI_AUTH_PREFIX='source ~/.config/shell/secrets.zsh 2>/dev/null; export CHRONO_VAULT_ROOT="$HOME/Obsidian-Chrono"; unset ANTHROPIC_API_KEY OPENAI_API_KEY GOOGLE_API_KEY'
+# model workers. Quote the validated canonical root for the Chrono pane because
+# an existing tmux server does not necessarily inherit the launcher's environment.
+MEDIA_AUTH_PREFIX="export CHRONO_VAULT_ROOT=${CHRONO_VAULT_ROOT_SHELL} CHRONO_VAULT_AUDIT_DIR=${CHRONO_VAULT_AUDIT_DIR_SHELL} CHRONO_DOCTOR_LOG_DIR=${CHRONO_DOCTOR_LOG_DIR_SHELL}; unset ANTHROPIC_API_KEY GEMINI_API_KEY GOOGLE_API_KEY"
 
 acknowledge_gemini_agents() {
     python3 - "$VAULT_ROOT" <<'PY'
@@ -585,26 +820,23 @@ PY
 # (Phase 3) acknowledge_gemini_agents no longer called at startup — board-supervisor.sh
 # handles the Gemini agent-file acknowledgement per fresh spawn now.
 
-if [[ "${SQUAD_UNSAFE_AUTONOMY}" == "1" ]]; then
-    CODEX_CMD='codex --dangerously-bypass-approvals-and-sandbox -c model_reasoning_effort=high'
-    CLAUDE_CMD="claude --permission-mode bypassPermissions --model claude-fable-5 --fallback-model claude-opus-4-8,claude-sonnet-5 --effort xhigh --plugin-dir ${VAULT_ROOT}/plugins/chrono-media-studio --add-dir ${VAULT_ROOT}"
-    CONTENT_CMD="gemini --yolo --skip-trust --model gemini-3.6-flash --include-directories ${VAULT_ROOT}"
-    RESEARCH_CMD="kimi --yolo --thinking --model kimi-code/kimi-for-coding --agent-file ${VAULT_ROOT}/model-lanes/kimi/main.yaml --add-dir ${VAULT_ROOT}"
-else
-    CODEX_CMD='codex --sandbox workspace-write --ask-for-approval never -c model_reasoning_effort=high'
-    CLAUDE_CMD="claude --permission-mode manual --model claude-fable-5 --fallback-model claude-opus-4-8,claude-sonnet-5 --effort xhigh --plugin-dir ${VAULT_ROOT}/plugins/chrono-media-studio --add-dir ${VAULT_ROOT}"
-    CONTENT_CMD="gemini --skip-trust --model gemini-3.6-flash --include-directories ${VAULT_ROOT}"
-    RESEARCH_CMD="kimi --thinking --model kimi-code/kimi-for-coding --agent-file ${VAULT_ROOT}/model-lanes/kimi/main.yaml --add-dir ${VAULT_ROOT}"
-fi
+# (Phase 3 cutover) The per-lane CLI command strings that used to live here were
+# DELETED 2026-08-05, not disabled. They assigned CODEX_CMD/CLAUDE_CMD/CONTENT_CMD/
+# RESEARCH_CMD and nothing read them -- persistent per-model lane windows are retired
+# and board-supervisor.sh spawns each lane fresh per task. The dead block manufactured
+# two opposite misreadings for anyone grepping this file: that the stack launches four
+# CLIs with all gates off by default (harsher than the truth), and that --safe is
+# load-bearing over what workers may do (it is not; see README). Worker permissions
+# now live in scripts/python/dispatch_context_builder.py, which is where to look.
 
 # Window 0: chrono (Coordinator — Claude Code, auto-loads chrono/CLAUDE.md).
 # The session + chrono window were already created above (before styling); here
 # we just wire up logging and launch the coordinator.
 tmux pipe-pane -t "${SESSION}:chrono" -o "cat >> ${TMUX_LOG_DIR}/chrono.log"
 tmux send-keys -t "${SESSION}:chrono" "${PATH_PREFIX}" C-m
-# Restricted bounty memory is limited to the coordinator and security-capable
-# lanes: Claude owns security analysis, Codex owns PoC mechanics, while Gemini
-# media and Kimi throughput research stay fail-safe internal by least privilege.
+# The coordinator keeps restricted clearance. Fresh board workers remain
+# fail-safe internal for sensitivity while board-supervisor projects their
+# engagement-specific aperture separately.
 tmux send-keys -t "${SESSION}:chrono" "${MEDIA_AUTH_PREFIX}" C-m
 tmux send-keys -t "${SESSION}:chrono" 'export CHRONO_VAULT_CLEARANCE=restricted' C-m
 # vs-welcome.sh clears, prints the coordinator greeting, then execs claude with
@@ -623,20 +855,13 @@ if [[ "${SQUAD_TRUST_CODEX_MCPS}" == "1" ]]; then
     fi
 fi
 
-GPT_CODEX_WIN="$(runtime_window_name gpt-codex)"
-CLAUDE_WIN="$(runtime_window_name claude)"
-GEMINI_WIN="$(runtime_window_name gemini)"
-KIMI_WIN="$(runtime_window_name kimi)"
-
 # (Phase 3 cutover) Persistent per-model lane windows RETIRED. Specialists now run as
 # fresh, capability-scoped CLIs spawned per task by the board (SQUAD_DISPATCH_MODE=board,
 # the default since 2d51612). No model-lead windows are launched at startup. The provider
 # CLI binaries are still required (the board execs codex/claude/gemini/kimi per spawn) —
 # see the dependency check above. Rollback: revert the cutover commits + relaunch.
 
-# Window 5: watchers — inbox + outbox watchers per source namespace.
-# Inbox watchers nudge the assigned model pane when a new TASK-*.md arrives (closing the
-# dispatch-time race where send-task.sh's nudge gets eaten by a busy CLI).
+# Window 5: watchers — outbox watchers per source namespace plus reconciliation.
 # Outbox watchers nudge the chrono pane when a response lands
 # (closing the pull-based polling gap so Chrono surfaces responses to the
 # operator without waiting for the operator's next turn).
@@ -659,15 +884,20 @@ tmux select-pane -t "${SESSION}:chrono.0"
 
 echo "✓ Session '${SESSION}' created:"
 echo "  0: chrono     (Coordinator + live dashboard sidebar)"
-echo "  5: ${WATCHERS_WIN} ($((${#COMPATIBILITY_NAMESPACES[@]} * 2)) fswatch processes — inbox + outbox per namespace)"
+echo "  5: ${WATCHERS_WIN} (1 consolidated outbox watcher, all ${#COMPATIBILITY_NAMESPACES[@]} namespaces + reconciliation sweep)"
 echo "  (per-model lane windows retired — specialists run as fresh board-spawned CLIs per task)"
 echo ""
 echo "Board dispatch is the default: specialists spawn as fresh capability-scoped CLIs per task."
 echo "Chrono window has the live dashboard sidebar. Toggle off: bin/sidebar-off.sh"
+if [[ "${DAEMON_PRESENT}" == "0" ]]; then
+    echo "Running WITHOUT the optional daemon: the status bar reads '● daemon offline' and the"
+    echo "weekly-review summary is unavailable. Everything above is unaffected."
+fi
 echo ""
 echo "To attach now:           tmux attach -t ${SESSION}"
 echo "To detach (keep alive):  Ctrl-b + d"
-echo "To kill the session:     tmux kill-session -t ${SESSION}"
+echo "To stop daemon + session: bin/squad down"
+echo "To kill only the session: tmux kill-session -t ${SESSION}  (daemon keeps running)"
 echo "Unsafe autonomous mode:  SQUAD_UNSAFE_AUTONOMY=1 bash bin/launch-squad.sh"
 echo "Pre-trust Codex MCPs:    SQUAD_TRUST_CODEX_MCPS=1 bash bin/launch-squad.sh"
 echo ""

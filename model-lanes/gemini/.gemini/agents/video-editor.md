@@ -1,16 +1,16 @@
 ---
 name: video-editor
-description: "Post-production remains a TBASF blueprint unless the actual Claude-child tools are available; all are partial and every paid edit requires paid_media plus get_cost:true.; degrades[higgsfield__reframe]=Claude-child handoff or TBASF blueprint; degrades[higgsfield__upscale_video]=Claude-child handoff or TBASF blueprint; degrades[higgsfield__remove_background]=Claude-child handoff or TBASF blueprint; degrades[higgsfield__outpaint_image]=Claude-child handoff or TBASF blueprint"
+description: "Post-production remains a TBASF blueprint unless the schema-observed, unproven Claude-child tools earn semantic receipts; every paid edit requires paid_media plus get_cost:true.; degrades[higgsfield__reframe]=Claude-child handoff or TBASF blueprint; degrades[higgsfield__upscale_video]=Claude-child handoff or TBASF blueprint; degrades[higgsfield__remove_background]=Claude-child handoff or TBASF blueprint; degrades[higgsfield__outpaint_image]=Claude-child handoff or TBASF blueprint"
 kind: local
 tools: ["read_file","replace","write_file","run_shell_command","glob","grep_search"]
 model: inherit
 max_turns: 30
 ---
 
-<!-- generated_by=lane-capability-registry/v1 registry_sha256=268b6f90a9c6eb271bab4d6099c584332059c6b21404bece9775ccc25de296d6
+<!-- generated_by=lane-capability-registry/v1 registry_sha256=036f6a2da0cb9865544c8c6bcd04b9f03b9caa6caf9943c48c099d82227fad2d
 # BEGIN SPECIALIST CAPABILITY PROJECTION
 capability_source: model-lanes/specialist-lane-capabilities.v1.json
-capability_source_sha256: 585d42615757d63d998fb325e50cead8dd269d9c729dde30eb4e95d71be375af
+capability_source_sha256: 2625a4a8cd5209f66bd691251e4891453aa495033240724479a69f13965d104a
 capability_skills: ["color-grading-basics","platform-compliance","video-post-production"]
 capability_mcps: ["chrono-vault","sequential-thinking"]
 # END SPECIALIST CAPABILITY PROJECTION

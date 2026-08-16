@@ -36,6 +36,13 @@ class RecallTests(unittest.TestCase):
         )
         self.env.start()
         self.addCleanup(self.env.stop)
+        # Clearance must be absent unless a test grants it. patch.dict does not
+        # clear, so an operator with CHRONO_VAULT_CLEARANCE exported would run
+        # every "without clearance" assertion *with* clearance -- the negative
+        # tests then fail for an environmental reason, and the ambient-grant
+        # path is never actually covered. patch.dict restores the whole
+        # environ on stop, so popping inside it is reverted automatically.
+        os.environ.pop("CHRONO_VAULT_CLEARANCE", None)
 
     def _record(
         self,
@@ -44,7 +51,7 @@ class RecallTests(unittest.TestCase):
         *,
         attack_class: str,
         status: str = "candidate",
-        target: str = "push-chain",
+        target: str = "example-chain",
         component: str = "executor",
         keywords: list[str] | None = None,
     ) -> dict:
@@ -130,7 +137,7 @@ class RecallTests(unittest.TestCase):
             "SharedToken",
             filters={
                 "attack_class": "forged-inbound",
-                "target": "push-chain",
+                "target": "example-chain",
                 "component": "executor",
                 "type": "finding",
                 "keywords": "bridge",
@@ -241,7 +248,7 @@ class RecallTests(unittest.TestCase):
             {
                 "title": "RestrictedToken evidence",
                 "body": "RestrictedToken is labeled for future clearance enforcement.",
-                "target": "push-chain",
+                "target": "example-chain",
                 "attack_class": "restricted",
                 "status": "verified",
                 "sensitivity": "restricted",

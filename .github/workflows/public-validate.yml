@@ -6,15 +6,26 @@ name: Public Validate
 # census or our capability cards.
 #
 # So it cannot run squad-validate.yml, and that is not a gap to paper over:
-#   - validate-capabilities.sh hard-requires shared/registries/skill-tool-registry.tsv
-#     and raises FileNotFoundError without it.
-#   - validate-specialists.sh diffs against a baseline commit that is not an
-#     ancestor of the public tip. It reads private history and cannot pass here
-#     no matter what is published.
+#   - validate-capabilities.sh runs registry-free but proves nothing here: with
+#     shared/registries/skill-tool-registry.tsv absent and untracked it emits a
+#     typed `registry-not-published` / `not-applicable` result and exits 0
+#     (registry_publication_state in scripts/python/validate_capabilities.py),
+#     so a green run would be vacuous. In the private tree the registry is
+#     tracked, and tracked-but-missing still fails closed — a real deletion
+#     cannot pass silently there.
+#   - validate-specialists.sh DOES pass here, on a reduced check set. The
+#     private registry is not published, so it selects index,source,required,
+#     existence and excludes boundary,parity -- and the pinned baseline is
+#     loaded only for those two, so its absence never arises. Measured on a
+#     registry-free fresh-history archive: exit 0, 68 passed, announcing the
+#     public subset rather than skipping quietly. The subset still has subjects
+#     and can still fail: an injected generated-index defect exits 1.
+#     It refuses only when the registry IS present and the baseline is absent
+#     (exit 2, naming the missing commit) -- the maintainer-shaped case.
 #
-# Making those two skip when their inputs are absent would let a real deletion
-# pass silently in the private repo, which is a worse failure than a red badge
-# in this one. Instead, validate what is actually here.
+# How each validator degrades outside the maintainer checkout is documented
+# once, in docs/production-readiness.md (Release Checklist). Instead of running
+# them vacuously or red, validate what is actually here.
 
 on:
   push:
@@ -23,6 +34,12 @@ on:
   schedule:
     - cron: "33 11 * * *"
   workflow_dispatch:
+
+# Match the private workflow's event-preserving de-duplication. The run id
+# keeps scheduled/manual validation independent from commit-triggered runs.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   validate:
@@ -68,6 +85,14 @@ jobs:
           print(f"catalog OK: {len(rows) - 1} recommended tools")
           PY
 
+      - name: No engagement-target material
+        # Standalone and intentionally pointed at the checked-out public tree.
+        # This publishable scanner carries checks 2-4 only; the private
+        # engagement-name blocklist never enters the projected repository.
+        # The job-level repository guard keeps it off the private source tree,
+        # where retained engagement work product is expected.
+        run: python3 tools/export/target_scan_public.py .
+
       - name: No private paths or identifiers
         # A standing guard, not a one-off cleanup. The export gate enforces this
         # before publishing; this asserts it stayed true afterwards.
@@ -78,8 +103,37 @@ jobs:
         run: |
           home_pattern="/Us""ers/chrono"
           ident_pattern="chrono""claw"
+
+          # Exercise each split runtime pattern against an independently
+          # assembled canary outside the checkout. A broken construction must
+          # fail the guard before an empty production scan can look reassuring.
+          control_dir="$(mktemp -d "${RUNNER_TEMP:?RUNNER_TEMP is not set}/public-ident-control.XXXXXX")"
+          control_file="${control_dir}/private-identifiers.txt"
+          printf '/%s/%s\n%s%s\n' 'Users' 'chrono' 'chrono' 'claw' > "$control_file"
+
+          if git -C "$control_dir" grep --no-index -qI -e "$home_pattern" -- .; then
+            :
+          else
+            control_status=$?
+            echo "::error::private-path positive control failed (git grep exited ${control_status})"
+            exit "$control_status"
+          fi
+          if git -C "$control_dir" grep --no-index -qI -e "$ident_pattern" -- .; then
+            :
+          else
+            control_status=$?
+            echo "::error::private-identifier positive control failed (git grep exited ${control_status})"
+            exit "$control_status"
+          fi
+
           if git grep -nI -e "$home_pattern" -e "$ident_pattern" -- . ; then
             echo "::error::private path or identifier present in the public tree"
             exit 1
+          else
+            grep_status=$?
+            if [ "$grep_status" -ne 1 ]; then
+              echo "::error::private path/identifier scan failed (git grep exited ${grep_status})"
+              exit "$grep_status"
+            fi
           fi
           echo "no private paths or identifiers"

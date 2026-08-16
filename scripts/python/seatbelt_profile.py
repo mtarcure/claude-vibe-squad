@@ -190,6 +190,7 @@ CODEX_NATIVE_EXECUTABLE = Path(
     "@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex"
 )
 OFFLINE_LAUNCH_EXECUTABLES = (Path("/usr/bin/false"), Path("/usr/bin/true"))
+BROKER_RELAY_PYTHON = Path("/usr/bin/python3")
 NODE_OPENSSL_CONFIG = Path("/opt/homebrew/etc/openssl@3/openssl.cnf")
 
 
@@ -197,6 +198,8 @@ NODE_OPENSSL_CONFIG = Path("/opt/homebrew/etc/openssl@3/openssl.cnf")
 class _LaneLaunchSelection:
     lane: str | None
     offline_probe: bool
+    broker_relay: bool
+    denied_subtrees: tuple[Path, ...]
 
 
 _LANE_LAUNCH_SELECTION: ContextVar[_LaneLaunchSelection | None] = ContextVar(
@@ -209,6 +212,8 @@ def scoped_lane_launch_profile(
     *,
     lane: str | None = None,
     offline_probe: bool = False,
+    broker_relay: bool = False,
+    denied_subtrees: Iterable[Path] = (),
 ):
     """Add one controller-selected lane's exact grants to one compile call.
 
@@ -223,8 +228,16 @@ def scoped_lane_launch_profile(
         raise ProfileValidationError(
             "select exactly one lane launch or the offline probe profile"
         )
+    if not isinstance(broker_relay, bool) or (broker_relay and lane is None):
+        raise ProfileValidationError("broker relay requires one selected lane")
+    denied = tuple(Path(path) for path in denied_subtrees)
     token = _LANE_LAUNCH_SELECTION.set(
-        _LaneLaunchSelection(lane=lane, offline_probe=offline_probe)
+        _LaneLaunchSelection(
+            lane=lane,
+            offline_probe=offline_probe,
+            broker_relay=broker_relay,
+            denied_subtrees=denied,
+        )
     )
     try:
         yield
@@ -260,6 +273,7 @@ class ProfileSpec:
     allow_fork: bool = False
     allow_sysctl_read: bool = False
     broker_port: int | None = None
+    denied_subtrees: tuple[Path, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -475,6 +489,7 @@ def installed_lane_cli_executable_paths(
     *,
     lanes: Iterable[str] | None = None,
     include_offline: bool = True,
+    include_broker_relay: bool = False,
 ) -> tuple[Path, ...]:
     """Return exact executable files needed for the four installed lane CLIs."""
 
@@ -486,6 +501,12 @@ def installed_lane_cli_executable_paths(
         if include_offline
         else set()
     )
+    if include_broker_relay:
+        # Every board lane reaches chrono-vault through the same stdlib-only
+        # relay.  Grant the exact system interpreter, never a Python directory
+        # or PATH pattern; the relay script itself remains bounded by the
+        # attempt worktree read grant.
+        paths.add(Path(os.path.realpath(BROKER_RELAY_PYTHON)))
     if "codex" in selected:
         paths.add(Path(os.path.realpath(CODEX_NATIVE_EXECUTABLE)))
     for lane, alias in sorted(LANE_CLI_PATHS.items()):
@@ -769,6 +790,65 @@ def _path_filters(paths: Sequence[NormalizedPath]) -> list[str]:
     return filters
 
 
+def _normalize_denied_subtrees(paths: Iterable[Path]) -> tuple[Path, ...]:
+    """Preserve each lexical spelling and its canonical filesystem spelling.
+
+    Denies are allowed to name a currently absent path: aperture ``none`` must
+    remain launchable on a host with no vault.  Existing spellings are still
+    inode-checked against their realpath so a symlink alias cannot be swapped
+    while the profile is compiled.
+    """
+
+    denied: set[Path] = set()
+    for value in paths:
+        raw = Path(value)
+        if (
+            not raw.is_absolute()
+            or raw == Path("/")
+            or any(ord(character) < 32 for character in str(raw))
+        ):
+            raise ProfileValidationError(
+                "denied subtree must be an absolute non-root path without "
+                "control characters"
+            )
+        lexical = Path(os.path.normpath(raw))
+        canonical = Path(os.path.realpath(lexical))
+        if lexical == Path("/") or canonical == Path("/"):
+            raise ProfileValidationError("root subtree deny is forbidden")
+        try:
+            before = os.stat(lexical)
+        except FileNotFoundError:
+            before = None
+        except OSError as exc:
+            raise ProfileValidationError(
+                f"denied subtree is not auditable: {lexical}: {exc}"
+            ) from exc
+        if before is not None:
+            try:
+                after = os.stat(canonical)
+            except OSError as exc:
+                raise ProfileValidationError(
+                    f"denied subtree changed during validation: {lexical}"
+                ) from exc
+            if (
+                (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino)
+                or not stat.S_ISDIR(after.st_mode)
+            ):
+                raise PathIdentityError(
+                    f"denied subtree alias is not bound to one directory: {lexical}"
+                )
+        denied.update((lexical, canonical))
+    return tuple(sorted(denied, key=str))
+
+
+def _denied_path_filters(paths: Sequence[Path]) -> list[str]:
+    filters: list[str] = []
+    for path in paths:
+        quoted = _quote(str(path))
+        filters.extend((f"  (literal {quoted})", f"  (subpath {quoted})"))
+    return filters
+
+
 def _lane_read_aliases(
     paths: Sequence[Path],
     *,
@@ -808,10 +888,20 @@ def _lane_read_aliases(
     return tuple(sorted(aliases, key=str))
 
 
-def _render_grant(operation: str, filters: Sequence[str]) -> list[str]:
+def _render_rule(
+    effect: str,
+    operation: str,
+    filters: Sequence[str],
+) -> list[str]:
     if not filters:
         return []
-    return [f"(allow {operation}", *filters[:-1], filters[-1] + ")"]
+    if effect not in {"allow", "deny"}:
+        raise ProfileValidationError("Seatbelt rule effect is invalid")
+    return [f"({effect} {operation}", *filters[:-1], filters[-1] + ")"]
+
+
+def _render_grant(operation: str, filters: Sequence[str]) -> list[str]:
+    return _render_rule("allow", operation, filters)
 
 
 def _render_profile(
@@ -826,6 +916,7 @@ def _render_profile(
     allow_fork: bool,
     allow_sysctl_read: bool,
     broker_port: int | None,
+    denied_subtrees: Sequence[Path],
 ) -> str:
     lines = ["(version 1)", "(deny default)"]
     read_filters = [
@@ -877,6 +968,13 @@ def _render_profile(
             "(allow network-outbound "
             f'(remote tcp "localhost:{broker_port}"))'
         )
+    # Seatbelt resolves conflicts by the last matching rule.  Keep private
+    # subtree denials after every broad runtime/worktree grant so an allowed
+    # ancestor can never reopen the vault through its canonical or lexical
+    # spelling.
+    denied_filters = _denied_path_filters(denied_subtrees)
+    lines.extend(_render_rule("deny", "file-read*", denied_filters))
+    lines.extend(_render_rule("deny", "file-write*", denied_filters))
     return "\n".join(lines) + "\n"
 
 
@@ -910,7 +1008,9 @@ def compile_profile(
     include_offline = bool(selection and selection.offline_probe)
     lane_cli_executables = (
         installed_lane_cli_executable_paths(
-            lanes=selected_lanes, include_offline=include_offline
+            lanes=selected_lanes,
+            include_offline=include_offline,
+            include_broker_relay=bool(selection and selection.broker_relay),
         )
         if selection is not None
         else ()
@@ -950,6 +1050,12 @@ def compile_profile(
     if any(item.path == Path("/") for item in read_literals):
         raise ProfileValidationError("lane read literal scope may not be root")
     writes = _normalize_many(spec.write_paths)
+    denied_subtrees = _normalize_denied_subtrees(
+        (
+            *spec.denied_subtrees,
+            *(selection.denied_subtrees if selection is not None else ()),
+        )
+    )
     executables = _normalize_many(
         (*spec.executable_paths, *spec.lane_executable_paths, *lane_cli_executables)
     )
@@ -1010,9 +1116,14 @@ def compile_profile(
         executable_alias_paths=executable_aliases,
         # Only the reviewed Node wrappers need to fork their exact native
         # child. Ordinary profiles continue to honor their requested policy.
-        allow_fork=spec.allow_fork or bool(set(selected_lanes) & {"codex", "gemini"}),
+        allow_fork=(
+            spec.allow_fork
+            or bool(set(selected_lanes) & {"codex", "gemini"})
+            or bool(selection and selection.broker_relay)
+        ),
         allow_sysctl_read=spec.allow_sysctl_read,
         broker_port=spec.broker_port,
+        denied_subtrees=denied_subtrees,
     )
     return CompiledProfile(
         text=text,
@@ -1023,6 +1134,7 @@ def compile_profile(
 
 __all__ = [
     "CANONICAL_SANDBOX_EXEC",
+    "BROKER_RELAY_PYTHON",
     "CODEX_NATIVE_EXECUTABLE",
     "DEFAULT_LANE_PATH",
     "HOST_HOME",

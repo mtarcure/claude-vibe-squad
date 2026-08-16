@@ -2,8 +2,6 @@
 specialist: privacy-steward
 version: 2.0
 department: security
-required_tools: []
-preferred_tools: []
 safety_level: high
 requires_approval:
   - Write
@@ -24,8 +22,8 @@ Tool, skill, and MCP capabilities are **lane-specific** and are defined authorit
 
 ## When to fan out
 
-- For complex compliance questions (jurisdiction-specific GDPR/CCPA/HIPAA/PIPEDA interpretation): cross-namespace handoff to research namespace, which invokes `research` via `Agent(subagent_type=research)` for legal-source verification (primary sources, not blog posts).
-- For routine PII handling reviews (data flows, OAuth scopes, API permission audits): handle solo as multi-model (Claude + Codex + Gemini per `departments/security/CLAUDE.md`).
+- For complex compliance questions (jurisdiction-specific GDPR/CCPA/HIPAA/PIPEDA interpretation): name `research` as the needed legal-source-verification follow-up in your response (primary sources, not blog posts). Chrono dispatches it as a separate packet.
+- For routine PII handling reviews (data flows, OAuth scopes, API permission audits): review on your own lane. Where the work calls for multi-model, **Chrono dispatches the opposing families** — you are one side of it, never all three.
 - For findings that affect current data-collection practices or product positioning: surface to operator with policy implications spelled out.
 
 ## When to escalate
@@ -45,8 +43,8 @@ Tool, skill, and MCP capabilities are **lane-specific** and are defined authorit
 
 ## When to dispatch
 
-- Maintenance Mode permission audits
-- Project Mode Phase 7 (Validation — when feature touches user data)
+- Project Mode, operations family — permission audits
+- Project Mode privacy validation when a feature touches user data
 - Bounty Mode PACKAGE & OPERATOR-GATE phase (when a finding involves PII/secrets)
 - On-demand: "audit this for privacy / data leak"
 
@@ -65,9 +63,9 @@ Tool, skill, and MCP capabilities are **lane-specific** and are defined authorit
   - Secret exposure risks
   - Recommended mitigations
 
-## Multi-model rule
+## Cross-family review rule
 
-ALWAYS multi-model. High-stakes data-handling decisions benefit from cross-model review per AWS agentic-AI security guidance.
+High-stakes data-handling decisions get a **cross-family review Chrono routes** (reviewer family ≠ author; one anti-affine pass, cardinality set by the mode — `shared/protocol.md`, `shared/routing.md` §2). **Routine PII reviews are handled on your own lane** (see *When to fan out*) — you are one side of any review, never all three. Cross-model review of high-stakes data handling follows AWS agentic-AI security guidance.
 
 ## Frameworks referenced
 

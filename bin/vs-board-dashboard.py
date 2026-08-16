@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Board-native dashboard renderer: dynamic spawn cards + completed-history rail.
 
-Consumes the vs-board-snapshot.py stream (@SPAWN/@SUMMARY/@DONE) and renders:
+Consumes the vs-board-snapshot.py stream (@SPAWN/@SUMMARY/@DONE/@DEFECT) and renders:
   * one card per LIVE spawn (0..N) — crew avatar motif + character + specialist +
     model badge + one-line task summary + elapsed timer; a card exists ONLY while
     its spawn is live (no idle/persistent boxes),
@@ -454,7 +454,7 @@ def _write_swarm_status(active):
 
 
 def main():
-    active, done = [], []
+    active, done, defects = [], [], []
     pending_summary_for = None
     for line in _snapshot_lines():
         parts = line.split("\t")
@@ -476,6 +476,8 @@ def main():
                 "duration": int(parts[6]) if parts[6].isdigit() else 0,
                 "memory_id": parts[7], "summary": "",
             })
+        elif tag == "@DEFECT" and len(parts) >= 5:
+            defects.append(f"{parts[1]}/{parts[2]}: {parts[4]}")
 
     _write_swarm_status(active)  # tmux status-bar specialist tag(s)
     lines = []
@@ -486,6 +488,8 @@ def main():
     cnt = _fg(f"{n} dispatched", 78 if n else 245)
     capstr = _fg(f" / {cap}", 245) if cap != "?" else ""
     status = f"{cnt}{capstr}   {_fg('·', 240)}   {_fg(utc, 245)}"
+    if defects:
+        status += "   " + _fg(f"⚠ {len(defects)} process defect(s): {defects[0]}", 203)
     lines.append(_dcenter(title, WIDTH))
     lines.append(_dcenter(status, WIDTH))
     lines.append("")

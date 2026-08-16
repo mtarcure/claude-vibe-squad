@@ -32,10 +32,19 @@ _XAI_BASE_URL = "https://api.x.ai/v1"
 _MAX_INLINE_MEDIA_DATA_URL_CHARS = 32 * 1024 * 1024
 _INLINE_MEDIA_CAP_ERROR = "media payload exceeds 32 MiB cap"
 
-_IMAGE_MODEL_ALIASES = {
+_UNVERIFIED_GEMINI_IMAGE_SUCCESSOR: None = None
+_RETIRED_GEMINI_IMAGE_MODELS = frozenset({"imagen-4.0-generate-001"})
+_GEMINI_IMAGE_ROUTE_ERROR = (
+    "Gemini image route unavailable: imagen-4.0-generate-001 shuts down "
+    "2026-08-17 and no successor has been verified via models.list"
+)
+
+_IMAGE_MODEL_ALIASES: dict[str, dict[str, str | None]] = {
     "gemini": {
-        "gpt-image-2": "imagen-4.0-generate-001",
-        "imagen-4": "imagen-4.0-generate-001",
+        # Keep the public-name indirection explicit, but fail closed until a
+        # read-only discovery probe proves the concrete Google successor ID.
+        "gpt-image-2": _UNVERIFIED_GEMINI_IMAGE_SUCCESSOR,
+        "imagen-4": _UNVERIFIED_GEMINI_IMAGE_SUCCESSOR,
     },
     "xai": {
         "gpt-image-2": "grok-imagine-image-quality",
@@ -83,7 +92,11 @@ def _api_key(provider: str) -> str | None:
     return os.environ.get(f"{provider.upper()}_API_KEY")
 
 
-def _resolved_model(provider: str, model: str, aliases: dict[str, dict[str, str]]) -> str:
+def _resolved_model(
+    provider: str,
+    model: str,
+    aliases: dict[str, dict[str, str | None]],
+) -> str | None:
     return aliases.get(provider, {}).get(model, model)
 
 
@@ -205,8 +218,8 @@ def generate_image(
 
     Provider routing:
       - openai -> POST /v1/images/generations (gpt-image-2 / dall-e-3)
-      - gemini -> POST /v1beta/models/{imagen-model}:predict
-        (Imagen 4 is deprecated and scheduled to shut down 2026-08-17.)
+      - gemini -> fails closed until models.list verifies an Imagen successor;
+        the retiring concrete model is rejected even when requested directly
       - xai    -> POST /v1/images/generations (grok-imagine-image-quality)
 
     Returns {ok, url, provider, model, error}. Network errors surface
@@ -242,6 +255,13 @@ def generate_image(
         if not api_key:
             return {"ok": False, "error": "GEMINI_API_KEY missing"}
         resolved_model = _resolved_model(provider, model, _IMAGE_MODEL_ALIASES)
+        if resolved_model is None or resolved_model in _RETIRED_GEMINI_IMAGE_MODELS:
+            return {
+                "ok": False,
+                "error": _GEMINI_IMAGE_ROUTE_ERROR,
+                "provider": provider,
+                "model": model,
+            }
         aspect_ratio, resolution = _dimensions(size)
         parameters: dict[str, Any] = {
             "sampleCount": 1,

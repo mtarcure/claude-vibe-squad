@@ -1,7 +1,0 @@
-[profile.default]
-src = "tests/empty-src"
-test = "tests"
-solc_version = "0.8.20"
-optimizer = true
-optimizer_runs = 200
-

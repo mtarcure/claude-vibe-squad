@@ -12,9 +12,6 @@ import sys
 from pathlib import Path
 from typing import Any, Iterable
 
-from subswarm_capacity import CapacityError, subagent_code_ceiling
-
-
 MEMBER_SCHEMA = "swarm-member-result/v1"
 DIFF_SCHEMA = "swarm-diff/v1"
 ORCHESTRATION_DIRECTIVE_SCHEMA = "lead-orchestration-directive/v1"
@@ -23,7 +20,6 @@ REVIEW_SUBJECTS_SCHEMA = "subswarm-review-subjects/v1"
 REVIEW_ITEM_SCHEMA = "subswarm-review-item/v1"
 FINDING_REVIEW_SCHEMA = "finding-review/v1"
 SUBSWARM_FEATURE_FLAG = "SQUAD_SUBSWARM_ORCHESTRATION_ENABLED"
-SUBSWARM_CONCURRENCY_CAP = "SQUAD_SUBAGENT_CONCURRENCY_CAP"
 COMPLETE_STATUSES = frozenset({"complete", "needs_review"})
 MEMBER_STATUSES = COMPLETE_STATUSES | frozenset(
     {"blocked", "needs_human", "cancelled", "timed_out"}
@@ -71,13 +67,6 @@ def _sha256_string(value: object, field: str) -> str:
     if not isinstance(value, str) or not _SHA256.fullmatch(value):
         raise SwarmDiffError(f"{field} must be lowercase 64-hex")
     return value
-
-
-def _subagent_cap() -> int:
-    try:
-        return subagent_code_ceiling()
-    except CapacityError as exc:
-        raise SwarmDiffError(str(exc)) from exc
 
 
 def load_taxonomy(path: Path) -> dict[str, Any]:
@@ -272,8 +261,6 @@ def _normalize_orchestration_directive_core(value: object) -> dict[str, Any]:
     maximum = value["max_concurrency"]
     if isinstance(maximum, bool) or not isinstance(maximum, int) or maximum < 1:
         raise SwarmDiffError("max_concurrency must be a positive integer")
-    if maximum > _subagent_cap():
-        raise SwarmDiffError("max_concurrency exceeds the configured per-lead cap")
     if mode == "sequential" and maximum != 1:
         raise SwarmDiffError("sequential orchestration requires max_concurrency=1")
     if not isinstance(value["members"], list) or not value["members"]:

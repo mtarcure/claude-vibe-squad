@@ -28,7 +28,7 @@ import unittest
 
 REPO = Path(__file__).resolve().parents[3]
 SEND_TASK = REPO / "bin" / "send-task.sh"
-LINKED_SUBTREES = ("shared", "scripts", "model-lanes")
+LINKED_SUBTREES = ("shared", "model-lanes")
 MAILBOXES = ("inbox", "active", "outbox", "archive")
 
 # Every character `str.splitlines()` treats as a line break but `str.split("\n")`
@@ -84,6 +84,10 @@ def newline_only_fields(raw: bytes) -> dict[str, str]:
 
 
 class SendTaskTailsTests(unittest.TestCase):
+    def test_mktemp_placeholders_end_each_template_for_bsd_mktemp(self) -> None:
+        sender = SEND_TASK.read_text(encoding="utf-8")
+        self.assertNotRegex(sender, r"XXXXXX[^\"'\s)]")
+
     def setUp(self) -> None:
         self.root = Path(tempfile.mkdtemp(prefix="sendtask-tails-"))
         self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
@@ -91,6 +95,30 @@ class SendTaskTailsTests(unittest.TestCase):
         self.vault.mkdir()
         for name in LINKED_SUBTREES:
             (self.vault / name).symlink_to(REPO / name)
+        scripts = self.vault / "scripts"
+        scripts.mkdir()
+        for entry in (REPO / "scripts").iterdir():
+            if entry.name != "python":
+                (scripts / entry.name).symlink_to(entry, target_is_directory=entry.is_dir())
+        python_dir = scripts / "python"
+        python_dir.mkdir()
+        for entry in (REPO / "scripts" / "python").iterdir():
+            if entry.name != "host_admission.py":
+                (python_dir / entry.name).symlink_to(entry, target_is_directory=entry.is_dir())
+        # Production binds the admission decision to the exact candidate vector
+        # (host_admission computes candidate_vector_sha256, send-task refuses a
+        # reply whose hash does not match). A stub omitting the field is
+        # rejected with "candidate vector binding mismatch" before the behaviour
+        # under test is reached, so echo back the vector we were handed.
+        (python_dir / "host_admission.py").write_text(
+            "import json, sys\n"
+            "argv = sys.argv[1:]\n"
+            "vector = (argv[argv.index('--vector-sha256') + 1]\n"
+            "          if '--vector-sha256' in argv else '')\n"
+            "print(json.dumps({'admitted': True, 'action': 'admit',\n"
+            "                  'candidate_vector_sha256': vector}))\n",
+            encoding="utf-8",
+        )
 
         # Link every dispatcher helper except the board supervisor.  The missing
         # executable is a deterministic post-registration stop: the contract is
@@ -148,7 +176,6 @@ class SendTaskTailsTests(unittest.TestCase):
                 **os.environ,
                 "VAULT_ROOT": str(self.vault),
                 "SKIP_NUDGE": "1",
-                "FAILOVER_CONTROL_ENABLED": "0",
                 "UV_CACHE_DIR": str(self.root / "uv-cache"),
             },
             capture_output=True,

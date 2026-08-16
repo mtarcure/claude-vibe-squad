@@ -66,23 +66,23 @@ attach at a named step of any protocol whenever their trigger condition holds:
 
 ---
 
-## `capability_state` (per capability; derived, not hand-set)
+## `capability_state` (per capability; zero-key default with a derived ceiling)
 
-Each capability declares a state that the Phase-2 validator will **derive** from a per-lane tool-verify
-pass against `shared/api-catalog.md` (a tool citation is valid only at `verified: yes` for the executing
-lane):
+Each capability declares what a zero-key/default checkout can run. The validator also derives a
+configured-host ceiling from the tool registry, but a ceiling is not fresh-install proof: a role that needs
+an unconfigured MCP server, private vault binding, provider credential, authenticated subscription session,
+or host-only executable is `needs_tool` until that prerequisite is supplied.
 
-- **`live`** — every core-step tool is verified on the executing lane; the capability runs end-to-end.
-- **`lane-gated`** — live only on specific lane(s) (e.g. ElevenLabs child tools = Claude-only; context7 /
-  firecrawl / GitHub plugin = Claude-only); the protocol pins those steps to the capable lane.
-- **`degraded-blueprint`** — a core tool is `verified: no` / absent, so the step produces a spec/blueprint
-  (TBASF) and terminates `capability_gap` rather than a false success.
-- **`needs_tool`** — a required connector is unverified/absent (e.g. `chrome-devtools`/`playwright`/
-  `figma`/`firebase` have no verified catalog row today; no analytics connector for measured SEO impact).
+- **`live`** — the zero-key checkout admits every required role and runs the core path end-to-end.
+- **`lane-gated`** — the zero-key checkout runs only on named lane(s), with no undone private setup on them.
+- **`degraded-blueprint`** — the zero-key checkout can actually produce a spec/blueprint (TBASF) and then
+  terminates `capability_gap`; merely having a blueprint fallback on a configured host is insufficient.
+- **`needs_tool`** — fresh-install admission or a core step requires setup the downloader has not done. The
+  reason names the missing MCP/vault/auth/local-binary/provider prerequisite and the configured-host ceiling.
 
-The validator auto-downgrades the state when a tool fails to resolve — the field is computed, never
-asserted by hand. No phantom roster IDs: every `specialists` entry must exist in
-`shared/specialist-runtime-map.tsv`.
+The validator auto-downgrades overclaims when a registry tool fails to resolve; it does not upgrade a
+conservative zero-key declaration merely because the maintainer registry is green. No phantom roster IDs:
+every `specialists` entry must exist in `shared/specialist-runtime-map.tsv`.
 
 ---
 
@@ -103,10 +103,10 @@ Every tool in a step carries a cost class so a protocol's metered exposure is vi
 ## Offensive-gate note (honesty)
 
 `operator_gate` tokens `offensive_execution` (`red-team-operator`) and `malware_detonation`
-(`reverse-engineer`) are **present in the runtime map but absent from the `routing.md §5` closed enum**.
-Capabilities that touch them must be marked **"manual authorization hold; enum + validator reconciliation
-pending"** — never "machine-enforced," never "the gate doesn't exist." (Reconciliation is a Phase-0/§4
-honesty task.)
+(`reverse-engineer`) are in the closed vocabulary and controller-held set. Capabilities that touch them must
+say that the **declaration hold is enforced at worker admission**: the supervisor denies a worker whose
+authenticated `action_scope` declares either category. Admission authenticates declarations; it does not
+remove underlying tool capability or provide a per-action gate.
 
 ---
 

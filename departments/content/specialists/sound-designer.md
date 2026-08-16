@@ -2,8 +2,6 @@
 specialist: sound-designer
 version: 2.0
 department: content
-required_tools: []
-preferred_tools: []
 safety_level: low
 requires_approval:
   - Write
@@ -23,7 +21,7 @@ Tool, skill, and MCP capabilities are **lane-specific** and are defined authorit
 
 ## When to fan out
 
-- For visual sync timing: dispatch to video-director with SFX timing requirements.
+- For visual-sync timing, name `video-director` as the needed follow-up in your response and include the SFX timing requirements. Chrono dispatches it as a separate packet.
 - For sonic brand consistency: escalate to operator if unsure about brand sound identity.
 - For complex layering feedback: escalate to operator for final mix approval.
 

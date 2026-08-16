@@ -15,10 +15,11 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-from clearance import can_read, lane_clearance
+import audit
+from clearance import ClearanceError, can_read, lane_clearance, recall_constraints
 from index import FTS_COLUMNS, INDEX_SCHEMA_VERSION
 from query import TOKEN_PATTERN, build_fts_query
-from vaultroot import resolve_vault_root
+from vaultroot import VaultRootError, resolve_vault_root
 
 
 DEFAULT_STATUSES = ("candidate", "verified")
@@ -160,11 +161,17 @@ def _narrow_sensitivities(
     return tuple(value for value in process_allowed if value in ceiling)
 
 
-def _empty(recall_id: str, *, query_error: str | None = None) -> dict[str, Any]:
+def _empty(
+    recall_id: str,
+    *,
+    audit_result: str,
+    query_error: str | None = None,
+) -> dict[str, Any]:
     result: dict[str, Any] = {
         "recall_id": recall_id,
         "tiers_searched": ["active"],
         "results": [],
+        "_audit_result": audit_result,
     }
     if query_error is not None:
         result["query_error"] = query_error
@@ -406,29 +413,136 @@ def _is_fts_syntax_error(error: sqlite3.OperationalError) -> bool:
     )
 
 
+def _unreconciled_note_ids(audit_dir: Path | None = None) -> frozenset[str]:
+    """Note ids left in an unreconciled contradiction, read from the audit trail.
+
+    A write that contradicts an active note on the same subject and does not
+    declare the relationship is recorded — never refused — as one ``contradiction``
+    audit event with result ``flagged``, naming the contradicted notes in
+    ``unreconciled_note_ids`` (see ``notes._emit_contradiction_event``). That event
+    is the ONLY record that a stored note is disputed: the fact lives nowhere on
+    the note or the index, which is why a reader receiving the note today cannot
+    tell it is contested. This reads it back so ``recall`` can mark the note.
+
+    The flagged events under ``<audit_dir>/contradiction/`` are the single source;
+    ``chrono_state.resume`` counts the same set for the capsule. Best-effort by
+    construction — an unresolved trail, or an unreadable or malformed event, yields
+    no marks rather than breaking the recall it annotates, mirroring the never-gate
+    rule the write path already follows. Cost is one directory scan per non-empty
+    recall (O(events)); an index would be faster but is the machinery this fix
+    deliberately does not build.
+    """
+    if audit_dir is None:
+        audit_dir = audit.resolve_audit_dir()
+    if audit_dir is None:
+        return frozenset()
+    try:
+        events = list((audit_dir / "contradiction").glob("evt-*.json"))
+    except OSError:
+        return frozenset()
+    disputed: set[str] = set()
+    for event_path in events:
+        try:
+            event = json.loads(event_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            continue
+        if not isinstance(event, dict) or event.get("result") != audit.CONTRA_FLAGGED:
+            continue
+        ids = event.get("unreconciled_note_ids")
+        if isinstance(ids, list):
+            disputed.update(note_id for note_id in ids if isinstance(note_id, str))
+    return frozenset(disputed)
+
+
 def recall(query: str, filters: dict = None, limit: int = 8) -> dict[str, Any]:
     """Return ranked, quoted note snippets from the active FTS5 tier.
 
     The optional `max_sensitivity` filter narrows results to that tier and
     below (for example, recalling on behalf of an internal-tier destination).
     It intersects with this process's clearance and can never widen it.
+
+    Each returned note carries `disputed` (bool): True when the note is left in
+    an unreconciled contradiction that a later write flagged but never reconciled
+    (`_unreconciled_note_ids`). The reader is thereby told a note is contested
+    instead of receiving it as if settled.
+
+    Every call emits exactly one audit event (best-effort, never gating). The
+    event's `result` distinguishes a recall that matched nothing from one that
+    ran against an empty or broken store, and the absence of an event marks a
+    recall that never ran. Behaviour on the return/raise path is unchanged: the
+    internal `_audit_result` marker is stripped before the caller sees the dict,
+    and every exception is re-raised exactly as before.
     """
     recall_id = str(uuid.uuid4())
+    request_hash = audit.request_digest(
+        "recall", {"query": query, "filters": filters, "limit": limit}
+    )
+    result_code = audit.ERROR
+    returned_note_ids: list[str] = []
+    try:
+        response = _recall(query, recall_id, filters, limit)
+        result_code = response.pop("_audit_result")
+        returned_note_ids = [row["id"] for row in response["results"]]
+        return response
+    except ClearanceError:
+        result_code = audit.DENIED
+        raise
+    except (RecallError, VaultRootError):
+        result_code = audit.UNAVAILABLE
+        raise
+    finally:
+        audit.emit(
+            "recall",
+            result=result_code,
+            request_hash=request_hash,
+            returned_note_ids=returned_note_ids,
+            recall_id=recall_id,
+        )
+
+
+def _recall(
+    query: str,
+    recall_id: str,
+    filters: dict = None,
+    limit: int = 8,
+) -> dict[str, Any]:
+    constraints = recall_constraints()
     if not isinstance(query, str):
         raise RecallError("query must be a string")
     if not query.strip() or "\x00" in query or len(query) > MAX_QUERY_CHARS:
-        return _empty(recall_id, query_error="invalid_fts_query")
+        return _empty(
+            recall_id, audit_result=audit.QUERY_ERROR, query_error="invalid_fts_query"
+        )
     if (
         _has_unknown_column_selector(query)
         or query.strip() == "*"
         or query.count('"') % 2
     ):
-        return _empty(recall_id, query_error="invalid_fts_query")
+        return _empty(
+            recall_id, audit_result=audit.QUERY_ERROR, query_error="invalid_fts_query"
+        )
     fts_query = build_expanded_fts_query(query)
     validated_limit = _validate_limit(limit)
     structured, statuses, max_sensitivity = _validate_filters(filters)
+    if constraints is not None:
+        allowed_statuses = constraints["statuses"]
+        statuses = tuple(value for value in statuses if value in allowed_statuses)
+        allowed_types = constraints["note_types"]
+        if structured.get("type") not in {None, *allowed_types}:
+            return _empty(recall_id, audit_result=audit.FILTERED)
+        focus = constraints["target"]
+        if focus is not None:
+            if structured.get("target") not in {None, focus}:
+                return _empty(recall_id, audit_result=audit.FILTERED)
+            structured["target"] = focus
+        cutoff = constraints["written_before_ns"]
+        if cutoff is not None:
+            structured["written_before_ns"] = min(
+                cutoff,
+                int(structured.get("written_before_ns", cutoff)),
+            )
     if not statuses:
-        return _empty(recall_id)
+        return _empty(recall_id, audit_result=audit.FILTERED)
     clearance = lane_clearance()
     process_allowed = (
         ("internal", "restricted")
@@ -437,12 +551,12 @@ def recall(query: str, filters: dict = None, limit: int = 8) -> dict[str, Any]:
     )
     allowed_sensitivities = _narrow_sensitivities(process_allowed, max_sensitivity)
     if not allowed_sensitivities:
-        return _empty(recall_id)
+        return _empty(recall_id, audit_result=audit.FILTERED)
 
     root = resolve_vault_root()
     with _read_index(root) as connection:
         if connection is None:
-            return _empty(recall_id)
+            return _empty(recall_id, audit_result=audit.EMPTY_STORE)
 
         weights = _load_weights(connection)
         weight_sql = ",".join(format(value, ".17g") for value in weights)
@@ -456,6 +570,12 @@ def recall(query: str, filters: dict = None, limit: int = 8) -> dict[str, Any]:
             *statuses,
             *allowed_sensitivities,
         ]
+        if constraints is not None and set(constraints["note_types"]) != NOTE_TYPES:
+            allowed_types = constraints["note_types"]
+            clauses.append(
+                f"m.note_type IN ({','.join('?' for _ in allowed_types)})"
+            )
+            parameters.extend(allowed_types)
 
         column_filters = {
             "target": "notes_fts.target = ?",
@@ -468,7 +588,7 @@ def recall(query: str, filters: dict = None, limit: int = 8) -> dict[str, Any]:
                 clauses.append(clause)
                 parameters.append(structured[field])
         if "written_before_ns" in structured:
-            clauses.append("m.mtime_ns < ?")
+            clauses.append("m.created_at_ns < ?")
             parameters.append(structured["written_before_ns"])
         if "keywords" in structured:
             clauses.append(
@@ -493,7 +613,11 @@ def recall(query: str, filters: dict = None, limit: int = 8) -> dict[str, Any]:
             rows = list(connection.execute(sql, parameters))
         except sqlite3.OperationalError as exc:
             if _is_fts_syntax_error(exc):
-                return _empty(recall_id, query_error="invalid_fts_query")
+                return _empty(
+                    recall_id,
+                    audit_result=audit.QUERY_ERROR,
+                    query_error="invalid_fts_query",
+                )
             raise RecallError("index query failed") from exc
 
         generation_row = connection.execute(
@@ -536,8 +660,18 @@ def recall(query: str, filters: dict = None, limit: int = 8) -> dict[str, Any]:
                 }
             )
 
+    # P13.66 — surface the write-time contradiction the audit trail already
+    # recorded. A note left in an unreconciled contradiction is disputed, and the
+    # reader must be told so on the note itself. One scan, only when there is
+    # something to mark; `disputed` is present on every returned note (False on a
+    # clean one) so a consumer can rely on the key.
+    disputed_ids = _unreconciled_note_ids() if results else frozenset()
+    for row in results:
+        row["disputed"] = row["id"] in disputed_ids
+
     return {
         "recall_id": recall_id,
         "tiers_searched": ["active"],
         "results": results,
+        "_audit_result": audit.MATCHED if results else audit.NO_MATCH,
     }

@@ -2,8 +2,6 @@
 specialist: video-editor
 version: 2.0
 department: content
-required_tools: []
-preferred_tools: []
 safety_level: low
 requires_approval:
   - Write

@@ -9,9 +9,11 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 import sys
 import tempfile
+from typing import ClassVar
 import unittest
 from unittest import mock
 
@@ -62,6 +64,41 @@ def _stage_worker_completion(worktree: Path) -> None:
         "Fresh retry completed.\n",
         encoding="utf-8",
     )
+
+
+class RegistryAtomicWriteDurabilityTests(unittest.TestCase):
+    def test_atomic_write_fsyncs_file_then_parent_directory(self) -> None:
+        real_fsync = os.fsync
+        observed: list[str] = []
+
+        def recording_fsync(descriptor: int) -> None:
+            mode = os.fstat(descriptor).st_mode
+            observed.append("directory" if stat.S_ISDIR(mode) else "file")
+            real_fsync(descriptor)
+
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "active-tasks.json"
+            with mock.patch.object(
+                reconciler.os, "fsync", side_effect=recording_fsync
+            ):
+                reconciler.atomic_write(destination, '{"TASK": {}}\n')
+
+            self.assertEqual(observed, ["file", "directory"])
+            self.assertEqual(destination.read_text(encoding="utf-8"), '{"TASK": {}}\n')
+
+    def test_atomic_write_removes_staging_file_when_replace_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "active-tasks.json"
+            destination.write_text("old\n", encoding="utf-8")
+
+            with mock.patch.object(
+                Path, "replace", side_effect=OSError("injected replace failure")
+            ):
+                with self.assertRaisesRegex(OSError, "injected replace failure"):
+                    reconciler.atomic_write(destination, "new\n")
+
+            self.assertEqual(destination.read_text(encoding="utf-8"), "old\n")
+            self.assertEqual(list(destination.parent.glob("active-tasks.json.tmp.*")), [])
 
 
 class BlockedStubReclaimTests(unittest.TestCase):
@@ -298,6 +335,151 @@ class InboxArchiveSettlementTests(unittest.TestCase):
             self.assertGreater(changed, 0, messages)
             self.assertFalse(packet.exists())
             self.assertEqual(archived.read_bytes(), payload)
+
+
+class StructuralWriteScopeRefusalTest(unittest.TestCase):
+    """send-task.sh must refuse a structural write_scope path at DISPATCH time.
+
+    worktree_isolation refuses any worker commit touching `.git` or `.githooks`
+    regardless of write_scope, and that refusal discards the entire lane's
+    output rather than just the offending file. So granting such a path reads as
+    authorization while behaving as a guaranteed total loss. Measured
+    2026-08-15: lane 6200 lost a full documentation pass exactly this way.
+    """
+
+    SEND_TASK = IMPLEMENTATION_ROOT / "bin" / "send-task.sh"
+
+    # send-task.sh refuses to dispatch from a linked worktree, and that guard runs
+    # BEFORE the structural write_scope check. Running these tests from a worktree
+    # would therefore exercise the wrong guard and assert on a message that cannot
+    # appear -- the result would depend on which checkout the suite ran in rather
+    # than on the behaviour under test. So when we are in a worktree, build a
+    # throwaway NORMAL repo from the same tree and drive the real script there.
+    # That is also the production path: dispatch only ever happens from a main
+    # checkout.
+    _scratch: ClassVar[tempfile.TemporaryDirectory | None] = None
+    _root: ClassVar[Path]
+
+    @classmethod
+    def setUpClass(cls):
+        git_dir = subprocess.run(
+            ["git", "-C", str(IMPLEMENTATION_ROOT), "rev-parse", "--git-dir"],
+            capture_output=True, text=True, check=False,
+        ).stdout.strip()
+        common_dir = subprocess.run(
+            ["git", "-C", str(IMPLEMENTATION_ROOT), "rev-parse", "--git-common-dir"],
+            capture_output=True, text=True, check=False,
+        ).stdout.strip()
+        if git_dir == common_dir:
+            cls._root = IMPLEMENTATION_ROOT      # already a normal checkout
+            return
+        cls._scratch = tempfile.TemporaryDirectory()
+        root = Path(cls._scratch.name) / "repo"
+        root.mkdir()
+        archive = Path(cls._scratch.name) / "tree.tar"
+        subprocess.run(
+            ["git", "-C", str(IMPLEMENTATION_ROOT), "archive", "HEAD", "-o", str(archive)],
+            check=True, capture_output=True,
+        )
+        subprocess.run(["tar", "-xf", str(archive), "-C", str(root)], check=True)
+        for cmd in (
+            ["git", "init", "-q", "."],
+            ["git", "add", "-A"],
+            ["git", "-c", "user.email=t@t", "-c", "user.name=t",
+             "commit", "-q", "-m", "scratch"],
+        ):
+            subprocess.run(cmd, cwd=str(root), check=False, capture_output=True)
+        cls._root = root
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls._scratch is not None:
+            cls._scratch.cleanup()
+            cls._scratch = None
+
+    def _packet(self, write_scope: str) -> str:
+        return (
+            "---\n"
+            "id: TASK-2026-08-15-9991-structural-scope-test\n"
+            "run_id: TEST-STRUCTURAL\n"
+            "from: chrono\n"
+            "to_model: claude\n"
+            "specialist: technical-writer\n"
+            "source_namespace: content\n"
+            "compatibility_namespace: content\n"
+            "review_model: gpt-codex\n"
+            "mandatory_review: false\n"
+            "review_class: standard\n"
+            "mode: project\n"
+            "result_type: normal\n"
+            "memory_aperture: none\n"
+            "capability: none\n"
+            "phase: P14.2\n"
+            "type: TASK\n"
+            "priority: low\n"
+            "status: new\n"
+            "created: 2026-08-15T21:00:00-07:00\n"
+            "deadline: 2026-08-15T23:59:00-07:00\n"
+            f"write_scope: [{write_scope}]\n"
+            "read_scope: [docs]\n"
+            "return_artifact: docs/unused-structural-test.md\n"
+            "success_criteria: [never runs]\n"
+            "out_of_scope: [everything]\n"
+            "parallel_safe: true\n"
+            "direct_lane_work_allowed: true\n"
+            "operator_approved: true\n"
+            "model_override_reason: none\n"
+            "---\n\n"
+            "# Structural write_scope canary\n\n"
+            "This packet must never launch a lane.\n"
+        )
+
+    def _run(self, write_scope: str) -> subprocess.CompletedProcess:
+        with tempfile.TemporaryDirectory() as tmp:
+            packet = Path(tmp) / "canary.md"
+            packet.write_text(self._packet(write_scope), encoding="utf-8")
+            return subprocess.run(
+                ["bash", str(self._root / "bin" / "send-task.sh"), str(packet)],
+                capture_output=True,
+                text=True,
+                check=False,
+                cwd=str(self._root),
+            )
+
+    def test_structural_path_is_refused_before_dispatch(self):
+        completed = self._run("docs/git-hooks.md, .githooks/pre-commit")
+        output = completed.stdout + completed.stderr
+        self.assertNotEqual(completed.returncode, 0, output)
+        self.assertIn("structural path a worker can never commit", output)
+        self.assertIn(".githooks", output)
+        # It must die BEFORE anything is dispatched, or the guard is decorative.
+        self.assertNotIn("Dispatching TASK-2026-08-15-9991", output)
+
+    def test_nested_structural_segment_is_also_refused(self):
+        # A segment anywhere in the path counts, not only the first one.
+        completed = self._run("tools/.git/config")
+        output = completed.stdout + completed.stderr
+        self.assertNotEqual(completed.returncode, 0, output)
+        self.assertIn("structural path a worker can never commit", output)
+
+    def test_the_segment_set_has_one_home(self):
+        """The guard must import the enforcer's constant, never restate it.
+
+        A hardcoded copy would predict the enforcer correctly today and drift
+        silently the moment a segment is added on the other side.
+        """
+        source = self.SEND_TASK.read_text(encoding="utf-8")
+        self.assertIn(
+            "from worktree_isolation import _CBSE_STRUCTURAL_SEGMENTS",
+            source,
+            "send-task.sh must import the structural-segment set, not restate it",
+        )
+        guard = source.split("Refuse a structural path HERE", 1)[1].split("PYEOF", 1)[0]
+        self.assertNotIn(
+            '".githooks"',
+            guard,
+            "structural segments must not be hardcoded in the dispatcher",
+        )
 
 
 if __name__ == "__main__":

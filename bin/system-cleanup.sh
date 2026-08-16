@@ -1,82 +1,95 @@
 #!/bin/bash
-# System cleanup (light) — runs nightly. Brew/npm/pip caches, /tmp, old runs.
-# Heavy cleanup (deep KG, stale instinct purge) runs Sunday in run-weekly.sh.
+# Nightly cleanup census. Intentionally report-only: age is an observation,
+# never authority to move or delete an artifact.
 
-set -uo pipefail
+set -euo pipefail
 
 export PATH="${HOME}/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:${PATH}"
 
 # shellcheck source-path=SCRIPTDIR source=../shared/repo-root.sh disable=SC1091
 source "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")/.." && pwd -P)/shared/repo-root.sh"
-DATE="$(date -u +%Y-%m-%d)"
-LOG="${VAULT_ROOT}/_state/cleanup-logs/${DATE}-system.md"
 
-mkdir -p "$(dirname "${LOG}")"
+# Tests may point this read-only census at a disposable tree. There is no
+# corresponding apply variable or mutation path.
+TMP_SCAN_ROOT="${VIBESQUAD_CLEANUP_TMP_ROOT:-/tmp}"
+SAMPLE_LIMIT=20
+SCAN_RESULTS=""
+trap '[[ -z "${SCAN_RESULTS}" ]] || rm -f -- "${SCAN_RESULTS}"' EXIT
 
-# Track freed space
-DISK_BEFORE=$(df -k ~ | awk 'NR==2 {print $4}')
-
-cat > "${LOG}" <<EOF
-# System Cleanup — ${DATE}
+cat <<EOF
+# System Cleanup Census — $(date -u +%Y-%m-%d)
 
 Run at: $(date -u +%FT%TZ)
 
-## Caches
+- cleanup_mode: report-only
+- age_basis: mtime observation only; non-authoritative
+- storage_class: unknown
+- effective_storage_class: DURABLE
+- cleanup_eligible: false
 
+No apply mode exists. Cleanup flags and command-line arguments are ignored.
+Package cache mutations: 0.
+
+## Temporary-file observations
 EOF
 
-# brew cleanup (silent if not installed)
-if command -v brew >/dev/null 2>&1; then
-    brew_freed=$(brew cleanup -n 2>/dev/null | tail -1 || echo "(none)")
-    brew cleanup >/dev/null 2>&1 || true
-    echo "- brew cleanup: ${brew_freed}" >> "${LOG}"
+TMP_CANDIDATES=0
+TMP_SCAN_COMPLETE=true
+if [[ -d "${TMP_SCAN_ROOT}" ]]; then
+    SCAN_RESULTS="$(mktemp "${TMPDIR:-/tmp}/vibesquad-cleanup-census.XXXXXX")"
+    if ! find "${TMP_SCAN_ROOT}" -type f -mtime +7 -print0 >"${SCAN_RESULTS}" 2>/dev/null; then
+        TMP_SCAN_COMPLETE=false
+    fi
+    while IFS= read -r -d '' candidate; do
+        TMP_CANDIDATES=$((TMP_CANDIDATES + 1))
+        if [[ ${TMP_CANDIDATES} -le ${SAMPLE_LIMIT} ]]; then
+            printable="${candidate//$'\n'/\\n}"
+            printable="${printable//$'\r'/\\r}"
+            printf -- '- sample: %s; effective_storage_class: DURABLE; cleanup_eligible: false\n' "${printable}"
+        fi
+    done < "${SCAN_RESULTS}"
+    rm -f -- "${SCAN_RESULTS}"
+    SCAN_RESULTS=""
 fi
 
-# npm cache
-if command -v npm >/dev/null 2>&1; then
-    npm cache verify >/dev/null 2>&1 || true
-    echo "- npm cache verified" >> "${LOG}"
-fi
-
-# pip cache
-if command -v pip >/dev/null 2>&1; then
-    pip cache purge >/dev/null 2>&1 || true
-    echo "- pip cache purged" >> "${LOG}"
-fi
-
-# /tmp cleanup (files >7 days old)
-TMP_FILES_REMOVED=$(find /tmp -type f -atime +7 2>/dev/null | wc -l | tr -d ' ')
-find /tmp -type f -atime +7 -delete 2>/dev/null || true
-echo "" >> "${LOG}"
-echo "## Filesystem" >> "${LOG}"
-echo "- /tmp: ${TMP_FILES_REMOVED} files >7d removed" >> "${LOG}"
-
-# Run archival: completed runs older than 30 days → archive/
-ARCHIVE_DIR="${VAULT_ROOT}/runs/_archive"
-mkdir -p "${ARCHIVE_DIR}"
-ARCHIVED=0
+printf '\n## Run-folder observations\n'
+RUN_CANDIDATES=0
+RUN_SCAN_COMPLETE=true
 if [[ -d "${VAULT_ROOT}/runs" ]]; then
     for run in "${VAULT_ROOT}"/runs/*/; do
-        if [[ -d "${run}" ]] && [[ "${run}" != *"_archive"* ]]; then
-            # Check if run is >30 days old (mtime)
-            if find "${run}" -maxdepth 0 -mtime +30 2>/dev/null | grep -q .; then
-                target="${ARCHIVE_DIR}/$(date +%Y-%m)/$(basename "${run}")"
-                mkdir -p "$(dirname "${target}")"
-                mv "${run}" "${target}"
-                ARCHIVED=$((ARCHIVED + 1))
+        [[ -d "${run}" ]] || continue
+        run_name="$(basename "${run%/}")"
+        [[ "${run_name}" == _* ]] && continue
+        if ! old_run="$(find "${run}" -maxdepth 0 -mtime +30 -print -quit 2>/dev/null)"; then
+            RUN_SCAN_COMPLETE=false
+            continue
+        fi
+        if [[ -n "${old_run}" ]]; then
+            RUN_CANDIDATES=$((RUN_CANDIDATES + 1))
+            if [[ ${RUN_CANDIDATES} -le ${SAMPLE_LIMIT} ]]; then
+                printable="runs/${run_name//$'\n'/\\n}"
+                printable="${printable//$'\r'/\\r}"
+                printf -- '- sample: %s; effective_storage_class: DURABLE; cleanup_eligible: false\n' "${printable}"
             fi
         fi
     done
 fi
-echo "- Run folders archived (>30d old): ${ARCHIVED}" >> "${LOG}"
 
-# Disk delta
-DISK_AFTER=$(df -k ~ | awk 'NR==2 {print $4}')
-FREED_KB=$((DISK_AFTER - DISK_BEFORE))
-FREED_MB=$((FREED_KB / 1024))
-echo "" >> "${LOG}"
-echo "## Summary" >> "${LOG}"
-echo "- Approx. freed: ${FREED_MB} MB" >> "${LOG}"
+cat <<EOF
 
-echo "System cleanup complete. Log: ${LOG}"
-exit 0
+## Summary
+
+- temporary-file candidates observed: ${TMP_CANDIDATES}
+- run-folder candidates observed: ${RUN_CANDIDATES}
+- temporary scan complete: ${TMP_SCAN_COMPLETE}
+- run scan complete: ${RUN_SCAN_COMPLETE}
+- samples per category: at most ${SAMPLE_LIMIT}
+- package cache mutations: 0
+- files deleted: 0
+- run folders moved: 0
+EOF
+
+if [[ "${TMP_SCAN_COMPLETE}" != true || "${RUN_SCAN_COMPLETE}" != true ]]; then
+    echo "system-cleanup: census incomplete; no cleanup decision was made" >&2
+    exit 1
+fi

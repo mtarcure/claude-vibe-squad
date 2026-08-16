@@ -44,7 +44,7 @@ Tools added:
 
 Specialists:
 - smart-contract-engineer
-- security namespace invokes `exploit-developer` via `Task` tool with `subagent_type: exploit-developer` (multi-model)
+- Chrono dispatches `exploit-developer` (multi-model)
 
 Tools:
 - Slither (Solidity static analysis)
@@ -78,7 +78,7 @@ Each PoC IS a foundry/hardhat/anchor test — reproduces deterministically.
 
 Specialists:
 - chain-construct-smart-contract (chrono skill)
-- security namespace invokes `skeptic` via `Task` tool with `subagent_type: skeptic` with chain-atomicity-verify instructions
+- Chrono dispatches `skeptic` with chain-atomicity-verify instructions
 
 Output:
 - `chain-attack.sol` — multi-call exploit
@@ -88,7 +88,7 @@ Output:
 
 Specialists:
 - defi-invariant-check (chrono skill)
-- security namespace invokes `impact-validator` via `Task` tool with `subagent_type: impact-validator` with chain-impact-rescore instructions
+- Chrono dispatches `impact-validator` with chain-impact-rescore instructions
 
 Tools:
 - SI/SLI mapping
@@ -111,20 +111,24 @@ Submission format:
 
 Output: per-platform submission package, populated via persistent browser session
 
-## KG writes (smart-contract specific)
+## Durable memory writes (smart-contract specific)
 
-```yaml
-- vault/security/findings/F-NN-<title>.md (with Solidity/protocol context)
-- vault/security/protocols/<protocol-name>.md (architecture intel for re-targeting)
-- vault/security/sc-techniques/<technique>.md (e.g., "oracle manipulation via price-pump")
-```
+Recorded through the `chrono-vault` MCP `record` tool, not written to a repo path.
+Security/bounty content is `restricted` sensitivity.
+
+- `record("finding", …)` — the vulnerability, with Solidity/protocol context
+- `record("learning", …)` — protocol architecture intel, for re-targeting
+- `record("learning", …)` — the reusable technique (e.g. "oracle manipulation via price-pump")
+
+Each requires `title`, `body`, `target`, `attack_class`. New notes land as `candidate`;
+promote with `set_status` once confirmed.
 
 ## Specialists active in this profile
 
 - smart-contract-engineer (primary, coding namespace — but security namespace orchestrates)
-- security namespace invokes `exploit-developer` via `Task` tool with `subagent_type: exploit-developer` (Codex + Claude multi-model)
-- security namespace invokes `skeptic` via `Task` tool with `subagent_type: skeptic` (cross-cutting, multi-model)
-- security namespace invokes `impact-validator` via `Task` tool with `subagent_type: impact-validator` (cross-cutting, multi-model)
-- security namespace invokes `threat-modeler` via `Task` tool with `subagent_type: threat-modeler`
+- Chrono dispatches `exploit-developer` (Codex + Claude multi-model)
+- Chrono dispatches `skeptic` (cross-cutting, multi-model)
+- Chrono dispatches `impact-validator` (cross-cutting, multi-model)
+- Chrono dispatches `threat-modeler`
 - defensive-pattern-discovery (chrono skill — what defenses ARE in place?)
 - gptscan-prompt-templates (chrono skill — vuln-class-aware LLM scaffolding)

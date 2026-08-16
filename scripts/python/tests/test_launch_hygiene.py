@@ -6,11 +6,14 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import signal
 import socket
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -264,7 +267,67 @@ print(json.dumps({'returncode': result.returncode, 'stderr': result.stderr}))
         self.assertLessEqual(observed["nofile"], 64)
         self.assertLessEqual(observed["fsize"], 64 * 1024 * 1024)
 
-    def test_board_supervisor_is_non_model_and_delegates_both_gates(self) -> None:
+    def test_timeout_reaps_same_group_and_attributable_setsid_descendants(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="launch-timeout-") as raw:
+            root = Path(raw)
+            identities = root / "children.json"
+            token = f"VS_LAUNCH_TIMEOUT_{os.getpid()}_{time.time_ns()}"
+            program = (
+                "import json,os,pathlib,subprocess,sys,time; "
+                "same=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)',sys.argv[2]]); "
+                "escaped=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)',sys.argv[2]+'-escaped'],start_new_session=True); "
+                "pathlib.Path(sys.argv[1]).write_text(json.dumps([same.pid,escaped.pid])); "
+                "time.sleep(30)"
+            )
+            pids: list[int] = []
+            try:
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    hygiene.run_sanitized(
+                        [sys.executable, "-c", program, str(identities), token],
+                        env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+                        cwd=root,
+                        timeout=1,
+                        limits=hygiene.ResourceLimits(process_count=4096),
+                    )
+                pids = json.loads(identities.read_text(encoding="utf-8"))
+                self.assertTrue(all(hygiene.observe_process(pid) is None for pid in pids))
+            finally:
+                if not pids and identities.exists():
+                    pids = json.loads(identities.read_text(encoding="utf-8"))
+                for pid in pids:
+                    command = subprocess.run(
+                        ["/bin/ps", "-ww", "-p", str(pid), "-o", "command="],
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    ).stdout
+                    if token in command:
+                        try:
+                            os.kill(pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+
+    def test_cleanup_failures_remain_controller_failures(self) -> None:
+        manager = hygiene.ProcessGroupReaper()
+        manager.register(123)
+        identity = {
+            "pid": 123, "pgid": 123, "process_start_token": "x", "argv_sha256": "0" * 64
+        }
+        with mock.patch.object(hygiene, "observe_process", return_value=identity), mock.patch.object(
+            hygiene, "terminate_attributable_tree", side_effect=PermissionError("denied")
+        ):
+            with self.assertRaises(hygiene.ProcessTruthError):
+                manager.terminate(123)
+        # A second communicate timeout is the inherited-pipe-holder failure seam.
+        process, reaper = mock.Mock(pid=123), mock.Mock()
+        process.communicate.side_effect = [
+            subprocess.TimeoutExpired([], 1), subprocess.TimeoutExpired([], 1)
+        ]
+        with mock.patch.object(hygiene.subprocess, "Popen", return_value=process):
+            with self.assertRaises(hygiene.ProcessTruthError):
+                hygiene.run_sanitized(["/bin/sleep", "1"], env={"PATH": "/bin"}, cwd=Path("/"), timeout=1, reaper=reaper)
+
+    def test_board_supervisor_is_non_model_and_sender_owns_host_admission(self) -> None:
         supervisor = ROOT / "bin" / "board-supervisor.sh"
         completed = subprocess.run(
             ["bash", str(supervisor), "--help"],
@@ -276,8 +339,12 @@ print(json.dumps({'returncode': result.returncode, 'stderr': result.stderr}))
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertIn("NON-model", completed.stdout)
         script = supervisor.read_text(encoding="utf-8")
-        self.assertIn("host_admission.py", script)
-        self.assertIn("launch_hygiene.py", script)
+        self.assertNotIn("host_admission.py", script)
+        self.assertIn("from launch_hygiene import", script)
+        self.assertIn(
+            "host_admission.py",
+            (ROOT / "bin" / "send-task.sh").read_text(encoding="utf-8"),
+        )
         self.assertNotIn("--broker-port-available", script)
         self.assertNotIn("--provider-budget-available", script)
         self.assertNotIn("claude -p", script)

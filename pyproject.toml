@@ -10,6 +10,22 @@ dependencies = [
   "pyyaml",
   "dnspython",
   "python-whois",
+  # Daemon runtime. These were UNDECLARED until 2026-08-15 and the gap was
+  # invisible on the maintainer host, where they happened to be installed ad
+  # hoc: after the documented `uv sync`, `import daemon.main` failed with
+  # ModuleNotFoundError: No module named 'fastapi'. So a fresh clone got a
+  # daemon that could not start, and no check caught it because `squad doctor`
+  # never imports the daemon. uvicorn resolved only as a transitive dependency
+  # of mcp; daemon/main.py imports it directly, so it is declared directly.
+  "fastapi",
+  "uvicorn",
+  "watchfiles",
+  # Imported directly by daemon/auth.py and daemon/routes/summarize.py while
+  # resolving only as transitive dependencies of fastapi. A direct import on a
+  # transitive dependency breaks the moment the intermediary drops it, which is
+  # the same shape as the uvicorn case above.
+  "starlette",
+  "pydantic",
 ]
 
 [tool.uv]

@@ -6,6 +6,8 @@ set -uo pipefail
 
 # shellcheck source-path=SCRIPTDIR source=../shared/repo-root.sh disable=SC1091
 source "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")/.." && pwd -P)/shared/repo-root.sh"
+# shellcheck source=doctor-log-home.sh disable=SC1091
+source "${VAULT_ROOT}/bin/doctor-log-home.sh" || exit $?
 source "${VAULT_ROOT}/shared/lead-windows.sh"
 DATE="$(date -u +%Y-%m-%d)"
 
@@ -20,30 +22,96 @@ echo ""
 # Doctor verdict (today)
 hr
 color '1;33' '## DOCTOR'
-SUM="${VAULT_ROOT}/_state/doctor-logs/${DATE}-summary.json"
+SUM="${CHRONO_DOCTOR_LOG_DIR}/${DATE}-summary.json"
 if [[ -f "${SUM}" ]] && command -v jq >/dev/null 2>&1; then
-    jq -r '"  healthy: \(.healthy_count) │ warnings: \(.warning_count) │ issues: \(.issue_count)"' "${SUM}"
+    jq -r '"  pass: \(.healthy_count // 0) │ failure: \(.issue_count // 0) │ could-not-run: \(.unknown_count // 0) │ not-applicable: \(.skipped_count // 0) │ warnings: \(.warning_count // 0)"' "${SUM}"
     jq -r '.warnings[]? | "  ⚠ " + .' "${SUM}"
     jq -r '.issues[]? | "  🔔 " + .' "${SUM}"
+    jq -r '.unknowns[]? | "  ? COULD NOT RUN: " + .' "${SUM}"
+    jq -r '.skipped[]? | "  ○ NOT APPLICABLE: " + .' "${SUM}"
 else
     echo "  (no doctor run today — bash bin/doctor.sh to refresh)"
 fi
 echo ""
 
-# Active-task registry
+# Active-task registry. Status classification belongs to registry_view(); this
+# surface only renders its live/deferred/unclassified partition. Keeping the
+# one computed result for both this section and RESPONSE DRIFT prevents the two
+# panes from disagreeing about which tasks are live.
+registry_view_rows() {
+    if ! command -v python3 >/dev/null 2>&1; then
+        printf 'UNAVAILABLE\tpython3 is unavailable\n'
+        return 0
+    fi
+    VAULT_ROOT="${VAULT_ROOT}" PYTHONDONTWRITEBYTECODE=1 python3 - <<'PY' 2>/dev/null || printf 'UNAVAILABLE\tregistry_view failed\n'
+import os
+import sys
+
+root = os.environ["VAULT_ROOT"]
+sys.path.insert(0, os.path.join(root, "scripts", "python"))
+from chrono_state.registry import LIVE_REGISTRY, registry_view
+
+if not LIVE_REGISTRY.is_file():
+    print("UNAVAILABLE\tlive registry is absent")
+    raise SystemExit(0)
+
+view = registry_view()
+
+def clean(value):
+    return str(value if value not in (None, "") else "?").replace("\t", " ").replace("\n", " ")
+
+lines = [
+    "\t".join(
+        (
+            "SUMMARY",
+            str(len(view["live"])),
+            str(len(view["deferred"])),
+            str(sum(view["unclassified"].values())),
+        )
+    )
+]
+for kind in ("live", "deferred"):
+    for task in view[kind]:
+        lines.append(
+            "\t".join(
+                (
+                    kind.upper(),
+                    clean(task.get("id")),
+                    clean(task.get("state")),
+                    clean(task.get("to_model")),
+                    clean(task.get("specialist")),
+                    clean(task.get("next_action")),
+                )
+            )
+        )
+for status, count in sorted(view["unclassified"].items(), key=lambda item: clean(item[0])):
+    lines.append("\t".join(("UNCLASSIFIED", clean(status), str(count))))
+print("\n".join(lines))
+PY
+}
+
+REGISTRY_VIEW_ROWS="$(registry_view_rows)"
 hr
 color '1;33' '## ACTIVE REGISTRY'
-REGISTRY="${VAULT_ROOT}/_state/active-tasks.json"
-if [[ -f "${REGISTRY}" ]] && command -v jq >/dev/null 2>&1; then
-    in_flight=$(jq '[to_entries[] | select(.value.status == "in-flight")] | length' "${REGISTRY}" 2>/dev/null || echo 0)
-    complete=$(jq '[to_entries[] | select(.value.status == "complete")] | length' "${REGISTRY}" 2>/dev/null || echo 0)
-    echo "  in-flight: ${in_flight} │ complete: ${complete}"
-    jq -r 'to_entries[] | select(.value.status == "in-flight") | "  " + .key + " -> " + (.value.to_model // "?") + " / " + (.value.specialist // "?") + " source=" + (.value.source_namespace // .value.compatibility_namespace // "?") + " scope=" + ((.value.write_scope // []) | join(","))' "${REGISTRY}" 2>/dev/null
-elif [[ -f "${REGISTRY}" ]]; then
-    echo "  ${REGISTRY} exists; install jq for structured summary"
-else
-    echo "  (no active-task registry yet)"
-fi
+while IFS=$'\t' read -r kind first second third fourth fifth; do
+    case "${kind}" in
+        SUMMARY)
+            echo "  live: ${first} │ deferred: ${second} │ could-not-determine status: ${third}"
+            ;;
+        LIVE)
+            echo "  ${first} [${second}] -> ${third} / ${fourth} — ${fifth}"
+            ;;
+        DEFERRED)
+            color '0;35' "  DEFERRED: ${first} [${second}] -> ${third} / ${fourth} — ${fifth}"
+            ;;
+        UNCLASSIFIED)
+            color '1;31' "  COULD NOT DETERMINE: ${second} task(s) have unclassified status '${first}'"
+            ;;
+        UNAVAILABLE)
+            color '1;31' "  COULD NOT DETERMINE registry status: ${first}"
+            ;;
+    esac
+done <<< "${REGISTRY_VIEW_ROWS}"
 echo ""
 
 # Active state
@@ -81,14 +149,15 @@ for lead in "${COMPATIBILITY_NAMESPACES[@]}"; do
     pending=$(find "${outbox_dir}" -maxdepth 1 -name 'TASK-*-response.md' -type f 2>/dev/null | wc -l | tr -d ' ')
     [[ "${pending}" -gt 0 ]] && color '0;35' "  ${lead}: ${pending} response file(s) awaiting Chrono surfacing"
 done
-if [[ -f "${REGISTRY}" ]] && command -v jq >/dev/null 2>&1; then
-    while IFS=$'\t' read -r task_id namespace; do
-        [[ -n "${task_id}" && -n "${namespace}" ]] || continue
-        if [[ -f "${VAULT_ROOT}/departments/${namespace}/outbox/${task_id}-response.md" ]]; then
-            color '1;31' "  CONTRADICTION: ${task_id} is in-flight in registry but response exists in ${namespace}/outbox"
-        fi
-    done < <(jq -r 'to_entries[] | select(.value.status == "in-flight") | [.key, (.value.source_namespace // .value.compatibility_namespace // .value.to_lead)] | @tsv' "${REGISTRY}" 2>/dev/null)
-fi
+while IFS=$'\t' read -r kind task_id _state _model _specialist next_action; do
+    [[ "${kind}" == "LIVE" && -n "${task_id}" \
+       && "${next_action}" == "await completion / verify" ]] || continue
+    for response in "${VAULT_ROOT}"/departments/*/outbox/"${task_id}-response.md"; do
+        [[ -f "${response}" ]] || continue
+        namespace="$(basename -- "$(dirname -- "$(dirname -- "${response}")")")"
+        color '1;31' "  CONTRADICTION: ${task_id} is live in registry but response exists in ${namespace}/outbox"
+    done
+done <<< "${REGISTRY_VIEW_ROWS}"
 echo ""
 
 # Recent dispatches
