@@ -55,10 +55,29 @@ alerts=0
 # ── helper: send alert to chrono pane ────────────────────────────────────────
 
 send_alert() {
-    local msg="$1"
-    # tmux send-keys with -l (literal) to avoid special-char interpretation
-    tmux send-keys -l -t "${CHRONO_PANE}" "MONITOR: ${msg}" 2>/dev/null
-    tmux send-keys    -t "${CHRONO_PANE}" "" Enter           2>/dev/null
+    local msg="$1" pane_cmd=""
+    # Only type into the pane when Chrono is actually the thing listening.
+    # Without this check the alert is delivered to whatever process holds the
+    # pane -- and when Chrono has exited, that is a bare shell, which EXECUTES
+    # the alert. Observed on the maintainer host: board notices became
+    # "zsh: command not found: git", "zsh: no such file or directory: _state/",
+    # "zsh: no matches found: (26418 bytes)". The operator saw a pane that was
+    # not Chrono; the alerts were not merely lost, they were run.
+    #
+    # bin/outbox-watcher.sh already guards its own send this way. This is the
+    # same check, spelled the same, because the two notifiers had drifted and
+    # only one of them was safe.
+    pane_cmd="$(tmux display-message -p -t "${CHRONO_PANE}" '#{pane_current_command}' 2>/dev/null || true)"
+    if [[ "$pane_cmd" == "claude" ]]; then
+        # -l (literal) so special characters are not interpreted by tmux.
+        tmux send-keys -l -t "${CHRONO_PANE}" "MONITOR: ${msg}" 2>/dev/null
+        tmux send-keys    -t "${CHRONO_PANE}" "" Enter           2>/dev/null
+    else
+        # Not lost: the line below is the durable record, and bin/board-notify.sh
+        # serves headless readers. Say which command was there, so a wrong pane
+        # is diagnosable instead of silent.
+        echo "[$(date -u +%H:%M:%SZ)] pane nudge skipped: ${CHRONO_PANE} runs '${pane_cmd:-unavailable}', expected 'claude'"
+    fi
     echo "[$(date -u +%H:%M:%SZ)] ALERT: ${msg}"
     alerts=$((alerts + 1))
 }
