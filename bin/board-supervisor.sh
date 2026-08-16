@@ -746,10 +746,20 @@ else:
     )
 
 trusted_task_prompt = raw_trusted_task_prompt
+# Import the ceiling rather than restate it. This was a hardcoded 32768 while
+# dispatch_context_builder held its own copy; two independent ceilings for one
+# rule drift the moment either moves, and raising only the builder's would have
+# left the supervisor still refusing -- a half-applied fix that looks complete.
+# Fall back to the literal only if the import genuinely cannot resolve, so a
+# broken import fails closed at the old bound instead of silently unbounded.
+try:
+    from dispatch_context_builder import TRUSTED_LAUNCH_PROMPT_LIMIT as _prompt_limit
+except Exception:
+    _prompt_limit = 32768
 if trusted_context and (
     not isinstance(trusted_task_prompt, str)
     or not trusted_task_prompt.strip()
-    or len(trusted_task_prompt.encode("utf-8")) > 32768
+    or len(trusted_task_prompt.encode("utf-8")) > _prompt_limit
     or "\x00" in trusted_task_prompt
 ):
     deny("trusted task prompt is empty, invalid, or too large")
