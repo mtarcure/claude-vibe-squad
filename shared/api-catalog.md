@@ -1817,7 +1817,7 @@ ${VAULT_ROOT}/.venv/bin/python -c 'import pandas'
 
 477 unique SKILL.md files across 40+ plugins (verified by `find ~/.claude/plugins/cache -path "*/skills/*" -name "SKILL.md" | wc -l` per Capability Inventory).
 
-Highlights useful to specialists (referenced in upgrade-specialists.py pre-fill):
+Highlights useful to specialists:
 - Trail of Bits-derived: review-severity-ladder, code-review-loop, multi-llm-audit-adjudication, differential-review, fp-check
 - Smart-contract: chain-construct-smart-contract, evm-audit-flow, solana-audit-flow, defi-invariant-check, vulnhunter-solana, gptscan-prompt-templates
 - Security: agentic-safety-audit, semgrep-rule-author, supply-chain-audit, web-vuln, github-recon, osint-platform-audit, pre-audit-threat-model

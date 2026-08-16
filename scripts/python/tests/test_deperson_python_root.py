@@ -29,10 +29,8 @@ PYTHON_DIR = ROOT / "scripts" / "python"
 CONVERTED: dict[str, str] = {
     "brain_cleanup": "VAULT_ROOT",
     "browser_keep_alive": "VAULT_ROOT",
-    "content_processing": "VAULT_ROOT",
-    "content_synthesis": "VAULT_ROOT",
-    "content_triage": "VAULT_ROOT",
-    "feed_sweep": "VAULT_ROOT",
+    # content_processing / content_synthesis / content_triage / feed_sweep were
+    # removed 2026-08-16 with the feed pipeline; they had no module left to check.
     "registry_reconciler": "VAULT_ROOT",
     "run_weekly": "VAULT_ROOT",
     "transcription_cache_ttl": "REPO",

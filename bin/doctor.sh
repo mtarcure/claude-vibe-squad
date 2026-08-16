@@ -453,7 +453,6 @@ if [[ "${GREP_USABLE}" == true ]]; then
     SPECIALIST_COUNT=$(awk -F '\t' 'NR > 1 && $1 != "" {count++} END {print count + 0}' \
         "${VAULT_ROOT}/shared/specialist-runtime-map.tsv" 2>/dev/null)
     STALE_COUNT_HITS=$(grep -RInE '[0-9][0-9]+ specialists' "${DRIFT_PATHS[@]}" 2>/dev/null \
-        | grep -v 'bin/upgrade-specialists.py' \
         | awk -v expected="${SPECIALIST_COUNT:-0}" '
             {
                 text = $0
@@ -471,7 +470,7 @@ if [[ "${GREP_USABLE}" == true ]]; then
         ')
     OTHER_DRIFT_HITS=$(grep -RInE 'scripts/send-req\.sh|currently has FILL placeholders|<FILL:|docs/handoffs/[0-9]{4}-|docs/specs/spec-[0-9]|docs/plans/[0-9]{4}-' \
         "${DRIFT_PATHS[@]}" 2>/dev/null \
-        | awk '!/bin\/upgrade-specialists.py/ {count++} END {print count + 0}')
+        | awk '{count++} END {print count + 0}')
     DRIFT_HITS=$((STALE_COUNT_HITS + OTHER_DRIFT_HITS))
 fi
 if [[ "${DRIFT_SCANNED}" != true ]]; then

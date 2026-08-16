@@ -314,7 +314,7 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
     chmod +x "${VAULT_ROOT}/scripts/"*.sh 2>/dev/null || true
 fi
 
-# Pre-warm the uv ephemeral env cache for vibecoding-check + content-processing.
+# Pre-warm the uv ephemeral env cache for vibecoding-check.
 # Without this, the first run from a sandboxed CLI (Codex's workspace-write,
 # launchd's restricted env) hangs on DNS while uv tries to fetch deps.
 # Optional: an absent or offline uv degrades to a slower first run, nothing else.
