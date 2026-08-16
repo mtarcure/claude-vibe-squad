@@ -129,7 +129,7 @@ Evidence is labeled by what it actually proves.
 - **Live-probed on the maintainer setup:** all four native CLIs have completed bounded probes. Tool availability is lane-specific, and a config entry or a successful `--version` is not liveness.
 - **Compared before adoption:** larger policy engines, parallel receipt frameworks, and premature memory-aperture code were prototyped, then removed or deferred when they added more machinery than value.
 - **Research-informed:** published work shapes cross-family review and the memory experiments. It is not offered as proof of this implementation.
-- **Not yet claimed:** a clean-host `bin/squad up` rehearsal and the launchd bootstrap both need a disposable machine to verify honestly. Live five-aperture memory enforcement, full legacy-memory migration, automatic failover, and complete fresh-worker tool parity also remain open.
+- **Not yet claimed:** live five-aperture memory enforcement, full legacy-memory migration, automatic failover, and complete fresh-worker tool parity remain open.
 
 That last list should shrink through evidence, not through wording.
 
