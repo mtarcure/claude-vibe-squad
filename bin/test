@@ -531,7 +531,6 @@ suite_inventory_rows() {
 ^plugins/security-mcp-stack/test_validate_staged\.py$|bin-test|plugins/security-mcp-stack/test_validate_staged.py|Single stdlib-only module run by path. Wired 2026-08-11.
 ^tools/export/tests/test_[^/]+\.py$|bin-test|tools/export/tests/test_*.py|Every public module runs; modules whose implementation is deliberately private report as one explicit N/A projection suite.
 ^tests/hooks/test_[^/]+\.py$|bin-test|-s tests/hooks|Covers scripts/hooks/pre-commit. Wired 2026-08-11.
-^tests/test_content_triage\.py$|bin-test|tests/test_content_triage.py|Run by path; needs PyYAML.
 ^bin/pre-commit-selftest\.sh$|bin-test|bin/pre-commit-selftest.sh|Hermetic self-test for the tracked pre-commit capability gate.
 ^bin/reconcile-selftest\.sh$|bin-test|bin/reconcile-selftest.sh|Skipped under SQUAD_CI_HOST_INDEPENDENT=1, which the summary reports as SKIP rather than PASS.
 ^bin/review-loop-guard-selftest\.py$|bin-test|bin/review-loop-guard-selftest.py|Run by path.
@@ -854,7 +853,6 @@ if [[ "$PYTHON_READY" != "1" ]]; then
     # Python it vanished from the summary entirely rather than reporting BLOCKED.
     # Absent and green look the same; absent and blocked do not.
     block_suite "research-arsenal" "$PYTHON_BLOCK_REASON"
-    block_suite "content-triage" "$PYTHON_BLOCK_REASON"
     block_suite "prior-art dedup" "$PYTHON_BLOCK_REASON"
     block_suite "guarded-subset validation" "$PYTHON_BLOCK_REASON"
     block_suite "pre-commit leak guard" "$PYTHON_BLOCK_REASON"
@@ -932,11 +930,7 @@ else
         block_suite "content-media" "dependency:python:httpx-or-mcp"
         block_suite "research-arsenal" "dependency:python:httpx-or-mcp"
     fi
-    if "$PYTHON_BIN" -c 'import yaml' >/dev/null 2>&1; then
-        run_suite "content-triage" "$PYTHON_BIN" tests/test_content_triage.py
-    else
-        block_suite "content-triage" "dependency:python:yaml"
-    fi
+    # content-triage suite removed 2026-08-16 with the pipeline it covered.
     # Three stdlib-only suites that no runner and no CI job invoked until
     # 2026-08-11. They were green the whole time, which is the point: nobody had
     # any way to know that from the outside.

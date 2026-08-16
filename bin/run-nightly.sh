@@ -112,10 +112,12 @@ run_phase "browser-keep-alive"   "${VAULT_ROOT}/bin/browser-keep-alive.sh"
 run_phase "prune-board-scratch"  "${VAULT_ROOT}/bin/prune-board-worktrees.sh" --apply
 run_phase "system-cleanup"       "${VAULT_ROOT}/bin/system-cleanup.sh"
 run_phase "brain-cleanup"        "${VAULT_ROOT}/bin/brain-cleanup.sh"
-run_phase "feed-sweep"           "${VAULT_ROOT}/bin/feed-sweep.sh"
-run_phase "content-triage"       "${VAULT_ROOT}/bin/content-triage.sh"
-run_phase "content-processing"   "${VAULT_ROOT}/bin/content-processing.sh"
-run_phase "content-synthesis"    "${VAULT_ROOT}/bin/content-synthesis.sh"
+# The feed/triage/processing/synthesis pipeline was removed 2026-08-16. It was
+# ~3,000 lines encoding a content workflow -- fetch feeds, rank items against
+# operator interests, then "run a Claude analysis pass" (its own words). That is
+# judgment expressed as a program, and judgment belongs in a specialist brief
+# under project mode, which already covers content work. Nothing referenced it
+# from any mode or specialist brief; it was parallel machinery.
 run_phase "morning-brief"        "${VAULT_ROOT}/bin/morning-brief.sh"
 # Email fallback retained but retired from default nightly delivery.
 

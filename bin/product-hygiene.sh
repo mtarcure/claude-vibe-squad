@@ -324,7 +324,6 @@ done
     if grep -RInE '45 specialists|all 45 specialists|scripts/send-req\.sh|currently has FILL placeholders|<FILL:|Department Lead|Security Lead|Research Lead|Content Lead|SysMgmt Lead|Claude Security|Claude Ops|claude-sec|claude-ops|5 compatibility Lead|5-tile sidebar|Lead coordinates specialist execution|Leads coordinate|Lead'\''s job|Lead does NOT|Claude-Lead' \
         "${VAULT_ROOT}/README.md" "${VAULT_ROOT}/CLAUDE.md" "${VAULT_ROOT}/chrono" \
         "${VAULT_ROOT}/docs" "${VAULT_ROOT}/shared" 2>/dev/null \
-        | grep -v 'bin/upgrade-specialists.py' \
         | grep -vE "docs/adding-a-specialist\\.md:.*no \`<FILL:\\.\\.\\.>\` placeholders remain"; then
         :
     fi
