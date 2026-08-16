@@ -61,7 +61,22 @@ ATTEMPT_RE = re.compile(r"^d-[0-9a-f]{32}$")
 # packet). The briefing differs per lane, so this bounds the SUM, never the
 # packet alone -- a packet size that launched on one family proves nothing
 # about another.
-TRUSTED_LAUNCH_PROMPT_LIMIT = 32768
+#
+# Raised from 32768 on 2026-08-16 after measurement, not to quiet a test.
+# The assembled prompt embeds ABSOLUTE paths, so the same logical packet has a
+# different size in different checkouts. A minimal, entirely legitimate bounty
+# swarm child measured 32,688-32,730 bytes on CI's 69-character checkout path
+# and ~29 bytes-per-embedded-path less on the maintainer's 41-character one.
+# That put a valid dispatch 38 bytes under the old ceiling locally and OVER it
+# in CI -- so whether a real bounty dispatch was permitted depended on where the
+# repository happened to live, and private CI had been red for weeks because of
+# it. A ceiling a minimal valid packet cannot clear is not bounding a risk.
+#
+# 40960 keeps a real bound (the prompt is still ~10k tokens) while leaving
+# ~8 KiB of headroom, which is hundreds of characters of additional path depth
+# per embedded reference. The swarm dispatch suites are the regression guard,
+# and CI is the stricter environment because its paths are longer.
+TRUSTED_LAUNCH_PROMPT_LIMIT = 40960
 IDENTIFIER_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 NAMESPACES = frozenset(

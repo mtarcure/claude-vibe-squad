@@ -281,6 +281,27 @@ select_python() {
     PYTHON_READY=1
 }
 
+# Resolve a lane's trusted CLI path from the product's own table rather than
+# restating it here. A second copy would drift from seatbelt_profile.py and this
+# gate would then answer a question the dispatcher is no longer asking.
+trusted_lane_cli_path() {
+    local lane="$1"
+    "$PYTHON_BIN" - "$lane" <<'PYEOF' 2>/dev/null
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path.cwd() / "scripts" / "python"))
+try:
+    from seatbelt_profile import LANE_CLI_PATHS
+except Exception:
+    raise SystemExit(1)
+path = LANE_CLI_PATHS.get(sys.argv[1])
+if path is None:
+    raise SystemExit(1)
+print(path)
+PYEOF
+}
+
 probe_host_capabilities() {
     HOST_PREFLIGHT_READY=0
     HOST_PREFLIGHT_REASON=""
@@ -674,7 +695,13 @@ run_dispatch_enforcement() {
     TMPDIR="$suite_tmp" \
         "$PYTHON_BIN" scripts/python/tests/orphan_supervisor_leak_test.py \
         --scan-root "$suite_tmp" || detector_rc=$?
-    bash tests/dispatch/test_no_autocommit.sh || suite_rc=$?
+    # test_no_autocommit.sh is NOT run here. It drives the real dispatcher, which
+    # refuses before its supervisor stub is ever reached when the lane CLI is
+    # absent ("trusted lane executable is unavailable"). Folding it into this
+    # suite meant a CI runner with no authenticated Claude CLI failed the whole
+    # 1,233-test gate. It now runs as its own tri-stated suite below, so the
+    # dispatch tests keep running in CI and only the leg that genuinely cannot
+    # run is reported not-applicable.
     if [[ "$detector_rc" -eq 0 ]]; then
         "$PYTHON_BIN" - "$suite_tmp" <<'PYEOF' || cleanup_rc=$?
 from pathlib import Path
@@ -863,6 +890,25 @@ else
         not_applicable_suite "dispatch enforcement" "$HOST_PREFLIGHT_REASON"
     else
         block_suite "dispatch enforcement" "$HOST_PREFLIGHT_REASON"
+    fi
+    # The no-autocommit contract, tri-stated on its own dependency. It drives the
+    # REAL dispatcher on purpose -- a stub could not prove the dispatcher leaves
+    # the repository alone -- and the dispatcher refuses outright without a
+    # trusted lane executable. That path is derived from the passwd euid record
+    # rather than $HOME (deliberately, so a sandboxed spawn cannot redirect it),
+    # so it cannot be pointed at a fixture and a runner without an authenticated
+    # CLI genuinely cannot exercise this. Reported not-applicable with the exact
+    # missing path rather than passed, skipped silently, or failed.
+    if [[ "$HOST_PREFLIGHT_READY" != "1" ]]; then
+        not_applicable_suite "dispatcher no-autocommit" "$HOST_PREFLIGHT_REASON"
+    elif lane_cli_path="$(trusted_lane_cli_path claude)" && [[ -x "$lane_cli_path" ]]; then
+        run_suite \
+            "dispatcher no-autocommit" \
+            bash tests/dispatch/test_no_autocommit.sh
+    else
+        not_applicable_suite \
+            "dispatcher no-autocommit" \
+            "dependency:command:${lane_cli_path:-lane-cli:claude}"
     fi
     if python_has_fast_deps; then
         run_suite \
