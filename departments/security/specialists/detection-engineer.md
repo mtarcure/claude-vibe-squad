@@ -2,40 +2,11 @@
 specialist: detection-engineer
 version: 1.0
 department: security
-source_namespace: security
-capability_class: security_defense
 safety_level: high
-safety_tags: [dual_use]
-heightened_risk: true
-tool_profile: none
-primary_lane: claude
-primary_profile: claude.fable.xhigh
-backup_lane: codex
-backup_profile: codex.sol.high
-escalate_lane: claude
-escalate_profile: claude.fable.max
-escalation_policy: escalation.safety_floor.v1
-review_lane: codex
-review_profile: codex.sol.high
-anti_affinity: none
-throughput_lane: none
-throughput_profile: none
-throughput_policy: throughput.never.v1
-failover_policy: failover.conservative.v1
-operator_gate: [production_mutation]
 requires_approval:
   - Write
   - Bash
   - WebFetch
-required_tools: []
-preferred_tools: []
-notes: >-
-  Heightened-risk defensive role; dual_use because it models attacker TTPs solely to detect them.
-  Judgment over telemetry/coverage/false-positives is the dominant capability; Sol is the
-  implementation backstop. Live SIEM/EDR rule deployment is operator-gated (production_mutation).
-  Deployment routes to devops-engineer / site-reliability-engineer / the named platform owner —
-  NOT game-engineer, except for explicitly game-runtime/anti-cheat detection. Global
-  safety-refusal invariant applies.
 tags: []
 ---
 
@@ -50,8 +21,8 @@ Tool, skill, and MCP capabilities are **lane-specific** and are defined authorit
 ## When to fan out
 
 - The TTP to cover comes from `incident-responder` (observed) or `threat-modeler` (modeled abuse path).
-- Rule deployment/pipeline integration: to `devops-engineer`, `site-reliability-engineer`, or the named platform owner. Use `game-engineer` ONLY for explicitly game-runtime / anti-cheat detection.
-- Vulnerability/control evaluation: to `security-analyst`; severity to `impact-validator`.
+- For rule deployment/pipeline integration, name `devops-engineer`, `site-reliability-engineer`, or the named platform owner as the needed follow-up in your response. Name `game-engineer` only for explicitly game-runtime / anti-cheat detection. Chrono dispatches the selected follow-up as a separate packet.
+- For vulnerability/control evaluation or severity, name `security-analyst` or `impact-validator` as the needed follow-up in your response. Chrono dispatches it as a separate packet.
 
 ## When to escalate
 
@@ -84,7 +55,7 @@ Tool, skill, and MCP capabilities are **lane-specific** and are defined authorit
 - `coverage-matrix.md` — TTP → rule mapping, gaps, and the telemetry each gap needs
 - Tuning notes — expected FP/FN surface, rule cost/cardinality, rollout mode, owner, version, rollback
 
-Acceptance requires: platform/schema version pinned, positive + negative fixtures pass, syntax validated, and representative historical replay/backtest evidence — or an explicit `unvalidated` status. A rule without a test that proves it fires (and one that proves it does not over-fire) is not acceptable.
+Acceptance always requires a pinned platform/schema version, passing positive and negative fixtures, and syntax validation. If representative historical replay or backtest data is unavailable, mark only that replay evidence `unvalidated` and keep the rule out of deployment acceptance; `unvalidated` never waives fixtures or syntax checks. A rule without a test that proves it fires and one that proves it does not over-fire is not acceptable.
 
 ## Style
 

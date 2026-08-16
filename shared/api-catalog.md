@@ -4,8 +4,8 @@ Verified-from-Capability-Inventory list of every API, native CLI feature, and MC
 
 > **Authoritative catalog.** This file (`shared/api-catalog.md`) is the **single source of truth** for tool/MCP/API citations — `bin/validate-specialists.sh` gates specialist `required_tools` / `preferred_tools` against the `verified: yes` entries here. `shared/tool-catalog.md` is a convenience quick-reference index only; **if the two disagree, this file wins** and the index must be corrected to match.
 
-Last full inventory: 2026-05-02 (`_state/capability-inventory-2026-05-02.md`)
-Tilde-path fix applied to claude chrono-* MCPs: 2026-05-03 (`_state/incident-2026-05-03-claude-mcp-tilde.md`)
+Last full inventory: 2026-05-02 (private capability-inventory record)
+Tilde-path fix applied to claude chrono-* MCPs: 2026-05-03 (private incident record)
 
 ---
 
@@ -95,7 +95,7 @@ Claude Code CLI flags — verified live via `claude --help` capture and targeted
 ### claude --mcp-config <configs...>
 - url: N/A (CLI flag)
 - access: Max
-- specialists: spawn-specialist harness, security-lead (for per-spawn MCP scoping)
+- specialists: board dispatch harness, security-lead (for per-spawn MCP scoping)
 - verified: yes
 - last_checked: 2026-05-02
 - test_reference: `claude --help` lines describing flag accept JSON files OR JSON strings, space-separated
@@ -104,7 +104,7 @@ Claude Code CLI flags — verified live via `claude --help` capture and targeted
 ### claude --strict-mcp-config
 - url: N/A (CLI flag)
 - access: Max
-- specialists: spawn-specialist harness
+- specialists: board dispatch harness
 - verified: yes
 - last_checked: 2026-05-02
 - test_reference: `claude --help` text "Only use MCP servers from --mcp-config, ignoring all other MCP configurations"
@@ -113,7 +113,7 @@ Claude Code CLI flags — verified live via `claude --help` capture and targeted
 ### claude --permission-mode {acceptEdits,auto,bypassPermissions,default,dontAsk,plan}
 - url: N/A (CLI flag)
 - access: Max
-- specialists: spawn-specialist harness, all headless invocations
+- specialists: board dispatch harness, all headless invocations
 - verified: yes
 - last_checked: 2026-05-02
 - test_reference: `claude --help` enum capture
@@ -140,7 +140,7 @@ Claude Code CLI flags — verified live via `claude --help` capture and targeted
 ### claude -p / --print
 - url: N/A (CLI flag)
 - access: Max
-- specialists: all headless dispatch (spawn-specialist.sh, dispatch-toolkit.sh)
+- specialists: all headless dispatch (board-supervisor.sh, dispatch-toolkit.sh)
 - verified: yes
 - last_checked: 2026-05-02
 - test_reference: Used in test invocations above (`claude -p "ok"`)
@@ -149,7 +149,7 @@ Claude Code CLI flags — verified live via `claude --help` capture and targeted
 ### claude --append-system-prompt <prompt>
 - url: N/A (CLI flag)
 - access: Max
-- specialists: spawn-specialist harness (used to inject specialist identity)
+- specialists: board dispatch harness (used to inject specialist identity)
 - verified: yes
 - last_checked: 2026-05-02
 - test_reference: `claude --help` capture
@@ -158,7 +158,7 @@ Claude Code CLI flags — verified live via `claude --help` capture and targeted
 ### claude --allowedTools / --allowed-tools <tools...>
 - url: N/A (CLI flag)
 - access: Max
-- specialists: spawn-specialist harness (least-privilege per role)
+- specialists: board dispatch harness (least-privilege per role)
 - verified: yes
 - last_checked: 2026-05-02
 - test_reference: `claude --help` capture
@@ -339,7 +339,7 @@ Codex CLI flags — verified live via `codex --help` capture and targeted live-f
 - verified: yes-as-subcommand
 - last_checked: 2026-05-02
 - test_reference: `codex --help` Commands block "Run Codex non-interactively"
-- notes: Primary subcommand for spawn-specialist.sh codex path.
+- notes: Primary subcommand for the board-supervisor codex path.
 
 ### codex review
 - url: N/A (subcommand)
@@ -521,7 +521,7 @@ Gemini CLI flags — verified live via `gemini --help` capture on 2026-05-02. Su
 ### gemini --allowed-mcp-server-names <array>
 - url: N/A (CLI flag)
 - access: Subscription
-- specialists: spawn-specialist harness (when MCPs eventually installed on gemini)
+- specialists: board dispatch harness (when MCPs eventually installed on gemini)
 - verified: yes
 - last_checked: 2026-05-02
 - test_reference: `gemini --help` capture
@@ -761,7 +761,7 @@ Kimi CLI flags — verified live via `kimi --help` capture on 2026-05-02. Subscr
 ### kimi --mcp-config-file <file> (repeatable)
 - url: N/A (CLI flag)
 - access: Subscription
-- specialists: spawn-specialist harness (kimi path)
+- specialists: board dispatch harness (kimi path)
 - verified: yes
 - last_checked: 2026-05-02
 - test_reference: `kimi --help` capture
@@ -770,7 +770,7 @@ Kimi CLI flags — verified live via `kimi --help` capture on 2026-05-02. Subscr
 ### kimi --mcp-config <text> (JSON string, repeatable)
 - url: N/A (CLI flag)
 - access: Subscription
-- specialists: spawn-specialist harness
+- specialists: board dispatch harness
 - verified: yes
 - last_checked: 2026-05-02
 - test_reference: `kimi --help` capture
@@ -797,7 +797,7 @@ Kimi CLI flags — verified live via `kimi --help` capture on 2026-05-02. Subscr
 ### kimi --agent-file <file>
 - url: N/A (CLI flag)
 - access: Subscription
-- specialists: spawn-specialist harness (custom-agent path)
+- specialists: board dispatch harness (custom-agent path)
 - verified: yes
 - last_checked: 2026-05-02
 - test_reference: `kimi --help` capture
@@ -950,10 +950,10 @@ Kimi CLI flags — verified live via `kimi --help` capture on 2026-05-02. Subscr
 
 ## 9. chrono MCPs squad-wide
 
-Per-pane verification matrix for each chrono-* family MCP. Claude pane verification is post-2026-05-03 tilde-fix (see `_state/incident-2026-05-03-claude-mcp-tilde.md`).
+Per-pane verification matrix for each chrono-* family MCP. Claude pane verification is post-2026-05-03 tilde-fix (see the private incident record for that date).
 
 ### chrono-vault MCP
-- purpose: KG read/write, durable memory across model leads
+- purpose: durable memory across model leads — `record`/`recall` over the markdown vault. (Formerly described as "KG read/write"; the in-repo KG SQLite store is retired, see the `chrono-kg MCP` entry below.)
 - specialists: brand-voice (Content), memory-curator (SysMgmt), memory-curator (SysMgmt), all model leads' memory.md persistence
 - verified per pane:
   - chrono pane (claude): yes — test_reference: `claude mcp list` post-2026-05-03 tilde-fix shows ✓ Connected
@@ -988,7 +988,7 @@ Per-pane verification matrix for each chrono-* family MCP. Claude pane verificat
 
 ### chrono-research-arsenal MCP
 - purpose: Current live research wrapper exposing `arxiv_search`, `xai_search`, and the Firecrawl v2 operations `firecrawl_scrape`, `firecrawl_crawl`, and `firecrawl_parse`. `firecrawl_scrape` is provider-proven; crawl/parse are registered and unit-tested but remain partial until their own provider calls are authorized and pass. `perplexity_search_web` remains a sibling MCP under the same plugin namespace via `uvx perplexity-mcp`. Brave, Apify, and Serper are separately verified metered direct-API routes; they are not wrapper operations and still require task budgets.
-- specialists: research, scout, large-context-analyst, copywriter, data-extraction-engineer
+- specialists: research, scout, large-context-analyst, data-extraction-engineer
 - verified per pane:
   - chrono pane (claude): yes — wrapper registered; verified live: `arxiv_search`, `perplexity_search_web` (Perplexity smoke test 2026-07-12 returned cited results), and `xai_search` (fixed 2026-07-12 to use xAI Responses API `POST https://api.x.ai/v1/responses` with `web_search` / `x_search` tools; smoke test returned `ok:true` with real URLs).
   - security pane (claude): yes — same
@@ -1014,7 +1014,7 @@ Per-pane verification matrix for each chrono-* family MCP. Claude pane verificat
 
 ### Codex Sites connector
 - purpose: Authenticated site inventory and, only under separate delivery gates, site/version/deployment operations
-- specialists: web-builder, frontend-engineer, devops-engineer
+- specialists: frontend-engineer, devops-engineer
 - verified: yes for the Codex-session list plane only
 - last_checked: 2026-07-21
 - test_reference: current `mcp__codex_apps__sites_list_sites(limit=1)` returned `isError:false` with an empty authenticated result
@@ -1074,7 +1074,7 @@ Claude Code plugins available on the `claude` / `chrono` panes. Not part of the 
 ### firecrawl (plugin skills — NOT an MCP server)
 - url: https://www.firecrawl.dev
 - access: Public (Claude Code plugin `firecrawl@claude-plugins-official`; live calls need a Firecrawl API key)
-- specialists: copywriter (carries `firecrawl:scrape` in `required_tools`), any specialist doing web scrape/crawl
+- specialists: any specialist doing web scrape/crawl (no current brief declares `firecrawl:*` in `required_tools`)
 - verified: yes (plugin enabled) — NOTE: firecrawl is a **skills** plugin, not an MCP server; it does **not** appear in `claude mcp list`.
 - last_checked: 2026-07-12
 - test_reference: `jq '.enabledPlugins["firecrawl@claude-plugins-official"]' ~/.claude/settings.json` → `true`; skills `firecrawl-scrape` / `firecrawl-crawl` / `firecrawl-map` / `firecrawl-parse` present in the plugin catalog.
@@ -1091,25 +1091,25 @@ Claude Code plugins available on the `claude` / `chrono` panes. Not part of the 
 
 ---
 
-## 10. Personal Ops, Outreach, and Notifications
+## 10. Operator Assistance, Outreach, and Notifications
 
 ### Gmail / email triage
 - access: Claude connected app / Gmail MCP where configured
-- specialists: personal-ops, privacy-steward, Outreach Mode approval gate
+- specialists: privacy-steward, Outreach Mode approval gate
 - verified: partial
 - last_checked: 2026-05-02 inventory shows Claude Gmail connected; current live MCP audit does not catalog it yet
 - notes: Read/triage/draft workflows are allowed only when the active pane has verified access. Sending requires explicit per-message operator approval.
 
 ### Google Calendar / reminders / todos
 - access: Calendar/Todo MCPs where configured
-- specialists: personal-ops
+- specialists: mac-ops
 - verified: auth-pending
 - last_checked: 2026-05-02 inventory marked Calendar auth-pending
 - notes: Specialists must return a missing-auth report instead of claiming calendar/todo writes when auth is absent.
 
 ### Outreach pipeline bridge
 - access: private/local `<private-outreach-repo>`
-- specialists: research, data-extraction-engineer, privacy-steward, brand-voice, editor, personal-ops
+- specialists: research, data-extraction-engineer, privacy-steward, brand-voice, editor
 - verified: dry-run bridge only
 - last_checked: 2026-05-04 local inspection
 - test_reference: `bin/outreach-dry-run.sh` runs `python -m outreach.runner --dry-run` in the private package when present
@@ -1117,7 +1117,7 @@ Claude Code plugins available on the `claude` / `chrono` panes. Not part of the 
 
 ### Morning / weekly summary notifications
 - access: local markdown morning brief and terminal/status commands
-- specialists: loop-operator, memory-curator, agentops, personal-ops
+- specialists: loop-operator, memory-curator, agentops
 - verified: local only
 - last_checked: 2026-05-04
 - notes: Telegram or other external notification sinks are future send-only adapters. They must not accept coding/editing commands unless separately designed and approved.
@@ -1469,27 +1469,31 @@ Unless an entry carries a newer `last_checked`, `--version` output below was rep
 - test_reference: `kup` package installed, then its first invocation failed `FileNotFoundError: nix`; Kontrol publishes no release assets and documents a 30–60 minute Nix/kup install
 - notes: Pilot is not installed. Requires separately approved Nix provisioning, disk budget, containment, and rollback.
 
-### Restart-gated security MCP pilots → Claude and gpt-codex only
+### Guarded security MCP stack → Claude and gpt-codex only
+
+> Heading corrected 2026-08-13: this group was labelled "restart-gated pilots". The guarded
+> Semgrep/Slither/Solodit trio below is **live-probed and in service**; only the Model Armor entry
+> remains genuinely gated (on credentials). Read each entry's own `verified:` field.
 
 #### mcp-context-protector / guarded Semgrep, Slither, and Solodit MCPs
 - url: https://github.com/trailofbits/mcp-context-protector ; https://github.com/trailofbits/slither-mcp
 - access: Public
 - specialists: security-analyst, exploit-developer, smart-contract-engineer, agentops
-- verified: yes for pinned installs/help and validated restart-discoverable Claude/Codex project configs; no for running-lane activation
+- verified: **yes — live-probed on the `claude` lane 2026-08-13**. All three answered a real call with usable data. Caveats are per-entry-point, not per-server: see notes.
 - install_command: pinned commits `05e56c1616f4382ca25eb15bdfc98c4967bbdd74` and `196a420a90f4b5e27d245148f46fb1ad32c40458`; Semgrep uses installed `/opt/homebrew/bin/semgrep mcp`
-- last_checked: 2026-07-19
-- test_reference: `plugins/security-mcp-stack/validate_staged.py` validates the live project configs, exact staged mirrors, normalized Snyk target, absolute child paths, empty-or-exactly-three-approved Context Protector DB phases, Solodit inherited-env discipline, and Model Armor credential hold
-- notes: Restart-discoverable files are `model-lanes/claude/.mcp.json` and `model-lanes/gpt-codex/.codex/config.toml`. `model-lanes/lane-capabilities.tsv` records the exact guarded trio in `staged_mcp_surface`; specialist sources label them `pending-restart-activation`, so generated adapters do not project them as live. Context Protector starts fail-closed until the operator reviews/pins all three downstream schemas. ANSI visualization is enabled. No guardrail provider is configured, so response quarantine is not active. No lane restart occurred.
+- last_checked: 2026-08-13
+- test_reference: live probe on the `claude` lane, 2026-08-13 (literal commands + literal results retained in the private audit record). `guarded-semgrep`: `semgrep_scan_with_custom_rule` returned 2 findings, semgrep `1.157.0`, `engine_kind: OSS`, `errors: []`. `guarded-slither`: `run_detectors` returned `success:true`, `total_count:4`, including the planted `reentrancy-eth` (High) at `src/VulnFixture.sol#19-24`. `guarded-solodit`: `search_findings keywords="reentrancy"` returned a populated result set and a live rate-limit header. Static config validation remains `plugins/security-mcp-stack/validate_staged.py`.
+- notes: **Live, not staged.** Restart-discoverable files are `model-lanes/claude/.mcp.json` and `model-lanes/gpt-codex/.codex/config.toml`. `model-lanes/specialist-lane-capabilities.v1.json` records all three as `availability: available` and generated adapters DO project them (confirmed in a live `claude`/`security-analyst` dispatch). **The `staged_mcp_surface` drift recorded here on 2026-08-13 is closed: `model-lanes/lane-capabilities.tsv` no longer lists the trio.** Re-verified 2026-08-15 — `awk -F '\t' 'NR > 1 {print $1, $6}' model-lanes/lane-capabilities.tsv` prints `[]` for all four lanes, and `model-lanes/specialist-lane-capabilities.v1.json` contains zero `availability: pending-restart-activation` records. The runtime state below and the TSV now agree; nothing about this entry is staged. Context Protector is in the call path and passing calls through: no approval/quarantine notice was returned by any probe call, and `--visualize-ansi-codes` is demonstrably active (responses carry the literal string `ESC[32m` where bare Semgrep emits real escape bytes). No guardrail provider is configured, so response quarantine is not active. Two operational caveats. (1) `guarded-semgrep`'s **`semgrep_scan` (registry default ruleset) is unusable**: `Failed to download config from https://semgrep.dev/c/p/default, returned code 401: {"error":"Not authorized"}` — `SEMGREP_APP_TOKEN` is absent from env. This is not an MCP fault; bare `semgrep --config p/default` reproduces the identical 401 (exit 7) while `--config <local rule>` succeeds (exit 0). Use `semgrep_scan_with_custom_rule` until a token is provisioned. (2) `guarded-slither` must be pointed at a **Foundry/Hardhat project root**, never a loose `.sol` file: its non-framework path is self-contradictory (given a directory it errors `Expected a Solidity file`; given a file it errors `Path is not a directory`). `solc 0.8.27` + `solc-select` are present, and the server uses `tools/slither-mcp/bin/slither-mcp`, which is a different binary from `slither` on PATH.
 
 #### solodit-mcp (cutover-ready, restart-gated)
 - url: https://github.com/zerotrust-labs/solodit-mcp
 - access: Requires a Solodit API key
 - specialists: security-analyst, smart-contract-engineer
-- verified: yes for remediated build, production-only install, and static cutover wiring; no for API call or running-lane activation
+- verified: yes for remediated build, production-only install, and static cutover wiring; **and yes for a live API call as of 2026-08-13** — reached through `guarded-solodit`, which execs exactly this runtime
 - install_command: copy pinned commit `72ff083167a10b332a04651a2ed4897551fb3f7c` to a fresh remediated tree; install `@modelcontextprotocol/sdk@^1.29.0`; run `npm run build`; copy build/package manifests to a fresh runtime; run `npm ci --omit=dev --ignore-scripts`
 - last_checked: 2026-07-19
 - test_reference: SDK resolved `1.29.0`; TypeScript build passed; fresh runtime installed 93 packages / audited 94; `npm audit --omit=dev --json` reported 2 residual advisories (fast-uri high, ajv moderate), down from the prior 7 production advisories; `validate_staged.py` passed with Solodit in all Claude/Codex live/review mirrors
-- notes: The guarded command points only to `_state/tooling-arsenal-2026-07-18/runtime/solodit-mcp-prod/dist/index.js`. `SOLODIT_API_KEY` is inherited and absent from config. Status `activated-ready` means restart-discoverable after mandatory review, schema pinning, and Snyk gate; it does not claim a lane restart or API query.
+- notes: The guarded command points only to `_state/tooling-arsenal-2026-07-18/runtime/solodit-mcp-prod/dist/index.js`. `SOLODIT_API_KEY` is inherited and absent from config — **and the inheritance works**: a live probe on 2026-08-13 returned a populated, paginated result set with a sub-second query time and a live rate-limit header, so the key is reaching the server and the remote API is answering. The prior qualifier "it does not claim a lane restart or API query" is superseded: the API query is now measured. Data-quality nit, cosmetic only: results render `Report Date: [object Object]` — ignore that field.
 
 #### Google Model Armor gateway (credential-blocked)
 - url: https://docs.cloud.google.com/model-armor
@@ -1750,7 +1754,7 @@ ${VAULT_ROOT}/.venv/bin/python -c 'import pandas'
 #### pandas
 - url: https://pandas.pydata.org
 - access: Public
-- specialists: data-extraction-engineer, finance-analyst, scraping-engineer
+- specialists: data-extraction-engineer, scraping-engineer
 - lanes: claude, codex
 - verified: yes
 - last_checked: 2026-07-26
@@ -1760,7 +1764,7 @@ ${VAULT_ROOT}/.venv/bin/python -c 'import pandas'
 #### polars
 - url: https://pola.rs
 - access: Public
-- specialists: data-extraction-engineer, finance-analyst, scraping-engineer
+- specialists: data-extraction-engineer, scraping-engineer
 - lanes: claude, codex
 - verified: yes
 - last_checked: 2026-07-26
@@ -1819,7 +1823,7 @@ Highlights useful to specialists (referenced in upgrade-specialists.py pre-fill)
 - Security: agentic-safety-audit, semgrep-rule-author, supply-chain-audit, web-vuln, github-recon, osint-platform-audit, pre-audit-threat-model
 - Frontend/UI: frontend-design, design-token-governance, a11y-audit, react-performance-loop, figma-* (10+ skills)
 - Process: brainstorming, writing-plans, writing-skills, executing-plans, verification-before-completion, test-driven-development, systematic-debugging
-- KG/memory: kg-integrity-gate, stale-knowledge-purge, brain-trio-amendment-authoring
+- Memory/knowledge: kg-integrity-gate, stale-knowledge-purge, brain-trio-amendment-authoring  *(skill names retain the `kg-` prefix; they are cited verbatim by specialist files and checked by the catalog validator, so the names are not renamed here)*
 - Multi-model: cross-provider-dissent, council-consensus, cross-model-verification, multi-stance-audit-fanout
 
 Specialist files cite skills by exact name; validator (Task 9) verifies skill exists in local catalog.
@@ -1840,4 +1844,4 @@ Backlog (8 categories):
 7. **Codex native macOS computer use** (verify access path — CLI vs API-only)
 8. **Higgsfield Claude-lane verification** (Codex cannot attest the Claude-only OAuth surface; the independent Claude reviewer must run `claude mcp list` plus one harmless non-generation call such as `higgsfield__models_explore` before any promotion)
 
-Each produces `_state/research-{topic}-2026-05-02.md` sub-report. Catalog entries flip `needs-research` → `yes`/`no` based on findings.
+Each produces a private `research-{topic}` sub-report. Catalog entries flip `needs-research` → `yes`/`no` based on findings.

@@ -1,0 +1,6 @@
+policy_id	aperture	recall	record	get_note	browse	statuses	note_types	focus	written_before	read_sensitivity	write_status	project_write_floor	bounty_write_floor
+memory.rich.v1	rich	allow	allow	allow	allow	candidate|verified	attempt|finding|learning	any	none	context	candidate	internal	restricted
+memory.focused.v1	focused	allow	allow	allow	deny	verified	finding|learning	exact	engagement_start	context	candidate	internal	restricted
+memory.cold.v1	cold	deny	allow	deny	deny	-	-	none	none	none	candidate	internal	restricted
+memory.pool-blind.v1	pool_blind	deny	allow	deny	deny	-	-	none	none	none	candidate	internal	restricted
+memory.none.v1	none	deny	deny	deny	deny	-	-	none	none	none	-	-	-

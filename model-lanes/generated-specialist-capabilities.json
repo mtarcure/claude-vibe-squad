@@ -20,6 +20,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "accessibility-engineer",
+      "surface_sha256": "435c003ecbcf2c24c5ce82866e2eb79a497aba4793f3ac06dd3f0d41d11d36c6",
       "tools": [
         "chrome-devtools"
       ]
@@ -70,6 +71,7 @@
         "wcag-conformance-audit"
       ],
       "specialist": "accessibility-engineer",
+      "surface_sha256": "e5f57c22a42c1bc5f2759acf63acde9b44d0479f55c180cd7c004849e5582836",
       "tools": []
     },
     {
@@ -102,6 +104,7 @@
         "wcag-conformance-audit"
       ],
       "specialist": "accessibility-engineer",
+      "surface_sha256": "f53b47cbe510cfa5d90c4e029b2da49d11e4eb0f091973b58a26311293b6d4dc",
       "tools": []
     },
     {
@@ -133,7 +136,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -193,6 +196,7 @@
         "stale-knowledge-purge"
       ],
       "specialist": "agentops",
+      "surface_sha256": "11cd5544cce35cd7fd8814253ff6d33f822c425314b0ede15e0e74a7016a8746",
       "tools": [
         "awk",
         "du",
@@ -223,6 +227,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "agentops",
+      "surface_sha256": "24c4a2d369855f3c334b106e237a42c7f314bc50f910109991a8f479c3606f36",
       "tools": []
     },
     {
@@ -254,7 +259,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -324,6 +329,7 @@
         "rag-eval-loop"
       ],
       "specialist": "ai-engineer",
+      "surface_sha256": "9beefdf0165b4514735f2af9531a4ba01a479e5f16e3ab969d745bed05b2b9f0",
       "tools": []
     },
     {
@@ -342,7 +348,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -371,6 +377,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "ai-engineer",
+      "surface_sha256": "245c11cac8e5f1a061b0f30f049653214689ad7877769fafdc3eaa4e06e247eb",
       "tools": []
     },
     {
@@ -389,7 +396,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -461,6 +468,7 @@
         "interface-ambiguity-check"
       ],
       "specialist": "architect",
+      "surface_sha256": "da387273e4f36efc8b78d62b281c767e3784d55945b319e9433cc90ac1bfb5c0",
       "tools": []
     },
     {
@@ -482,6 +490,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "architect",
+      "surface_sha256": "24c4a2d369855f3c334b106e237a42c7f314bc50f910109991a8f479c3606f36",
       "tools": []
     },
     {
@@ -530,6 +539,7 @@
         "rights-and-provenance-gate"
       ],
       "specialist": "asset-provenance-and-rights-auditor",
+      "surface_sha256": "ee38b2ff04476255760fe1f8f41b341eb2b870e29cf12f410d7dda3ffa5636b2",
       "tools": []
     },
     {
@@ -562,6 +572,7 @@
         "rights-and-provenance-gate"
       ],
       "specialist": "asset-provenance-and-rights-auditor",
+      "surface_sha256": "0e4a82880302bb23e4a5f3b16455a4cf8e21d7c1070861388c04e40f185f9864",
       "tools": []
     },
     {
@@ -580,7 +591,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -653,6 +664,7 @@
         "playwright-stealth-config"
       ],
       "specialist": "backend-engineer",
+      "surface_sha256": "ef1725cfb3aee26e415594608ec2ae73edd0cc2eff8c9cd2b41f5179fc3d7743",
       "tools": [
         "playwright"
       ]
@@ -673,7 +685,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -704,6 +716,7 @@
         "data-flow-trace"
       ],
       "specialist": "backend-engineer",
+      "surface_sha256": "07a28895734f8d08aeffebbf26969764a87f5713e563fbb0eab127e7b7df244f",
       "tools": [
         "playwright"
       ]
@@ -728,6 +741,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "bounty-researcher",
+      "surface_sha256": "b770a6c1f94f579b9a6b902876a8dd25a55e8fe30274dcdab3f7cfc6f00ddacd",
       "tools": []
     },
     {
@@ -775,6 +789,7 @@
       ],
       "skills": [],
       "specialist": "bounty-researcher",
+      "surface_sha256": "ba15ed9801265037539aea43bc65b834e844ac17e4e6e10dbbb8fb61e0907b60",
       "tools": []
     },
     {
@@ -797,6 +812,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "bounty-researcher",
+      "surface_sha256": "a6ccb4ea6111adc34c96d64d104956b7b5c664d1b198a63aecbe0a9925919e30",
       "tools": []
     },
     {
@@ -856,6 +872,7 @@
         "writing-skills"
       ],
       "specialist": "brand-voice",
+      "surface_sha256": "726c63008a9103e37af3f5629ec98ac8d877d01c7620f3cd651bd82b6269a06b",
       "tools": []
     },
     {
@@ -891,6 +908,7 @@
         "writing-skills"
       ],
       "specialist": "brand-voice",
+      "surface_sha256": "5dc10446fc3810acf9bf5dede8d539a0ee037ce33a77a4bb68106b8ac1cfd0af",
       "tools": []
     },
     {
@@ -909,7 +927,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -946,6 +964,7 @@
         "review-severity-ladder"
       ],
       "specialist": "code-reviewer",
+      "surface_sha256": "059a8d33b31717fc001dadad7d9d0726f4b1ef6b006e47056fa70f42a40b4146",
       "tools": [
         "semgrep"
       ]
@@ -966,7 +985,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -1031,6 +1050,7 @@
         "review-severity-ladder"
       ],
       "specialist": "code-reviewer",
+      "surface_sha256": "580683e788a7231f5fd1af1050909f7a4828d531107cd8245adcf151c00f131d",
       "tools": [
         "semgrep"
       ]
@@ -1051,7 +1071,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -1110,6 +1130,7 @@
         "verification-before-completion"
       ],
       "specialist": "content-verifier",
+      "surface_sha256": "2a042414399fb7de534944821d25742595afb2f442c5c12fbf6626787dd10bfc",
       "tools": []
     },
     {
@@ -1128,7 +1149,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -1163,124 +1184,8 @@
         "verification-before-completion"
       ],
       "specialist": "content-verifier",
+      "surface_sha256": "f77c297f1167f2485bdc32e5ee0f21f2d648d3eaed8dfb8c12849774088f972f",
       "tools": []
-    },
-    {
-      "adapter": "model-lanes/claude/.claude/agents/copywriter.md",
-      "coverage": "partial",
-      "known_unavailable": {
-        "mcps": [],
-        "skills": [],
-        "tools": []
-      },
-      "lane": "claude",
-      "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
-      ],
-      "mcps": [
-        "chrono-vault",
-        "sequential-thinking"
-      ],
-      "primary_plan": [],
-      "skills": [
-        "cite-properly",
-        "writing-skills"
-      ],
-      "specialist": "copywriter",
-      "tools": []
-    },
-    {
-      "adapter": "model-lanes/gemini/.gemini/agents/copywriter.md",
-      "coverage": "full",
-      "known_unavailable": {
-        "mcps": [],
-        "skills": [],
-        "tools": [
-          {
-            "availability": "mcp-operation",
-            "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
-            "requirement": "preferred"
-          }
-        ]
-      },
-      "lane": "gemini",
-      "limitations": [],
-      "mcps": [
-        "chrono-research-arsenal",
-        "chrono-vault",
-        "sequential-thinking"
-      ],
-      "primary_plan": [
-        {
-          "capability_id": "chrono-research-arsenal",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-research-arsenal",
-          "kind": "mcps",
-          "provider_lane": "gemini",
-          "requirement": "required",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "chrono-vault",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-vault",
-          "kind": "mcps",
-          "provider_lane": "gemini",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "sequential-thinking",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "sequential-thinking",
-          "kind": "mcps",
-          "provider_lane": "gemini",
-          "requirement": "preferred",
-          "resolution": "local"
-        }
-      ],
-      "skills": [
-        "copy-refinement"
-      ],
-      "specialist": "copywriter",
-      "tools": [
-        "firecrawl_scrape"
-      ]
-    },
-    {
-      "adapter": "model-lanes/gpt-codex/.codex/agents/copywriter.toml",
-      "coverage": "partial",
-      "known_unavailable": {
-        "mcps": [],
-        "skills": [],
-        "tools": [
-          {
-            "availability": "mcp-operation",
-            "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
-            "requirement": "preferred"
-          }
-        ]
-      },
-      "lane": "gpt-codex",
-      "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan",
-        "authored from the codex lane inventory, shared registry, and host PATH — not codex-live-probed (board-supervisor exit-75 blocks a fresh codex CLI)"
-      ],
-      "mcps": [
-        "chrono-research-arsenal",
-        "chrono-vault",
-        "sequential-thinking"
-      ],
-      "primary_plan": [],
-      "skills": [
-        "copy-refinement"
-      ],
-      "specialist": "copywriter",
-      "tools": [
-        "firecrawl_scrape"
-      ]
     },
     {
       "adapter": "model-lanes/claude/.claude/agents/data-extraction-engineer.md",
@@ -1321,6 +1226,7 @@
         "summarize-findings"
       ],
       "specialist": "data-extraction-engineer",
+      "surface_sha256": "6fafa3f706ea34d13d6bfbe608ca80f74fa600687d73a24f4e7c60d0f79a0473",
       "tools": []
     },
     {
@@ -1345,7 +1251,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -1406,6 +1312,7 @@
       ],
       "skills": [],
       "specialist": "data-extraction-engineer",
+      "surface_sha256": "e28cebd361f129eebdf1d0cd9079fecae167a4919bdeaad2fd5f2634a8e30e4a",
       "tools": [
         "pandas",
         "pandoc",
@@ -1460,6 +1367,7 @@
         "data-flow-trace"
       ],
       "specialist": "database-engineer",
+      "surface_sha256": "8a36e94feb2aba9c18c288f30be15ecbf9c7b2bdfdd68b1e6d368093fd34a82e",
       "tools": []
     },
     {
@@ -1490,6 +1398,7 @@
         "data-flow-trace"
       ],
       "specialist": "database-engineer",
+      "surface_sha256": "f4dde9b066dda96cb5408c5cf7bd6c827a9648765a1355f409995aec7aecac37",
       "tools": []
     },
     {
@@ -1539,6 +1448,7 @@
         "detection-tuning"
       ],
       "specialist": "detection-engineer",
+      "surface_sha256": "919b528d6c4e86d1340866fdf110f73aa58a7823f5c37587a251364452d392db",
       "tools": []
     },
     {
@@ -1560,6 +1470,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "detection-engineer",
+      "surface_sha256": "24c4a2d369855f3c334b106e237a42c7f314bc50f910109991a8f479c3606f36",
       "tools": []
     },
     {
@@ -1598,6 +1509,7 @@
         "terraform-state-hygiene"
       ],
       "specialist": "devops-engineer",
+      "surface_sha256": "5fab283b2b6c0683aef93e7bb3f2ade5c6b42e25b8c5b12337305a48c01f6043",
       "tools": []
     },
     {
@@ -1616,7 +1528,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -1673,6 +1585,7 @@
         "sandbox-provision-discipline"
       ],
       "specialist": "devops-engineer",
+      "surface_sha256": "c49e4beb274dcee18fc9ac370a2944449502b84edcd64e88817e79979f21b0c3",
       "tools": []
     },
     {
@@ -1730,6 +1643,7 @@
         "writing-skills"
       ],
       "specialist": "editor",
+      "surface_sha256": "9ef49993235c0ad9d4af893ffe948110769f393ca20ec9b659c8907ad0ca2491",
       "tools": []
     },
     {
@@ -1773,6 +1687,7 @@
         "writing-skills"
       ],
       "specialist": "editor",
+      "surface_sha256": "c14d956a9f96433702f2b8aabc19a8a1419d13e409b440ca8738c53109419d81",
       "tools": []
     },
     {
@@ -1821,7 +1736,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -1894,6 +1809,7 @@
         "vulnhunter-solana"
       ],
       "specialist": "experimental-attacker",
+      "surface_sha256": "f0d29998496c7427318583365bd12aebb95b86b9718ba9269c456736c6a0f802",
       "tools": [
         "aderyn",
         "amass",
@@ -1981,7 +1897,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -2056,6 +1972,7 @@
         "vulnhunter-solana"
       ],
       "specialist": "experimental-attacker",
+      "surface_sha256": "7fe98bda32840d52bbceac86caab7d4e2adb0a4db3bd1400b2a43f03925e0ef6",
       "tools": [
         "aderyn",
         "amass",
@@ -2153,12 +2070,6 @@
           {
             "availability": "uninstalled",
             "evidence": "host-PATH:absent",
-            "id": "perplexity_search_web",
-            "requirement": "preferred"
-          },
-          {
-            "availability": "uninstalled",
-            "evidence": "host-PATH:absent",
             "id": "prior_art_check",
             "requirement": "preferred"
           },
@@ -2251,6 +2162,7 @@
         "vulnhunter-solana"
       ],
       "specialist": "experimental-attacker",
+      "surface_sha256": "01b2388782ae0913f311242220223adb7d935f2ea3c0ba1518d6a1d61409ddcd",
       "tools": [
         "aderyn",
         "amass",
@@ -2354,7 +2266,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -2411,6 +2323,7 @@
         "xbow-benchmark-runner"
       ],
       "specialist": "exploit-developer",
+      "surface_sha256": "16875d114effec69848467cb3968e32b7cea41ad131b38d6d3ad2f4414f3f0c1",
       "tools": [
         "aderyn",
         "angr",
@@ -2483,7 +2396,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -2602,6 +2515,7 @@
         "systematic-bug-hunting"
       ],
       "specialist": "exploit-developer",
+      "surface_sha256": "eb07e75448bf0f569729f4cbffd6b358590b97cf027004945eebfa0796810cde",
       "tools": [
         "aderyn",
         "angr",
@@ -2647,6 +2561,7 @@
       ],
       "skills": [],
       "specialist": "fable",
+      "surface_sha256": "c2f6d3fdb8a0c197810b8cedddc8603ac3ead10411becb15e8ab01e75c45eddc",
       "tools": []
     },
     {
@@ -2668,115 +2583,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "fable",
-      "tools": []
-    },
-    {
-      "adapter": "model-lanes/claude/.claude/agents/finance-analyst.md",
-      "coverage": "full",
-      "known_unavailable": {
-        "mcps": [],
-        "skills": [],
-        "tools": [
-          {
-            "availability": "mcp-operation",
-            "evidence": "chrono-research-arsenal",
-            "id": "arxiv_search",
-            "requirement": "preferred"
-          },
-          {
-            "availability": "mcp-operation",
-            "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
-            "requirement": "preferred"
-          },
-          {
-            "availability": "uninstalled",
-            "evidence": "host-PATH:absent",
-            "id": "plaid",
-            "requirement": "preferred"
-          },
-          {
-            "availability": "harness-only",
-            "evidence": "runtime-map:requires_approval",
-            "id": "WebFetch",
-            "requirement": "preferred"
-          },
-          {
-            "availability": "mcp-operation",
-            "evidence": "chrono-research-arsenal",
-            "id": "xai_search",
-            "requirement": "preferred"
-          }
-        ]
-      },
-      "lane": "claude",
-      "limitations": [],
-      "mcps": [
-        "chrono-research-arsenal",
-        "chrono-vault",
-        "sequential-thinking"
-      ],
-      "primary_plan": [
-        {
-          "capability_id": "chrono-research-arsenal",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-research-arsenal",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "chrono-vault",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-vault",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "sequential-thinking",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "sequential-thinking",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        }
-      ],
-      "skills": [
-        "harness-baseline-audit",
-        "instinct-prune-loop",
-        "kg-vault-health-check",
-        "stale-knowledge-purge"
-      ],
-      "specialist": "finance-analyst",
-      "tools": [
-        "pandas",
-        "pdftotext",
-        "polars"
-      ]
-    },
-    {
-      "adapter": "model-lanes/gpt-codex/.codex/agents/finance-analyst.toml",
-      "coverage": "partial",
-      "known_unavailable": {
-        "mcps": [],
-        "skills": [],
-        "tools": []
-      },
-      "lane": "gpt-codex",
-      "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
-      ],
-      "mcps": [
-        "chrono-vault",
-        "sequential-thinking"
-      ],
-      "primary_plan": [],
-      "skills": [],
-      "specialist": "finance-analyst",
+      "surface_sha256": "c793d1e2cbbb805cd96be37740a98a8a6844b8b420bb44b352d7a8140993f9c5",
       "tools": []
     },
     {
@@ -2795,7 +2602,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -2888,6 +2695,7 @@
         "tailwind-class-management"
       ],
       "specialist": "frontend-engineer",
+      "surface_sha256": "435f696d050d78bb10c31a412a990cdf47467b2d9f6d080028b51e2ddd0ade74",
       "tools": []
     },
     {
@@ -2906,7 +2714,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -2937,6 +2745,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "frontend-engineer",
+      "surface_sha256": "1eea48204095027d2c2edcb0c260e458eb0744727a0e93c3f7bccd289618a628",
       "tools": []
     },
     {
@@ -2986,6 +2795,7 @@
         "player-engagement-psychology"
       ],
       "specialist": "game-designer",
+      "surface_sha256": "924af0535fb6977201bfb64deadd4752964c396097a312d6bd081b8448bb84d8",
       "tools": []
     },
     {
@@ -3007,6 +2817,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "game-designer",
+      "surface_sha256": "24c4a2d369855f3c334b106e237a42c7f314bc50f910109991a8f479c3606f36",
       "tools": []
     },
     {
@@ -3061,6 +2872,7 @@
         "cross-arch-build-discipline"
       ],
       "specialist": "game-engineer",
+      "surface_sha256": "98e7af7657e320549e24c3f50c01a6174f8eedef0af5cedf4b3869567833ae9a",
       "tools": [
         "godot"
       ]
@@ -3091,6 +2903,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "game-engineer",
+      "surface_sha256": "24c4a2d369855f3c334b106e237a42c7f314bc50f910109991a8f479c3606f36",
       "tools": []
     },
     {
@@ -3112,6 +2925,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "growth-and-search-analyst",
+      "surface_sha256": "f298eb6cd2c72b6a6f87ddfc7bd6107547d456083c6f8ac64835a14478a684e4",
       "tools": []
     },
     {
@@ -3161,6 +2975,7 @@
         "technical-seo-audit"
       ],
       "specialist": "growth-and-search-analyst",
+      "surface_sha256": "1a203a56171cbe3e5d389ab52970678c578903fba6084ce056b1fac05122fc24",
       "tools": []
     },
     {
@@ -3182,6 +2997,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "growth-and-search-analyst",
+      "surface_sha256": "24c4a2d369855f3c334b106e237a42c7f314bc50f910109991a8f479c3606f36",
       "tools": []
     },
     {
@@ -3203,6 +3019,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "growth-and-search-analyst",
+      "surface_sha256": "bd8b4a778c1f1b70e047ae00c9e325f9bac448646ca0c35ed147743ff5a0b476",
       "tools": []
     },
     {
@@ -3221,7 +3038,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -3280,6 +3097,7 @@
         "reversible-change-protocol"
       ],
       "specialist": "harness-optimizer",
+      "surface_sha256": "dc5d8fe719ac54aa44ff2fefd8880ce610f16109ef3cbb70343b5efaf1c70279",
       "tools": []
     },
     {
@@ -3301,6 +3119,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "harness-optimizer",
+      "surface_sha256": "24c4a2d369855f3c334b106e237a42c7f314bc50f910109991a8f479c3606f36",
       "tools": []
     },
     {
@@ -3322,6 +3141,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "image-designer",
+      "surface_sha256": "f298eb6cd2c72b6a6f87ddfc7bd6107547d456083c6f8ac64835a14478a684e4",
       "tools": []
     },
     {
@@ -3374,6 +3194,7 @@
         "visual-design-principles"
       ],
       "specialist": "image-designer",
+      "surface_sha256": "3e16154bd7a139e7b9875f1dd25943e908df5e983c7bb416a3a908bd91768bd4",
       "tools": [
         "generate_image"
       ]
@@ -3403,6 +3224,7 @@
         "visual-design-principles"
       ],
       "specialist": "image-designer",
+      "surface_sha256": "7733ccdf74d56a5358be6cc08a01d3be478067ec5d0c184391ceabb91b826bd4",
       "tools": [
         "generate_image"
       ]
@@ -3423,7 +3245,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -3504,6 +3326,7 @@
         "systematic-attacking"
       ],
       "specialist": "impact-validator",
+      "surface_sha256": "efdf5041cfcf85ab35980addd10be35c8e1af83595cfd33733e4976b969e771c",
       "tools": []
     },
     {
@@ -3525,6 +3348,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "impact-validator",
+      "surface_sha256": "24c4a2d369855f3c334b106e237a42c7f314bc50f910109991a8f479c3606f36",
       "tools": []
     },
     {
@@ -3574,6 +3398,7 @@
         "incident-response-runbook"
       ],
       "specialist": "incident-responder",
+      "surface_sha256": "c5801ce1bb72368c275e2459ca4194f57eddd60f7bd39895885c2f6e71bbafc9",
       "tools": []
     },
     {
@@ -3595,6 +3420,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "incident-responder",
+      "surface_sha256": "24c4a2d369855f3c334b106e237a42c7f314bc50f910109991a8f479c3606f36",
       "tools": []
     },
     {
@@ -3618,6 +3444,7 @@
         "interface-ambiguity-check"
       ],
       "specialist": "interactive-audio-designer",
+      "surface_sha256": "0b809fc7542a969357626840a370335f18747ab9668c9667ee059682a58391cc",
       "tools": []
     },
     {
@@ -3666,6 +3493,7 @@
         "interactive-audio-design"
       ],
       "specialist": "interactive-audio-designer",
+      "surface_sha256": "3bd9835481550caacdbcf6a44238178e71ae0a11a4eaf0f8169bbea0c599cbb6",
       "tools": []
     },
     {
@@ -3687,6 +3515,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "interactive-audio-designer",
+      "surface_sha256": "24c4a2d369855f3c334b106e237a42c7f314bc50f910109991a8f479c3606f36",
       "tools": []
     },
     {
@@ -3705,7 +3534,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -3776,6 +3605,7 @@
         "stale-knowledge-purge"
       ],
       "specialist": "knowledge-librarian",
+      "surface_sha256": "76f84709e94aa039f4ce4d7ac1b11da7b82e5c33e40b133fd30fb3ce25971971",
       "tools": [
         "pdftotext",
         "zotero"
@@ -3801,6 +3631,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "knowledge-librarian",
+      "surface_sha256": "202c25d633d5097dfe4a95dd57eeec1b79f73e70eab7e4cda8d44e3899a37151",
       "tools": []
     },
     {
@@ -3832,7 +3663,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -3867,6 +3698,7 @@
         "scope-estimation"
       ],
       "specialist": "large-context-analyst",
+      "surface_sha256": "e3f4b5aeacd113627050b40acfd7e79f5fb44334f94b72dd7ec050ff1ba8c531",
       "tools": []
     },
     {
@@ -3888,6 +3720,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "large-context-analyst",
+      "surface_sha256": "24c4a2d369855f3c334b106e237a42c7f314bc50f910109991a8f479c3606f36",
       "tools": []
     },
     {
@@ -3916,7 +3749,7 @@
       "limitations": [
         "no shell, browser, or local tool surface on this lane: corpus files are supplied in-context and no extraction, conversion, or verification binary can be run here",
         "MCP is lead-brokered only, so chrono-research-arsenal operations are requested from the Kimi lead and never executed in-subagent",
-        "perplexity_search_web is not proven on Kimi and is therefore not claimed on this lane; cited-web research routes to the Opus 5 backup or a research-namespace dispatch"
+        "perplexity_search is not proven on Kimi and is therefore not claimed on this lane; cited-web research routes to the Opus 5 backup or a research-namespace dispatch"
       ],
       "mcps": [
         "lead:chrono-research-arsenal",
@@ -3960,107 +3793,7 @@
         "scope-estimation"
       ],
       "specialist": "large-context-analyst",
-      "tools": []
-    },
-    {
-      "adapter": "model-lanes/claude/.claude/agents/learning-coach.md",
-      "coverage": "full",
-      "known_unavailable": {
-        "mcps": [],
-        "skills": [],
-        "tools": [
-          {
-            "availability": "mcp-operation",
-            "evidence": "chrono-research-arsenal",
-            "id": "arxiv_search",
-            "requirement": "preferred"
-          },
-          {
-            "availability": "mcp-operation",
-            "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
-            "requirement": "preferred"
-          },
-          {
-            "availability": "harness-only",
-            "evidence": "runtime-map:requires_approval",
-            "id": "WebFetch",
-            "requirement": "preferred"
-          },
-          {
-            "availability": "mcp-operation",
-            "evidence": "chrono-research-arsenal",
-            "id": "xai_search",
-            "requirement": "preferred"
-          }
-        ]
-      },
-      "lane": "claude",
-      "limitations": [],
-      "mcps": [
-        "chrono-research-arsenal",
-        "chrono-vault",
-        "sequential-thinking"
-      ],
-      "primary_plan": [
-        {
-          "capability_id": "chrono-research-arsenal",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-research-arsenal",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "chrono-vault",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-vault",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "sequential-thinking",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "sequential-thinking",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        }
-      ],
-      "skills": [
-        "cite-properly",
-        "evidence-level",
-        "find-sources",
-        "research-integrity-gate",
-        "source-triangulation",
-        "summarize-findings"
-      ],
-      "specialist": "learning-coach",
-      "tools": []
-    },
-    {
-      "adapter": "model-lanes/gpt-codex/.codex/agents/learning-coach.toml",
-      "coverage": "partial",
-      "known_unavailable": {
-        "mcps": [],
-        "skills": [],
-        "tools": []
-      },
-      "lane": "gpt-codex",
-      "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
-      ],
-      "mcps": [
-        "chrono-vault",
-        "sequential-thinking"
-      ],
-      "primary_plan": [],
-      "skills": [],
-      "specialist": "learning-coach",
+      "surface_sha256": "12be381d7b15c1969537562c32d525320196c799de3dcbd413ed5f37350f4569",
       "tools": []
     },
     {
@@ -4110,6 +3843,7 @@
         "narrative-structure"
       ],
       "specialist": "level-narrative-designer",
+      "surface_sha256": "2ced9874afeb76db6b368313a02b389f91ff59f754a95d80e20180755b4eede0",
       "tools": []
     },
     {
@@ -4144,6 +3878,7 @@
         "narrative-structure"
       ],
       "specialist": "level-narrative-designer",
+      "surface_sha256": "b6d93dad2d5acd816479e525e570d998886f52c6a95b7d73a9f216c38bf103cf",
       "tools": []
     },
     {
@@ -4193,6 +3928,7 @@
         "terminology-memory"
       ],
       "specialist": "localization-specialist",
+      "surface_sha256": "9109f48b35fa392b637aa6b8750d80903b3e4d1e981f28188aeb4532aa7cb645",
       "tools": []
     },
     {
@@ -4226,6 +3962,7 @@
         "terminology-memory"
       ],
       "specialist": "localization-specialist",
+      "surface_sha256": "547b41edb43801820528a5f3d25a130b86d303daa2a2486ff43805fed375948c",
       "tools": []
     },
     {
@@ -4244,7 +3981,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -4303,6 +4040,7 @@
         "stall-detection"
       ],
       "specialist": "loop-operator",
+      "surface_sha256": "ec0cfde23e7e04f04d16ca6f92dd722fb22670a9bfe2ba63a53521e7d643607a",
       "tools": []
     },
     {
@@ -4324,6 +4062,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "loop-operator",
+      "surface_sha256": "24c4a2d369855f3c334b106e237a42c7f314bc50f910109991a8f479c3606f36",
       "tools": []
     },
     {
@@ -4348,7 +4087,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -4414,6 +4153,7 @@
         "stale-knowledge-purge"
       ],
       "specialist": "mac-ops",
+      "surface_sha256": "adf28f29bd17b6ecc720cc195f38779a1575ccd8a10395ff8d3166b5c67599c6",
       "tools": [
         "brew",
         "df",
@@ -4450,6 +4190,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "mac-ops",
+      "surface_sha256": "24c4a2d369855f3c334b106e237a42c7f314bc50f910109991a8f479c3606f36",
       "tools": []
     },
     {
@@ -4468,7 +4209,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -4528,6 +4269,7 @@
         "stale-knowledge-purge"
       ],
       "specialist": "memory-curator",
+      "surface_sha256": "15a3c50d31ee7d6933935f7927445ac1b6d697a086aacf49c464d46f7ac26318",
       "tools": []
     },
     {
@@ -4549,6 +4291,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "memory-curator",
+      "surface_sha256": "24c4a2d369855f3c334b106e237a42c7f314bc50f910109991a8f479c3606f36",
       "tools": []
     },
     {
@@ -4570,6 +4313,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "music-composer",
+      "surface_sha256": "f298eb6cd2c72b6a6f87ddfc7bd6107547d456083c6f8ac64835a14478a684e4",
       "tools": []
     },
     {
@@ -4622,6 +4366,7 @@
         "sonic-branding"
       ],
       "specialist": "music-composer",
+      "surface_sha256": "8cacc02b231bcbcc22852869a51716a73d7267d98ea45c3a883436ac91ecad5e",
       "tools": []
     },
     {
@@ -4649,6 +4394,7 @@
         "sonic-branding"
       ],
       "specialist": "music-composer",
+      "surface_sha256": "78dd0b8917e6223030ba89d758be018b060be68bd5165082cf3ff2d9c10c390e",
       "tools": []
     },
     {
@@ -4710,7 +4456,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -4769,6 +4515,7 @@
         "thread-sweet-spot-profiling"
       ],
       "specialist": "performance-optimizer",
+      "surface_sha256": "64a5aafb1ee3708d745291fbd6572e9be538f469ce1dc8b392cac0e635d4232c",
       "tools": [
         "chrome-devtools",
         "dtrace",
@@ -4822,7 +4569,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -4851,110 +4598,12 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "performance-optimizer",
+      "surface_sha256": "836abedb1b3b432c3eb18a3b2405c7cc3442bbc7bc6d21c91a9f2b2df9eef2d0",
       "tools": [
         "dtrace",
         "pprof",
         "py-spy"
       ]
-    },
-    {
-      "adapter": "model-lanes/claude/.claude/agents/personal-ops.md",
-      "coverage": "full",
-      "known_unavailable": {
-        "mcps": [],
-        "skills": [],
-        "tools": [
-          {
-            "availability": "mcp-operation",
-            "evidence": "chrono-research-arsenal",
-            "id": "arxiv_search",
-            "requirement": "preferred"
-          },
-          {
-            "availability": "mcp-operation",
-            "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
-            "requirement": "preferred"
-          },
-          {
-            "availability": "harness-only",
-            "evidence": "runtime-map:requires_approval",
-            "id": "WebFetch",
-            "requirement": "preferred"
-          },
-          {
-            "availability": "mcp-operation",
-            "evidence": "chrono-research-arsenal",
-            "id": "xai_search",
-            "requirement": "preferred"
-          }
-        ]
-      },
-      "lane": "claude",
-      "limitations": [],
-      "mcps": [
-        "chrono-research-arsenal",
-        "chrono-vault",
-        "sequential-thinking"
-      ],
-      "primary_plan": [
-        {
-          "capability_id": "chrono-research-arsenal",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-research-arsenal",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "chrono-vault",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-vault",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "sequential-thinking",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "sequential-thinking",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        }
-      ],
-      "skills": [
-        "harness-baseline-audit",
-        "instinct-prune-loop",
-        "kg-vault-health-check",
-        "stale-knowledge-purge"
-      ],
-      "specialist": "personal-ops",
-      "tools": []
-    },
-    {
-      "adapter": "model-lanes/gpt-codex/.codex/agents/personal-ops.toml",
-      "coverage": "partial",
-      "known_unavailable": {
-        "mcps": [],
-        "skills": [],
-        "tools": []
-      },
-      "lane": "gpt-codex",
-      "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
-      ],
-      "mcps": [
-        "chrono-vault",
-        "sequential-thinking"
-      ],
-      "primary_plan": [],
-      "skills": [],
-      "specialist": "personal-ops",
-      "tools": []
     },
     {
       "adapter": "model-lanes/claude/.claude/agents/planner.md",
@@ -4999,6 +4648,7 @@
       ],
       "skills": [],
       "specialist": "planner",
+      "surface_sha256": "f298eb6cd2c72b6a6f87ddfc7bd6107547d456083c6f8ac64835a14478a684e4",
       "tools": []
     },
     {
@@ -5020,6 +4670,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "planner",
+      "surface_sha256": "24c4a2d369855f3c334b106e237a42c7f314bc50f910109991a8f479c3606f36",
       "tools": []
     },
     {
@@ -5038,7 +4689,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -5100,6 +4751,7 @@
         "supply-chain-audit"
       ],
       "specialist": "privacy-steward",
+      "surface_sha256": "708c5582a368c14f66fc8d9ef82a1ac7df51b83c3d126b428def367b70e73c7d",
       "tools": []
     },
     {
@@ -5121,6 +4773,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "privacy-steward",
+      "surface_sha256": "24c4a2d369855f3c334b106e237a42c7f314bc50f910109991a8f479c3606f36",
       "tools": []
     },
     {
@@ -5139,7 +4792,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -5202,6 +4855,7 @@
         "verification-before-completion"
       ],
       "specialist": "product-manager",
+      "surface_sha256": "ebcdc2cac893249f8ac35fe65f91d403afd955aae633562166f8b64978bf3a5d",
       "tools": []
     },
     {
@@ -5223,6 +4877,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "product-manager",
+      "surface_sha256": "24c4a2d369855f3c334b106e237a42c7f314bc50f910109991a8f479c3606f36",
       "tools": []
     },
     {
@@ -5268,6 +4923,7 @@
       ],
       "skills": [],
       "specialist": "prompt-engineer",
+      "surface_sha256": "f298eb6cd2c72b6a6f87ddfc7bd6107547d456083c6f8ac64835a14478a684e4",
       "tools": []
     },
     {
@@ -5289,6 +4945,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "prompt-engineer",
+      "surface_sha256": "24c4a2d369855f3c334b106e237a42c7f314bc50f910109991a8f479c3606f36",
       "tools": []
     },
     {
@@ -5310,6 +4967,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "red-team-operator",
+      "surface_sha256": "f298eb6cd2c72b6a6f87ddfc7bd6107547d456083c6f8ac64835a14478a684e4",
       "tools": []
     },
     {
@@ -5373,6 +5031,7 @@
       ],
       "skills": [],
       "specialist": "red-team-operator",
+      "surface_sha256": "9b925b0a1b714a393d40624224d41af739c0e778a1ff638add7c132611680f8e",
       "tools": []
     },
     {
@@ -5428,7 +5087,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -5506,6 +5165,7 @@
         "import-reorg"
       ],
       "specialist": "refactor-cleaner",
+      "surface_sha256": "1d198d7b2c55b9b4597f9508f2edb3cf7e648021218da9f35cf3e4c217ab0792",
       "tools": [
         "comby",
         "pylint",
@@ -5552,7 +5212,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -5599,6 +5259,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "refactor-cleaner",
+      "surface_sha256": "6a997ec59e300b6476593d20fac980214042d8176be999c5184c1f3301d606b6",
       "tools": [
         "comby",
         "pylint",
@@ -5634,6 +5295,7 @@
         "summarize-findings"
       ],
       "specialist": "research",
+      "surface_sha256": "a135d528a61f03844ed24653dbd1179856584d54987c1189a969184d88d8c4e6",
       "tools": [
         "firecrawl"
       ]
@@ -5661,12 +5323,6 @@
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
             "id": "firecrawl_scrape",
-            "requirement": "preferred"
-          },
-          {
-            "availability": "mcp-operation",
-            "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
             "requirement": "preferred"
           },
           {
@@ -5733,6 +5389,7 @@
       ],
       "skills": [],
       "specialist": "research",
+      "surface_sha256": "51aa9a1d474be70e8e208e6691f0007bff81a9a178ef943be978229621df8dc5",
       "tools": []
     },
     {
@@ -5756,6 +5413,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "research",
+      "surface_sha256": "f6124ae9b4918394690a19e4f42863f3ed2382b3b29ea44e45b109468e789821",
       "tools": []
     },
     {
@@ -5784,6 +5442,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "reverse-engineer",
+      "surface_sha256": "c858912b74d5764fff62b4c5cb4b94dfd7b9232c3a581091ca6efe00484a89de",
       "tools": [
         "angr",
         "gdb",
@@ -5835,6 +5494,7 @@
       ],
       "skills": [],
       "specialist": "reverse-engineer",
+      "surface_sha256": "62025d38250a315645630c4fe6c38628880b548a9874c7a3c508134101d7db7f",
       "tools": [
         "angr",
         "gdb",
@@ -5881,7 +5541,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -5997,6 +5657,7 @@
         "scope-gate"
       ],
       "specialist": "scout",
+      "surface_sha256": "30b55af4ce365af56aa929f8bd4fc13c97f12784371944fd10dd002ff7565731",
       "tools": [
         "amass",
         "gowitness",
@@ -6025,6 +5686,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "scout",
+      "surface_sha256": "24c4a2d369855f3c334b106e237a42c7f314bc50f910109991a8f479c3606f36",
       "tools": []
     },
     {
@@ -6073,6 +5735,7 @@
         "scrape-state-persistence"
       ],
       "specialist": "scraping-engineer",
+      "surface_sha256": "d9db02cdabd412703d9ab956e6d2a79c04b23e47c012b7c993f713f531d8d25e",
       "tools": [
         "chrome-devtools"
       ]
@@ -6105,7 +5768,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -6176,6 +5839,7 @@
       ],
       "skills": [],
       "specialist": "scraping-engineer",
+      "surface_sha256": "a9e1999fbf0f90569eb5066d53ae1155737453c67df18a6d1bb0e3e62355579a",
       "tools": [
         "beautifulsoup",
         "httpx",
@@ -6219,7 +5883,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -6275,6 +5939,7 @@
         "vulnhunter-solana"
       ],
       "specialist": "security-analyst",
+      "surface_sha256": "8d28a4f6471bacad91a9c82c7415f80d50e6f1dcbae3ff8204eb55ae1972c7c8",
       "tools": [
         "aderyn",
         "anchor",
@@ -6338,7 +6003,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -6458,6 +6123,7 @@
         "vulnhunter-solana"
       ],
       "specialist": "security-analyst",
+      "surface_sha256": "9428916431855ffce21f2962ffe2b7721869785f888f2357ac93728c2afc0f8e",
       "tools": [
         "aderyn",
         "anchor",
@@ -6506,6 +6172,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "site-reliability-engineer",
+      "surface_sha256": "f298eb6cd2c72b6a6f87ddfc7bd6107547d456083c6f8ac64835a14478a684e4",
       "tools": []
     },
     {
@@ -6551,6 +6218,7 @@
       ],
       "skills": [],
       "specialist": "site-reliability-engineer",
+      "surface_sha256": "24c4a2d369855f3c334b106e237a42c7f314bc50f910109991a8f479c3606f36",
       "tools": []
     },
     {
@@ -6599,6 +6267,7 @@
         "systematic-bug-hunting"
       ],
       "specialist": "skeptic",
+      "surface_sha256": "07b0ad7957d0e938e55c014b1e4cbbedbacc24db2d14c8f9faa28cff3e4cc84f",
       "tools": []
     },
     {
@@ -6622,6 +6291,7 @@
         "systematic-bug-hunting"
       ],
       "specialist": "skeptic",
+      "surface_sha256": "1f4e725970989aa028ed6eb52c31b229116c64bcc03375e2337a9fbe2d08c790",
       "tools": []
     },
     {
@@ -6659,7 +6329,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -6767,6 +6437,7 @@
         "vulnhunter-solana"
       ],
       "specialist": "smart-contract-engineer",
+      "surface_sha256": "0e425e163b9c44bf283cfe8c53e4debadfaaf8635255ac495c8a78fe7f29c153",
       "tools": [
         "aderyn",
         "anchor",
@@ -6801,7 +6472,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -6835,6 +6506,7 @@
         "defensive-pattern-discovery"
       ],
       "specialist": "smart-contract-engineer",
+      "surface_sha256": "6afdebc8d0024cd88ae44664707d44ab0a81995bd25cb1892f4f3f940ceca77a",
       "tools": [
         "aderyn",
         "anchor",
@@ -6870,6 +6542,7 @@
         "writing-skills"
       ],
       "specialist": "social-strategist",
+      "surface_sha256": "8e28f454bef59a5e6c03e282cceb96c28a2512618c41086e7957d0457c872b97",
       "tools": []
     },
     {
@@ -6927,6 +6600,7 @@
         "virality-analysis"
       ],
       "specialist": "social-strategist",
+      "surface_sha256": "cb82da7b87603cf5eca3ee25cbeb9aa6dbf6eee82a9fb954ff7f4118442bab53",
       "tools": []
     },
     {
@@ -6959,6 +6633,7 @@
         "virality-analysis"
       ],
       "specialist": "social-strategist",
+      "surface_sha256": "bee7acee7e6bbaf2bae6f59a5cbc4c071de06f25a4e3471b0ae764860f0e5390",
       "tools": []
     },
     {
@@ -7014,6 +6689,7 @@
         "cross-arch-build-discipline"
       ],
       "specialist": "software-supply-chain-engineer",
+      "surface_sha256": "42e54c34fba40543880e6f3bfc8f775ef15b7b5c0c3f5ec6a94549dabb6e5ba1",
       "tools": [
         "osv-scanner",
         "trivy"
@@ -7045,6 +6721,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "software-supply-chain-engineer",
+      "surface_sha256": "edb6b318721e5d78ccda883f46117346b58e54773ca5ae9d4e2b5c9be259c049",
       "tools": [
         "osv-scanner",
         "trivy"
@@ -7069,6 +6746,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "sol",
+      "surface_sha256": "c2f6d3fdb8a0c197810b8cedddc8603ac3ead10411becb15e8ab01e75c45eddc",
       "tools": []
     },
     {
@@ -7097,6 +6775,7 @@
       ],
       "skills": [],
       "specialist": "sol",
+      "surface_sha256": "c793d1e2cbbb805cd96be37740a98a8a6844b8b420bb44b352d7a8140993f9c5",
       "tools": []
     },
     {
@@ -7118,6 +6797,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "sound-designer",
+      "surface_sha256": "f298eb6cd2c72b6a6f87ddfc7bd6107547d456083c6f8ac64835a14478a684e4",
       "tools": []
     },
     {
@@ -7170,6 +6850,7 @@
         "sound-design-principles"
       ],
       "specialist": "sound-designer",
+      "surface_sha256": "4e138e1cd233408161dbd2c8aa272c877d7f7742cd14a24395a229c05bf7c21d",
       "tools": []
     },
     {
@@ -7197,6 +6878,7 @@
         "sound-design-principles"
       ],
       "specialist": "sound-designer",
+      "surface_sha256": "7969fd673f5f50fbcf5a91d4c66d75419c8ae6006c133b7e25fa7e626c977923",
       "tools": []
     },
     {
@@ -7215,7 +6897,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -7238,6 +6920,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "summarizer",
+      "surface_sha256": "245c11cac8e5f1a061b0f30f049653214689ad7877769fafdc3eaa4e06e247eb",
       "tools": []
     },
     {
@@ -7283,6 +6966,7 @@
       ],
       "skills": [],
       "specialist": "summarizer",
+      "surface_sha256": "bd8b4a778c1f1b70e047ae00c9e325f9bac448646ca0c35ed147743ff5a0b476",
       "tools": []
     },
     {
@@ -7301,7 +6985,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -7362,6 +7046,7 @@
         "summarize-findings"
       ],
       "specialist": "synthesizer",
+      "surface_sha256": "338ad0a323b09a1ddcfa6628b933d2c897839c12b237c693db40b2a9312cd10f",
       "tools": []
     },
     {
@@ -7383,6 +7068,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "synthesizer",
+      "surface_sha256": "24c4a2d369855f3c334b106e237a42c7f314bc50f910109991a8f479c3606f36",
       "tools": []
     },
     {
@@ -7422,6 +7108,7 @@
         "simd-porting-layer"
       ],
       "specialist": "systems-engineer",
+      "surface_sha256": "2f6d27e54f8e5f693045ac903aea797eb042a17087e96ddac6cf0093841b8ddf",
       "tools": []
     },
     {
@@ -7440,7 +7127,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -7495,6 +7182,7 @@
       ],
       "skills": [],
       "specialist": "systems-engineer",
+      "surface_sha256": "245c11cac8e5f1a061b0f30f049653214689ad7877769fafdc3eaa4e06e247eb",
       "tools": []
     },
     {
@@ -7549,6 +7237,7 @@
         "cross-arch-build-discipline"
       ],
       "specialist": "technical-artist",
+      "surface_sha256": "feec4f2e00a39d59a8b4c075836d6db702107d231576cee0b1a6692dd9595598",
       "tools": []
     },
     {
@@ -7577,6 +7266,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "technical-artist",
+      "surface_sha256": "24c4a2d369855f3c334b106e237a42c7f314bc50f910109991a8f479c3606f36",
       "tools": []
     },
     {
@@ -7629,6 +7319,7 @@
         "skill-description-trigger-authoring"
       ],
       "specialist": "technical-writer",
+      "surface_sha256": "78e5258d7f45b0743afd4e454c8ffb3e86b21c20eac6c323707c893bd22adf5d",
       "tools": []
     },
     {
@@ -7650,6 +7341,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "technical-writer",
+      "surface_sha256": "24c4a2d369855f3c334b106e237a42c7f314bc50f910109991a8f479c3606f36",
       "tools": []
     },
     {
@@ -7668,7 +7360,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -7753,6 +7445,7 @@
         "webapp-testing-local"
       ],
       "specialist": "test-engineer",
+      "surface_sha256": "e5482a5da36383db5a4a08ed83e7116c79c3356eb5030394f724989c92e3e637",
       "tools": [
         "playwright"
       ]
@@ -7773,7 +7466,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -7802,6 +7495,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "test-engineer",
+      "surface_sha256": "caca44ab3cb32dd727562ce5cc3c9fa2afec39d17d90d94c0ae21c4e21791dbc",
       "tools": [
         "playwright"
       ]
@@ -7822,7 +7516,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -7907,6 +7601,7 @@
         "threat-model-loop"
       ],
       "specialist": "threat-modeler",
+      "surface_sha256": "fa8d4c0d84c388fd3ebea1566f7b866c5760cfc48ce534f43151505e67610679",
       "tools": []
     },
     {
@@ -7933,6 +7628,7 @@
         "systematic-bug-hunting"
       ],
       "specialist": "threat-modeler",
+      "surface_sha256": "dbbf0a9e741614f9e33992b802ed3bbf25b5a8770127dff49f9d77f5b1cf9016",
       "tools": []
     },
     {
@@ -7978,6 +7674,7 @@
       ],
       "skills": [],
       "specialist": "triage",
+      "surface_sha256": "f298eb6cd2c72b6a6f87ddfc7bd6107547d456083c6f8ac64835a14478a684e4",
       "tools": []
     },
     {
@@ -7999,6 +7696,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "triage",
+      "surface_sha256": "24c4a2d369855f3c334b106e237a42c7f314bc50f910109991a8f479c3606f36",
       "tools": []
     },
     {
@@ -8017,7 +7715,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -8101,6 +7799,7 @@
         "frontend-design"
       ],
       "specialist": "ui-engineer",
+      "surface_sha256": "0de60a22896f0cdcf96ae2ac76c8af022ae2c82dce86f55b5da40047123d49c4",
       "tools": [
         "playwright"
       ]
@@ -8121,7 +7820,7 @@
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search_web",
+            "id": "perplexity_search",
             "requirement": "preferred"
           },
           {
@@ -8154,6 +7853,7 @@
         "figma-implement-design"
       ],
       "specialist": "ui-engineer",
+      "surface_sha256": "199db473b95098024a748c633687b965790f0e7b040b0aff31f976929cb8ef8f",
       "tools": [
         "playwright"
       ]
@@ -8184,6 +7884,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "vibecoding-check",
+      "surface_sha256": "f298eb6cd2c72b6a6f87ddfc7bd6107547d456083c6f8ac64835a14478a684e4",
       "tools": []
     },
     {
@@ -8231,6 +7932,7 @@
       ],
       "skills": [],
       "specialist": "vibecoding-check",
+      "surface_sha256": "24c4a2d369855f3c334b106e237a42c7f314bc50f910109991a8f479c3606f36",
       "tools": []
     },
     {
@@ -8254,6 +7956,7 @@
         "virality-analysis"
       ],
       "specialist": "video-director",
+      "surface_sha256": "527696756f9342eaff74202ecd172f827e31eed6b53294030095135a78a2212d",
       "tools": []
     },
     {
@@ -8305,6 +8008,7 @@
         "video-production-principles"
       ],
       "specialist": "video-director",
+      "surface_sha256": "c3488d8112cbc0515f907b8b573cfefe347e57cf5f4ff2a0988b842599e18957",
       "tools": [
         "generate_video"
       ]
@@ -8333,6 +8037,7 @@
         "video-production-principles"
       ],
       "specialist": "video-director",
+      "surface_sha256": "cec4039ef2c13f1c47140574d183151b3bacda008a718d6b590975d4b7986cde",
       "tools": [
         "generate_video"
       ]
@@ -8356,6 +8061,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "video-editor",
+      "surface_sha256": "f298eb6cd2c72b6a6f87ddfc7bd6107547d456083c6f8ac64835a14478a684e4",
       "tools": []
     },
     {
@@ -8398,6 +8104,7 @@
         "video-post-production"
       ],
       "specialist": "video-editor",
+      "surface_sha256": "15d6b8e364718fae2f941704a2aa0817619074908e8084fadf4dd20f4ca38201",
       "tools": []
     },
     {
@@ -8424,6 +8131,7 @@
         "video-post-production"
       ],
       "specialist": "video-editor",
+      "surface_sha256": "c9ec1488a0c2e6d638ff5f7e4f7b0a7b78bcc609adebbc0d18362f484e0b1299",
       "tools": []
     },
     {
@@ -8445,6 +8153,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "voice-agent-builder",
+      "surface_sha256": "f298eb6cd2c72b6a6f87ddfc7bd6107547d456083c6f8ac64835a14478a684e4",
       "tools": []
     },
     {
@@ -8497,6 +8206,7 @@
         "knowledge-base-integration"
       ],
       "specialist": "voice-agent-builder",
+      "surface_sha256": "7e317786cc7f98c985d0d9f95b101a9fb8822e7bc971bba937e4af8b619610ac",
       "tools": []
     },
     {
@@ -8524,6 +8234,7 @@
         "knowledge-base-integration"
       ],
       "specialist": "voice-agent-builder",
+      "surface_sha256": "8222288f69827d2ebe83f8e378586b2894cde179a635ce5ae28885c0f8e02df4",
       "tools": []
     },
     {
@@ -8545,6 +8256,7 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "voice-narrator",
+      "surface_sha256": "f298eb6cd2c72b6a6f87ddfc7bd6107547d456083c6f8ac64835a14478a684e4",
       "tools": []
     },
     {
@@ -8596,6 +8308,7 @@
         "voice-performance-direction"
       ],
       "specialist": "voice-narrator",
+      "surface_sha256": "ca43c8d802fe8a833d57cd0858e60a67d3ac2eb871eadf892174b30497ff337b",
       "tools": []
     },
     {
@@ -8622,116 +8335,14 @@
         "voice-performance-direction"
       ],
       "specialist": "voice-narrator",
-      "tools": []
-    },
-    {
-      "adapter": "model-lanes/claude/.claude/agents/web-builder.md",
-      "coverage": "partial",
-      "known_unavailable": {
-        "mcps": [],
-        "skills": [],
-        "tools": []
-      },
-      "lane": "claude",
-      "limitations": [
-        "best-effort non-primary route: retained as the strong cross-family backup and escalation for the Kimi/K3 primary, and it is the lane that actually performs build, deploy, visual, and e2e verification; required capabilities remain anchored to the primary execution plan"
-      ],
-      "mcps": [
-        "chrono-vault",
-        "sequential-thinking"
-      ],
-      "primary_plan": [],
-      "skills": [
-        "accessibility-wcag",
-        "responsive-design",
-        "seo-fundamentals",
-        "web-performance-optimization"
-      ],
-      "specialist": "web-builder",
-      "tools": []
-    },
-    {
-      "adapter": "model-lanes/gpt-codex/.codex/agents/web-builder.toml",
-      "coverage": "partial",
-      "known_unavailable": {
-        "mcps": [],
-        "skills": [],
-        "tools": []
-      },
-      "lane": "gpt-codex",
-      "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
-      ],
-      "mcps": [
-        "chrono-vault",
-        "sequential-thinking"
-      ],
-      "primary_plan": [],
-      "skills": [
-        "responsive-design",
-        "web-performance-optimization"
-      ],
-      "specialist": "web-builder",
-      "tools": []
-    },
-    {
-      "adapter": "model-lanes/kimi/.kimi/agents/web-builder.yaml",
-      "coverage": "full",
-      "known_unavailable": {
-        "mcps": [],
-        "skills": [],
-        "tools": [
-          {
-            "availability": "harness-only",
-            "evidence": "runtime-map:requires_approval",
-            "id": "WebFetch",
-            "requirement": "preferred"
-          }
-        ]
-      },
-      "lane": "kimi",
-      "limitations": [
-        "no shell or browser surface on this lane: builds, dev servers, Lighthouse, screenshots, and e2e drives cannot run here, so visual and e2e verification route to the Opus 5 backup",
-        "deploy stays out of reach on this lane; Vercel and Firebase remain needs_tool:auth and every public_release, credential_change, and production_mutation gate is unchanged",
-        "MCP is lead-brokered only, so chrono-vault and sequential-thinking calls are requested from the Kimi lead"
-      ],
-      "mcps": [
-        "lead:chrono-vault",
-        "lead:sequential-thinking"
-      ],
-      "primary_plan": [
-        {
-          "capability_id": "lead:chrono-vault",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-vault",
-          "kind": "mcps",
-          "provider_lane": "kimi",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "lead:sequential-thinking",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "sequential-thinking",
-          "kind": "mcps",
-          "provider_lane": "kimi",
-          "requirement": "preferred",
-          "resolution": "local"
-        }
-      ],
-      "skills": [
-        "accessibility-wcag",
-        "responsive-design",
-        "seo-fundamentals",
-        "web-performance-optimization"
-      ],
-      "specialist": "web-builder",
+      "surface_sha256": "41d2947db5136694866ecf9445c4a10c7ceb75b9c41c654c873e59cb379c590a",
       "tools": []
     }
   ],
   "generated": true,
-  "policy_sha256": "e10b87591263969484a337f2f32c5c183b9f7115261250a9da48ba53c85f6ed7",
+  "policy_sha256": "c28582eb0a4090e7071df94fb7c4b1532492a8eca3803ccfd4e9791a3856bd8a",
   "schema": "specialist-adapter-capability-index/v2",
   "source": "model-lanes/specialist-lane-capabilities.v1.json",
-  "source_sha256": "585d42615757d63d998fb325e50cead8dd269d9c729dde30eb4e95d71be375af"
+  "source_sha256": "2625a4a8cd5209f66bd691251e4891453aa495033240724479a69f13965d104a",
+  "surface_count": 111
 }

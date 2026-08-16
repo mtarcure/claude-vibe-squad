@@ -16,7 +16,6 @@ CODEX_STAGED = REPO / "model-lanes/gpt-codex/.codex/security-arsenal.staged.toml
 CLAUDE_LIVE = REPO / "model-lanes/claude/.mcp.json"
 CODEX_LIVE = REPO / "model-lanes/gpt-codex/.codex/config.toml"
 HELD_SOLODIT = REPO / "plugins/security-mcp-stack/held-solodit.json"
-HELD_MODEL_ARMOR = REPO / "plugins/security-mcp-stack/held-modelarmor.json"
 SNYK_TARGETS = REPO / "plugins/security-mcp-stack/snyk-preactivation-targets.json"
 SNYK_GATE = REPO / "plugins/security-mcp-stack/preactivate-security-stack.sh"
 CONTEXT_DB = (
@@ -35,11 +34,6 @@ EXPECTED = ["guarded-semgrep", "guarded-slither", "guarded-solodit"]
 SECRET_PATTERN = re.compile(
     r"(?:sk-[A-Za-z0-9]|AIza[0-9A-Za-z_-]|gh[opsu]_[A-Za-z0-9]|"
     r"ya29\.[A-Za-z0-9_-]|-----BEGIN PRIVATE KEY-----)"
-)
-MODEL_ARMOR_ASK = (
-    "Provide either the absolute path to a durable least-privilege Model Armor "
-    "service-account JSON key via GOOGLE_APPLICATION_CREDENTIALS, or run "
-    "`gcloud auth application-default login` for the gateway identity."
 )
 
 
@@ -141,7 +135,6 @@ def main() -> int:
     codex_live = toml_servers(CODEX_LIVE)
     snyk_targets = json_servers(SNYK_TARGETS)
     held = json.loads(HELD_SOLODIT.read_text(encoding="utf-8"))
-    model_armor = json.loads(HELD_MODEL_ARMOR.read_text(encoding="utf-8"))
     context_db = json.loads(CONTEXT_DB.read_text(encoding="utf-8"))
     issues: list[str] = []
     for label, servers, allow_unrelated in (
@@ -224,12 +217,6 @@ def main() -> int:
         issues.append("solodit:wrong-inherited-credential")
     if SECRET_PATTERN.search(json.dumps(held)):
         issues.append("solodit:literal-secret")
-    if model_armor.get("activation") != "blocked-on-operator-credential":
-        issues.append("model-armor:not-credential-blocked")
-    if model_armor.get("operator_ask") != MODEL_ARMOR_ASK:
-        issues.append("model-armor:operator-ask-drift")
-    if SECRET_PATTERN.search(json.dumps(model_armor)):
-        issues.append("model-armor:literal-secret")
     gate_text = SNYK_GATE.read_text(encoding="utf-8")
     for token in (
         "SNYK_TOKEN", "SOLODIT_API_KEY", "--ci", "--no-skills",
@@ -249,7 +236,6 @@ def main() -> int:
         "context_config_state": context_state,
         "solodit": "activated-ready",
         "snyk": "required-fail-closed-preactivation",
-        "model_armor": "blocked-on-operator-credential",
         "warnings": empty_env_warnings,
         "issues": issues,
     }

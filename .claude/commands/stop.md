@@ -5,7 +5,7 @@ Gracefully close the Vibe Squad tmux session from inside Chrono.
 Run:
 
 ```bash
-bash ~/Obsidian-Claude-Vibe-Squad/bin/squad-stop.sh
+bash "$(git rev-parse --show-toplevel)"/bin/squad-stop.sh
 ```
 
 Behavior:

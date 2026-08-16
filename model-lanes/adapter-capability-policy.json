@@ -35,6 +35,7 @@
     "cProfile": "cprofile",
     "chrome-devtools": "chrome-devtools",
     "mythril": "myth",
+    "perplexity_search_web": "perplexity_search",
     "waybackmachine": "waybackmachine"
   },
   "baseline_ref": "be0354823d51f93d47f4833b8bfafd2a6b204dcd",
@@ -260,7 +261,7 @@
       "pdfplumber",
       "pdftotext",
       "perf",
-      "perplexity_search_web",
+      "perplexity_search",
       "pgrep",
       "pip",
       "pipx",

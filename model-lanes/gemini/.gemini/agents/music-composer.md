@@ -1,16 +1,16 @@
 ---
 name: music-composer
-description: "Tool-gated original music composition; operations[chrono-media-studio]=elevenlabs__compose_music|elevenlabs__video_to_music|elevenlabs__upload_music_for_inpainting; Claude backup produces a TBASF blueprint when tools are unavailable."
+description: "Gemini/Lyria wrapper music is the primary route. ElevenLabs composition is a separate Claude sibling MCP and remains available-gated/unproven pending role-scoped credential and semantic receipts; otherwise produce a TBASF blueprint."
 kind: local
 tools: ["read_file","replace","write_file","run_shell_command","glob","grep_search"]
 model: inherit
 max_turns: 30
 ---
 
-<!-- generated_by=lane-capability-registry/v1 registry_sha256=268b6f90a9c6eb271bab4d6099c584332059c6b21404bece9775ccc25de296d6
+<!-- generated_by=lane-capability-registry/v1 registry_sha256=036f6a2da0cb9865544c8c6bcd04b9f03b9caa6caf9943c48c099d82227fad2d
 # BEGIN SPECIALIST CAPABILITY PROJECTION
 capability_source: model-lanes/specialist-lane-capabilities.v1.json
-capability_source_sha256: 585d42615757d63d998fb325e50cead8dd269d9c729dde30eb4e95d71be375af
+capability_source_sha256: 2625a4a8cd5209f66bd691251e4891453aa495033240724479a69f13965d104a
 capability_skills: ["audio-production-basics","music-production-basics","sonic-branding"]
 capability_mcps: ["chrono-media-studio","chrono-vault","sequential-thinking"]
 # END SPECIALIST CAPABILITY PROJECTION

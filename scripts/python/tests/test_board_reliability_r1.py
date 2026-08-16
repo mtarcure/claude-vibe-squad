@@ -34,6 +34,30 @@ if str(PYTHON_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(PYTHON_SCRIPTS))
 
 import dispatch_context_builder as dcb  # noqa: E402
+import verification_contract as _vc  # noqa: E402
+
+
+def _valid_contract(**overrides: object) -> dict:
+    """A schema-current contract, derived rather than hand-written.
+
+    These fixtures used to hand-roll a two-key dict. The contract schema has
+    since grown required keys, so the validator rejected the fixture for having
+    EVERY key missing and never reached the branch under test -- the assertion
+    then failed naming the field the test cared about, which reads like a
+    product regression rather than a stale fixture. Deriving keeps the fixture
+    current by construction.
+    """
+    contract = _vc.derive_verification_contract(
+        {
+            "task_id": "TASK-2026-07-26-9003-x",
+            "mode": "project",
+            "to_model": "claude",
+            "run_id": "none",
+            "result_type": "normal",
+        }
+    )
+    contract.update(overrides)
+    return contract
 import lane_capability_enforcement as lce  # noqa: E402
 import registry_reconciler as reconciler  # noqa: E402
 
@@ -128,7 +152,7 @@ class PromotionPinEchoTests(unittest.TestCase):
             )
             self.assertEqual(reconciler.swarm_response_issue(entry, published), "")
 
-    def test_worker_pool_fence_survives_promotion(self) -> None:
+    def test_legacy_worker_fence_survives_promotion(self) -> None:
         expiry = datetime.now(timezone.utc) + timedelta(hours=1)
         entry = {
             "delivery_worker_id": "worker-01",
@@ -464,6 +488,14 @@ class NonHeadlessRequiredToolTests(unittest.TestCase):
         )
         self.assertIn("zotero", plan.capability_gaps)
 
+    def test_codex_runtime_alias_resolves_gpt_codex_tool_classes(self) -> None:
+        classes = lce.load_tool_classes(
+            repo_root=ROOT, lane="codex", specialist="data-extraction-engineer"
+        )
+        self.assertEqual(classes["pdftotext"]["requirement"], "required")
+        self.assertEqual(classes["pandas"]["requirement"], "preferred")
+        self.assertEqual(classes["pandas"]["evidence"], "repo-venv-interpreter")
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CC-17 — one worker status enum across toolkit, bridge, watcher, reconciler
@@ -537,7 +569,8 @@ class ContractAdmissionDiagnosticsTests(unittest.TestCase):
         self.assertIn("verification_contract", message)
 
     def test_missing_hash_names_the_field(self) -> None:
-        contract = {"task_id": "TASK-2026-07-26-9003-x"}
+        # Valid contract, absent hash: the diagnostic must name the hash field.
+        contract = _valid_contract()
         with self.assertRaises(dcb.DispatchContextError) as caught:
             dcb.validate_verification_contract(
                 {
@@ -548,12 +581,11 @@ class ContractAdmissionDiagnosticsTests(unittest.TestCase):
         self.assertIn("verification_contract_sha256", str(caught.exception))
 
     def test_missing_phase_arrays_name_the_fields(self) -> None:
-        contract = {
-            "task_id": "TASK-2026-07-26-9003-x",
-            "mode": "project",
-            "required_phase_ids": [],
-            "required_verification_kinds": [],
-        }
+        # Valid contract whose phase arrays are EMPTY -- the branch under test
+        # is emptiness, not absence.
+        contract = _valid_contract(
+            required_phase_ids=[], required_verification_kinds=[]
+        )
         raw = json.dumps(contract, sort_keys=True, separators=(",", ":"))
         digest = dcb._sha256_bytes(dcb._canonical_json(json.loads(raw)))
         with self.assertRaises(dcb.DispatchContextError) as caught:

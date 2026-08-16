@@ -58,7 +58,10 @@ MANUAL_QUEUE_DONE_PATH = STATE_DIR / "manual-queue-done.txt"
 MANUAL_QUEUE_FAILED_PATH = STATE_DIR / "manual-queue-failed.txt"
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "claude")
 XAI_TOOL = "mcp__plugin_chrono-research-arsenal_chrono-research-arsenal__xai_search"
-PERPLEXITY_TOOL = "mcp__plugin_chrono-research-arsenal_perplexity__perplexity_search_web"
+PERPLEXITY_TOOL = (
+    "mcp__plugin_chrono-research-arsenal_"
+    "chrono-research-arsenal__perplexity_search"
+)
 ARXIV_API_LAST_FETCH_MONO: float | None = None
 
 DAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")

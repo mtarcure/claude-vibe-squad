@@ -8,8 +8,10 @@ type: skill
 
 Chrono-side proactive compaction. The operator triggers via slash phrase. Chrono:
 
-1. Calls `chrono_state.compaction.should_compact()` to confirm safety (over threshold, no in-flight work).
-2. If blockers exist (in-flight dispatches), surfaces them to the operator and asks whether to proceed anyway.
+1. Reads the live board partition via `chrono_state.registry.registry_view()`, then calls
+   `chrono_state.compaction.should_compact()` to confirm safety (over threshold, no live work).
+2. If blockers exist (live dispatches), surfaces them to the operator and asks whether to proceed
+   anyway — likewise for any unclassified registry status, which the partition cannot vouch for.
 3. Externalizes load-bearing state to the Vault via the current `record("learning", {...})` writer — captures active decisions (authority), open tasks, pending approvals, and the next action.
 4. Snapshots the same state to `_state/chrono/compaction/<session>.json` via `chrono_state.compaction.snapshot()`.
 5. Invokes Claude Code's native `/compact`.
@@ -23,7 +25,7 @@ Chrono-side proactive compaction. The operator triggers via slash phrase. Chrono
 
 ## When NOT to invoke
 
-- In-flight dispatches running — surface blockers first
+- Live dispatches running (`registry_view()["live"]` non-empty) — surface blockers first
 - Mid-task (Chrono still processing) — wait for a task boundary
 - Below the `should_compact()` threshold — no benefit, just cost
 
@@ -39,22 +41,36 @@ one — do not depend on it; externalize eagerly here.
 import json, sys
 sys.path.insert(0, "scripts/python")
 from chrono_state.compaction import should_compact, snapshot   # noqa: E402
-from chrono_state.registry import load_active                  # noqa: E402
+from chrono_state.registry import registry_view                # noqa: E402
 from chrono_state.decisions import active_decisions            # noqa: E402
+
+# ONE classification pass over the LIVE registry (_state/active-tasks.json).
+# Do NOT use load_active(): it reads the bounded _state/tasks/active.json, which was
+# populated once by the 2026-07-24 migration and has had no writer since — it returns
+# [] on the live board, which silently empties the blocker list below. registry_view()
+# partitions by the real vocabulary in registry.LIVE_STATUSES / DEFERRED_STATUSES;
+# never hand-write status literals here, or the gate filters on a status the board
+# does not emit and passes vacuously.
+board = registry_view()
 
 advisory = should_compact(
     token_estimate=current_context_estimate,
-    in_flight=[t["id"] for t in load_active() if t.get("state") in ("running", "admitted")],
+    in_flight=[t["id"] for t in board["live"]],
 )
 if advisory["blockers"]:
     surface_to_operator(f"Blockers: {advisory['blockers']}. Proceed anyway?")
     if not operator_confirms:
         return
+# An unclassified status is owed work the partition cannot see — surface it loudly
+# rather than compacting over it (same contract as the resume capsule).
+if board["unclassified"]:
+    surface_to_operator(f"UNKNOWN registry statuses: {board['unclassified']}. Proceed anyway?")
 
 state = {
     "next_action": next_action,
     "active_decisions": active_decisions(),   # AUTHORITY — not Vault evidence
-    "active_tasks": load_active(),
+    "active_tasks": board["live"],
+    "deferred_tasks": board["deferred"],      # owed work; stalled, not executing
     "latest_turn": latest_operator_turn,
     "pending_approvals": pending_approvals,
 }
@@ -85,7 +101,9 @@ trigger_native_compact()
 
 - Policy + snapshot helpers: `scripts/python/chrono_state/compaction.py` (`should_compact`, `snapshot`, `recover`)
 - Decision authority (separate from Vault): `scripts/python/chrono_state/decisions.py`
-- Bounded task registry: `scripts/python/chrono_state/registry.py`
+- Live board partition: `scripts/python/chrono_state/registry.py` (`registry_view` — live /
+  deferred / unclassified; `LIVE_STATUSES` is the only status vocabulary. `load_active()` reads
+  the frozen bounded `active.json` and is NOT board truth)
 - Resume capsule generator: `scripts/python/chrono_state/resume.py`
 - Vault writer API: `record(note_type, fields)` — see `plugins/chrono-vault/README.md`
 - Resume canary (acceptance proof): `scripts/python/tests/test_resume_canary.py`

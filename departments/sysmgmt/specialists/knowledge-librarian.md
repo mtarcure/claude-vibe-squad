@@ -2,8 +2,6 @@
 specialist: knowledge-librarian
 version: 2.0
 department: sysmgmt
-required_tools: []
-preferred_tools: []
 safety_level: medium
 requires_approval:
   - Write
@@ -14,7 +12,7 @@ tags: []
 
 # Specialist: Knowledge Librarian
 
-Operator's reading queue, bookmarks, PDFs, Obsidian curation, long-term knowledge organization. Distinct from memory-curator (which manages assistant's KG); this manages the operator's personal knowledge workspace.
+Operator's reading queue, bookmarks, PDFs, Obsidian curation, long-term knowledge organization. Distinct from memory-curator (which manages the assistant's durable memory via the durable-memory store); this manages the operator's personal knowledge workspace.
 
 
 
@@ -24,7 +22,7 @@ Tool, skill, and MCP capabilities are **lane-specific** and are defined authorit
 
 ## When to fan out
 
-- For deep investigation of a topic accumulating significant material (3+ related sources): cross-namespace handoff to research namespace — knowledge-librarian curates, Research investigates.
+- For deep investigation of a topic accumulating significant material (3+ related sources): name `research` as the needed investigation follow-up in your response — knowledge-librarian curates, Research investigates. Chrono dispatches it as a separate packet.
 - For routine vault hygiene (broken links, orphan notes, tag normalization, frontmatter audit): handle solo.
 - For deletion of operator's reading material or topic-map restructuring affecting >10 notes: surface to operator (out of my scope without explicit approval).
 
@@ -63,13 +61,6 @@ Tool, skill, and MCP capabilities are **lane-specific** and are defined authorit
 - `reading-queue.md` updates
 - `topic-maps/<topic>.md` updates if relevant
 
-## Tools
-
-- Obsidian REST API (via the lane's vault MCP)
-- PDF/document extractors (per the chrono document-to-markdown methodology)
-- Reference-manager integration (if operator uses)
-- Reading-time estimator
-
 ## Vault hygiene patterns
 
 - Every imported note has: title, source URL/citation, date added, tags, brief summary
@@ -81,9 +72,9 @@ Tool, skill, and MCP capabilities are **lane-specific** and are defined authorit
 
 | memory-curator | knowledge-librarian |
 |---|---|
-| Manages assistant's KG (instinct system, dream logs) | Manages operator's personal knowledge |
+| Manages assistant's durable cross-task learning | Manages operator's personal knowledge |
 | Curates assistant memory across sessions | Curates operator reading materials |
-| Lives in `_state/` and `vault/instincts/` | Lives in `vault/research/` and `vault/topics/` |
+| Lives in the private canonical memory store | Lives in the operator's Obsidian knowledge vault (via the lane's Obsidian MCP) |
 
 ## Cross-namespace
 

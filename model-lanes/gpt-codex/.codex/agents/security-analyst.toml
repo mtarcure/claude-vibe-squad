@@ -5,7 +5,7 @@ model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"
 # BEGIN SPECIALIST CAPABILITY PROJECTION
 capability_source = "model-lanes/specialist-lane-capabilities.v1.json"
-capability_source_sha256 = "585d42615757d63d998fb325e50cead8dd269d9c729dde30eb4e95d71be375af"
+capability_source_sha256 = "2625a4a8cd5209f66bd691251e4891453aa495033240724479a69f13965d104a"
 skills = ["agentic-safety-audit","cosmos-sdk-audit-checklist","cross-chain-bridge-audit","defi-invariant-check","dependency-health-triage","evm-audit-flow","findings-filter","gptscan-prompt-templates","known-advisory-backport-check","multi-stance-audit-fanout","osint-platform-audit","pre-audit-threat-model","review-severity-ladder","security-ownership-map","security-threat-model","semgrep-rule-author","solana-audit-flow","supply-chain-audit","systematic-attacking","systematic-bug-hunting","variant-analysis","vulnhunter-solana"]
 tools = ["aderyn","anchor","anvil","bandit","cargo-audit","cargo-fuzz","cargo-geiger","cast","echidna","forge","golangci-lint","gosec","grype","halmos","medusa","myth","nikto","nuclei","osv-scanner","semgrep","slither","snyk","solana","staticcheck","trident","trivy"]
 mcps = ["chrono-recon","chrono-research-arsenal","chrono-vault","guarded-semgrep","guarded-slither","guarded-solodit","sequential-thinking"]

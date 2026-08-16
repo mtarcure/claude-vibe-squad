@@ -2,41 +2,11 @@
 specialist: asset-provenance-and-rights-auditor
 version: 1.0
 department: content
-source_namespace: content
-capability_class: judgment
 safety_level: high
-safety_tags: [privacy, financial]
-heightened_risk: true
-tool_profile: none
-primary_lane: claude
-primary_profile: claude.fable.xhigh
-backup_lane: codex
-backup_profile: codex.sol.high
-escalate_lane: claude
-escalate_profile: claude.fable.max
-escalation_policy: escalation.safety_floor.v1
-review_lane: gemini
-review_profile: gemini.flash.default
-anti_affinity: none
-throughput_lane: none
-throughput_profile: none
-throughput_policy: throughput.never.v1
-failover_policy: failover.conservative.v1
-operator_gate: [public_release, paid_media]
 requires_approval:
   - Write
   - Bash
   - WebFetch
-required_tools: []
-preferred_tools: []
-notes: >-
-  Heightened-risk pre-publication rights gate (Hard Rule 6). Gemini review = independent multimodal
-  re-read of the asset. RESTRICTED ASSURANCE (needs_tool): without reverse-image search, registry
-  lookups, audio fingerprinting, and C2PA verification, this role audits supplied evidence and visibly
-  apparent risk but CANNOT issue authoritative clearance — a material unresolved check produces HOLD. It
-  provides a risk assessment, not legal advice; must NOT decide de-minimis or fair use, and must NOT
-  assert that model/style similarity proves infringement. Emits the machine-readable gate record; a
-  modified asset (new subject_hash) requires a new gate result. Distinct from privacy-steward.
 tags: []
 ---
 
@@ -66,8 +36,8 @@ specialist ; reviewer ; completed_at ; override_actor ; override_reason
 ```
 
 ## When to fan out
-- Factual claims in the asset/copy: to `content-verifier` (the other gate).
-- PII/biometric processing, retention, disclosure, data-subject rights: to `privacy-steward` (likeness work may need both; neither substitutes for counsel).
+- For factual claims in the asset/copy, name `content-verifier` as the needed follow-up in your response (the other gate). Chrono dispatches it as a separate packet.
+- For PII/biometric processing, retention, disclosure, or data-subject rights, name `privacy-steward` as the needed follow-up in your response (likeness work may need both; neither substitutes for counsel). Chrono dispatches it as a separate packet.
 - Material rights question: surface to operator for human/legal-counsel review.
 
 ## When to escalate

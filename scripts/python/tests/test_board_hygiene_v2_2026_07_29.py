@@ -29,11 +29,11 @@ import registry_reconciler as reconciler  # noqa: E402
 
 
 class ModeAwareTimeoutTests(unittest.TestCase):
-    def test_mode_budget_map_and_nested_timeout_bounds(self) -> None:
+    def test_mode_budget_map_and_recoverable_timeout_owner(self) -> None:
         self.assertEqual(dcb.timeout_budget_for_mode("bounty"), 3600)
         for mode in ("project", "advisory", "canary", ""):
             with self.subTest(mode=mode):
-                self.assertEqual(dcb.timeout_budget_for_mode(mode), 1800)
+                self.assertEqual(dcb.timeout_budget_for_mode(mode), 2700)
 
         supervisor = (
             IMPLEMENTATION_ROOT / "bin" / "board-supervisor.sh"
@@ -42,18 +42,13 @@ class ModeAwareTimeoutTests(unittest.TestCase):
             supervisor.index('if [[ "${1:-}" == "detached-launch" ]]') :
             supervisor.index('if [[ "${1:-}" == "trusted-launch" ]]')
         ]
-        launch_lines = [
-            line.strip()
-            for line in detached.splitlines()
-            if '"$timeout_bin" --kill-after=30' in line
-            and not line.lstrip().startswith("#")
-        ]
-        self.assertEqual(launch_lines, ['"$timeout_bin" --kill-after=30 3660 \\'])
+        self.assertNotIn("timeout_bin", detached)
+        self.assertNotIn("--kill-after", detached)
         self.assertRegex(
             supervisor,
             (
                 r'authority\["mode_profile"\] == "bounty"\s+'
-                r'and 1800 < budgets\["timeout_seconds"\] <= 3600'
+                r'and 2700 < budgets\["timeout_seconds"\] <= 3600'
             ),
         )
 
@@ -119,6 +114,7 @@ class TerminalReceiptAutoCloseTests(unittest.TestCase):
                         "compatibility_namespace": "coding",
                         "source_namespace": "coding",
                         "write_scope": ["_state/board-hygiene-test/"],
+                        "return_artifact": "artifact.md",
                         "delivery_attempt_id": attempt_id,
                         "delivery_generation": 1,
                         "delivery_state": "in-progress",
@@ -155,6 +151,12 @@ class TerminalReceiptAutoCloseTests(unittest.TestCase):
                 }
             )
             + "\n",
+            encoding="utf-8",
+        )
+        (root / "artifact.md").write_text(
+            "blocked\n\n"
+            f"# Board dispatch blocked — {task_id}\n\n"
+            "Controller reason: fixture terminal receipt\n",
             encoding="utf-8",
         )
         return packet, receipt
@@ -211,6 +213,15 @@ class TerminalReceiptAutoCloseTests(unittest.TestCase):
                     self.assertEqual(len(entry["closure_history"]), 1)
                     self.assertFalse(packet.exists())
                     self.assertTrue(archived.is_file())
+                    self.assertFalse((root / "artifact.md").exists())
+                    self.assertTrue(
+                        (
+                            root
+                            / f"artifact.md.blocked-{task_id}"
+                        ).is_file(),
+                        "the production reconcile path must retire the exact task's "
+                        "blocked stub when lifecycle closure frees its artifact path",
+                    )
 
     def test_pending_mandatory_review_is_never_auto_closed(self) -> None:
         task_id = "TASK-2026-07-29-9199-receipt-review-hold"

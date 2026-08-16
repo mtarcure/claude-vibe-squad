@@ -44,7 +44,9 @@ class ProductHygieneGateTests(unittest.TestCase):
             self.root / "tools/export/policy/gitleaks-fingerprints.json",
         )
         (self.root / "README.md").write_text("# Clean fixture\n", encoding="utf-8")
-        (self.root / "_state/dream-config.yaml").write_text("inputs: []\n", encoding="utf-8")
+        # _state/.gitkeep is the surviving exact public exception. dream-config.yaml
+        # was one too until 2026-08-09; creating it here now makes the fixture tree
+        # dirty (tracked_blockers=1) because it is no longer allowlisted.
         (self.root / "_state/.gitkeep").touch()
         self.denylist = self.base / "identifier-denylist.txt"
         self.denylist.write_text("blocked-codeword\n", encoding="utf-8")
@@ -113,6 +115,27 @@ class ProductHygieneGateTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("departments/coding/inbox/payload.bin", (self.reports / "gate.md").read_text())
 
+    def test_policy_failure_does_not_suppress_independent_content_scan(self) -> None:
+        self._track("departments/coding/inbox/payload.bin")
+        planted_home = "/" + "Users" + "/gate-canary/private/config.json"
+        self._track("README.md", f"path={planted_home}\n")
+
+        result = self._gate()
+
+        self.assertEqual(result.returncode, 1)
+        report = (self.reports / "gate.md").read_text(encoding="utf-8")
+        self.assertIn("Path-policy status: 1", report)
+        self.assertIn("Entropy/identifier status: 1", report)
+        self.assertIn(
+            'private-home-absolute path="README.md"',
+            report,
+        )
+        self.assertNotIn("Skipped because the tracked-path policy failed closed", report)
+        self.assertIn("departments/coding/inbox/payload.bin", result.stderr)
+        self.assertIn("policy_section=deny", result.stderr)
+        self.assertIn('policy_pattern="departments/*/inbox/**"', result.stderr)
+        self.assertIn('private-home-absolute path="README.md"', result.stderr)
+
     def test_novel_top_level_path_fails_deny_unknown(self) -> None:
         self._track("novel-surface/readme.txt")
         result = self._gate()
@@ -127,6 +150,33 @@ class ProductHygieneGateTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("private-identifier", (self.reports / "gate.md").read_text())
 
+    def test_utf16_private_identifier_hit_fails_closed(self) -> None:
+        (self.root / "README.md").write_bytes(
+            "Contains BLOCKED-CODEWORD deployment data.\n".encode("utf-16")
+        )
+        self._run(["git", "add", "-f", "--", "README.md"], check=True)
+        result = self._gate()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("private-identifier", (self.reports / "gate.md").read_text())
+
+    def test_utf16le_without_bom_private_identifier_fails_closed(self) -> None:
+        (self.root / "README.md").write_bytes(
+            "Contains BLOCKED-CODEWORD deployment data.\n".encode("utf-16le")
+        )
+        self._run(["git", "add", "-f", "--", "README.md"], check=True)
+        result = self._gate()
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("not valid UTF-8/16/32", (self.reports / "gate.md").read_text())
+
+    def test_utf16be_without_bom_private_identifier_fails_closed(self) -> None:
+        (self.root / "README.md").write_bytes(
+            "Contains BLOCKED-CODEWORD deployment data.\n".encode("utf-16be")
+        )
+        self._run(["git", "add", "-f", "--", "README.md"], check=True)
+        result = self._gate()
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("not valid UTF-8/16/32", (self.reports / "gate.md").read_text())
+
     def test_private_home_absolute_paths_fail_the_maintained_gate(self) -> None:
         operator_home = self.base / "operator-home"
         macos_home = "/" + "Users" + "/alice/private/config.json"
@@ -139,22 +189,22 @@ class ProductHygieneGateTests(unittest.TestCase):
             "/" + "Users" + f"/alice{suffix}"
             for suffix in (")", ",", "]", ":")
         ]
-        self._track("docs/macos-path.txt", f"path={macos_home}\n")
-        self._track("docs/linux-path.txt", f"path={linux_home}\n")
+        self._track("README.md", f"path={macos_home}\n")
+        self._track("CHANGELOG.md", f"path={linux_home}\n")
         self._track(
-            "docs/operator-path.txt",
+            "CODE_OF_CONDUCT.md",
             f"path={operator_path}\nexact={operator_home})\n",
         )
-        self._track("docs/unicode-path.txt", f"path={unicode_home}\n")
-        self._track("docs/dollar-path.txt", f"path={dollar_home}\n")
-        self._track("docs/plus-path.txt", f"path={plus_home}\n")
+        self._track("CONTRIBUTING.md", f"path={unicode_home}\n")
+        self._track("GEMINI.md", f"path={dollar_home}\n")
+        self._track("SECURITY.md", f"path={plus_home}\n")
         self._track(
-            "docs/punctuation-paths.txt",
+            "requirements-dev.txt",
             "".join(f"path={path}\n" for path in punctuation_homes),
         )
-        symlink_path = self.root / "docs/private-home-link"
+        symlink_path = self.root / "AGENTS.md"
         os.symlink("/" + "Users" + "/carol/private/config.json", symlink_path)
-        self._run(["git", "add", "-f", "--", "docs/private-home-link"], check=True)
+        self._run(["git", "add", "-f", "--", "AGENTS.md"], check=True)
         result = self._gate(env={"HOME": str(operator_home)})
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         report = (self.reports / "gate.md").read_text(encoding="utf-8")
@@ -228,10 +278,21 @@ class ProductHygieneGateTests(unittest.TestCase):
         )
         self._track(
             "shared/current-tools.md",
-            "Use `perplexity_search_web` for current grounded research.\n",
+            "Use `perplexity_search` for current grounded research.\n",
         )
         current = self._gate()
         self.assertEqual(current.returncode, 0, current.stdout + current.stderr)
+
+        self._track(
+            "shared/stale-tools.md",
+            "Do not retain the retired `perplexity_search_web` alias.\n",
+        )
+        retired = self._gate()
+        self.assertEqual(retired.returncode, 1)
+        self.assertIn(
+            "perplexity_search_web",
+            (self.reports / "gate.md").read_text(),
+        )
 
         self._track("shared/stale-tools.md", "Use brave_search directly.\n")
         stale = self._gate()

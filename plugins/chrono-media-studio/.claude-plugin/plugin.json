@@ -6,7 +6,9 @@
   "mcpServers": {
     "chrono-media-studio": {
       "command": "${CLAUDE_PLUGIN_ROOT}/../../.venv/bin/python",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp_server.py"],
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/mcp_server.py"
+      ],
       "env": {
         "OPENAI_API_KEY": "${OPENAI_API_KEY}",
         "GEMINI_API_KEY": "${GEMINI_API_KEY}",
@@ -20,7 +22,9 @@
     },
     "elevenlabs": {
       "command": "uvx",
-      "args": ["elevenlabs-mcp"],
+      "args": [
+        "elevenlabs-mcp==0.12.2"
+      ],
       "env": {
         "ELEVENLABS_API_KEY": "${ELEVENLABS_API_KEY}"
       }

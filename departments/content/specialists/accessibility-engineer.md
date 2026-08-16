@@ -2,39 +2,11 @@
 specialist: accessibility-engineer
 version: 1.0
 department: content
-source_namespace: content
-capability_class: content_text
 safety_level: medium
-safety_tags: []
-heightened_risk: false
-tool_profile: none
-primary_lane: gemini
-primary_profile: gemini.flash.default
-backup_lane: claude
-backup_profile: claude.fable.xhigh
-escalate_lane: gemini
-escalate_profile: gemini.pro.deep
-escalation_policy: escalation.signal.v1
-review_lane: claude
-review_profile: claude.fable.xhigh
-anti_affinity: none
-throughput_lane: none
-throughput_profile: none
-throughput_policy: throughput.never.v1
-failover_policy: failover.conservative.v1
-operator_gate: []
 requires_approval:
   - Write
   - Bash
   - WebFetch
-required_tools: []
-preferred_tools: []
-notes: >-
-  Hybrid content_text + implementation. Set to medium/never (not low/downshift): accessibility is an
-  acceptance gate and Gemini Flash is already the fast capable lane — there is no quality evidence for
-  Kimi accessibility judgments. A low-risk batch-authoring task mode (alt-text/captions at volume) is
-  permitted ONLY when explicitly non-gating and independently reviewed; legal/regulatory conformance
-  raises task risk upward. A screenshot cannot prove conformance.
 tags: []
 ---
 
@@ -48,10 +20,10 @@ Tool, skill, and MCP capabilities are **lane-specific** and are defined authorit
 
 ## When to fan out
 
-- Code-level remediation (ARIA/focus/semantics): to `frontend-engineer` / `ui-engineer` with a specific fix list.
-- Design-token/contrast fixes: to `ui-engineer` (component + tokens), plus the relevant brand/design owner.
-- Regression execution: to `test-engineer` (owns regression suites; qa-tester/e2e-runner are not in the roster).
-- Transcription/caption of generated video/audio at volume: pairs with `video-editor` / media specialists.
+- For code-level remediation (ARIA/focus/semantics), name `frontend-engineer` / `ui-engineer` as the needed follow-up in your response and include a specific fix list. Chrono dispatches it as a separate packet.
+- For design-token/contrast fixes, name `ui-engineer` and the relevant brand/design owner as needed follow-ups in your response. Chrono dispatches them as separate packets.
+- For regression execution, name `test-engineer` as the needed follow-up in your response (it owns regression suites; qa-tester/e2e-runner are not in the roster). Chrono dispatches it as a separate packet.
+- For transcription/caption of generated video/audio at volume, name `video-editor` or the relevant media specialist as the needed follow-up in your response. Chrono dispatches it as a separate packet.
 
 ## When to escalate
 

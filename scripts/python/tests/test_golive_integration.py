@@ -13,7 +13,6 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import Mock
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -22,7 +21,6 @@ if str(PYTHON_DIR) not in sys.path:
     sys.path.insert(0, str(PYTHON_DIR))
 
 import held_action_gate as gate  # noqa: E402
-import held_effect_executor as effects  # noqa: E402
 import seatbelt_profile as seatbelt  # noqa: E402
 from scripts.python.tests.ci_host_independence import (  # noqa: E402
     skip_in_host_independent_ci,
@@ -35,30 +33,7 @@ from scripts.python.tests.test_trusted_launch import (  # noqa: E402
 )
 
 
-SIGNING_KEY = b"go-live-held-effect-signing-key-material"
 AUTHORITY_KEY = b"A" * 32
-
-
-def _backends(overrides=None):
-    values = {
-        category: Mock(return_value={"status": "performed"})
-        for category in gate.HELD_CATEGORIES
-    }
-    values.update(overrides or {})
-    return values
-
-
-def _effect_request(category: str) -> effects.HeldEffectRequest:
-    effect_name = f"test-{category}"
-    effect_payload = {"fixture": category}
-    return effects.HeldEffectRequest(
-        category=category,
-        target=effects.canonical_effect_target(category, effect_name, effect_payload),
-        task_id="TASK-2026-07-22-0605-v2-golive-integration",
-        attempt_id="d-" + "7" * 32,
-        effect_name=effect_name,
-        effect_payload=effect_payload,
-    )
 
 
 def _authority_payload(
@@ -70,8 +45,11 @@ def _authority_payload(
 ) -> dict[str, object]:
     repo = _init_repo(root)
     role, overlay = _write_role_files(root)
-    digest = lambda label: hashlib.sha256(label.encode("utf-8")).hexdigest()
-    file_digest = lambda path: hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    def digest(label: str) -> str:
+        return hashlib.sha256(label.encode("utf-8")).hexdigest()
+
+    def file_digest(path: Path | str) -> str:
+        return hashlib.sha256(Path(path).read_bytes()).hexdigest()
     now = int(time.time())
     return {
         "schema": "go-live-authority/v1",
@@ -106,6 +84,7 @@ def _authority_payload(
         "budgets": {"max_calls": 1},
         "expected_result_path": "result.md",
         "expected_outbox_path": "response.md",
+        "evidence_outputs": [],
         "reconciliation_echo": {},
         "required_phase_ids": ["S0", "S1", "S2", "S3", "S4", "S5", "S6", "S7"],
         "verification_kinds": ["project_tests", "recipient_contract"],
@@ -115,6 +94,21 @@ def _authority_payload(
         "verification_contract_sha256": digest("contract"),
         "selected_model_sha256": digest("model"),
         "profile_bundle_sha256": SETTLED_T1P1_BUNDLE_SHA256,
+        "auth_class": "subscription",
+        "lane_policy_row_sha256": "a" * 64,
+        "capability_surface_sha256": digest("capability-surface"),
+        "memory_context": {
+            "schema": "chrono-vault-context/v1",
+            "task_id": "TASK-2026-07-22-0605-v2-golive-integration",
+            "attempt_id": "d-" + "7" * 32,
+            "generation": 1,
+            "mode": "project",
+            "aperture": "none",
+            "focus": None,
+            "engagement_start": time.strftime(
+                "%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - 30)
+            ),
+        },
         "active_board_tasks": [],
         "created_at": now - 30,
         "expires_at": now + 300,
@@ -202,112 +196,6 @@ def _run_unsigned_supervisor(context: dict[str, object]):
         context_path.unlink(missing_ok=True)
     receipt = json.loads(completed.stdout.strip() or completed.stderr.strip())
     return completed, receipt
-
-
-class HeldEffectExecutorTests(unittest.TestCase):
-    def test_every_category_denies_without_token_before_the_handler_runs(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            executor = effects.HeldEffectExecutor(
-                store=gate.HeldActionStore(Path(directory)),
-                signing_key=SIGNING_KEY,
-                now=lambda: 1_100,
-                backends=(backends := _backends()),
-            )
-            for category in sorted(gate.HELD_CATEGORIES):
-                with self.subTest(category=category), self.assertRaises(gate.HeldActionDenied):
-                    executor.execute(_effect_request(category), token=None)
-                backends[category].assert_not_called()
-
-    def test_valid_token_executes_once_and_durable_replay_never_reaches_handler(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            state = Path(directory)
-            request = _effect_request("public-push")
-            token = gate.mint_token(
-                category=request.category,
-                target=request.target,
-                task_id=request.task_id,
-                attempt_id=request.attempt_id,
-                issued_at=1_000,
-                expires_at=1_300,
-                signing_key=SIGNING_KEY,
-            )
-            first_handler = Mock(return_value={"status": "performed"})
-            first_backends = _backends({"public-push": first_handler})
-            receipt = effects.HeldEffectExecutor(
-                store=gate.HeldActionStore(state),
-                signing_key=SIGNING_KEY,
-                now=lambda: 1_100,
-                backends=first_backends,
-            ).execute(request, token=token)
-            self.assertEqual(receipt.status, "performed")
-            first_handler.assert_called_once_with(request)
-
-            replay_handler = Mock()
-            replay_backends = _backends({"public-push": replay_handler})
-            with self.assertRaisesRegex(gate.HeldActionDenied, "replay|consumed"):
-                effects.HeldEffectExecutor(
-                    store=gate.HeldActionStore(state),
-                    signing_key=SIGNING_KEY,
-                    now=lambda: 1_101,
-                    backends=replay_backends,
-                ).execute(request, token=token)
-            replay_handler.assert_not_called()
-
-    def test_effect_descriptor_tampering_is_denied_before_consumption(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            request = _effect_request("public-push")
-            tampered = effects.HeldEffectRequest(
-                category=request.category,
-                target=request.target,
-                task_id=request.task_id,
-                attempt_id=request.attempt_id,
-                effect_name=request.effect_name,
-                effect_payload={"fixture": "different-target"},
-            )
-            handler = Mock()
-            executor = effects.HeldEffectExecutor(
-                store=gate.HeldActionStore(Path(directory)),
-                signing_key=SIGNING_KEY,
-                now=lambda: 1_100,
-                backends=_backends({"public-push": handler}),
-            )
-            with self.assertRaisesRegex(ValueError, "exact descriptor"):
-                executor.execute(tampered, token=None)
-            handler.assert_not_called()
-
-    def test_backend_exception_is_outcome_unknown_and_token_stays_consumed(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            state = Path(directory)
-            request = _effect_request("delete-from-main")
-            token = gate.mint_token(
-                category=request.category,
-                target=request.target,
-                task_id=request.task_id,
-                attempt_id=request.attempt_id,
-                issued_at=1_000,
-                expires_at=1_300,
-                signing_key=SIGNING_KEY,
-            )
-            failing = Mock(side_effect=RuntimeError("secret backend detail"))
-            receipt = effects.HeldEffectExecutor(
-                store=gate.HeldActionStore(state),
-                signing_key=SIGNING_KEY,
-                now=lambda: 1_100,
-                backends=_backends({"delete-from-main": failing}),
-            ).execute(request, token=token)
-            self.assertEqual(receipt.status, "outcome_unknown")
-            self.assertTrue(receipt.consumed)
-            self.assertNotIn("secret", receipt.result_sha256)
-
-            replay = Mock()
-            with self.assertRaisesRegex(gate.HeldActionDenied, "replay|consumed"):
-                effects.HeldEffectExecutor(
-                    store=gate.HeldActionStore(state),
-                    signing_key=SIGNING_KEY,
-                    now=lambda: 1_101,
-                    backends=_backends({"delete-from-main": replay}),
-                ).execute(request, token=token)
-            replay.assert_not_called()
 
 
 class ExecHonestyTests(unittest.TestCase):
@@ -422,13 +310,35 @@ class AuthorityIntegrationTests(unittest.TestCase):
             self.assertFalse(Path(authority["pool_root"]).exists())
 
     def test_lane_authority_cannot_claim_a_held_effect(self) -> None:
+        # The claimed category is taken from the gate's own set, never spelled
+        # out here. A literal ("public-push") outlived the rename to
+        # `public_release`, and the guard is a set intersection
+        # (bin/board-supervisor.sh:742-750), so it then matched nothing: the
+        # supervisor sailed straight past this authority boundary and the run
+        # died much later on whatever host artefact it reached first -- the
+        # absent lane CLI on the runner. The reported symptom was host
+        # dependence; the defect was that the boundary went untested. A vacuous
+        # test of an authority boundary reads exactly like a passing one.
+        #
+        # One representative category is enough because the production check is
+        # a set intersection over HELD_CATEGORIES, not a per-category branch,
+        # and `min()` keeps the choice deterministic. The negative control is
+        # test_authenticated_logical_write_collision_is_denied above: the same
+        # payload without a held category reaches the scheduler and is denied
+        # for *that*, proving this deny is caused by the claim and not by
+        # merely carrying an extra action_scope entry.
+        held = min(gate.HELD_CATEGORIES)
         with tempfile.TemporaryDirectory() as directory:
             authority = _authority_payload(Path(directory).resolve())
-            authority["action_scope"].append("public-push")
+            authority["action_scope"].append(held)
             completed, receipt = _run_authority_supervisor(_seal_authority(authority))
             self.assertNotEqual(completed.returncode, 0)
             self.assertEqual(receipt.get("status"), "denied")
-            self.assertIn("hold", receipt.get("reason", ""))
+            # Exact, not a substring: "hold" also matches unrelated reasons.
+            self.assertEqual(
+                receipt.get("reason"),
+                "lane authority must hold every effect category outside worker scope",
+            )
             self.assertFalse(Path(authority["pool_root"]).exists())
 
 

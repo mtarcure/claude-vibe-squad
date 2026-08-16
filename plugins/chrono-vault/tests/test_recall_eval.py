@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -16,6 +17,32 @@ sys.path.insert(0, str(PLUGIN_ROOT))
 import notes  # noqa: E402
 from query import build_fts_query  # noqa: E402
 import recall as vault_recall  # noqa: E402
+
+
+V3_GOLD_FILTERS = {
+    "max_sensitivity": "internal",
+    "status": ["candidate", "verified"],
+    "type": "finding",
+    "written_before": "2100-01-01T00:00:00Z",
+}
+V3_ALGORITHM_GOLD = (
+    ("how could a Solana program create an unbacked mint", ("svm-emitter",)),
+    ("can an SVM emitter forge a cross chain deposit", ("svm-emitter",)),
+    ("what malformed execute message can stop validators", ("execute-halt",)),
+    ("does the finalized nonce RPC survive a chain reorg", ("finalized-nonce",)),
+    ("when should a report fail the reproducible impact bar", ("impact-gate",)),
+    ("how do we test the bug across transaction families", ("cross-family",)),
+    (
+        "what causes Cosmos validators to derive different states",
+        ("cosmos-nondeterminism",),
+    ),
+    ("should we use vectors or keyword search", ("retrieval-strategy",)),
+)
+V3_ALGORITHM_GOLD_SHA256 = (
+    "ab8c68d77aedc2152069f1236232b11e5d341537849ac0d2fcab9e531dd88a1d"
+)
+V3_ALGORITHM_BASELINE = (0.2, 1.0, 1.0, 1.0)
+APERTURE_ARGUMENTS = ("aperture", "campaign", "campaign_id", "project", "project_id")
 
 
 class QueryBuilderTests(unittest.TestCase):
@@ -70,7 +97,7 @@ class RecallQualityEvalTests(unittest.TestCase):
                     "An unauthorized Solana program can emit a forged cross-chain "
                     "deposit and cause an unbacked mint."
                 ),
-                "target": "push-chain",
+                "target": "example-chain",
                 "component": "svm-emitter",
                 "attack_class": "forged-inbound",
                 "aliases": ["Solana forged deposit", "unbacked token mint"],
@@ -81,7 +108,7 @@ class RecallQualityEvalTests(unittest.TestCase):
                     "A malformed executor message reaches a panic path and stops "
                     "validator block processing."
                 ),
-                "target": "push-chain",
+                "target": "example-chain",
                 "component": "executor",
                 "attack_class": "availability",
                 "aliases": ["C1 chain halt", "execute payload panic"],
@@ -92,7 +119,7 @@ class RecallQualityEvalTests(unittest.TestCase):
                     "The finalized-nonce path incorrectly reads the latest block, "
                     "making nonce validation vulnerable to reorganization."
                 ),
-                "target": "push-chain",
+                "target": "example-chain",
                 "component": "rpc",
                 "attack_class": "state-consistency",
                 "aliases": ["finality mismatch", "reorg nonce read"],
@@ -114,7 +141,7 @@ class RecallQualityEvalTests(unittest.TestCase):
                     "Test the same authorization bug across EVM, SVM, and Cosmos "
                     "transaction variants before narrowing the claim."
                 ),
-                "target": "push-chain",
+                "target": "example-chain",
                 "component": "testing",
                 "attack_class": "cross-family-reproduction",
                 "aliases": ["multi-family test matrix", "transaction variants"],
@@ -125,7 +152,7 @@ class RecallQualityEvalTests(unittest.TestCase):
                     "Map iteration in a consensus handler can make validators "
                     "derive different state roots."
                 ),
-                "target": "push-chain",
+                "target": "example-chain",
                 "component": "cosmos-executor",
                 "attack_class": "nondeterminism",
                 "aliases": ["validator disagreement", "consensus state divergence"],
@@ -164,35 +191,118 @@ class RecallQualityEvalTests(unittest.TestCase):
         self.assertNotIn("query_error", result)
         self.assertIsInstance(result["results"], list)
 
-    def test_gold_queries_meet_recall_at_five_threshold_and_report_mrr(self) -> None:
-        gold = (
-            ("how could a Solana program create an unbacked mint", "svm-emitter"),
-            ("can an SVM emitter forge a cross chain deposit", "svm-emitter"),
-            ("what malformed execute message can stop validators", "execute-halt"),
-            ("does the finalized nonce RPC survive a chain reorg", "finalized-nonce"),
-            ("when should a report fail the reproducible impact bar", "impact-gate"),
-            ("how do we test the bug across transaction families", "cross-family"),
-            ("what causes Cosmos validators to derive different states", "cosmos-nondeterminism"),
-            ("should we use vectors or keyword search", "retrieval-strategy"),
+    def test_frozen_v3_production_algorithm_baseline(self) -> None:
+        """Freeze algorithm behavior, not quality on the private legacy corpus."""
+        encoded_gold = json.dumps(
+            {"filters": V3_GOLD_FILTERS, "queries": V3_ALGORITHM_GOLD},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+        self.assertEqual(
+            hashlib.sha256(encoded_gold).hexdigest(),
+            V3_ALGORITHM_GOLD_SHA256,
         )
-        hits = 0
-        reciprocal_ranks: list[float] = []
-        for natural_query, expected_key in gold:
-            ranked_ids = [
-                row["id"]
-                for row in vault_recall.recall(natural_query, limit=5)["results"]
-            ]
-            expected_id = self.note_ids[expected_key]
-            if expected_id in ranked_ids:
-                hits += 1
-                reciprocal_ranks.append(1.0 / (ranked_ids.index(expected_id) + 1))
-            else:
-                reciprocal_ranks.append(0.0)
 
-        recall_at_five = hits / len(gold)
-        mrr = sum(reciprocal_ranks) / len(gold)
-        print(f"recall_eval recall@5={recall_at_five:.3f} mrr={mrr:.3f}")
-        self.assertGreaterEqual(recall_at_five, 0.75)
+        precision = recall = mrr = 0.0
+        status_checked = status_compliant = 0
+        allowed_statuses = set(V3_GOLD_FILTERS["status"])
+        for query, relevant_keys in V3_ALGORITHM_GOLD:
+            rows = vault_recall.recall(
+                query,
+                filters=dict(V3_GOLD_FILTERS),
+                limit=5,
+            )["results"]
+            ranked_ids = [row["id"] for row in rows]
+            relevant = {self.note_ids[key] for key in relevant_keys}
+            hits = sum(note_id in relevant for note_id in ranked_ids[:5])
+            precision += hits / 5
+            recall += hits / len(relevant)
+            mrr += next(
+                (
+                    1 / rank
+                    for rank, note_id in enumerate(ranked_ids[:5], 1)
+                    if note_id in relevant
+                ),
+                0.0,
+            )
+            status_checked += len(rows)
+            status_compliant += sum(row["status"] in allowed_statuses for row in rows)
+
+        query_count = len(V3_ALGORITHM_GOLD)
+        self.assertGreater(status_checked, 0)
+        measured = tuple(
+            round(value, 6)
+            for value in (
+                precision / query_count,
+                recall / query_count,
+                mrr / query_count,
+                status_compliant / status_checked,
+            )
+        )
+        print(
+            "recall_eval scope=disposable-production-algorithm "
+            f"precision@5={measured[0]:.3f} recall@5={measured[1]:.3f} "
+            f"mrr={measured[2]:.3f} status_integrity={measured[3]:.3f}"
+        )
+        self.assertEqual(measured, V3_ALGORITHM_BASELINE)
+
+    def test_supported_filter_leak_sentinels(self) -> None:
+        def sentinel(
+            token: str,
+            blocked: dict[str, object],
+            *,
+            visible: dict[str, object] | None = None,
+            note_type: str = "finding",
+            **fields: object,
+        ) -> None:
+            note_id = notes.record(
+                note_type,
+                {
+                    "title": f"{token} sentinel",
+                    "body": f"{token} must be excluded by its production filter.",
+                    "target": "filter-eval",
+                    "component": "recall",
+                    "attack_class": "filter-sentinel",
+                    **fields,
+                },
+            )["id"]
+            visible_ids = [
+                row["id"]
+                for row in vault_recall.recall(token, filters=visible)["results"]
+            ]
+            self.assertEqual(visible_ids, [note_id])
+            self.assertEqual(vault_recall.recall(token, filters=blocked)["results"], [])
+
+        sentinel(
+            "StatusLeakSentinel",
+            {"status": ["candidate", "verified"]},
+            visible={"status": "invalidated"},
+            status="invalidated",
+        )
+        sentinel("TypeLeakSentinel", {"type": "finding"}, note_type="attempt")
+        sentinel(
+            "CutoffLeakSentinel",
+            {"written_before": "2000-01-01T00:00:00Z"},
+        )
+        with mock.patch.dict(os.environ, {"CHRONO_VAULT_CLEARANCE": "restricted"}):
+            sentinel(
+                "SensitivityLeakSentinel",
+                {"max_sensitivity": "internal"},
+                sensitivity="restricted",
+            )
+
+    def test_v3_aperture_enforcement_is_blocked_and_cannot_be_spoofed(self) -> None:
+        """V3 has no server-owned engagement aperture; do not claim otherwise."""
+        self.assertTrue(set(APERTURE_ARGUMENTS).isdisjoint(vault_recall.FILTER_FIELDS))
+        for argument in APERTURE_ARGUMENTS:
+            with self.subTest(argument=argument):
+                with self.assertRaisesRegex(
+                    vault_recall.RecallError, "unknown filters"
+                ):
+                    vault_recall.recall(
+                        "aperture sentinel",
+                        filters={argument: "client-controlled-label"},
+                    )
 
 
 if __name__ == "__main__":

@@ -56,6 +56,9 @@ def _normalize_path(path: str) -> str:
 @dataclass(frozen=True)
 class Policy:
     version: int
+    public_bounty_status: str
+    public_bounty_notice: str
+    public_bounty_withheld: tuple[str, ...]
     public_exceptions: tuple[str, ...]
     deny: tuple[str, ...]
     public: tuple[str, ...]
@@ -63,15 +66,29 @@ class Policy:
     _deny_regexes: tuple[re.Pattern[str], ...]
     _public_regexes: tuple[re.Pattern[str], ...]
 
-    def classify(self, path: str) -> str:
+    def decision(self, path: str) -> "PathDecision":
+        """Return the classification and the exact policy rule that decided it."""
         normalized = _normalize_path(path)
-        if any(regex.fullmatch(normalized) for regex in self._exception_regexes):
-            return "public"
-        if any(regex.fullmatch(normalized) for regex in self._deny_regexes):
-            return "private"
-        if any(regex.fullmatch(normalized) for regex in self._public_regexes):
-            return "public"
-        return "unknown"
+        for pattern, regex in zip(self.public_exceptions, self._exception_regexes):
+            if regex.fullmatch(normalized):
+                return PathDecision("public", "public_exceptions", pattern)
+        for pattern, regex in zip(self.deny, self._deny_regexes):
+            if regex.fullmatch(normalized):
+                return PathDecision("private", "deny", pattern)
+        for pattern, regex in zip(self.public, self._public_regexes):
+            if regex.fullmatch(normalized):
+                return PathDecision("public", "public", pattern)
+        return PathDecision("unknown", "default_deny", "<no matching rule>")
+
+    def classify(self, path: str) -> str:
+        return self.decision(path).classification
+
+
+@dataclass(frozen=True)
+class PathDecision:
+    classification: str
+    policy_section: str
+    policy_pattern: str
 
 
 def _string_list(document: object, key: str) -> tuple[str, ...]:
@@ -83,6 +100,30 @@ def _string_list(document: object, key: str) -> tuple[str, ...]:
     if len(value) != len(set(value)):
         raise PolicyError(f"policy {key!r} contains duplicate patterns")
     return tuple(value)
+
+
+def _public_bounty_state(document: object) -> tuple[str, str, tuple[str, ...]]:
+    if not isinstance(document, dict):
+        raise PolicyError("policy document must be an object")
+    state = document.get("public_capability_state")
+    if not isinstance(state, dict) or not isinstance(state.get("bounty"), dict):
+        raise PolicyError("policy is missing public_capability_state.bounty")
+    bounty = state["bounty"]
+    status = bounty.get("status")
+    notice = bounty.get("notice")
+    withheld = bounty.get("withheld")
+    if not isinstance(status, str) or not status.strip():
+        raise PolicyError("public bounty capability status must be a non-empty string")
+    if not isinstance(notice, str) or not notice.strip():
+        raise PolicyError("public bounty capability notice must be a non-empty string")
+    if (
+        not isinstance(withheld, list)
+        or not withheld
+        or not all(isinstance(item, str) and item.strip() for item in withheld)
+        or len(withheld) != len(set(withheld))
+    ):
+        raise PolicyError("public bounty withheld components must be unique non-empty strings")
+    return status, notice, tuple(withheld)
 
 
 def load_policy(path: Path | str) -> Policy:
@@ -97,8 +138,12 @@ def load_policy(path: Path | str) -> Policy:
     exceptions = _string_list(document, "public_exceptions")
     deny = _string_list(document, "deny")
     public = _string_list(document, "public")
+    bounty_status, bounty_notice, bounty_withheld = _public_bounty_state(document)
     return Policy(
         version=1,
+        public_bounty_status=bounty_status,
+        public_bounty_notice=bounty_notice,
+        public_bounty_withheld=bounty_withheld,
         public_exceptions=exceptions,
         deny=deny,
         public=public,
@@ -143,10 +188,20 @@ def _audit_command(args: argparse.Namespace) -> int:
     print(f"Policy version: {policy.version}")
     print(f"Denied tracked paths: {len(denied)}")
     for path in denied:
-        print(f"- {_json_path(path)}")
+        decision = policy.decision(path)
+        print(
+            f"- path={_json_path(path)} classification={decision.classification} "
+            f"policy_section={decision.policy_section} "
+            f"policy_pattern={_json_path(decision.policy_pattern)}"
+        )
     print(f"Unknown tracked paths: {len(unknown)}")
     for path in unknown:
-        print(f"- {_json_path(path)}")
+        decision = policy.decision(path)
+        print(
+            f"- path={_json_path(path)} classification={decision.classification} "
+            f"policy_section={decision.policy_section} "
+            f"policy_pattern={_json_path(decision.policy_pattern)}"
+        )
     return 1 if denied or unknown else 0
 
 

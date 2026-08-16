@@ -24,24 +24,73 @@ CAPSULE_PATH = (
 )
 TASKS_HEADING = "## Live tasks (dispatched / in-flight / review-required)"
 DEFERRED_HEADING = "## Deferred owed work (awaiting a Chrono/operator action)"
+CONTRA_HEADING = "## Memory contradictions (unreconciled)"
 TURN_HEADING = "## Latest operator instruction"
 NO_TURN_PLACEHOLDER = "(none recorded since the last snapshot)"
 
 
-def _render(latest_operator_turn, view, max_tokens=3000):
+def unreconciled_contradiction_count():
+    """Count distinct notes left in an unreconciled contradiction, or None if unknown.
+
+    A write that contradicts an active note and does not reconcile it is flagged
+    in the chrono-vault audit trail and kept (never refused); the note stays
+    disputed until someone acts. That owed work surfaces nowhere unless the
+    capsule reports it, so P13.67 adds the count here.
+
+    Single source: `recall._unreconciled_note_ids`, the one reader of the audit
+    trail's flagged contradiction events — recall marks each disputed note with
+    the same set. The plugin is imported lazily and every failure is swallowed:
+    this is a must-not-crash session-resume path, so it must never depend on the
+    vault plugin importing cleanly. Returns None — rendered as a loud "unknown",
+    never a false 0 — when the trail cannot be read (no vault bound in this
+    session, or the plugin is unimportable), the board-spawn-missing-root case
+    that a silent 0 would hide.
+    """
+    try:
+        plugin_dir = Path(__file__).resolve().parents[3] / "plugins" / "chrono-vault"
+        # Append, never insert: the plugin's flat module names (audit, recall,
+        # index, …) must not shadow anything already importable here.
+        if str(plugin_dir) not in sys.path:
+            sys.path.append(str(plugin_dir))
+        import audit  # noqa: E402 — lazy, fail-soft plugin reach
+        import recall  # noqa: E402
+
+        if audit.resolve_audit_dir() is None:
+            return None
+        return len(recall._unreconciled_note_ids())
+    except Exception:  # noqa: BLE001 — the capsule must render regardless
+        return None
+
+
+def _contradiction_line(unreconciled):
+    """The one capsule line reporting unreconciled-contradiction debt."""
+    if unreconciled is None:
+        return (
+            "- unreconciled contradiction count unavailable "
+            "(chrono-vault audit trail unreadable)"
+        )
+    return (
+        f"- {unreconciled} note(s) hold an unreconciled contradiction "
+        "(chrono-vault audit trail; reconcile or supersede to clear)"
+    )
+
+
+def _render(latest_operator_turn, view, max_tokens=3000, unreconciled=None):
     """Build a token-bounded capsule from an already-classified registry view.
 
-    Under pressure, live task lines drop first, then deferred lines — each with a
-    declared count. Live work re-surfaces through board sweeps and notifications;
-    deferred work surfaces nowhere but here, so the bound bites it last. Active
-    decisions, the omission/unclassified declarations, and the latest operator
-    instruction are never dropped.
+    Under pressure the contradiction count drops first, then live task lines,
+    then deferred lines — the count is re-derivable from the audit trail at any
+    time and is the least precious to the resume moment, while live work
+    re-surfaces through board sweeps and deferred work surfaces nowhere but here
+    (so it bites last). At the real budget nothing drops and all three show.
+    Active decisions, the omission/unclassified declarations, and the latest
+    operator instruction are never dropped.
     """
     decs = active_decisions()
     tasks = view["live"]
     deferred = view["deferred"]
 
-    def build(shown_live, shown_deferred):
+    def build(shown_live, shown_deferred, show_contra):
         lines = ["# Chrono resume capsule", "", "## Active decisions"]
         lines += [f"- {d['statement']} [{d['decision_id']}]" for d in decs] or ["- (none)"]
         lines += ["", TASKS_HEADING]
@@ -74,24 +123,35 @@ def _render(latest_operator_turn, view, max_tokens=3000):
                 f"- UNCLASSIFIED STATUS {status!r}: {n} task(s) invisible to this "
                 "capsule — add it to chrono_state/registry.py KNOWN_STATUSES"
             ]
+        if show_contra:
+            lines += ["", CONTRA_HEADING, _contradiction_line(unreconciled)]
         lines += ["", TURN_HEADING, f"- {latest_operator_turn}"]
         return "\n".join(lines)
 
     shown_live, shown_deferred = list(tasks), list(deferred)
-    cap = build(shown_live, shown_deferred)
-    # hard token bound (~4 chars/token): drop lines, rebuild, re-check.
-    while len(cap) // 4 > max_tokens and (shown_live or shown_deferred):
-        if shown_live:
+    show_contra = True
+    cap = build(shown_live, shown_deferred, show_contra)
+    # hard token bound (~4 chars/token): drop the contradiction line first, then
+    # live, then deferred; rebuild and re-check.
+    while len(cap) // 4 > max_tokens and (show_contra or shown_live or shown_deferred):
+        if show_contra:
+            show_contra = False
+        elif shown_live:
             shown_live = shown_live[:-1]
         else:
             shown_deferred = shown_deferred[:-1]
-        cap = build(shown_live, shown_deferred)
+        cap = build(shown_live, shown_deferred, show_contra)
     return cap
 
 
 def render_capsule(session_id, latest_operator_turn, max_tokens=3000):
     """Render a fresh capsule from the live registry (see `_render`)."""
-    return _render(latest_operator_turn, registry_view(), max_tokens=max_tokens)
+    return _render(
+        latest_operator_turn,
+        registry_view(),
+        max_tokens=max_tokens,
+        unreconciled=unreconciled_contradiction_count(),
+    )
 
 
 def previous_operator_turn(path=None):
@@ -159,7 +219,15 @@ def write_capsule(session_id, latest_operator_turn=None, max_tokens=3000, path=N
             "in the capsule but cannot be listed",
             file=sys.stderr,
         )
-    body = _render(turn, view, max_tokens=max_tokens) + "\n"
+    body = (
+        _render(
+            turn,
+            view,
+            max_tokens=max_tokens,
+            unreconciled=unreconciled_contradiction_count(),
+        )
+        + "\n"
+    )
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = tempfile.NamedTemporaryFile("w", dir=dest.parent, delete=False)
     try:

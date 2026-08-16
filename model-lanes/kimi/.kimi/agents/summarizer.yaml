@@ -1,7 +1,7 @@
 version: 1
 # BEGIN SPECIALIST CAPABILITY PROJECTION
 capability_source: model-lanes/specialist-lane-capabilities.v1.json
-capability_source_sha256: 585d42615757d63d998fb325e50cead8dd269d9c729dde30eb4e95d71be375af
+capability_source_sha256: 2625a4a8cd5209f66bd691251e4891453aa495033240724479a69f13965d104a
 mcps: ["lead:chrono-vault","lead:sequential-thinking"]
 # END SPECIALIST CAPABILITY PROJECTION
 agent:
@@ -9,4 +9,4 @@ agent:
   extend: default
   description: "Low-risk bulk summarization under throughput.downshift_gated.v1."
   system_prompt_path: ../prompts/summarizer.md
-  model: kimi-code/kimi-for-coding
+  model: kimi-code/k3

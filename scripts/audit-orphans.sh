@@ -26,10 +26,23 @@ report_matches() {
     local pattern="$2"
     shift 2
     local output
+    local status=0
 
     (( $# > 0 )) || return 0
-    output="$(grep -nH -E "$pattern" "$@" 2>/dev/null || true)"
-    if [[ -n "$output" ]]; then
+    # grep exits 0 = matched, 1 = no match, >=2 = ERROR (unreadable file, bad
+    # pattern, missing operand). The old `2>/dev/null || true` folded >=2 into the
+    # no-match branch, so a scan that never read the files reported a clean tree.
+    # stderr is captured instead of discarded, and any error status fails the audit.
+    output="$(grep -nH -E "$pattern" "$@" 2>&1)" || status=$?
+    if (( status >= 2 )); then
+        echo "SCAN ERROR: ${label}: grep exited ${status} (scan did not complete)" >&2
+        if [[ -n "$output" ]]; then
+            echo "$output" >&2
+        fi
+        failures=$((failures + 1))
+        return 0
+    fi
+    if (( status == 0 )); then
         echo "ORPHAN: ${label}" >&2
         echo "$output" >&2
         failures=$((failures + 1))
@@ -54,7 +67,7 @@ if [[ -f "$server" ]]; then
 fi
 
 if (( failures > 0 )); then
-    echo "No-orphans audit failed: ${failures} orphan class(es) found." >&2
+    echo "No-orphans audit failed: ${failures} orphan class(es) and/or scan error(s)." >&2
     exit 1
 fi
 

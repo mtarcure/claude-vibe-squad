@@ -18,6 +18,14 @@ Lane-wide ceilings remain in `model-lanes/lane-capabilities.tsv`; they are not
 copied into every role. The cross-cutting index is generated from the source and
 must never be hand-authored.
 
+## Lane environment contract
+
+The existing `cli`, `auth_policy`, and `child_mcp_policy` columns are the lane
+environment authority. Provider keys are dropped for subscription/managed-login
+workers; `gemini-api-key-only` is the sole model-key exception. Any direct or
+lead-brokered `chrono-vault` surface requires `CHRONO_VAULT_ROOT`; its validity is
+defined only by `plugins/chrono-vault/vaultroot.py`, not by a second lane table.
+
 ## Structured fields
 
 Each source entry declares `specialist`, `lane`, `coverage`, `limitations`, and
@@ -91,8 +99,29 @@ mcps: ["chrono-vault"]
 ```
 
 Kimi YAML adapters use the same one-line JSON-compatible arrays as top-level
-keys when a per-role capability applies. Lead-broker MCP identifiers remain
-lane-wide unless a role needs a narrower declaration.
+keys. MCP identifiers must use `lead:<server>`; bare/direct role MCP entries
+are invalid. Projection strips `lead:` into an exact sorted `brokered_mcps`
+surface, requires every named local template dependency to exist, and
+materializes a per-task config containing only that allowlist for the main Kimi
+lead. The config uses four controller-owned local templates. `chrono-vault`,
+`chrono-dedup`, and `chrono-research-arsenal` use the authenticated repo root's
+`.venv/bin/python` plus their exact in-repo `plugins/<server>/mcp_server.py`;
+`sequential-thinking` uses the exact Homebrew executable. Missing or escaping
+dependencies deny the launch.
+
+Kimi never reads or copies host MCP configuration, commands, arguments, URLs,
+headers, arbitrary environment, or auth values. FastMCP's default subprocess
+environment omits the vault root and signed aperture context, so the
+`chrono-vault` template carries exactly `CHRONO_VAULT_ROOT` and
+`CHRONO_VAULT_CONTEXT` from the already-validated worker environment. Every
+other template remains environment-free. Credential-bearing remote routes are
+unavailable and credential-requiring operations remain unproven.
+
+Kimi native `Agent(...)` subagents remain MCP-free. The child-argv-bound board
+prompt names the main-lead allowlist without exposing configuration fields or
+values.
+Receipts report that actual allowlist as `authorized_mcps` while the signed
+capability surface continues to record the same names as `brokered_mcps`.
 
 ## Validator contracts
 
@@ -176,10 +205,11 @@ python3 scripts/python/validate_capability_homes.py
 ```
 
 `bin/validate-specialists.sh` runs the established specialist validator and
-then this semantic gate. The live-flow addition is reversibly bypassable only
-with `SQUAD_SKIP_CAPABILITY_HOME_GATE=1`; the wrapper prints an explicit `SKIP`
-diagnostic to stderr and does not disguise that bypass as a capability-home
-pass.
+then this semantic gate. There is no full bypass: the `SQUAD_SKIP_CAPABILITY_HOME_GATE`
+escape hatch was removed on 2026-08-13 because nothing set it and it disabled the
+whole gate. The narrower, purposeful escape remains — `SQUAD_CI_HOST_INDEPENDENT=1`
+runs a defined subset (`boundary,parity,index,source,required`) and announces which
+subset it used, so a host-independent CI run is never mistaken for a full pass.
 
 During the all-specialist migration campaign the strict repository gate is
 expected to remain red until each historical capability is moved to a valid

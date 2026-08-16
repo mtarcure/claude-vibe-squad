@@ -5,8 +5,15 @@
 set -o pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
-PYTHON_BIN="${PYTHON_BIN:-python3}"
+# Resolved before the `cd "$ROOT"` below, because the suite inventory reads this
+# file back to prove that every suite it declares still has a live call site.
+RUNNER_PATH="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/$(basename -- "${BASH_SOURCE[0]}")"
 TIER="fast"
+RUNNER_SELF_TEST=0
+RUNNER_HOST_PREFLIGHT=0
+DUPLICATE_CHECK_ONLY=0
+SUITE_INVENTORY_ONLY=0
+SUITE_INVENTORY_GIT="${SQUAD_SUITE_INVENTORY_GIT_UNDER_TEST:-git}"
 
 usage() {
     cat <<'EOF'
@@ -14,6 +21,10 @@ Usage: bin/test [--fast|--full]
 
   --fast  Run the hermetic CI gate (default).
   --full  Also run daemon tests and the live Docker isolation check.
+  --runner-self-test  Exercise only the runner's typed result contract.
+  --runner-host-preflight  Exercise only the host/sandbox preflight.
+  --duplicate-check-only  Exercise only the tracked identical-blob suite.
+  --suite-inventory-only  Exercise only the unwired-suite inventory.
 
 Set SKIP_MOAT_CONTAINER=1 to record an explicit container skip in the full tier.
 EOF
@@ -22,19 +33,23 @@ EOF
 case "${1:-}" in
     ""|--fast) TIER="fast" ;;
     --full) TIER="full" ;;
+    --runner-self-test) RUNNER_SELF_TEST=1 ;;
+    --runner-host-preflight) RUNNER_HOST_PREFLIGHT=1 ;;
+    --duplicate-check-only) DUPLICATE_CHECK_ONLY=1 ;;
+    --suite-inventory-only) SUITE_INVENTORY_ONLY=1 ;;
     -h|--help)
         usage
         exit 0
         ;;
     *)
         usage >&2
-        exit 2
+        exit 64
         ;;
 esac
 
 if [[ $# -gt 1 ]]; then
     usage >&2
-    exit 2
+    exit 64
 fi
 
 cd "$ROOT" || exit 1
@@ -44,7 +59,9 @@ SUITE_RESULTS=()
 SUITE_DETAILS=()
 PASS_COUNT=0
 FAIL_COUNT=0
+BLOCKED_COUNT=0
 SKIP_COUNT=0
+NA_COUNT=0
 
 record_result() {
     local name="$1" result="$2" detail="$3"
@@ -54,7 +71,9 @@ record_result() {
     case "$result" in
         PASS) PASS_COUNT=$((PASS_COUNT + 1)) ;;
         FAIL) FAIL_COUNT=$((FAIL_COUNT + 1)) ;;
+        BLOCKED) BLOCKED_COUNT=$((BLOCKED_COUNT + 1)) ;;
         SKIP) SKIP_COUNT=$((SKIP_COUNT + 1)) ;;
+        N/A) NA_COUNT=$((NA_COUNT + 1)) ;;
     esac
 }
 
@@ -75,10 +94,566 @@ run_suite() {
 
 skip_suite() {
     local name="$1" reason="$2"
-    record_result "$name" "SKIP" "$reason"
+    record_result "$name" "SKIP" "not-applicable:${reason}"
     echo
-    echo "WARNING: SKIP ${name}: ${reason}" >&2
+    echo "WARNING: SKIP ${name}: not-applicable:${reason}" >&2
 }
+
+not_applicable_suite() {
+    local name="$1" reason="$2"
+    record_result "$name" "N/A" "not-applicable:${reason}"
+    echo
+    echo "N/A: ${name}: not-applicable:${reason}"
+}
+
+block_suite() {
+    local name="$1" reason="$2"
+    record_result "$name" "BLOCKED" "$reason"
+    echo
+    echo "BLOCKED: ${name}: ${reason}" >&2
+}
+
+result_exit_code() {
+    if [[ $FAIL_COUNT -gt 0 ]]; then
+        return 1
+    fi
+    if [[ $BLOCKED_COUNT -gt 0 ]]; then
+        return 2
+    fi
+    return 0
+}
+
+reset_results() {
+    SUITE_NAMES=()
+    SUITE_RESULTS=()
+    SUITE_DETAILS=()
+    PASS_COUNT=0
+    FAIL_COUNT=0
+    BLOCKED_COUNT=0
+    SKIP_COUNT=0
+    NA_COUNT=0
+}
+
+print_summary() {
+    local index=0
+    echo
+    echo "Test summary (${TIER})"
+    echo "--------------------"
+    while [[ $index -lt ${#SUITE_NAMES[@]} ]]; do
+        printf '%-28s %-7s %s\n' \
+            "${SUITE_NAMES[$index]}" \
+            "${SUITE_RESULTS[$index]}" \
+            "${SUITE_DETAILS[$index]}"
+        index=$((index + 1))
+    done
+    echo "--------------------"
+    echo "Total suites: ${#SUITE_NAMES[@]} (pass=${PASS_COUNT}, fail=${FAIL_COUNT}, blocked=${BLOCKED_COUNT}, skip=${SKIP_COUNT}, na=${NA_COUNT})"
+}
+
+select_python() {
+    local candidate="" candidate_dir="" candidate_name=""
+    PYTHON_READY=0
+    PYTHON_BLOCK_REASON=""
+    if [[ ${PYTHON_BIN+x} == x ]]; then
+        candidate="$PYTHON_BIN"
+        if [[ -z "$candidate" ]]; then
+            PYTHON_BLOCK_REASON="dependency:python:explicit-empty"
+            return
+        fi
+    elif command -v uv >/dev/null 2>&1; then
+        echo "Preparing locked Python 3.13 environment with uv..."
+        if ! env -u VIRTUAL_ENV -u UV_PROJECT_ENVIRONMENT -u UV_NO_SYNC \
+            UV_CACHE_DIR="${UV_CACHE_DIR:-${TMPDIR:-/tmp}/uv-cache}" \
+            UV_PROJECT_ENVIRONMENT="$ROOT/.venv" \
+            uv sync --locked --project "$ROOT"; then
+            PYTHON_BLOCK_REASON="dependency:python:uv-sync"
+            return
+        fi
+        if [[ ! -x "$ROOT/.venv/bin/python" ]]; then
+            PYTHON_BLOCK_REASON="dependency:python:uv-environment-missing"
+            return
+        fi
+        candidate="$ROOT/.venv/bin/python"
+    elif [[ -x "$ROOT/.venv/bin/python" ]]; then
+        candidate="$ROOT/.venv/bin/python"
+    elif command -v python3.13 >/dev/null 2>&1; then
+        candidate="$(command -v python3.13)"
+    else
+        PYTHON_BLOCK_REASON="dependency:command:uv-or-python3.13"
+        return
+    fi
+
+    if [[ "$candidate" == */* ]]; then
+        candidate_dir="$(cd -- "$(dirname -- "$candidate")" 2>/dev/null && pwd -P)" || {
+            PYTHON_BLOCK_REASON="dependency:python:unavailable"
+            return
+        }
+        candidate_name="$(basename -- "$candidate")"
+        candidate="${candidate_dir}/${candidate_name}"
+    else
+        candidate="$(command -v "$candidate" 2>/dev/null)" || {
+            PYTHON_BLOCK_REASON="dependency:python:unavailable"
+            return
+        }
+    fi
+    if [[ ! -x "$candidate" ]]; then
+        PYTHON_BLOCK_REASON="dependency:python:not-executable"
+        return
+    fi
+
+    PYTHON_VERSION="$(
+        "$candidate" -c 'import sys; print(".".join(map(str, sys.version_info[:3])))' \
+            2>/dev/null
+    )" || {
+        PYTHON_BLOCK_REASON="dependency:python:probe-failed"
+        return
+    }
+    if [[ ! "$PYTHON_VERSION" =~ ^3\.13\.[0-9]+$ ]]; then
+        PYTHON_BLOCK_REASON="environment:python-version:${PYTHON_VERSION:-unknown}"
+        return
+    fi
+    if ! "$candidate" -c 'raise SystemExit(0 if __debug__ else 1)' 2>/dev/null; then
+        PYTHON_BLOCK_REASON="environment:python-optimized"
+        return
+    fi
+
+    candidate_dir="$(dirname -- "$candidate")"
+    if [[ ! -x "$candidate_dir/python3" ]]; then
+        # The interpreter is the right version but is not reachable as `python3`
+        # from its own directory, so prepending that directory would leave every
+        # subprocess on a different interpreter. That is the ordinary case in a
+        # git worktree: `.venv/` is gitignored, so the repo-local venv -- the one
+        # that does ship a `python3` -- exists only in the primary checkout.
+        # Blocking here meant bin/test reported 12 BLOCKED suites in all 44 board
+        # worktrees, so every dispatched worker was structurally unable to run
+        # the suite it is asked to verify against, and "BLOCKED" reads a lot like
+        # "nothing to run".
+        #
+        # Project the selected interpreter into a private directory instead. This
+        # weakens nothing: the version and sys.prefix assertions below still have
+        # to pass against whatever `python3` then resolves to.
+        # mktemp -d, never a derived name: this directory is prepended to PATH,
+        # so whatever sits in it as `python3` gets executed. A predictable path
+        # under a shared /tmp -- the Linux CI default -- lets anyone pre-create
+        # it and plant an interpreter, and overwriting their symlink does not
+        # help, because the race is against every later python3 call, not just
+        # the first. mktemp gives an unguessable name at mode 0700.
+        if ! candidate_dir="$(mktemp -d "${TMPDIR:-/tmp}/vs-python-shim.XXXXXXXX" 2>/dev/null)" \
+            || [[ -z "$candidate_dir" || ! -d "$candidate_dir" ]]; then
+            PYTHON_BLOCK_REASON="dependency:python:shim-unwritable"
+            return
+        fi
+        PYTHON_SHIM_DIR="$candidate_dir"
+        trap 'test -n "${PYTHON_SHIM_DIR:-}" && rm -rf -- "$PYTHON_SHIM_DIR"' EXIT
+        if ! ln -sfn "$candidate" "$candidate_dir/python3" 2>/dev/null \
+            || ! ln -sfn "$candidate" "$candidate_dir/python3.13" 2>/dev/null; then
+            PYTHON_BLOCK_REASON="dependency:python:shim-unlinkable"
+            return
+        fi
+    fi
+    PYTHON_BIN="$candidate"
+    export PYTHON_BIN
+    export VIBE_PYTHON="$candidate"
+    export PATH="${candidate_dir}:${PATH}"
+
+    local selected_prefix="" child_prefix="" child_version=""
+    selected_prefix="$("$PYTHON_BIN" -c 'import sys; print(sys.prefix)' 2>/dev/null)" || {
+        PYTHON_BLOCK_REASON="dependency:python:prefix-probe-failed"
+        return
+    }
+    child_version="$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:3])))' 2>/dev/null)" || {
+        PYTHON_BLOCK_REASON="dependency:python:child-probe-failed"
+        return
+    }
+    child_prefix="$(python3 -c 'import sys; print(sys.prefix)' 2>/dev/null)" || {
+        PYTHON_BLOCK_REASON="dependency:python:child-prefix-probe-failed"
+        return
+    }
+    if [[ ! "$child_version" =~ ^3\.13\.[0-9]+$ || "$child_prefix" != "$selected_prefix" ]]; then
+        PYTHON_BLOCK_REASON="environment:python-projection-mismatch"
+        return
+    fi
+    if [[ -f "$selected_prefix/pyvenv.cfg" ]]; then
+        export VIRTUAL_ENV="$selected_prefix"
+        export UV_PROJECT_ENVIRONMENT="$selected_prefix"
+        export UV_NO_SYNC=1
+    fi
+    PYTHON_READY=1
+}
+
+probe_host_capabilities() {
+    HOST_PREFLIGHT_READY=0
+    HOST_PREFLIGHT_REASON=""
+    if [[ "$PYTHON_READY" != "1" ]]; then
+        HOST_PREFLIGHT_REASON="$PYTHON_BLOCK_REASON"
+        return
+    fi
+    if [[ "${SQUAD_RUNNER_TEST_HOST_PREFLIGHT:-}" == "deny-loopback" ]]; then
+        HOST_PREFLIGHT_REASON="environment:sandbox:loopback"
+        return
+    fi
+    if ! "$PYTHON_BIN" -c \
+        'import socket; sock = socket.socket(); sock.bind(("127.0.0.1", 0)); sock.close()' \
+        >/dev/null 2>&1; then
+        HOST_PREFLIGHT_REASON="environment:sandbox:loopback"
+        return
+    fi
+    if [[ "$OSTYPE" == darwin* ]]; then
+        if [[ ! -x /usr/bin/sandbox-exec ]]; then
+            HOST_PREFLIGHT_REASON="dependency:command:sandbox-exec"
+            return
+        fi
+        if [[ "${SQUAD_RUNNER_TEST_HOST_PREFLIGHT:-}" == "deny-seatbelt" ]] \
+            || ! /usr/bin/sandbox-exec \
+                -p '(version 1) (allow default)' /usr/bin/true >/dev/null 2>&1; then
+            HOST_PREFLIGHT_REASON="environment:sandbox:seatbelt"
+            return
+        fi
+    fi
+    HOST_PREFLIGHT_READY=1
+}
+
+record_host_preflight() {
+    if [[ "$HOST_PREFLIGHT_READY" == "1" ]]; then
+        record_result "dispatch host preflight" "PASS" "ok"
+        echo
+        echo "PASS: dispatch host preflight"
+    elif [[ "$HOST_PREFLIGHT_REASON" == environment:sandbox:* ]]; then
+        not_applicable_suite "dispatch host preflight" "$HOST_PREFLIGHT_REASON"
+    else
+        block_suite "dispatch host preflight" "$HOST_PREFLIGHT_REASON"
+    fi
+}
+
+prepare_moat_dependencies() {
+    MOAT_READY=0
+    MOAT_BLOCK_REASON=""
+    if ! command -v node >/dev/null 2>&1; then
+        MOAT_BLOCK_REASON="dependency:command:node"
+        return
+    fi
+    if [[ ${MOAT_NODE_MODULES+x} == x ]]; then
+        if [[ -z "$MOAT_NODE_MODULES" ]]; then
+            MOAT_BLOCK_REASON="dependency:node:explicit-empty"
+            return
+        fi
+        if [[ ! -d "$MOAT_NODE_MODULES/typescript" ]]; then
+            MOAT_BLOCK_REASON="dependency:node:explicit-unavailable"
+            return
+        fi
+        if [[ ! -e "$ROOT/moat/node_modules" ]]; then
+            if ! ln -s "$MOAT_NODE_MODULES" "$ROOT/moat/node_modules"; then
+                MOAT_BLOCK_REASON="dependency:node:explicit-unlinkable"
+                return
+            fi
+        fi
+        export NODE_PATH="$MOAT_NODE_MODULES${NODE_PATH:+:$NODE_PATH}"
+        MOAT_READY=1
+        return
+    fi
+    if [[ -d "$ROOT/moat/node_modules/typescript" ]] \
+        && node -e 'require("./moat/node_modules/typescript")' >/dev/null 2>&1; then
+        MOAT_READY=1
+        return
+    fi
+    if ! command -v npm >/dev/null 2>&1; then
+        MOAT_BLOCK_REASON="dependency:command:npm"
+        return
+    fi
+    if [[ ! -f "$ROOT/moat/package-lock.json" ]]; then
+        MOAT_BLOCK_REASON="dependency:node:lockfile"
+        return
+    fi
+    echo "Preparing locked moat dependencies with npm ci..."
+    if ! env npm_config_cache="${npm_config_cache:-${TMPDIR:-/tmp}/npm-cache}" \
+        npm ci --prefix "$ROOT/moat" --no-audit --no-fund; then
+        MOAT_BLOCK_REASON="dependency:node:npm-ci"
+        return
+    fi
+    if [[ ! -d "$ROOT/moat/node_modules/typescript" ]] \
+        || ! node -e 'require("./moat/node_modules/typescript")' >/dev/null 2>&1; then
+        MOAT_BLOCK_REASON="dependency:node:typescript"
+        return
+    fi
+    MOAT_READY=1
+}
+
+run_runner_self_test() {
+    local invoked=0 rc=0
+
+    reset_results
+    run_suite "synthetic pass" true
+    skip_suite "synthetic non-applicable" "profile:self-test"
+    not_applicable_suite "synthetic private projection" "profile:private-component-withheld"
+    result_exit_code || rc=$?
+    [[ $rc -eq 0 && $PASS_COUNT -eq 1 && $SKIP_COUNT -eq 1 && $NA_COUNT -eq 1 ]] \
+        || return 1
+
+    reset_results
+    block_suite "synthetic dependency" "dependency:python:pytest"
+    result_exit_code || rc=$?
+    [[ $rc -eq 2 && $BLOCKED_COUNT -eq 1 && $invoked -eq 0 ]] || return 1
+
+    reset_results
+    # run_suite invokes this function by name.
+    # shellcheck disable=SC2329
+    synthetic_failure() { invoked=$((invoked + 1)); return 5; }
+    run_suite "synthetic product failure" synthetic_failure
+    block_suite "synthetic sandbox" "environment:sandbox:loopback"
+    rc=0
+    result_exit_code || rc=$?
+    [[ $rc -eq 1 && $FAIL_COUNT -eq 1 && $BLOCKED_COUNT -eq 1 && $invoked -eq 1 ]] \
+        || return 1
+
+    reset_results
+    record_result "synthetic full daemon" "PASS" "ok"
+    record_result "synthetic full container" "PASS" "ok"
+    [[ ${#SUITE_NAMES[@]} -eq 2 ]] || return 1
+
+    echo "RUNNER SELFTEST PASS: PASS/FAIL/BLOCKED/SKIP and exit precedence"
+}
+
+if [[ "$RUNNER_SELF_TEST" == "1" ]]; then
+    run_runner_self_test
+    exit $?
+fi
+
+if [[ "$SUITE_INVENTORY_ONLY" != "1" ]]; then
+    select_python
+else
+    # Inventory needs only Git/awk/grep. Do not let a focused anti-vacuity
+    # check fetch or construct the full Python environment before it can run.
+    PYTHON_READY=0
+    PYTHON_BLOCK_REASON="not-requested:suite-inventory-only"
+fi
+
+duplicate_repo="$ROOT"
+duplicate_registry="$ROOT/shared/registries/identical-blobs.tsv"
+if [[ "${SQUAD_RUNNER_TEST_DUPLICATES:-0}" == "1" ]]; then
+    if [[ -z "${SQUAD_DUPLICATE_CHECK_ROOT_UNDER_TEST:-}" \
+        || -z "${SQUAD_DUPLICATE_ALLOWLIST_UNDER_TEST:-}" ]]; then
+        echo "ERROR: duplicate-check test mode requires both fixture paths" >&2
+        exit 64
+    fi
+    duplicate_repo="$SQUAD_DUPLICATE_CHECK_ROOT_UNDER_TEST"
+    duplicate_registry="$SQUAD_DUPLICATE_ALLOWLIST_UNDER_TEST"
+fi
+
+if [[ "$DUPLICATE_CHECK_ONLY" == "1" ]]; then
+    if [[ "$PYTHON_READY" != "1" ]]; then
+        block_suite "one fact, one home" "$PYTHON_BLOCK_REASON"
+    else
+        run_suite \
+            "one fact, one home" \
+            "$PYTHON_BIN" scripts/python/check_duplicate_blobs.py \
+            --repo "$duplicate_repo" \
+            --registry "$duplicate_registry"
+    fi
+    print_summary
+    result_exit_code
+    exit $?
+fi
+
+if [[ "$SUITE_INVENTORY_ONLY" != "1" ]]; then
+    probe_host_capabilities
+fi
+
+if [[ "$RUNNER_HOST_PREFLIGHT" == "1" ]]; then
+    record_host_preflight
+    print_summary
+    result_exit_code
+    exit $?
+fi
+
+# --- Suite inventory -------------------------------------------------------
+# The defect class: a test suite that exists but is invoked by nothing looks
+# exactly like a suite that runs and passes. tools/export/tests -- 71 tests over
+# the gate that decides what becomes public -- sat in that state until
+# 2026-08-11, and nothing about the repository looked any different for it.
+# Four more suites were in the same state on the same day.
+#
+# Every test file SUITE_INVENTORY_DISCOVERY finds must be claimed by exactly one
+# row below, FIRST MATCH WINS. A suite nobody wired matches no row and fails this
+# check, which is the only reason the check earns its place.
+#
+# Row format: <path-ERE>|<disposition>|<anchor>|<detail>
+#   bin-test       runs in the default (fast) tier, so CI's test-fast job runs it
+#   bin-test-full  runs only under `bin/test --full` (nightly / workflow_dispatch)
+#   bin-test-private runs when the private component exists. Its row may match
+#                    zero files in the public projection, where the named suite
+#                    must report N/A rather than BLOCKED or SKIP.
+#   excluded       deliberately not run. <anchor> MUST be empty and <detail> MUST
+#                  say why. This is the documented third bucket; there is no
+#                  silent one.
+#
+# For both bin-test dispositions <anchor> is a literal string that must occur on
+# at least TWO lines of this file: its own row, and the call site that runs the
+# suite. Deleting the call site drops the count to one and fails the check, so a
+# wired suite cannot be quietly unwired either. Anchor on the literal invocation
+# fragment (a discovery path, a script path), never on the display name -- a name
+# like "daemon" occurs all over this file and would still count 2 with the call
+# site gone, which is the failure the anchor exists to catch.
+SUITE_INVENTORY_DISCOVERY='(^|/)(test_[^/]*|test-[^/]*|[^/]*_test)\.(py|sh)$|\.(test|spec)\.(m?[jt]s|cjs)$|(^|/)[^/]*-selftest\.(sh|py)$'
+
+# Invoked from run_suite_inventory, which run_suite in turn invokes by name.
+# Neither hop is followable by the linter, so this draws the same false positive
+# and takes the same suppression as the run_* suite functions below.
+# shellcheck disable=SC2329
+suite_inventory_rows() {
+    cat <<'ROWS'
+^scripts/python/tests/orphan_supervisor_leak_test\.py$|bin-test|scripts/python/tests/orphan_supervisor_leak_test.py|Invoked by path, because the -p 'test_*.py' discovery pattern does not match a *_test.py name.
+^scripts/python/tests/test_[^/]+\.py$|bin-test|-s scripts/python/tests|unittest discover, pattern test_*.py.
+^plugins/chrono-vault/tests/test_[^/]+\.py$|bin-test|-s plugins/chrono-vault/tests|unittest discover over the plugin test package.
+^plugins/chrono-media-studio/tests/test_[^/]+\.py$|bin-test|-s plugins/chrono-media-studio/tests|unittest discover over the plugin test package.
+^plugins/chrono-research-arsenal/test_[^/]+\.py$|bin-test|-s plugins/chrono-research-arsenal|Tests live beside the module rather than under tests/, hence the plugin-root discovery path.
+^plugins/chrono-dedup/tests/test_[^/]+\.py$|bin-test-private|-s plugins/chrono-dedup/tests|Runs in the private source tree; the public path policy deliberately withholds the prior-art corpus and plugin.
+^plugins/security-mcp-stack/test_validate_staged\.py$|bin-test|plugins/security-mcp-stack/test_validate_staged.py|Single stdlib-only module run by path. Wired 2026-08-11.
+^tools/export/tests/test_[^/]+\.py$|bin-test|tools/export/tests/test_*.py|Every public module runs; modules whose implementation is deliberately private report as one explicit N/A projection suite.
+^tests/hooks/test_[^/]+\.py$|bin-test|-s tests/hooks|Covers scripts/hooks/pre-commit. Wired 2026-08-11.
+^tests/test_content_triage\.py$|bin-test|tests/test_content_triage.py|Run by path; needs PyYAML.
+^bin/pre-commit-selftest\.sh$|bin-test|bin/pre-commit-selftest.sh|Hermetic self-test for the tracked pre-commit capability gate.
+^bin/reconcile-selftest\.sh$|bin-test|bin/reconcile-selftest.sh|Skipped under SQUAD_CI_HOST_INDEPENDENT=1, which the summary reports as SKIP rather than PASS.
+^bin/review-loop-guard-selftest\.py$|bin-test|bin/review-loop-guard-selftest.py|Run by path.
+^moat/tests/phase4b-operational\.test\.mjs$|bin-test|moat/tests/phase4b-operational.test.mjs|PARTIAL by design: the fast tier runs four named tests, and the live-container test runs only in the full tier.
+^moat/tests/[^/]+\.test\.mjs$|bin-test|moat/tests/*.test.mjs|node --test over every other moat suite.
+^daemon/tests/test_dispatch_status_coercion\.py$|bin-test|daemon/tests/test_dispatch_status_coercion.py|Stdlib-only regression for closed status coercion. The fast guarded-subset suite runs it on every push/PR; the full daemon suite also covers it.
+^daemon/tests/test_[^/]+\.py$|bin-test-full|pytest daemon/tests|Full tier only. CI's panel-status-tests job separately runs test_panel_activity.py and test_vs_lane_status.py; the remaining files are manual/private-schedule only.
+^tests/dispatch/test_no_autocommit\.sh$|bin-test|tests/dispatch/test_no_autocommit.sh|Runs the real dispatcher in a complete temporary clone and stubs only the external model-process boundary.
+ROWS
+}
+
+# run_suite invokes this function by name.
+# shellcheck disable=SC2329
+run_suite_inventory() {
+    local tmp="" rc=0 ere disposition anchor detail occurrences
+    tmp="$(mktemp -d "${TMPDIR:-/tmp}/vs-suite-inventory.XXXXXXXX")" || return 70
+
+    if ! "$SUITE_INVENTORY_GIT" ls-files > "$tmp/tracked" 2>"$tmp/git-error"; then
+        sed 's/^/git ls-files: /' "$tmp/git-error" >&2
+        rm -rf "$tmp"
+        return 70
+    fi
+    grep -E "$SUITE_INVENTORY_DISCOVERY" "$tmp/tracked" | sort > "$tmp/discovered"
+    suite_inventory_rows > "$tmp/rows"
+
+    # An empty discovery is the failure this whole check exists to prevent: it
+    # would claim every row is stale and report a clean inventory of nothing.
+    if [[ ! -s "$tmp/discovered" ]]; then
+        echo "suite inventory: discovery matched no test file at all; refusing to report success" >&2
+        rm -rf "$tmp"
+        return 1
+    fi
+
+    awk -F'|' '
+        NR == FNR { n++; ere[n] = $1; disp[n] = $2; anchor[n] = $3; next }
+        {
+            for (i = 1; i <= n; i++) {
+                if ($0 ~ ere[i]) { count[i]++; next }
+            }
+            print "UNCLAIMED\t" $0
+        }
+        END {
+            for (i = 1; i <= n; i++) {
+                if (count[i] == 0 && disp[i] == "bin-test-private")
+                    print "OPTIONAL\t0\t" disp[i] "\t" anchor[i] "\t" ere[i]
+                else if (count[i] == 0) print "STALE\t" ere[i]
+                else print "ROW\t" count[i] "\t" disp[i] "\t" anchor[i] "\t" ere[i]
+            }
+        }
+    ' "$tmp/rows" "$tmp/discovered" > "$tmp/classified"
+
+    echo "suite inventory: $(grep -c . "$tmp/discovered") discovered test file(s), $(grep -c . "$tmp/rows") row(s)"
+    awk -F'\t' '$1 == "ROW" { printf "  %-14s %3s file(s)  %s\n", $3, $2, $5 }' "$tmp/classified"
+    awk -F'\t' '$1 == "OPTIONAL" { printf "  %-14s N/A file(s)  %s\n", $3, $5 }' "$tmp/classified"
+
+    if grep -q '^UNCLAIMED' "$tmp/classified"; then
+        echo "suite inventory: test file(s) claimed by no row -- wire them, or add an" >&2
+        echo "  'excluded' row saying why they are deliberately not run:" >&2
+        grep '^UNCLAIMED' "$tmp/classified" | cut -f2- | sed 's/^/    /' >&2
+        rc=1
+    fi
+    if grep -q '^STALE' "$tmp/classified"; then
+        echo "suite inventory: row(s) matching no file -- the suite moved or was removed:" >&2
+        grep '^STALE' "$tmp/classified" | cut -f2- | sed 's/^/    /' >&2
+        rc=1
+    fi
+
+    # Disposition checks. Reading rows again from the source of truth rather than
+    # from the awk output keeps the empty-anchor `excluded` case unambiguous.
+    while IFS='|' read -r ere disposition anchor detail; do
+        [[ -n "$ere" ]] || continue
+        case "$disposition" in
+            bin-test|bin-test-full|bin-test-private)
+                if [[ -z "$anchor" ]]; then
+                    echo "suite inventory: ${disposition} row has no anchor: ${ere}" >&2
+                    rc=1
+                    continue
+                fi
+                occurrences="$(grep -cF -- "$anchor" "$RUNNER_PATH")" || occurrences=0
+                if [[ "${occurrences:-0}" -lt 2 ]]; then
+                    echo "suite inventory: anchor '${anchor}' occurs on ${occurrences} line(s) of ${RUNNER_PATH};" >&2
+                    echo "  expected its row plus at least one call site. The suite matching" >&2
+                    echo "  ${ere} is declared as ${disposition} but nothing here invokes it." >&2
+                    rc=1
+                fi
+                ;;
+            excluded)
+                if [[ -n "$anchor" ]]; then
+                    echo "suite inventory: excluded row must have an empty anchor: ${ere}" >&2
+                    rc=1
+                fi
+                if [[ -z "$detail" ]]; then
+                    echo "suite inventory: excluded row must say why: ${ere}" >&2
+                    rc=1
+                fi
+                ;;
+            *)
+                echo "suite inventory: unknown disposition '${disposition}' for ${ere}" >&2
+                rc=1
+                ;;
+        esac
+    done < "$tmp/rows"
+
+    rm -rf "$tmp"
+    return "$rc"
+}
+
+# Inventory has a typed third outcome. A classification mismatch is a product
+# failure (1); mktemp/Git/other operational failures mean the inventory could
+# not determine coverage and must be BLOCKED (2), never mislabeled FAIL.
+record_suite_inventory() {
+    local rc=0
+    echo
+    echo "==> suite inventory"
+    run_suite_inventory || rc=$?
+    case "$rc" in
+        0)
+            record_result "suite inventory" "PASS" "ok"
+            echo "PASS: suite inventory"
+            ;;
+        1)
+            record_result "suite inventory" "FAIL" "exit 1"
+            echo "FAIL: suite inventory (exit 1)" >&2
+            ;;
+        *)
+            record_result "suite inventory" "BLOCKED" "could-not-determine:exit ${rc}"
+            echo "BLOCKED: suite inventory: could-not-determine:exit ${rc}" >&2
+            ;;
+    esac
+}
+
+if [[ "$SUITE_INVENTORY_ONLY" == "1" ]]; then
+    if ! command -v "$SUITE_INVENTORY_GIT" >/dev/null 2>&1; then
+        block_suite "suite inventory" "dependency:command:git"
+    else
+        record_suite_inventory
+    fi
+    print_summary
+    result_exit_code
+    exit $?
+fi
+
+prepare_moat_dependencies
 
 python_has_fast_deps() {
     "$PYTHON_BIN" -c 'import httpx; from mcp.server.fastmcp import FastMCP' >/dev/null 2>&1
@@ -88,6 +663,38 @@ python_has_daemon_deps() {
     "$PYTHON_BIN" -c 'import fastapi, httpx, pydantic, pytest, watchfiles, yaml' >/dev/null 2>&1
 }
 
+# Keep this explicit rather than relying only on discovery. A detached-process
+# leak must remain a named CI gate even if the broad test layout changes.
+run_dispatch_enforcement() {
+    local suite_tmp="" suite_rc=0 detector_rc=0 cleanup_rc=0
+    suite_tmp="$(mktemp -d "${TMPDIR:-/tmp}/vs-dispatch-tests.XXXXXXXX")" || return 70
+    TMPDIR="$suite_tmp" \
+        "$PYTHON_BIN" -m unittest discover -s scripts/python/tests -p 'test_*.py' \
+        || suite_rc=$?
+    TMPDIR="$suite_tmp" \
+        "$PYTHON_BIN" scripts/python/tests/orphan_supervisor_leak_test.py \
+        --scan-root "$suite_tmp" || detector_rc=$?
+    bash tests/dispatch/test_no_autocommit.sh || suite_rc=$?
+    if [[ "$detector_rc" -eq 0 ]]; then
+        "$PYTHON_BIN" - "$suite_tmp" <<'PYEOF' || cleanup_rc=$?
+from pathlib import Path
+import shutil
+import sys
+
+root = Path(sys.argv[1])
+if root.is_dir():
+    shutil.rmtree(root)
+PYEOF
+    else
+        echo "orphan supervisor evidence preserved: ${suite_tmp}" >&2
+    fi
+    [[ "$cleanup_rc" -eq 0 ]] || return "$cleanup_rc"
+    [[ "$suite_rc" -eq 0 ]] || return "$suite_rc"
+    return "$detector_rc"
+}
+
+# run_suite invokes this function by name.
+# shellcheck disable=SC2329
 run_moat_fast() {
     local file
     local files=()
@@ -102,57 +709,246 @@ run_moat_fast() {
             moat/tests/phase4b-operational.test.mjs
 }
 
+# run_suite invokes this function by name.
+# shellcheck disable=SC2329
 run_moat_container() {
     local pattern
     pattern='^real Colima container blocks every external canary and permits loopback$'
     node --test --test-name-pattern="$pattern" moat/tests/phase4b-operational.test.mjs
 }
 
-if ! command -v node >/dev/null 2>&1; then
-    skip_suite "moat hermetic" "node is unavailable"
-elif [[ ! -d moat/node_modules/typescript ]]; then
-    skip_suite "moat hermetic" "moat dependencies are missing; run npm ci --prefix moat"
+# Generated projections are only trustworthy when their read-only check modes
+# run on the same automation path as the rest of the repository contract. Keep
+# these in the existing specialist-validation suite so CI still fails on any
+# projection drift.
+#
+# gen_crew_cards.py --check compares each generator-owned tracked card with its
+# prospective rendering, in addition to validating the frame-width invariant.
+#
+# run_suite invokes this function by name.
+# shellcheck disable=SC2329
+run_projection_and_specialist_validation() {
+    local rc=0
+
+    bash bin/gen-roster.sh --check || rc=1
+    "$PYTHON_BIN" scripts/python/gen_runtime_tool_summary.py --check || rc=1
+    "$PYTHON_BIN" tools/export/build_public_catalog.py --check || rc=1
+    "$PYTHON_BIN" scripts/python/lane_adapter_registry.py --check || rc=1
+    "$PYTHON_BIN" scripts/python/gen_crew_cards.py --check || rc=1
+    env VAULT_ROOT="$ROOT" bash bin/validate-specialists.sh || rc=1
+
+    return "$rc"
+}
+
+# The status-coercion regression protects the reconciler from treating failure
+# prose such as "incomplete" as success merely because it contains "complete".
+# It is stdlib-only and belongs in the push/PR gate even though the broader
+# daemon integration suite remains in --full. Keep it folded into an existing
+# dependency-light suite so the default runner contract stays at 19 suites.
+#
+# run_suite invokes this function by name.
+# shellcheck disable=SC2329
+run_guarded_subset_validation() {
+    "$PYTHON_BIN" plugins/security-mcp-stack/test_validate_staged.py &&
+        "$PYTHON_BIN" daemon/tests/test_dispatch_status_coercion.py
+}
+
+path_is_deliberately_private() {
+    local relative="$1"
+    [[ -f tools/export/path_policy.py && -f tools/export/policy/path-policy.json ]] \
+        || return 1
+    [[ "$("$PYTHON_BIN" tools/export/path_policy.py classify \
+        --policy tools/export/policy/path-policy.json "$relative" 2>/dev/null)" == "private" ]]
+}
+
+is_public_projection() {
+    [[ ! -e plugins/chrono-dedup ]] \
+        && path_is_deliberately_private \
+            "plugins/chrono-dedup/tests/test_prior_art.py"
+}
+
+# The public projection deliberately withholds target_scan.py, so the two test
+# modules that import it are a separate, explicitly N/A suite there. The other
+# export tests still run; withholding one private scanner must not erase their
+# coverage.
+run_export_core() {
+    local file
+    local files=()
+    for file in tools/export/tests/test_*.py; do
+        case "$file" in
+            tools/export/tests/test_projector.py|tools/export/tests/test_target_scan.py) ;;
+            *) files+=("$file") ;;
+        esac
+    done
+    [[ ${#files[@]} -gt 0 ]] || return 70
+    "$PYTHON_BIN" -m unittest "${files[@]}"
+}
+
+record_export_scanner_suite() {
+    if [[ -f tools/export/target_scan.py ]]; then
+        run_suite \
+            "export projector/scanner" \
+            "$PYTHON_BIN" -m unittest \
+            tools/export/tests/test_projector.py \
+            tools/export/tests/test_target_scan.py
+    elif path_is_deliberately_private "tools/export/target_scan.py"; then
+        not_applicable_suite \
+            "export projector/scanner" \
+            "profile:public-projection-withholds-target-scan"
+    else
+        run_suite "export projector/scanner" false
+    fi
+}
+
+record_host_preflight
+
+# Deliberately ahead of every dependency-gated suite and outside the Python
+# branch: this check needs only git and awk, so "no suite is unaccounted for"
+# stays enforced on hosts where most suites BLOCK.
+if ! command -v "$SUITE_INVENTORY_GIT" >/dev/null 2>&1; then
+    block_suite "suite inventory" "dependency:command:git"
+else
+    record_suite_inventory
+fi
+
+if [[ "$MOAT_READY" != "1" ]]; then
+    block_suite "moat hermetic" "$MOAT_BLOCK_REASON"
 else
     run_suite "moat hermetic" run_moat_fast
 fi
 
-if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
-    skip_suite "dispatch enforcement" "${PYTHON_BIN} is unavailable"
-    skip_suite "chrono-vault" "${PYTHON_BIN} is unavailable"
-    skip_suite "content-media" "${PYTHON_BIN} is unavailable"
+if [[ "$PYTHON_READY" != "1" ]]; then
+    block_suite "one fact, one home" "$PYTHON_BLOCK_REASON"
+    block_suite "dispatch enforcement" "$PYTHON_BLOCK_REASON"
+    block_suite "chrono-vault" "$PYTHON_BLOCK_REASON"
+    block_suite "content-media" "$PYTHON_BLOCK_REASON"
+    # research-arsenal was missing from this branch until 2026-08-11 while being
+    # present in the inner dependency branch below, so on a host with no usable
+    # Python it vanished from the summary entirely rather than reporting BLOCKED.
+    # Absent and green look the same; absent and blocked do not.
+    block_suite "research-arsenal" "$PYTHON_BLOCK_REASON"
+    block_suite "content-triage" "$PYTHON_BLOCK_REASON"
+    block_suite "prior-art dedup" "$PYTHON_BLOCK_REASON"
+    block_suite "guarded-subset validation" "$PYTHON_BLOCK_REASON"
+    block_suite "pre-commit leak guard" "$PYTHON_BLOCK_REASON"
+    block_suite "export gate" "$PYTHON_BLOCK_REASON"
+    block_suite "export projector/scanner" "$PYTHON_BLOCK_REASON"
+    block_suite "capability validation" "$PYTHON_BLOCK_REASON"
+    block_suite "capability validator self-test" "$PYTHON_BLOCK_REASON"
+    if [[ "${SQUAD_CI_HOST_INDEPENDENT:-0}" == "1" ]]; then
+        skip_suite "reconcile selftest" "profile:host-independent"
+    else
+        block_suite "reconcile selftest" "$PYTHON_BLOCK_REASON"
+    fi
+    block_suite "review loop guard" "$PYTHON_BLOCK_REASON"
+    block_suite "pre-commit capability gate" "$PYTHON_BLOCK_REASON"
+    block_suite "specialist validation" "$PYTHON_BLOCK_REASON"
 else
-    run_suite \
-        "dispatch enforcement" \
-        "$PYTHON_BIN" -m unittest discover -s scripts/python/tests -p 'test_*.py'
+    if is_public_projection; then
+        not_applicable_suite \
+            "one fact, one home" \
+            "profile:public-projection-withholds-declared-private-blob-groups"
+    else
+        run_suite \
+            "one fact, one home" \
+            "$PYTHON_BIN" scripts/python/check_duplicate_blobs.py \
+            --repo "$duplicate_repo" \
+            --registry "$duplicate_registry"
+    fi
+    if [[ "$HOST_PREFLIGHT_READY" == "1" ]]; then
+        run_suite \
+            "dispatch enforcement" \
+            run_dispatch_enforcement
+    elif [[ "$HOST_PREFLIGHT_REASON" == environment:sandbox:* ]]; then
+        not_applicable_suite "dispatch enforcement" "$HOST_PREFLIGHT_REASON"
+    else
+        block_suite "dispatch enforcement" "$HOST_PREFLIGHT_REASON"
+    fi
     if python_has_fast_deps; then
         run_suite \
             "chrono-vault" \
             env -u CHRONO_VAULT_CLEARANCE \
+            -u CHRONO_VAULT_CONTEXT \
+            -u CHRONO_VAULT_AUDIT_DIR \
             "$PYTHON_BIN" -m unittest discover -s plugins/chrono-vault/tests -p 'test_*.py'
         run_suite \
             "content-media" \
             "$PYTHON_BIN" -m unittest discover -s plugins/chrono-media-studio/tests -p 'test_*.py'
+        # research-arsenal was untested by this runner until 2026-08-10. Removing the
+        # duplicate `perplexity` server from its manifest broke test_mcp_server.py and
+        # CI stayed green, because this suite was simply never invoked. Its tests live
+        # beside the module rather than under tests/, hence the different -s path.
+        run_suite \
+            "research-arsenal" \
+            "$PYTHON_BIN" -m unittest discover -s plugins/chrono-research-arsenal -p 'test_*.py'
     else
-        skip_suite "chrono-vault" "Python test deps are missing; install requirements-dev.txt"
-        skip_suite "content-media" "Python test deps are missing; install requirements-dev.txt"
+        block_suite "chrono-vault" "dependency:python:httpx-or-mcp"
+        block_suite "content-media" "dependency:python:httpx-or-mcp"
+        block_suite "research-arsenal" "dependency:python:httpx-or-mcp"
     fi
-fi
-
-if ! command -v python3 >/dev/null 2>&1; then
-    skip_suite "capability validation" "python3 is unavailable"
-    skip_suite "capability validator self-test" "python3 is unavailable"
-    skip_suite "reconcile selftest" "python3 is unavailable"
-else
+    if "$PYTHON_BIN" -c 'import yaml' >/dev/null 2>&1; then
+        run_suite "content-triage" "$PYTHON_BIN" tests/test_content_triage.py
+    else
+        block_suite "content-triage" "dependency:python:yaml"
+    fi
+    # Three stdlib-only suites that no runner and no CI job invoked until
+    # 2026-08-11. They were green the whole time, which is the point: nobody had
+    # any way to know that from the outside.
+    if [[ -d plugins/chrono-dedup/tests ]]; then
+        run_suite \
+            "prior-art dedup" \
+            "$PYTHON_BIN" -m unittest discover -s plugins/chrono-dedup/tests -p 'test_*.py'
+    elif path_is_deliberately_private "plugins/chrono-dedup/tests/test_prior_art.py"; then
+        not_applicable_suite \
+            "prior-art dedup" \
+            "profile:public-projection-withholds-private-dedup"
+    else
+        run_suite "prior-art dedup" false
+    fi
     run_suite \
-        "capability validation" \
-        bash bin/validate-capabilities.sh
+        "guarded-subset validation" \
+        run_guarded_subset_validation
     run_suite \
-        "capability validator self-test" \
-        bash bin/validate-capabilities.sh --self-test
+        "pre-commit leak guard" \
+        "$PYTHON_BIN" -m unittest discover -s tests/hooks -p 'test_*.py'
+    # The export gate decides what becomes public, and its 71 tests ran in
+    # neither this runner nor CI. Several of them drive bin/product-hygiene.sh
+    # end to end, which shells out to the real secret scanner.
+    if command -v "${GITLEAKS_BIN:-gitleaks}" >/dev/null 2>&1; then
+        run_suite \
+            "export gate" \
+            run_export_core
+        record_export_scanner_suite
+    else
+        block_suite "export gate" "dependency:command:gitleaks"
+        block_suite "export projector/scanner" "dependency:command:gitleaks"
+    fi
+    if [[ -f shared/registries/skill-tool-registry.tsv ]]; then
+        run_suite \
+            "capability validation" \
+            bash bin/validate-capabilities.sh
+        run_suite \
+            "capability validator self-test" \
+            bash bin/validate-capabilities.sh --self-test
+    elif path_is_deliberately_private "shared/registries/skill-tool-registry.tsv"; then
+        not_applicable_suite \
+            "capability validation" \
+            "profile:public-projection-withholds-private-tool-registry"
+        not_applicable_suite \
+            "capability validator self-test" \
+            "profile:public-projection-withholds-private-tool-registry"
+    else
+        run_suite "capability validation" false
+        run_suite "capability validator self-test" false
+    fi
     if [[ "${SQUAD_CI_HOST_INDEPENDENT:-0}" == "1" ]]; then
-        skip_suite \
-            "reconcile selftest" \
-            "host-dependent: needs live board/reconcile infrastructure"
+        skip_suite "reconcile selftest" "profile:host-independent"
+    elif [[ "$HOST_PREFLIGHT_READY" != "1" ]]; then
+        if [[ "$HOST_PREFLIGHT_REASON" == environment:sandbox:* ]]; then
+            not_applicable_suite "reconcile selftest" "$HOST_PREFLIGHT_REASON"
+        else
+            block_suite "reconcile selftest" "$HOST_PREFLIGHT_REASON"
+        fi
     else
         run_suite \
             "reconcile selftest" \
@@ -161,58 +957,46 @@ else
     run_suite \
         "review loop guard" \
         "$PYTHON_BIN" bin/review-loop-guard-selftest.py
+    run_suite \
+        "pre-commit capability gate" \
+        bash bin/pre-commit-selftest.sh
+    if [[ -f shared/registries/skill-tool-registry.tsv ]]; then
+        run_suite \
+            "specialist validation" \
+            run_projection_and_specialist_validation
+    elif path_is_deliberately_private "shared/registries/skill-tool-registry.tsv"; then
+        not_applicable_suite \
+            "specialist validation" \
+            "profile:public-projection-withholds-private-tool-registry"
+    else
+        run_suite "specialist validation" false
+    fi
 fi
 
-run_suite \
-    "pre-commit capability gate" \
-    bash bin/pre-commit-selftest.sh
-
-run_suite \
-    "specialist validation" \
-    env VAULT_ROOT="$ROOT" bash bin/validate-specialists.sh
-
 if [[ "$TIER" == "full" ]]; then
-    if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
-        skip_suite "daemon" "${PYTHON_BIN} is unavailable"
+    if [[ "$PYTHON_READY" != "1" ]]; then
+        block_suite "daemon" "$PYTHON_BLOCK_REASON"
     elif ! python_has_daemon_deps; then
-        skip_suite "daemon" "Python daemon deps are missing; install requirements-dev.txt"
-    elif ! command -v uv >/dev/null 2>&1; then
-        skip_suite "daemon" "the uv test executable is missing; install requirements-dev.txt"
+        block_suite "daemon" "dependency:python:daemon"
     else
         run_suite "daemon" "$PYTHON_BIN" -m pytest daemon/tests
     fi
 
     if [[ "${SKIP_MOAT_CONTAINER:-0}" == "1" ]]; then
-        skip_suite "moat container e2e" "disabled by SKIP_MOAT_CONTAINER=1"
-    elif ! command -v node >/dev/null 2>&1; then
-        skip_suite "moat container e2e" "node is unavailable"
-    elif [[ ! -d moat/node_modules/typescript ]]; then
-        skip_suite "moat container e2e" "moat dependencies are missing; run npm ci --prefix moat"
+        skip_suite "moat container e2e" "profile:operator-opt-out"
+    elif [[ "$MOAT_READY" != "1" ]]; then
+        block_suite "moat container e2e" "$MOAT_BLOCK_REASON"
     elif ! command -v docker >/dev/null 2>&1; then
-        skip_suite "moat container e2e" "docker is unavailable"
+        block_suite "moat container e2e" "dependency:command:docker"
     elif ! docker info >/dev/null 2>&1; then
-        skip_suite "moat container e2e" "docker daemon is unavailable"
+        block_suite "moat container e2e" "environment:docker:daemon"
     elif ! docker image inspect python:3.11 >/dev/null 2>&1; then
-        skip_suite "moat container e2e" "python:3.11 image is not preloaded; refusing an implicit network pull"
+        block_suite "moat container e2e" "dependency:docker-image:python-3.11"
     else
         run_suite "moat container e2e" run_moat_container
     fi
 fi
 
-echo
-echo "Test summary (${TIER})"
-echo "--------------------"
-index=0
-while [[ $index -lt ${#SUITE_NAMES[@]} ]]; do
-    printf '%-22s %-4s %s\n' \
-        "${SUITE_NAMES[$index]}" \
-        "${SUITE_RESULTS[$index]}" \
-        "${SUITE_DETAILS[$index]}"
-    index=$((index + 1))
-done
-echo "--------------------"
-echo "Total suites: ${#SUITE_NAMES[@]} (pass=${PASS_COUNT}, fail=${FAIL_COUNT}, skip=${SKIP_COUNT})"
-
-if [[ $FAIL_COUNT -gt 0 ]]; then
-    exit 1
-fi
+print_summary
+result_exit_code
+exit $?

@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import time
@@ -19,7 +20,7 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 # registry_reconciler is loaded both as a script (scripts/python on sys.path[0])
 # and via importlib.spec_from_file_location (e.g. bin/review-loop-guard-selftest.py),
@@ -28,6 +29,7 @@ _this_dir = str(Path(__file__).resolve().parent)
 if _this_dir not in sys.path:
     sys.path.insert(0, _this_dir)
 from repo_root import resolve_vault_root
+from durable_publish import rename_noreplace as _rename_noreplace
 
 
 VAULT_ROOT = resolve_vault_root()
@@ -66,8 +68,8 @@ NO_ENVELOPE_MIN_DISPATCH_AGE = timedelta(
 # `--close-task`; it was the single biggest time-sink of the 2026-07-26 session.
 #
 # The window between registration and the delivery-start flip is sub-second, so
-# a task that has been queued for this long, produced NOTHING, and is not
-# waiting on the worker pool never ran and owes nothing.
+# a task that has been queued for this long, produced NOTHING, and has no
+# legacy assigned-worker fence never ran and owes nothing.
 NEVER_LAUNCHED_GRACE = timedelta(
     seconds=float(os.environ.get("NEVER_LAUNCHED_GRACE_SECONDS", "120"))
 )
@@ -92,30 +94,16 @@ INBOX_ARCHIVE_STATUSES = frozenset(
 )
 RUNTIME_MAP_PATH = VAULT_ROOT / "shared" / "specialist-runtime-map.tsv"
 DELIVERY_OPEN_STATES = frozenset({"queued", "claimed", "in-progress"})
-DELIVERY_BACKOFF_SECONDS = (2, 4, 8, 16)
-DELIVERY_MAX_ATTEMPTS = len(DELIVERY_BACKOFF_SECONDS) + 1
 REVIEW_CLASSES = frozenset({"standard", "factual", "security-finding"})
-WORKER_POOL_FLAG = "SQUAD_WORKER_POOL_ENABLED"
-WORKER_POOL_GUARDS_FLAG = "SQUAD_WORKER_POOL_GUARDS_ENABLED"
-WORKER_POOL_POLICY_APPROVAL = "SQUAD_WORKER_POOL_POLICY_APPROVED_SHA256"
-WORKER_POOL_POLICY_REVIEW_STATE = "SQUAD_WORKER_POOL_POLICY_REVIEW_STATE"
-WORKER_PRIORITY = {"urgent": 0, "high": 1, "normal": 2, "low": 3}
+INVALID_REVIEW_LANE = "distinct-family-review-required"
 WORKER_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._:-]{0,127}$")
 WORKER_EPOCH_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
-HARD_REQUEUE_SIGNALS = frozenset({"confirmed-worker-exit", "dispatch-ack-failure"})
 LANE_AUTHOR_FAMILY = {
     "gpt-codex": "openai",
     "claude": "anthropic",
     "gemini": "google",
     "kimi": "moonshot",
 }
-
-# Executing lane -> review lanes it can run IN-LANE (same-family), per
-# shared/protocol.md "Mandatory Review Behavior". Only gpt-codex can invoke
-# Claude as an in-lane tool today; every OTHER cross-lane pair needs a separate
-# reviewer response, which is exactly what this enforcement requires. Lanes are
-# normalized to the registry spelling ("gpt-codex", not the map's "codex").
-IN_LANE_REVIEW_CAPABLE = {"gpt-codex": {"claude"}}
 
 # Read-only review packets performed by verdict-producing roles must not require
 # a review of their own review. The explicit empty write scope is essential:
@@ -141,11 +129,19 @@ def utc_date() -> str:
 def atomic_write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f"{path.name}.tmp.{os.getpid()}.{uuid.uuid4().hex[:8]}")
-    with tmp.open("w", encoding="utf-8") as fh:
-        fh.write(content)
-        fh.flush()
-        os.fsync(fh.fileno())
-    tmp.replace(path)
+    try:
+        with tmp.open("w", encoding="utf-8") as fh:
+            fh.write(content)
+            fh.flush()
+            os.fsync(fh.fileno())
+        tmp.replace(path)
+        directory_fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def archive_inbox_packet(task_id: str, namespace: str) -> bool:
@@ -428,37 +424,48 @@ def notification_due(
     return True
 
 
-def worker_pool_enabled() -> bool:
-    """P1 worker plumbing is inert unless the operator enables this flag."""
-    return os.environ.get(WORKER_POOL_FLAG, "0") == "1"
+def canonical_review_class(value: Any, *, source: str) -> str:
+    """Return the one canonical review class, or refuse.
 
+    ``review_class`` decides which validator settles a task: ``standard``
+    accepts any independent cross-family review, ``security-finding`` demands an
+    exact response-hash binding, and ``factual`` demands a Chrono attestation.
+    A permissive default on a field with that shape is a downgrade dressed as a
+    convenience -- the weakest value is exactly what an omission must not
+    silently select. Absence, blankness, and any unrecognized value are refused
+    here so a constructor that forgets the field is loud at registration rather
+    than quiet at settlement.
 
-def worker_pool_guards_enabled() -> bool:
-    """P3 policy enforcement is separately default-off from P1 assignment."""
-    return os.environ.get(WORKER_POOL_GUARDS_FLAG, "0") == "1"
+    Surrounding whitespace and case are normalized rather than refused so a
+    semantically identical retry (`" FACTUAL "` vs `"factual"`) is idempotent
+    instead of registering as a conflicting re-registration.
+    """
 
-
-def _load_enforced_worker_policy(policy_markdown_path: Path | None = None):
-    from worker_pool_policy import load_worker_pool_policy
-
-    path = policy_markdown_path or VAULT_ROOT / "shared/worker-pool-policy.md"
-    policy = load_worker_pool_policy(path)
-    if os.environ.get(WORKER_POOL_POLICY_REVIEW_STATE, "") != "approved":
+    if value is None or not isinstance(value, str) or not value.strip():
         raise ValueError(
-            f"worker-pool policy review is not approved; set {WORKER_POOL_POLICY_REVIEW_STATE}=approved "
-            "only after independent review"
+            f"{source} is missing an explicit review_class; a security field has "
+            "no default -- the dispatching constructor must carry the packet's "
+            f"validated class (one of {', '.join(sorted(REVIEW_CLASSES))})"
         )
-    approved = os.environ.get(WORKER_POOL_POLICY_APPROVAL, "")
-    if approved != policy.policy_sha256:
+    canonical = value.strip().lower()
+    if canonical not in REVIEW_CLASSES:
         raise ValueError(
-            f"worker-pool policy hash is not approved; set {WORKER_POOL_POLICY_APPROVAL} "
-            "to the independently reviewed policy_sha256"
+            f"{source} has an invalid review_class {value!r}; expected one of "
+            + ", ".join(sorted(REVIEW_CLASSES))
         )
-    return policy
+    return canonical
 
 
 def apply_worker_schema_defaults(entry: dict[str, Any]) -> None:
-    """Add nullable P1 fields without changing legacy dispatch identity."""
+    """Add nullable compatibility fields without changing dispatch identity.
+
+    ``review_class`` deliberately does NOT appear here. It is policy, not a
+    nullable compatibility field, and this function is reached by both the
+    single-task and the swarm-member registration paths -- which is precisely
+    why a default here hid one constructor's omission from the other's
+    validation. Callers canonicalize it explicitly via
+    :func:`canonical_review_class`.
+    """
     entry.setdefault("delivery_worker_id", None)
     entry.setdefault("worker_epoch", None)
     entry.setdefault("lease_generation", 0)
@@ -565,6 +572,21 @@ def locked_registry():
     return lock_fh
 
 
+def _stored_review_class(entry: dict[str, Any]) -> Any:
+    """Identity-stable review class for comparing a stored entry to a new one.
+
+    Registration canonicalizes before storing, so a freshly built entry is
+    always canonical. A value already on disk is normalized the same way when
+    it is recognizable and otherwise compared verbatim: an unrecognizable or
+    absent stored class must not silently compare equal to a canonical one.
+    """
+
+    value = entry.get("review_class")
+    if isinstance(value, str) and value.strip().lower() in REVIEW_CLASSES:
+        return value.strip().lower()
+    return value
+
+
 def _dispatch_identity(entry: dict[str, Any]) -> tuple[Any, ...]:
     return (
         entry.get("compatibility_namespace"),
@@ -577,22 +599,38 @@ def _dispatch_identity(entry: dict[str, Any]) -> tuple[Any, ...]:
         entry.get("verification_contract_sha256"),
         entry.get("review_model"),
         entry.get("mandatory_review"),
-        entry.get("review_class", "standard"),
+        # Canonical, so a semantically identical retry is idempotent. A stored
+        # entry that predates canonicalization compares by its own raw value.
+        _stored_review_class(entry),
         entry.get("swarm_parent_id"),
         entry.get("swarm_spec_sha256"),
         entry.get("swarm_role"),
         entry.get("swarm_member_result"),
         tuple(entry.get("swarm_children") or ()),
         entry.get("swarm_diff_path"),
-        entry.get("subswarm_directive_sha256"),
-        entry.get("subswarm_dispatch_sha256"),
-        entry.get("subswarm_member_bundle"),
-        entry.get("subswarm_max_concurrency"),
     )
+
+
+def requires_review_class(entry: dict[str, Any]) -> bool:
+    """True when this entry's review class actually selects a validator.
+
+    A task with ``mandatory_review: false`` never reaches ``_review_class`` --
+    ``cross_family_review_pending`` returns early -- so an absent class there
+    downgrades nothing. Storing an invented ``standard`` for it was the worse
+    option: it recorded a policy the packet never declared, and it is exactly
+    that stored value which made the swarm downgrade invisible. Absent stays
+    absent; required where it is load-bearing; strict wherever it is read.
+    """
+
+    return str(entry.get("mandatory_review", "")).strip().lower() == "true"
 
 
 def register_task(task_id: str, entry: dict[str, Any]) -> bool:
     """Register once under the shared lock; idempotent retries preserve receipts."""
+    if requires_review_class(entry) or entry.get("review_class") is not None:
+        entry["review_class"] = canonical_review_class(
+            entry.get("review_class"), source=f"task {task_id}"
+        )
     apply_worker_schema_defaults(entry)
     validate_member_identity(entry)
     with locked_registry() as _lock:
@@ -638,8 +676,25 @@ def register_swarm(
     children = parent_entry.get("swarm_children")
     if not isinstance(children, list) or set(children) != set(member_entries) or not children:
         raise ValueError("swarm_children must exactly name every member entry")
+    # One validated class for the whole swarm, taken from the controller record
+    # and written into every child. Inheritance is explicit and stored: a reader
+    # of a member entry never has to consult the parent, and a member cannot
+    # drift to a weaker class than the work was dispatched under.
+    parent_review_class = canonical_review_class(
+        parent_entry.get("review_class"), source=f"swarm parent {parent_task_id}"
+    )
+    parent_entry["review_class"] = parent_review_class
     lanes: set[str] = set()
     for child_id, child in member_entries.items():
+        declared = child.get("review_class")
+        if declared is not None and canonical_review_class(
+            declared, source=f"swarm member {child_id}"
+        ) != parent_review_class:
+            raise ValueError(
+                f"swarm member review_class must match the parent's "
+                f"{parent_review_class}: {child_id}"
+            )
+        child["review_class"] = parent_review_class
         apply_worker_schema_defaults(child)
         validate_member_identity(child)
         if child_id != f"{parent_task_id}-swarm-{child.get('to_model')}":
@@ -692,47 +747,6 @@ def register_swarm(
         return True
 
 
-def mark_swarm_publication_failed(
-    parent_task_id: str, unpublished_children: list[str], detail: str
-) -> bool:
-    """Mark every unattempted/failed child without deleting the partial batch."""
-
-    if not unpublished_children or not all(isinstance(item, str) and item for item in unpublished_children):
-        raise ValueError("publication failure requires nonempty child IDs")
-    now = datetime.now(timezone.utc)
-    with locked_registry() as _lock:
-        registry = load_registry()
-        parent = registry.get(parent_task_id)
-        if not isinstance(parent, dict) or parent.get("swarm_role") != "parent":
-            raise ValueError(f"unknown swarm parent: {parent_task_id}")
-        expected = set(parent.get("swarm_children") or [])
-        if not set(unpublished_children).issubset(expected):
-            raise ValueError("publication failure names a child outside the swarm")
-        changed = False
-        failures = parent.setdefault("swarm_publication_failures", [])
-        record = {"children": sorted(unpublished_children), "detail": detail}
-        if record not in failures:
-            failures.append(record)
-            failures.sort(key=lambda item: (item["children"], item["detail"]))
-            changed = True
-        for child_id in unpublished_children:
-            child = registry.get(child_id)
-            if not isinstance(child, dict):
-                raise ValueError(f"missing swarm child: {child_id}")
-            if child.get("status") == "blocked" and child.get("publication_failure") == detail:
-                continue
-            child["status"] = "blocked"
-            child["publication_failure"] = detail
-            child["completed_at"] = now.isoformat()
-            child["reconciled_at"] = now.isoformat()
-            mark_delivery_terminal(child, now, "swarm-publication-failed")
-            changed = True
-        if changed:
-            parent["reconciled_at"] = now.isoformat()
-            atomic_write(REGISTRY_PATH, json.dumps(registry, indent=2, ensure_ascii=False) + "\n")
-        return changed
-
-
 def _parse_action_time(raw: str | None) -> datetime:
     if not raw:
         return datetime.now(timezone.utc)
@@ -773,619 +787,6 @@ def _worker_fence(entry: dict[str, Any], task_id: str) -> dict[str, Any]:
     }
 
 
-def _worker_sort_time(entry: dict[str, Any]) -> datetime:
-    value = entry.get("enqueued_at") or entry.get("dispatched_at")
-    parsed = parse_dt(value)
-    if parsed is None:
-        raise ValueError("queued worker-pool task requires enqueued_at or dispatched_at")
-    return parsed
-
-
-def _worker_records(
-    workers: list[dict[str, Any]], now: datetime, heartbeat_max_age_seconds: int
-) -> dict[str, dict[str, Any]]:
-    if heartbeat_max_age_seconds <= 0:
-        raise ValueError("heartbeat_max_age_seconds must be positive")
-    result: dict[str, dict[str, Any]] = {}
-    for raw in workers:
-        if not isinstance(raw, dict):
-            raise ValueError("worker records must be objects")
-        worker_id = _validate_worker_token(raw.get("worker_id"), "worker_id", WORKER_ID_RE)
-        if worker_id in result:
-            raise ValueError(f"duplicate worker_id: {worker_id}")
-        epoch = _validate_worker_token(raw.get("worker_epoch"), "worker_epoch", WORKER_EPOCH_RE)
-        lane = _lane(raw.get("lane"))
-        if lane not in LANE_AUTHOR_FAMILY:
-            raise ValueError(f"invalid worker lane: {lane or 'missing'}")
-        heartbeat = parse_dt(raw.get("heartbeat_observed_at"))
-        if heartbeat is None:
-            raise ValueError(f"worker {worker_id} requires heartbeat_observed_at")
-        if heartbeat > now + timedelta(seconds=5):
-            raise ValueError(f"worker {worker_id} heartbeat is in the future")
-        lead_id = str(raw.get("lead_id") or worker_id).strip()
-        _validate_worker_token(lead_id, "lead_id", WORKER_ID_RE)
-        subagent_count = raw.get("subagent_count", 0)
-        if isinstance(subagent_count, bool) or not isinstance(subagent_count, int) \
-            or subagent_count < 0:
-            raise ValueError(f"worker {worker_id} subagent_count must be a nonnegative integer")
-        result[worker_id] = {
-            "worker_id": worker_id,
-            "worker_epoch": epoch,
-            "lane": lane,
-            "heartbeat_observed_at": heartbeat,
-            "fresh": now - heartbeat <= timedelta(seconds=heartbeat_max_age_seconds),
-            "available": raw.get("available", True) is True,
-            "lead_id": lead_id,
-            "subagent_count": subagent_count,
-        }
-    return result
-
-
-def _pool_review_candidate(entry: dict[str, Any]) -> bool:
-    return _is_read_only_review_task(entry) or "review_subject_author_family" in entry
-
-
-def _pool_review_task(entry: dict[str, Any]) -> bool:
-    """Only explicit, typed, read-only review work may use reserved capacity."""
-    subject_family = str(entry.get("review_subject_author_family") or "").strip().lower()
-    return entry.get("write_scope") == [] and subject_family in set(LANE_AUTHOR_FAMILY.values())
-
-
-def _cross_family_pool_review(entry: dict[str, Any]) -> bool:
-    if not _pool_review_task(entry):
-        return False
-    return str(entry.get("review_subject_author_family") or "").strip().lower() \
-        != LANE_AUTHOR_FAMILY.get(_delivery_lane(entry), "")
-
-
-def _entry_author_family(entry: dict[str, Any]) -> str:
-    contract = entry.get("verification_contract")
-    if isinstance(contract, dict):
-        family = str(contract.get("author_family") or "").strip().lower()
-        if family:
-            return family
-    return LANE_AUTHOR_FAMILY.get(_delivery_lane(entry), "")
-
-
-def _review_debt(registry: dict[str, Any]) -> tuple[int, dict[str, int]]:
-    by_family = {family: 0 for family in LANE_AUTHOR_FAMILY.values()}
-    total = 0
-    for entry in registry.values():
-        if not isinstance(entry, dict) or str(entry.get("status") or "") != REVIEW_REQUIRED:
-            continue
-        family = _entry_author_family(entry)
-        if family in by_family:
-            by_family[family] += 1
-        total += 1
-    return total, by_family
-
-
-def _defer_worker_task(
-    entry: dict[str, Any], task_id: str, lane: str, stage: str, reason: str,
-    deferred: list[dict[str, str]],
-) -> bool:
-    record = {"task_id": task_id, "lane": lane, "stage": stage, "reason": reason}
-    deferred.append(record)
-    changed = (
-        entry.get("worker_queue_state") != "deferred"
-        or entry.get("worker_deferred_stage") != stage
-        or entry.get("worker_deferred_reason") != reason
-    )
-    entry["worker_queue_state"] = "deferred"
-    entry["worker_deferred_stage"] = stage
-    entry["worker_deferred_reason"] = reason
-    return changed
-
-
-def _admit_worker_task(entry: dict[str, Any]) -> bool:
-    changed = any(
-        key in entry
-        for key in ("worker_deferred_stage", "worker_deferred_reason")
-    ) or entry.get("worker_queue_state") != "admitted"
-    entry["worker_queue_state"] = "admitted"
-    entry.pop("worker_deferred_stage", None)
-    entry.pop("worker_deferred_reason", None)
-    return changed
-
-
-def schedule_worker_scan(
-    workers: list[dict[str, Any]],
-    *,
-    now_raw: str | None = None,
-    lease_seconds: int = 300,
-    heartbeat_max_age_seconds: int = 30,
-    nudge_callback: Callable[[dict[str, Any]], bool] | None = None,
-    policy_markdown_path: Path | None = None,
-    host_snapshot: dict[str, Any] | None = None,
-    provider_states: dict[str, str] | None = None,
-    provider_usage: dict[str, dict[str, int]] | None = None,
-    scan_interval_seconds: int | None = None,
-) -> dict[str, Any]:
-    """Run one authoritative worker scan and atomically assign queued work.
-
-    Nudges occur only after the assignment is durable. Returning every current
-    assignment in ``work`` makes the next periodic scan recover a lost nudge.
-    Expiry/silence terminalizes and surfaces work but never clears its assignment.
-    """
-    if not worker_pool_enabled():
-        raise ValueError(f"worker pool is disabled; set {WORKER_POOL_FLAG}=1 to test/activate")
-    if lease_seconds <= 0:
-        raise ValueError("lease_seconds must be positive")
-    guards_enabled = worker_pool_guards_enabled()
-    policy = None
-    validated_host = None
-    validated_providers = None
-    validated_usage = None
-    if guards_enabled:
-        from worker_pool_policy import (
-            validate_host_snapshot, validate_provider_states, validate_provider_usage,
-        )
-
-        policy = _load_enforced_worker_policy(policy_markdown_path)
-        validated_host = validate_host_snapshot(host_snapshot)
-        validated_providers = validate_provider_states(provider_states)
-        validated_usage = validate_provider_usage(provider_usage)
-        if scan_interval_seconds != policy.nudge_scan_interval_seconds:
-            raise ValueError(
-                "scan interval must exactly match the reviewed worker-pool policy"
-            )
-        lease_seconds = policy.lease_timeout_seconds
-        heartbeat_max_age_seconds = policy.heartbeat_timeout_seconds
-    now = _parse_action_time(now_raw)
-    worker_map = _worker_records(workers, now, heartbeat_max_age_seconds)
-    new_assignments: list[dict[str, Any]] = []
-    surfaced: list[dict[str, Any]] = []
-    work: list[dict[str, Any]] = []
-    deferred: list[dict[str, str]] = []
-
-    with locked_registry() as _lock:
-        registry = load_registry()
-        changed = False
-        occupied: set[str] = set()
-        active_entries: list[tuple[str, dict[str, Any]]] = []
-
-        for task_id, entry in registry.items():
-            if not isinstance(entry, dict):
-                continue
-            apply_worker_schema_defaults(entry)
-            worker_id = str(entry.get("delivery_worker_id") or "")
-            if not worker_id or str(entry.get("status") or "") != "in-flight" \
-                or str(entry.get("delivery_state") or "") not in DELIVERY_OPEN_STATES:
-                continue
-            expiry = parse_dt(entry.get("lease_expires_at"))
-            observed = parse_dt(entry.get("heartbeat_observed_at"))
-            worker = worker_map.get(worker_id)
-            if (
-                worker
-                and str(entry.get("worker_epoch") or "") == worker["worker_epoch"]
-                and worker["fresh"]
-                and expiry is not None
-                and now < expiry
-                and (observed is None or worker["heartbeat_observed_at"] > observed)
-            ):
-                observed = worker["heartbeat_observed_at"]
-                expiry = now + timedelta(seconds=lease_seconds)
-                entry["heartbeat_observed_at"] = observed.isoformat()
-                entry["lease_expires_at"] = expiry.isoformat()
-                entry.setdefault("delivery_history", []).append(
-                    {
-                        "event": "worker-lease-renewed",
-                        "at": now.isoformat(),
-                        "worker_id": worker_id,
-                        "worker_epoch": worker["worker_epoch"],
-                        "lease_generation": int(entry.get("lease_generation") or 0),
-                        "lease_expires_at": expiry.isoformat(),
-                    }
-                )
-                changed = True
-            reason = ""
-            if expiry is None or now >= expiry:
-                reason = "worker-lease-expired"
-                assignment_state = "expired"
-            elif observed is None or now - observed > timedelta(seconds=heartbeat_max_age_seconds):
-                reason = "worker-heartbeat-silent"
-                assignment_state = "silent"
-            if reason:
-                mark_delivery_terminal(entry, now, reason)
-                entry["worker_assignment_state"] = assignment_state
-                entry["worker_cancel_reason"] = reason
-                entry["worker_cancelled_at"] = now.isoformat()
-                surfaced.append({**_worker_fence(entry, task_id), "reason": reason})
-                changed = True
-                continue
-            occupied.add(worker_id)
-            active_entries.append((task_id, entry))
-
-        available = {
-            worker_id: worker
-            for worker_id, worker in worker_map.items()
-            if worker["fresh"] and worker["available"] and worker_id not in occupied
-        }
-        candidates: list[tuple[int, datetime, str, dict[str, Any]]] = []
-        due_ids: set[str] = set()
-        for task_id, entry in registry.items():
-            if not isinstance(entry, dict):
-                continue
-            apply_worker_schema_defaults(entry)
-            if str(entry.get("status") or "") != "in-flight" \
-                or str(entry.get("delivery_state") or "") != "queued" \
-                or entry.get("delivery_worker_id"):
-                continue
-            next_at = parse_dt(entry.get("delivery_next_attempt_at"))
-            priority = str(entry.get("priority_class") or "normal")
-            if priority not in WORKER_PRIORITY:
-                raise ValueError(f"invalid priority_class for {task_id}: {priority}")
-            validate_member_identity(entry)
-            candidates.append((WORKER_PRIORITY[priority], _worker_sort_time(entry), task_id, entry))
-            if next_at is None or now >= next_at:
-                due_ids.add(task_id)
-
-        sorted_candidates = sorted(candidates, key=lambda item: item[:3])
-        if guards_enabled:
-            assert policy is not None
-            sorted_candidates = (
-                [item for item in sorted_candidates if _cross_family_pool_review(item[3])]
-                + [item for item in sorted_candidates if not _cross_family_pool_review(item[3])]
-            )
-            admitted_ids: set[str] = set()
-            lane_depth = {lane: 0 for lane in LANE_AUTHOR_FAMILY}
-            global_depth = 0
-            for _priority, _enqueued, task_id, entry in sorted_candidates:
-                lane = _delivery_lane(entry)
-                if lane not in policy.lanes:
-                    changed |= _defer_worker_task(
-                        entry, task_id, lane, "queue", "unknown-lane", deferred
-                    )
-                    continue
-                if global_depth >= policy.queue_depth_cap:
-                    changed |= _defer_worker_task(
-                        entry, task_id, lane, "queue", "global-queue-depth-cap", deferred
-                    )
-                    continue
-                if lane_depth[lane] >= policy.lanes[lane].queue_depth_cap:
-                    changed |= _defer_worker_task(
-                        entry, task_id, lane, "queue", "lane-queue-depth-cap", deferred
-                    )
-                    continue
-                global_depth += 1
-                lane_depth[lane] += 1
-                admitted_ids.add(task_id)
-                changed |= _admit_worker_task(entry)
-            sorted_candidates = [
-                item for item in sorted_candidates
-                if item[2] in admitted_ids and item[2] in due_ids
-            ]
-        else:
-            sorted_candidates = [item for item in sorted_candidates if item[2] in due_ids]
-
-        active_by_lane = {lane: 0 for lane in LANE_AUTHOR_FAMILY}
-        active_author_count = 0
-        active_scopes: list[list[str]] = []
-        for _task_id, active_entry in active_entries:
-            active_lane = _delivery_lane(active_entry)
-            if active_lane in active_by_lane:
-                active_by_lane[active_lane] += 1
-            if not _pool_review_task(active_entry):
-                active_author_count += 1
-            scope = active_entry.get("write_scope") or []
-            if scope:
-                active_scopes.append(scope)
-        projected_memory = validated_host["used_memory_mib"] if validated_host else 0
-        provider_reserved = {lane: 0 for lane in LANE_AUTHOR_FAMILY}
-        provider_recent = {lane: 0 for lane in LANE_AUTHOR_FAMILY}
-        minute_ago = now - timedelta(minutes=1)
-        for historical in registry.values():
-            if not isinstance(historical, dict):
-                continue
-            historical_lane = _delivery_lane(historical)
-            if historical_lane not in provider_reserved:
-                continue
-            reserved = historical.get("provider_cost_reserved_microusd", 0)
-            if isinstance(reserved, int) and not isinstance(reserved, bool) and reserved > 0:
-                provider_reserved[historical_lane] += reserved
-            admitted_at = parse_dt(historical.get("provider_admitted_at"))
-            if admitted_at is not None and admitted_at >= minute_ago:
-                provider_recent[historical_lane] += 1
-        total_debt, debt_by_family = _review_debt(registry)
-        lead_subagent_counts: dict[str, int] = {}
-        for worker in worker_map.values():
-            lead_id = worker["lead_id"]
-            lead_subagent_counts[lead_id] = (
-                lead_subagent_counts.get(lead_id, 0) + worker["subagent_count"]
-            )
-
-        for _priority, _enqueued, task_id, entry in sorted_candidates:
-            lane = _delivery_lane(entry)
-            matches = sorted(
-                (worker_id for worker_id, worker in available.items() if worker["lane"] == lane)
-            )
-            if not matches:
-                if guards_enabled:
-                    changed |= _defer_worker_task(
-                        entry, task_id, lane, "lease", "lane-capacity-unavailable", deferred
-                    )
-                continue
-            worker_id = matches[0]
-            worker = available.pop(worker_id)
-            review_candidate = _pool_review_candidate(entry)
-            is_review = _pool_review_task(entry)
-            if guards_enabled:
-                assert policy is not None and validated_host is not None \
-                    and validated_providers is not None and validated_usage is not None
-                reason = ""
-                lane_policy = policy.lanes[lane]
-                usage = validated_usage[lane]
-                estimated_cost = entry.get(
-                    "estimated_cost_microusd", lane_policy.default_task_cost_microusd
-                )
-                if isinstance(estimated_cost, bool) or not isinstance(estimated_cost, int) \
-                    or estimated_cost < 0:
-                    raise ValueError(
-                        f"estimated_cost_microusd for {task_id} must be a nonnegative integer"
-                    )
-                subject_family = str(entry.get("review_subject_author_family") or "").strip().lower()
-                if review_candidate and subject_family not in set(LANE_AUTHOR_FAMILY.values()):
-                    reason = "review-subject-family-required"
-                elif review_candidate and entry.get("write_scope") != []:
-                    reason = "review-read-only-required"
-                elif len(active_entries) >= policy.global_worker_cap:
-                    reason = "global-worker-cap"
-                elif active_by_lane[lane] >= lane_policy.max_workers:
-                    reason = "lane-worker-cap"
-                elif not is_review and active_author_count >= (
-                    policy.global_worker_cap - policy.reserved_review_workers
-                ):
-                    reason = "reserved-review-capacity"
-                elif validated_host["memory_pressure"]:
-                    reason = "memory-pressure"
-                elif validated_host["swap_active"]:
-                    reason = "swap-active"
-                elif validated_host["compressor_pressure"]:
-                    reason = "compressor-pressure"
-                elif projected_memory + lane_policy.worker_memory_estimate_mib \
-                    >= policy.memory_high_water_mib:
-                    reason = "projected-memory-high-water"
-                elif validated_providers[lane] == "blocked":
-                    reason = "provider-blocked"
-                elif validated_providers[lane] == "throttled":
-                    reason = "provider-throttled"
-                elif usage["active_requests"] + active_by_lane[lane] \
-                    >= lane_policy.provider_concurrency_cap:
-                    reason = "provider-concurrency-cap"
-                elif usage["requests_last_minute"] + provider_recent[lane] \
-                    >= lane_policy.provider_rate_limit_per_minute:
-                    reason = "provider-rate-limit"
-                elif lane_policy.provider_guard == "metered" and (
-                    usage["spent_microusd"] + provider_reserved[lane] + estimated_cost
-                    > lane_policy.provider_budget_microusd
-                ):
-                    reason = "provider-budget-exhausted"
-                requested_subagents = entry.get("requested_subagent_count", 0)
-                if isinstance(requested_subagents, bool) or not isinstance(requested_subagents, int) \
-                    or requested_subagents < 0:
-                    raise ValueError(
-                        f"requested_subagent_count for {task_id} must be a nonnegative integer"
-                    )
-                if not reason and lead_subagent_counts[worker["lead_id"]] + requested_subagents \
-                    > lane_policy.subagent_concurrency_cap:
-                    reason = "per-lead-subagent-cap"
-                if not reason and is_review:
-                    if subject_family == LANE_AUTHOR_FAMILY[lane]:
-                        reason = "review-anti-affinity"
-                if not reason and not is_review:
-                    author_family = _entry_author_family(entry)
-                    if total_debt >= policy.review_debt_cap \
-                        or debt_by_family.get(author_family, 0) >= lane_policy.review_debt_cap:
-                        reason = "review-debt-cap"
-                if not reason:
-                    from worker_pool_policy import PolicyError, write_scopes_conflict
-
-                    try:
-                        candidate_scope = entry.get("write_scope") or []
-                        if any(write_scopes_conflict(candidate_scope, scope) for scope in active_scopes):
-                            reason = "write-scope-conflict"
-                    except PolicyError as exc:
-                        raise ValueError(f"invalid write scope for {task_id}: {exc}") from exc
-                if reason:
-                    available[worker_id] = worker
-                    changed |= _defer_worker_task(
-                        entry, task_id, lane, "lease", reason, deferred
-                    )
-                    continue
-            lease_generation = int(entry.get("lease_generation") or 0) + 1
-            expiry = now + timedelta(seconds=lease_seconds)
-            entry["delivery_worker_id"] = worker_id
-            entry["worker_epoch"] = worker["worker_epoch"]
-            entry["lease_generation"] = lease_generation
-            entry["lease_expires_at"] = expiry.isoformat()
-            entry["heartbeat_observed_at"] = worker["heartbeat_observed_at"].isoformat()
-            entry["worker_assignment_state"] = "assigned"
-            if guards_enabled:
-                entry["provider_cost_reserved_microusd"] = estimated_cost
-                entry["provider_admitted_at"] = now.isoformat()
-                provider_reserved[lane] += estimated_cost
-                provider_recent[lane] += 1
-            entry.pop("worker_cancel_reason", None)
-            entry.pop("worker_cancelled_at", None)
-            entry.setdefault("delivery_history", []).append(
-                {
-                    "event": "worker-assigned",
-                    "at": now.isoformat(),
-                    "attempt_id": entry.get("delivery_attempt_id"),
-                    "generation": int(entry.get("delivery_generation") or 1),
-                    "worker_id": worker_id,
-                    "worker_epoch": worker["worker_epoch"],
-                    "lease_generation": lease_generation,
-                    "lease_expires_at": expiry.isoformat(),
-                }
-            )
-            new_assignments.append(_worker_fence(entry, task_id))
-            if guards_enabled:
-                assert policy is not None
-                active_entries.append((task_id, entry))
-                active_by_lane[lane] += 1
-                if not is_review:
-                    active_author_count += 1
-                scope = entry.get("write_scope") or []
-                if scope:
-                    active_scopes.append(scope)
-                projected_memory += policy.lanes[lane].worker_memory_estimate_mib
-                lead_subagent_counts[worker["lead_id"]] += requested_subagents
-                _admit_worker_task(entry)
-            changed = True
-
-        for task_id, entry in registry.items():
-            if not isinstance(entry, dict):
-                continue
-            worker_id = str(entry.get("delivery_worker_id") or "")
-            worker = worker_map.get(worker_id)
-            if not worker or str(entry.get("worker_epoch") or "") != worker["worker_epoch"]:
-                continue
-            if str(entry.get("status") or "") == "in-flight" \
-                and str(entry.get("delivery_state") or "") == "queued":
-                work.append(_worker_fence(entry, task_id))
-
-        if changed:
-            atomic_write(REGISTRY_PATH, json.dumps(registry, indent=2, ensure_ascii=False) + "\n")
-
-    nudge_results: list[dict[str, Any]] = []
-    for assignment in new_assignments:
-        attempted = nudge_callback is not None
-        succeeded = False
-        error = ""
-        if nudge_callback is not None:
-            try:
-                succeeded = bool(nudge_callback(dict(assignment)))
-            except Exception as exc:  # best-effort transport must not undo assignment
-                error = type(exc).__name__
-        nudge_results.append(
-            {
-                "task_id": assignment["task_id"],
-                "attempted": attempted,
-                "succeeded": succeeded,
-                "error": error,
-            }
-        )
-    return {
-        "scan_authoritative": True,
-        **({
-            "guards_enabled": True,
-            "policy_sha256": policy.policy_sha256,
-            "next_scan_after_seconds": policy.nudge_scan_interval_seconds,
-            "deferred": sorted(deferred, key=lambda item: item["task_id"]),
-        } if policy is not None else {}),
-        "new_assignments": new_assignments,
-        "work": sorted(work, key=lambda item: item["task_id"]),
-        "surfaced": surfaced,
-        "nudges": nudge_results,
-    }
-
-
-def authorize_delivery(
-    task_id: str, *, attempt_id: str | None = None, now_raw: str | None = None
-) -> dict[str, Any]:
-    """Persist one due, head-of-lane delivery authorization before transport."""
-    now = _parse_action_time(now_raw)
-    with locked_registry() as _lock:
-        registry = load_registry()
-        entry = registry.get(task_id)
-        if not isinstance(entry, dict):
-            return {"authorized": False, "reason": "unknown-task", "task_id": task_id}
-        current_attempt = str(entry.get("delivery_attempt_id") or "")
-        if not current_attempt:
-            return {"authorized": False, "reason": "legacy-unreceipted-task", "task_id": task_id}
-        if attempt_id and attempt_id != current_attempt:
-            return {
-                "authorized": False,
-                "reason": "stale-generation",
-                "task_id": task_id,
-                "attempt_id": attempt_id,
-            }
-        status = str(entry.get("status") or "")
-        if status != "in-flight":
-            return {
-                "authorized": False,
-                "reason": f"status-{status or 'missing'}",
-                "task_id": task_id,
-                "attempt_id": current_attempt,
-            }
-        state = str(entry.get("delivery_state") or "")
-        if state != "queued":
-            return {
-                "authorized": False,
-                "reason": f"state-{state or 'missing'}",
-                "task_id": task_id,
-                "attempt_id": current_attempt,
-            }
-        assigned = bool(entry.get("delivery_worker_id"))
-        if assigned or worker_pool_enabled():
-            return {
-                "authorized": False,
-                "reason": "worker-scan-owned" if assigned else "scheduler-assignment-required",
-                "task_id": task_id,
-                "attempt_id": current_attempt,
-                "delivery_worker_id": entry.get("delivery_worker_id"),
-            }
-        lane = _delivery_lane(entry)
-        head = _delivery_head(registry, lane)
-        if head != task_id:
-            return {
-                "authorized": False,
-                "reason": "lane-head-blocked",
-                "task_id": task_id,
-                "blocked_by": head,
-                "attempt_id": current_attempt,
-            }
-        attempts = int(entry.get("delivery_attempt_count") or 0)
-        maximum = int(entry.get("delivery_max_attempts") or DELIVERY_MAX_ATTEMPTS)
-        if attempts >= maximum:
-            return {
-                "authorized": False,
-                "reason": "retry-budget-exhausted",
-                "task_id": task_id,
-                "attempt_id": current_attempt,
-                "attempt_count": attempts,
-            }
-        next_at = parse_dt(entry.get("delivery_next_attempt_at"))
-        if next_at and now < next_at:
-            return {
-                "authorized": False,
-                "reason": "not-due",
-                "task_id": task_id,
-                "attempt_id": current_attempt,
-                "next_attempt_at": next_at.isoformat(),
-            }
-
-        attempt_number = attempts + 1
-        entry["delivery_attempt_count"] = attempt_number
-        entry["delivery_retry_count"] = max(0, attempt_number - 1)
-        entry["delivery_first_attempt_at"] = entry.get("delivery_first_attempt_at") or now.isoformat()
-        entry["delivery_last_attempt_at"] = now.isoformat()
-        if attempt_number < maximum:
-            delay = DELIVERY_BACKOFF_SECONDS[attempt_number - 1]
-            entry["delivery_next_attempt_at"] = (now + timedelta(seconds=delay)).isoformat()
-        else:
-            entry["delivery_next_attempt_at"] = None
-        entry.setdefault("delivery_history", []).append(
-            {
-                "event": "delivery-authorized",
-                "at": now.isoformat(),
-                "attempt_id": current_attempt,
-                "generation": int(entry.get("delivery_generation") or 1),
-                "attempt_number": attempt_number,
-            }
-        )
-        atomic_write(REGISTRY_PATH, json.dumps(registry, indent=2, ensure_ascii=False) + "\n")
-        return {
-            "authorized": True,
-            "task_id": task_id,
-            "attempt_id": current_attempt,
-            "generation": int(entry.get("delivery_generation") or 1),
-            "attempt_number": attempt_number,
-            "retry_count": entry["delivery_retry_count"],
-        }
-
-
 def claim_task(
     task_id: str,
     attempt_id: str,
@@ -1408,8 +809,6 @@ def claim_task(
             raise ValueError(f"stale delivery attempt for {task_id}")
         state = str(entry.get("delivery_state") or "")
         pooled = bool(entry.get("delivery_worker_id"))
-        if worker_pool_enabled() and not pooled:
-            raise ValueError(f"task requires scheduler assignment before claim: {task_id}")
         if pooled:
             assigned_worker = str(entry.get("delivery_worker_id") or "")
             if not assigned_worker:
@@ -1431,7 +830,9 @@ def claim_task(
             expiry = parse_dt(entry.get("lease_expires_at"))
             if expiry is None or now >= expiry:
                 if state in DELIVERY_OPEN_STATES:
-                    mark_delivery_terminal(entry, now, "worker-lease-expired-at-claim")
+                    mark_delivery_terminal(
+                        task_id, entry, now, "worker-lease-expired-at-claim"
+                    )
                     entry["worker_assignment_state"] = "expired"
                     entry["worker_cancel_reason"] = "worker-lease-expired-at-claim"
                     entry["worker_cancelled_at"] = now.isoformat()
@@ -1513,102 +914,17 @@ def claim_task(
         }
 
 
-def advance_delivery(
+def mark_delivery_terminal(
     task_id: str,
-    attempt_id: str,
-    generation: int,
-    lane: str,
-    *,
-    hard_signal: str | None = None,
-    now_raw: str | None = None,
-) -> dict[str, Any]:
-    """Fence the old generation and queue exactly one failover attempt."""
-    now = _parse_action_time(now_raw)
-    with locked_registry() as _lock:
-        registry = load_registry()
-        entry = registry.get(task_id)
-        if not isinstance(entry, dict):
-            raise ValueError(f"unknown registry task: {task_id}")
-        current_generation = int(entry.get("delivery_generation") or 1)
-        current_attempt = str(entry.get("delivery_attempt_id") or "")
-        if generation == current_generation and attempt_id == current_attempt:
-            return {
-                "task_id": task_id,
-                "attempt_id": attempt_id,
-                "generation": generation,
-                "delivery_state": entry.get("delivery_state"),
-                "idempotent": True,
-            }
-        if generation != current_generation + 1:
-            raise ValueError(
-                f"delivery generation must advance exactly once: {current_generation} -> {generation}"
-            )
-        if not lane or not attempt_id:
-            raise ValueError("delivery failover requires lane and attempt ID")
-        status = str(entry.get("status") or "")
-        state = str(entry.get("delivery_state") or "")
-        assigned = bool(entry.get("delivery_worker_id"))
-        if status != "in-flight":
-            raise ValueError(
-                f"delivery is closed for {task_id}: status={status or 'missing'} "
-                f"state={state or 'missing'}"
-            )
-        if assigned:
-            if hard_signal not in HARD_REQUEUE_SIGNALS:
-                raise ValueError(
-                    "worker assignment requeue requires --hard-signal "
-                    "confirmed-worker-exit|dispatch-ack-failure"
-                )
-        elif state not in DELIVERY_OPEN_STATES:
-            raise ValueError(
-                f"delivery is closed for {task_id}: status={status or 'missing'} "
-                f"state={state or 'missing'}"
-            )
-        entry["delivery_generation"] = generation
-        entry["delivery_attempt_id"] = attempt_id
-        entry["delivery_lane"] = lane
-        entry["delivery_state"] = "queued"
-        entry["delivery_attempt_count"] = 0
-        entry["delivery_retry_count"] = 0
-        entry["delivery_first_attempt_at"] = None
-        entry["delivery_last_attempt_at"] = None
-        entry["delivery_next_attempt_at"] = now.isoformat()
-        entry["claimed_at"] = None
-        entry["started_at"] = None
-        if assigned:
-            entry["delivery_worker_id"] = None
-            entry["worker_epoch"] = None
-            entry["lease_expires_at"] = None
-            entry["heartbeat_observed_at"] = None
-            entry["worker_assignment_state"] = None
-            entry.pop("worker_cancel_reason", None)
-            entry.pop("worker_cancelled_at", None)
-        entry.setdefault("delivery_history", []).append(
-            {
-                "event": "generation-advanced",
-                "at": now.isoformat(),
-                "attempt_id": attempt_id,
-                "generation": generation,
-                "lane": lane,
-                **({"hard_signal": hard_signal} if hard_signal else {}),
-            }
-        )
-        atomic_write(REGISTRY_PATH, json.dumps(registry, indent=2, ensure_ascii=False) + "\n")
-        return {
-            "task_id": task_id,
-            "attempt_id": attempt_id,
-            "generation": generation,
-            "delivery_state": "queued",
-            "idempotent": False,
-        }
-
-
-def mark_delivery_terminal(entry: dict[str, Any], now: datetime, reason: str) -> bool:
+    entry: dict[str, Any],
+    now: datetime,
+    reason: str,
+) -> bool:
     if not entry.get("delivery_attempt_id") or entry.get("delivery_state") == "terminal":
         return False
     entry["delivery_state"] = "terminal"
     entry["delivery_terminal_at"] = now.isoformat()
-    entry["delivery_next_attempt_at"] = None
+    entry.pop("delivery_next_attempt_at", None)
     entry.setdefault("delivery_history", []).append(
         {
             "event": "terminal",
@@ -1618,10 +934,11 @@ def mark_delivery_terminal(entry: dict[str, Any], now: datetime, reason: str) ->
             "reason": reason,
         }
     )
+    release_blocked_stub(task_id, entry)
     return True
 
 
-def strip_frontmatter(text: str) -> dict[str, str]:
+def strip_frontmatter(text: str, *, reject_duplicates: bool = False) -> dict[str, str]:
     if not text.startswith("---"):
         return {}
     match = re.match(r"^---\s*\n(.*?)\n---\s*(?:\n|$)", text, re.S)
@@ -1632,7 +949,10 @@ def strip_frontmatter(text: str) -> dict[str, str]:
         if ":" not in line:
             continue
         key, value = line.split(":", 1)
-        meta[key.strip()] = value.strip().strip('"').strip("'")
+        key = key.strip()
+        if reject_duplicates and key in meta:
+            return {}
+        meta[key] = value.strip().strip('"').strip("'")
     return meta
 
 
@@ -1666,14 +986,83 @@ def valid_response_status(status: str) -> bool:
     return status in SETTLEABLE_STATUSES
 
 
-def response_ready(path: Path) -> bool:
+def settlement_process(
+    task_id: str, entry: dict[str, Any]
+) -> tuple[str, dict[str, Any] | None]:
+    """Return the exact attempt's settlement rail and descriptor."""
+    attempt = str(entry.get("delivery_attempt_id") or "")
+    raw_generation = entry.get("delivery_generation")
+    generation = 1 if raw_generation is None else raw_generation
+    raw_history = entry.get("delivery_history")
+    if raw_history is not None and not isinstance(raw_history, list):
+        return "invalid", None
+    board_history = [
+        item
+        for item in raw_history or ()
+        if isinstance(item, dict)
+        and item.get("event") == "in-progress"
+        and item.get("transport") == "board-supervisor"
+    ]
+    descriptor = STATE_DIR / "board-dispatch" / f"{task_id}.{attempt}.dispatch.json"
+    if not board_history and not os.path.lexists(descriptor):
+        return "v1", None
+    if (
+        isinstance(generation, bool)
+        or not isinstance(generation, int)
+        or generation < 1
+    ):
+        return "invalid", None
+    if board_history:
+        board_rows = [
+            item for item in board_history if item.get("attempt_id") == attempt
+        ]
+        if not any(
+            type(item.get("generation")) is int
+            and item.get("generation") == generation
+            for item in board_rows
+        ):
+            return "invalid", None
+    if descriptor.is_symlink() or not descriptor.is_file():
+        return "invalid", None
+    # Lazy V2-only reuse keeps the V1 rail independent while sharing the exact
+    # strict JSON and process-descriptor contract with its producer.
+    try:
+        from board_process_truth import descriptor_error, load_json
+    except ImportError:
+        return "invalid", None
+
+    payload = load_json(descriptor)
+    if descriptor_error(descriptor, payload) or payload.get("generation") != generation:
+        return "invalid", None
+    schema = {
+        "board-dispatch-process/v1": "v1" if generation == 1 else "invalid",
+        "board-dispatch-process/v2": "v2",
+    }.get(payload.get("schema"), "invalid")
+    if not board_history and schema != "v1":
+        return "invalid", None
+    return schema, payload if schema != "invalid" else None
+
+
+def response_ready(path: Path, schema: str = "v1") -> bool:
+    if schema == "v2":
+        return not path.is_symlink() and path.is_file()
     if not path.exists():
         return False
     age = datetime.now(timezone.utc) - datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
     return age >= RESPONSE_MIN_AGE
 
 
-def response_candidates(task_id: str) -> list[Path]:
+def response_candidates(
+    task_id: str, entry: dict[str, Any] | None = None, schema: str = "v1"
+) -> list[Path]:
+    if schema == "v2" and entry is not None:
+        namespace = str(entry.get("compatibility_namespace") or "")
+        if namespace not in MAILBOX_NAMESPACES:
+            return []
+        candidate = VAULT_ROOT / "departments" / namespace / "outbox" / f"{task_id}-response.md"
+        return [candidate] if not candidate.is_symlink() and candidate.is_file() else []
+    if schema != "v1":
+        return []
     departments = VAULT_ROOT / "departments"
     candidates: list[Path] = []
     for state in ("outbox", "archive"):
@@ -1686,11 +1075,29 @@ def response_candidates(task_id: str) -> list[Path]:
 
 
 def landed_response(
-    task_id: str, candidates: list[Path] | None = None
+    task_id: str,
+    candidates: list[Path] | None = None,
+    schema: str = "v1",
+    entry: dict[str, Any] | None = None,
 ) -> tuple[Path | None, str]:
     for candidate in candidates if candidates is not None else response_candidates(task_id):
-        if not response_ready(candidate):
+        if not response_ready(candidate, schema):
             continue
+        if schema == "v2":
+            meta = strip_frontmatter(
+                read_text(candidate), reject_duplicates=True
+            )
+            if (
+                meta.get("id") != f"{task_id}-response"
+                or meta.get("in_response_to") != task_id
+                or meta.get("type") != "RESULT"
+                or entry is None
+                or meta.get("delivery_attempt_id")
+                != str(entry.get("delivery_attempt_id") or "")
+                or meta.get("delivery_generation")
+                != str(entry.get("delivery_generation"))
+            ):
+                continue
         status = response_status(candidate)
         if valid_response_status(status):
             return candidate, status
@@ -1698,6 +1105,197 @@ def landed_response(
 
 
 RECEIPT_DIAGNOSTIC_REASON_LIMIT = 240
+
+# Every registry key `receipt_failure_diagnostics` knows how to produce. A
+# re-reconcile that finds a receipt WITHOUT one of these clears the stale value
+# instead of leaving a previous answer standing: these fields describe one exact
+# attempt, and a stale evidence ref is worse than none -- it sends a reader to a
+# branch that does not hold their work.
+RECEIPT_DIAGNOSTIC_FIELDS = (
+    "failure_class",
+    "reason",
+    "returncode",
+    "evidence_status",
+    "evidence_ref",
+    "evidence_commit",
+    "evidence_location",
+    "evidence_worktree_location",
+    "evidence_preserved_path_count",
+    "evidence_worktree_retained_required",
+)
+
+# receipt `evidence_preservation` key -> diagnostics key.
+_EVIDENCE_STRING_FIELDS = (
+    ("status", "evidence_status"),
+    ("evidence_ref", "evidence_ref"),
+    ("evidence_commit", "evidence_commit"),
+    ("evidence_location", "evidence_location"),
+    ("worktree_location", "evidence_worktree_location"),
+)
+
+
+def attempt_evidence_ref(task_id: str, entry: dict[str, Any]) -> str:
+    """The Git ref an attempt's private branch takes, by construction.
+
+    `worktree_isolation._branch_name` derives every attempt branch as
+    `worktree/<task_id>/<attempt_id>`, so this name is knowable from the
+    registry alone -- including when the receipt recorded no evidence because
+    the worktree directory was already gone. That case is not hypothetical: it
+    is what made TASK-2026-08-11-0180 read as "permanently unverifiable" while
+    4,538 bytes of its evidence sat on exactly this ref.
+    """
+
+    attempt_id = str(entry.get("delivery_attempt_id") or "").strip()
+    if not attempt_id:
+        return ""
+    return f"refs/heads/worktree/{task_id}/{attempt_id}"
+
+
+def never_ran_statement(entry: dict[str, Any]) -> str:
+    """Say loudly when a task settled without ever launching.
+
+    `never_launched_reason` only fires for status `in-flight` + delivery_state
+    `queued`. A task rejected BEFORE launch -- a context-builder refusal, a
+    capability-enforcement denial -- settles terminal instead, and if the packet
+    carried `mandatory_review: true` it inherits `review-required`. That status
+    is indistinguishable from a task that ran, produced work, and is awaiting a
+    reviewer.
+
+    Measured 2026-08-14: four dispatches died this way in one sequence (two
+    packet errors, two flaky MCP-enumeration timeouts) and every one reported
+    `review-required`. Only the missing artifact gave them away. Had the leak
+    audit been trusted as done-pending-review, this repository would have gone
+    public with no pre-publication leak scan.
+
+    Returns "" when the task genuinely launched, so this never fires on the
+    ordinary path.
+    """
+
+    attempts = entry.get("delivery_attempt_count")
+    if not isinstance(attempts, int) or isinstance(attempts, bool) or attempts > 0:
+        return ""
+    if entry.get("started_at") or entry.get("delivery_worker_id"):
+        return ""
+    if str(entry.get("delivery_state") or "") != "terminal":
+        return ""
+    status = str(entry.get("status") or "")
+    # superseded/cancelled/blocked are HONEST zero-attempt outcomes: they say
+    # plainly that nothing ran. Only the ones that read as finished mislead.
+    if status not in {"review-required", "complete", "closed"}:
+        return ""
+    return (
+        f"NEVER LAUNCHED: 0 delivery attempts, no worker, no start time -- but status is "
+        f"`{status}`, which reads as finished work. This task produced NOTHING. "
+        "Read the response envelope for the pre-launch refusal reason."
+    )
+
+
+def promoted_artifact_statement(entry: dict[str, Any]) -> str:
+    """Name the promoted return_artifact when it is present on disk.
+
+    A board artifact is promoted to the packet's `return_artifact` path, and
+    those paths live under `_state/` -- which is gitignored. So a completely
+    successful promotion leaves NOTHING in git, and the branch-evidence check
+    below cannot see it by construction.
+
+    That mismatch made `preserved_work_statement` tell the reader to run
+    `git log -1 <ref>` on four terminal receipts in one day (2026-08-13:
+    1090, 1110, 1130, and earlier 0180) while the finished artifact -- 36KB in
+    one case -- sat promoted and complete on disk. The advice was not merely
+    unhelpful, it pointed at the one place the evidence can never be, so a
+    reader who followed it concluded the work was lost.
+
+    Returns "" when there is no artifact path or nothing at it, which lets the
+    caller fall through to the git-branch wording that is correct for code.
+    """
+
+    artifact = str(entry.get("return_artifact") or "").strip()
+    if not artifact:
+        return ""
+    try:
+        path = canonical_vault_root() / artifact
+        size = path.stat().st_size
+    except (OSError, ValueError):
+        return ""
+    return f"PROMOTED ARTIFACT: {artifact} is present on disk ({size} bytes)"
+
+
+def preserved_work_statement(
+    task_id: str,
+    entry: dict[str, Any],
+    diagnostics: dict[str, Any],
+) -> str:
+    """State whether a terminal failure left recoverable work, and where.
+
+    This NEVER returns an empty string. `blocked: CLI timed out` and `blocked:
+    response envelope has invalid frontmatter` are both true and both describe
+    the TRANSPORT; neither says whether anything was in it, and a reader
+    reasonably concludes nothing was produced. On 2026-08-11 that reading was
+    wrong three times in one session -- one of those "failures" had 298
+    insertions sitting on a reachable private branch. So every terminal failure
+    states a verdict here, including the verdict "this receipt recorded none".
+    """
+
+    # A task that never launched is the most misleading state in the system:
+    # it reads as finished. Say so before any evidence wording.
+    never_ran = never_ran_statement(entry)
+    if never_ran:
+        return never_ran
+
+    status = str(diagnostics.get("evidence_status") or "")
+    ref = str(diagnostics.get("evidence_ref") or "")
+    commit = str(diagnostics.get("evidence_commit") or "")
+    worktree = str(diagnostics.get("evidence_worktree_location") or "")
+    count = diagnostics.get("evidence_preserved_path_count")
+    scale = (
+        f"{count} path(s)"
+        if isinstance(count, int) and not isinstance(count, bool)
+        else "work"
+    )
+    if not status:
+        # Check the promoted artifact FIRST. It is gitignored, so no amount of
+        # git advice can surface it, and it is the usual reason a receipt has no
+        # evidence block: the work was promoted, not lost.
+        promoted = promoted_artifact_statement(entry)
+        conventional = attempt_evidence_ref(task_id, entry)
+        if promoted:
+            if conventional:
+                return (
+                    f"{promoted}. This receipt attached no evidence block, which is "
+                    "expected for an artifact under gitignored `_state/`; read the "
+                    f"path above. `git log -1 {conventional}` covers only committed "
+                    "code and will not show it"
+                )
+            return (
+                f"{promoted}. This receipt attached no evidence block, which is "
+                "expected for an artifact under gitignored `_state/`; read the path "
+                "above"
+            )
+        if not conventional:
+            return (
+                "PRESERVED WORK: NOT RECORDED by this receipt, this entry names no "
+                "attempt id so no branch can be named, and no promoted artifact is "
+                "on disk -- do not conclude nothing was produced"
+            )
+        return (
+            "PRESERVED WORK: NOT RECORDED -- this receipt attached no evidence "
+            "block and no promoted artifact is on disk; check "
+            f"`git log -1 {conventional}` before concluding nothing was produced"
+        )
+    if status in {"preserved", "preserved_existing"} and ref and commit:
+        return (
+            f"PRESERVED WORK ({status}): {scale} on {ref}@{commit} -- recover with "
+            f"`git show {commit}:<path>`"
+        )
+    if worktree:
+        return (
+            f"PRESERVED WORK ({status}): {scale} is NOT on a branch; it is retained "
+            f"in the attempt worktree {worktree} -- do not prune it"
+        )
+    return (
+        f"PRESERVED WORK ({status}): recorded, but this receipt names neither a ref "
+        "nor a retained worktree"
+    )
 
 
 def receipt_failure_diagnostics(receipt: Path) -> dict[str, Any]:
@@ -1730,6 +1328,23 @@ def receipt_failure_diagnostics(receipt: Path) -> dict[str, Any]:
     returncode = payload.get("returncode")
     if isinstance(returncode, int) and not isinstance(returncode, bool):
         diagnostics["returncode"] = returncode
+    # The salvage receipt already records WHERE a terminal failure's work
+    # survived. Until now this function read straight past it, so the board
+    # computed the answer and never printed it.
+    evidence = payload.get("evidence_preservation")
+    if isinstance(evidence, dict):
+        for source, field in _EVIDENCE_STRING_FIELDS:
+            value = evidence.get(source)
+            if isinstance(value, str) and value.strip():
+                diagnostics[field] = " ".join(value.split())[
+                    :RECEIPT_DIAGNOSTIC_REASON_LIMIT
+                ]
+        count = evidence.get("preserved_path_count")
+        if isinstance(count, int) and not isinstance(count, bool):
+            diagnostics["evidence_preserved_path_count"] = count
+        retained = evidence.get("worktree_retained_required")
+        if isinstance(retained, bool):
+            diagnostics["evidence_worktree_retained_required"] = retained
     return diagnostics
 
 
@@ -1737,10 +1352,29 @@ def apply_receipt_diagnostics(
     entry: dict[str, Any],
     diagnostics: dict[str, Any],
 ) -> bool:
-    """Write diagnostics onto the entry; report whether anything changed."""
+    """Write diagnostics onto the entry; report whether anything changed.
+
+    A known field absent from `diagnostics` is CLEARED rather than left
+    standing. These keys describe one exact attempt's receipt, so carrying a
+    previous attempt's evidence ref forward would name a branch that does not
+    hold the current work -- a confident wrong answer where there was silence.
+    """
 
     changed = False
+    for key in RECEIPT_DIAGNOSTIC_FIELDS:
+        field = f"terminal_receipt_{key}"
+        if key in diagnostics:
+            if entry.get(field) != diagnostics[key]:
+                entry[field] = diagnostics[key]
+                changed = True
+        elif field in entry:
+            del entry[field]
+            changed = True
+    # Total by construction: a key added to the lifter without being declared
+    # above is still written, it simply does not get stale-clearing.
     for key, value in diagnostics.items():
+        if key in RECEIPT_DIAGNOSTIC_FIELDS:
+            continue
         field = f"terminal_receipt_{key}"
         if entry.get(field) != value:
             entry[field] = value
@@ -1751,7 +1385,9 @@ def apply_receipt_diagnostics(
 def terminal_board_receipt(
     task_id: str,
     entry: dict[str, Any],
-) -> tuple[Path | None, str, str]:
+    schema: str = "v1",
+    descriptor: dict[str, Any] | None = None,
+) -> tuple[Path | None, str, str, str | None]:
     """Return a fenced terminal board receipt when no response was promoted.
 
     The filename and JSON identity must both match the active registry attempt.
@@ -1761,37 +1397,56 @@ def terminal_board_receipt(
 
     attempt_id = str(entry.get("delivery_attempt_id") or "")
     if not attempt_id:
-        return None, "", ""
+        return None, "", "", None
     receipt = (
         STATE_DIR
         / "board-dispatch"
         / f"{task_id}.{attempt_id}.receipt.json"
     )
     if receipt.is_symlink() or not receipt.is_file():
-        return None, "", ""
-    try:
-        payload = json.loads(receipt.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return None, "", ""
+        return None, "", "", None
+    if schema == "v2":
+        from board_process_truth import load_json, terminal_outcome
+
+        payload = load_json(receipt)
+    else:
+        try:
+            payload = json.loads(receipt.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            return None, "", "", None
     if not isinstance(payload, dict):
-        return None, "", ""
+        return None, "", "", None
     if payload.get("task_id") != task_id or payload.get("attempt_id") != attempt_id:
-        return None, "", ""
+        return None, "", "", None
+    expected_generation = int(entry.get("delivery_generation") or 1)
+    receipt_generation = payload.get("generation")
+    if schema == "v2":
+        completed_at = payload.get("completed_at")
+        try:
+            strict_outcome = terminal_outcome(payload, descriptor)
+        except (AttributeError, TypeError, ValueError):
+            return None, "", "", None
+        if strict_outcome is None:
+            return None, "", "", None
+        raw_status = strict_outcome
+        status = "blocked" if raw_status in {"failed", "denied"} else raw_status
+        return (receipt, status, raw_status, str(completed_at)) if valid_response_status(status) else (None, "", "", None)
+    if schema != "v1" or payload.get("schema") not in (None, "board-dispatch-receipt/v1"):
+        return None, "", "", None
+    # Explicit V1 compatibility: generation-less receipts and mtime completion.
+    if (receipt_generation is None and expected_generation > 1) or (
+        receipt_generation is not None
+        and (type(receipt_generation) is not int or receipt_generation != expected_generation)
+    ):
+        return None, "", "", None
     raw_status = str(payload.get("status") or "").strip()
     status = "blocked" if raw_status == "failed" else registry_status(raw_status)
-    if not valid_response_status(status):
-        return None, "", ""
-    receipt_generation = payload.get("generation")
-    if receipt_generation is not None and (
-        isinstance(receipt_generation, bool)
-        or not isinstance(receipt_generation, int)
-        or receipt_generation != int(entry.get("delivery_generation") or 0)
-    ):
-        return None, "", ""
-    return receipt, status, raw_status
+    completed_at = datetime.fromtimestamp(receipt.stat().st_mtime, tz=timezone.utc).isoformat()
+    return (receipt, status, raw_status, completed_at) if valid_response_status(status) else (None, "", "", None)
 
 
 def auto_close_terminal_receipt(
+    task_id: str,
     entry: dict[str, Any],
     now: datetime,
     receipt_status: str,
@@ -1811,6 +1466,12 @@ def auto_close_terminal_receipt(
         reason += f" rc={diagnostics['returncode']}"
     if diagnostics.get("reason"):
         reason += f": {diagnostics['reason']}"
+    # `closure_reason` is deliberately NOT extended with the preserved-work
+    # statement. Its shape is a documented no-drift contract for existing
+    # consumers; the durable record of preserved evidence lives in the
+    # `terminal_receipt_evidence_*` fields that apply_receipt_diagnostics writes
+    # onto this same entry, and the operator-facing statement goes in the
+    # notification, which is where it was missing.
     history.append(
         {
             "at": now.isoformat(),
@@ -1825,6 +1486,10 @@ def auto_close_terminal_receipt(
     entry["lifecycle_closed_by"] = "registry-reconciler-auto"
     entry["closed_from_status"] = receipt_status
     entry["closure_reason"] = reason
+    # Free the return_artifact path here too. This is the path that fires on
+    # BLOCKED tasks -- exactly when a stub gets written -- so covering only the
+    # explicit close left the primary stub-producing route unfixed.
+    release_blocked_stub(task_id, entry)
 
 
 def never_launched_reason(
@@ -1852,9 +1517,8 @@ def never_launched_reason(
         return ""
     if entry.get("claimed_at") or entry.get("started_at"):
         return ""
-    # A pool-assigned task, or any task queued while the pool is enabled, is
-    # LEGITIMATELY waiting for the scheduler to hand it to a worker.
-    if entry.get("delivery_worker_id") or worker_pool_enabled():
+    # A legacy assigned-worker task may still be waiting on its recorded fence.
+    if entry.get("delivery_worker_id"):
         return ""
     # Any response at all (even one too young or with an invalid status) means
     # the earlier branches are the right authority, not this one.
@@ -1915,7 +1579,12 @@ def capability_response_issue(entry: dict[str, Any], response: Path) -> str:
     return ""
 
 
-def worker_response_issue(task_id: str, entry: dict[str, Any], response: Path) -> str:
+def worker_response_issue(
+    task_id: str,
+    entry: dict[str, Any],
+    response: Path,
+    schema: str = "v1",
+) -> str:
     """Return a worker-fence echo failure; empty means the response is current."""
     if not entry.get("delivery_worker_id"):
         return ""
@@ -1925,8 +1594,9 @@ def worker_response_issue(task_id: str, entry: dict[str, Any], response: Path) -
     expiry = parse_dt(entry.get("lease_expires_at"))
     if expiry is None:
         return "assigned worker task is missing lease_expires_at"
-    landed_at = datetime.fromtimestamp(response.stat().st_mtime, tz=timezone.utc)
-    if landed_at > expiry:
+    if schema == "v1" and datetime.fromtimestamp(
+        response.stat().st_mtime, tz=timezone.utc
+    ) > expiry:
         return "response landed after worker lease expiry"
 
     meta = strip_frontmatter(read_text(response))
@@ -1990,6 +1660,142 @@ def swarm_response_issue(entry: dict[str, Any], response: Path) -> str:
     return ""
 
 
+# A lowercase 64-hex digest, not glued to further hex on either side.
+_SHA256_TOKEN_RE = re.compile(r"(?<![0-9a-fA-F])[0-9a-f]{64}(?![0-9a-fA-F])")
+
+# Prose that names a digest as an ARTIFACT BUNDLE specifically. Deliberately
+# narrow: a response body quotes commit hashes, contract hashes and blob hashes
+# constantly, and holding a task over one of those would be a false accusation
+# rather than a safety margin.
+# The gap deliberately allows ordinary words ("the artifact bundle hash is X"):
+# an earlier hex-only gap matched a backticked digest but not that sentence,
+# which is most of how humans actually write it. Lazy and same-line bounded, so
+# the nearest digest within 40 characters is the one claimed.
+_BUNDLE_PROSE_RE = re.compile(
+    r"artifact[\s_\-]*bundle(?:[\s_\-]*sha256)?[^\n]{0,40}?"
+    r"((?<![0-9a-fA-F])[0-9a-f]{64}(?![0-9a-fA-F]))",
+    re.IGNORECASE,
+)
+
+# A file that can bind a bundle digest to bytes: the run manifest or the
+# artifact list that enumerates {path, sha256, role} tuples.
+_MANIFEST_NAME_RE = re.compile(r"(manifest|artifact-list).*\.json$", re.IGNORECASE)
+
+# Hard cap on directory entries examined per task, so a broad write_scope cannot
+# turn one reconcile pass into a filesystem crawl. Exhausting it means "could not
+# determine", NOT "unresolvable" -- accusing a response because our own scan
+# budget ran out would be a hold we cannot justify.
+DECLARED_HASH_SCAN_FILE_LIMIT = 2048
+
+
+def declared_bundle_hashes(response: Path) -> list[str]:
+    """Digests this response offers as its artifact-bundle identity."""
+
+    text = read_text(response)
+    declared: list[str] = []
+    frontmatter = (
+        strip_frontmatter(text).get("artifact_bundle_sha256", "").strip().lower()
+    )
+    if _SHA256_TOKEN_RE.fullmatch(frontmatter):
+        declared.append(frontmatter)
+    for match in _BUNDLE_PROSE_RE.finditer(text):
+        value = match.group(1).lower()
+        if value not in declared:
+            declared.append(value)
+    return declared
+
+
+def declared_hash_search_roots(entry: dict[str, Any]) -> list[Path]:
+    """The task's own declared output territory, where its manifest belongs.
+
+    Bounded to `return_artifact` and `write_scope` on purpose. A reviewer
+    handed a bundle digest looks where the task was authorised to write; if the
+    manifest is not there, the reviewer cannot find it either, and neither
+    should this check pretend to.
+    """
+
+    roots: list[Path] = []
+    candidates = [str(entry.get("return_artifact") or "")]
+    scope = entry.get("write_scope")
+    if isinstance(scope, list):
+        candidates.extend(str(item) for item in scope)
+    for raw in candidates:
+        raw = raw.strip()
+        if not raw or raw.startswith("/") or ".." in raw.split("/"):
+            continue
+        target = VAULT_ROOT / raw
+        directory = target if target.is_dir() else target.parent
+        if directory.is_dir() and directory not in roots:
+            roots.append(directory)
+    return roots
+
+
+def bundle_declaring_file(entry: dict[str, Any], digest: str) -> str | None:
+    """Find a reachable manifest declaring `digest`.
+
+    Returns its repo-relative path, "" when the task's own output territory
+    demonstrably does not declare it, or None when the scan budget ran out
+    before that could be established. None is the fail-open answer: a hold has
+    to rest on evidence that the digest is unbacked, never on our own timeout.
+    """
+
+    examined = 0
+    for root in declared_hash_search_roots(entry):
+        for path in root.rglob("*.json"):
+            examined += 1
+            if examined > DECLARED_HASH_SCAN_FILE_LIMIT:
+                return None
+            if path.is_symlink() or not path.is_file():
+                continue
+            if not _MANIFEST_NAME_RE.search(path.name):
+                continue
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                continue
+            if (
+                isinstance(payload, dict)
+                and str(payload.get("artifact_bundle_sha256") or "").lower() == digest
+            ):
+                return str(path.relative_to(VAULT_ROOT))
+    return ""
+
+
+def declared_hash_issue(entry: dict[str, Any], response: Path) -> str:
+    """Refuse to settle a response on a digest that resolves to nothing.
+
+    TASK-2026-08-11-0180 settled `complete` declaring an artifact bundle whose
+    manifest was never reachable from the repository. Its pinned contract set
+    `deliverable_review_policy.subject = artifact_bundle_sha256`, so the review
+    that approved it was a review of a subject nobody could open. A hash
+    pointing at bytes no one can produce reads as rigour and carries none.
+
+    This HOLDS; it never drops. The response file is untouched, the registry is
+    kept OPEN, and the issue clears the moment the manifest lands or the
+    unbacked digest is removed -- because the lesson of TASK-2026-08-11-0490 is
+    that rejecting an envelope destroyed a complete deliverable.
+    """
+
+    declared = declared_bundle_hashes(response)
+    if not declared:
+        return ""
+    unresolvable = [
+        digest
+        for digest in declared
+        if bundle_declaring_file(entry, digest) == ""
+    ]
+    if not unresolvable:
+        return ""
+    roots = declared_hash_search_roots(entry)
+    where = ", ".join(str(root.relative_to(VAULT_ROOT)) for root in roots)
+    return (
+        "declared artifact bundle "
+        + ", ".join(unresolvable)
+        + " resolves to nothing reachable: no manifest declares it under "
+        + (where or "any declared output path for this task")
+    )
+
+
 def update_capability_card_drift(
     entry: dict[str, Any], now: datetime
 ) -> tuple[bool, bool]:
@@ -2029,16 +1835,34 @@ def task_packet_candidates(task_id: str) -> list[Path]:
 
 def return_artifact_path(task_id: str, entry: dict[str, Any]) -> Path | None:
     raw = str(entry.get("return_artifact") or "").strip()
+    learned_from_packet = False
     if not raw:
         for packet in task_packet_candidates(task_id):
             raw = strip_frontmatter(read_text(packet)).get("return_artifact", "").strip()
             if raw:
-                entry["return_artifact"] = raw
+                learned_from_packet = True
                 break
     if not raw:
         return None
-    path = Path(raw).expanduser()
-    return path if path.is_absolute() else VAULT_ROOT / path
+    try:
+        path = Path(raw).expanduser()
+        if (
+            not path.parts
+            or path == Path(".")
+            or any(part in {"", ".", ".."} for part in path.parts)
+        ):
+            return None
+        root = VAULT_ROOT.resolve(strict=True)
+        candidate = path if path.is_absolute() else VAULT_ROOT / path
+        resolved = candidate.resolve(strict=False)
+        resolved.relative_to(root)
+    except (OSError, RuntimeError, ValueError):
+        return None
+    if resolved == root:
+        return None
+    if learned_from_packet:
+        entry["return_artifact"] = raw
+    return resolved
 
 
 def _lane(value: Any) -> str:
@@ -2068,8 +1892,18 @@ def _is_read_only_review_task(entry: dict[str, Any]) -> bool:
 
 
 def _review_class(entry: dict[str, Any]) -> str:
-    value = str(entry.get("review_class") or "standard").strip().lower()
-    return value if value in REVIEW_CLASSES else "standard"
+    """Read the settlement class, refusing rather than assuming the weakest one.
+
+    This is the read side of the same defect ``canonical_review_class`` closes
+    on the write side: mapping an absent or unrecognized value onto
+    ``standard`` here would let a task that demanded a security-finding or
+    factual review settle on an ordinary one. An entry whose class cannot be
+    read is held, not settled.
+    """
+
+    return canonical_review_class(
+        entry.get("review_class"), source="registry entry"
+    )
 
 
 def _entry_author_family(entry: dict[str, Any]) -> str:
@@ -2152,55 +1986,57 @@ def _validate_security_review(
 
 
 def cross_family_review_pending(entry: dict[str, Any]) -> tuple[bool, str, str]:
-    """Decide whether a task needs an out-of-lane review response before settling.
-
-    Returns (pending, executing_lane, review_lane). Pending is True for a genuine
-    cross-family review: mandatory_review is true, review_model names a real lane,
-    and the task's ACTUAL executing lane cannot run that review in-lane.
-
-    The exemption is based on the real execution lane (`to_model`, after dispatch
-    override validation) — falling back to the specialist's mapped primary lane
-    only when `to_model` is absent — so a specialist mapped to gpt-codex but
-    overridden to another lane cannot inherit the gpt-codex->claude exemption.
-    An indeterminate lane fails CLOSED (pending) rather than settling silently.
-    """
     if str(entry.get("mandatory_review", "")).strip().lower() != "true":
         return (False, "", "")
     review_lane = _lane(entry.get("review_model"))
-    if review_lane in ("", "none"):
-        return (False, "", "")
     executing_lane = _lane(entry.get("to_model")) \
         or _specialist_primary_lane(str(entry.get("specialist") or ""))
+    if review_lane in ("", "none"):
+        return (True, executing_lane or "unknown", INVALID_REVIEW_LANE)
     if not executing_lane:
-        # Fix 6: unknown execution lane for a mandatory review with a real
-        # reviewer — fail closed (open), never treat as non-pending.
         return (True, "unknown", review_lane)
-    if _review_class(entry) in {"factual", "security-finding"}:
-        # Explicit review classes never use a read-only-review or in-lane tool
-        # exemption. Factual tasks require a coordinator attestation; security
-        # findings require a separately authored cross-family review.
+    if executing_lane == review_lane:
+        return (True, executing_lane, review_lane)
+    try:
+        readable_class = _review_class(entry)
+    except ValueError:
+        # An entry whose class cannot be read is held, never exempted. This
+        # runs over every entry in a sweep, so it answers "review pending"
+        # rather than raising: strictest outcome, no sweep-wide crash.
+        return (True, executing_lane, review_lane)
+    if readable_class != "standard":
         return (True, executing_lane, review_lane)
     if _is_read_only_review_task(entry):
         # A review of a read-only review creates an infinite regress. The exact
         # role allowlist and explicit empty write scope keep this exemption
         # narrow; implementation-bearing reviewer tasks are not exempt.
         return (False, executing_lane, review_lane)
-    if executing_lane == review_lane:
-        return (False, executing_lane, review_lane)
-    if review_lane in IN_LANE_REVIEW_CAPABLE.get(executing_lane, set()):
-        return (False, executing_lane, review_lane)
     return (True, executing_lane, review_lane)
+
+
+def review_hold_reason(executing_lane: str, review_lane: str) -> str:
+    if review_lane == INVALID_REVIEW_LANE:
+        return "invalid mandatory-review contract: distinct-family review_model is missing"
+    if executing_lane == review_lane:
+        return (
+            "invalid mandatory-review anti-affinity: to_model and review_model are both "
+            f"{review_lane}; redispatch with a distinct-family review_model"
+        )
+    return f"awaiting explicit Chrono settlement after {review_lane} review"
+
+
+def review_hold_next_action(executing_lane: str, review_lane: str) -> str:
+    if review_lane == INVALID_REVIEW_LANE or executing_lane == review_lane:
+        return "Correct the packet contract and redispatch; this invalid entry cannot be review-settled"
+    return (
+        f"Dispatch/read the {review_lane} review, then use registry_reconciler.py "
+        "--settle-review with its review ref"
+    )
 
 
 def response_review_pending(
     entry: dict[str, Any], response_status: str
 ) -> tuple[bool, str, str]:
-    """Apply the response's explicit review request to the mandatory-review gate.
-
-    An in-lane review capability may settle a response that reports completion,
-    but it cannot turn an author's explicit ``needs_review`` result into a final
-    state. Implementation-bearing work remains held until explicit settlement.
-    """
     pending, executing_lane, review_lane = cross_family_review_pending(entry)
     if pending or response_status != "needs_review":
         return pending, executing_lane, review_lane
@@ -2355,7 +2191,10 @@ def settle_review(task_id: str, review_ref: str, *, force: bool = False) -> bool
             raise ValueError(
                 f"task is not {REVIEW_REQUIRED} or needs_review: {task_id}"
             )
-        response, status = landed_response(task_id)
+        schema, _descriptor = settlement_process(task_id, entry)
+        response, status = landed_response(
+            task_id, response_candidates(task_id, entry, schema), schema, entry
+        )
         if response is None:
             raise ValueError(f"task has no landed response: {task_id}")
         issue = capability_response_issue(entry, response)
@@ -2363,7 +2202,7 @@ def settle_review(task_id: str, review_ref: str, *, force: bool = False) -> bool
             raise ValueError(
                 f"task response does not match dispatched capability snapshot: {issue}"
             )
-        issue = worker_response_issue(task_id, entry, response)
+        issue = worker_response_issue(task_id, entry, response, schema)
         if issue:
             raise ValueError(f"task response does not match dispatched worker fence: {issue}")
         if status not in {"complete", "needs_review"}:
@@ -2491,12 +2330,277 @@ def reopen_task(task_id: str, target_status: str | None = None) -> bool:
     return True
 
 
-def close_task(task_id: str, reason: str, target_status: str = "superseded") -> bool:
-    """Terminalize one stale registry task with a durable audit record.
+BOARD_BLOCKED_STUB_RE = re.compile(
+    r"blocked\n\n# Board dispatch blocked — (TASK-[0-9A-Za-z._-]+)\n\n"
+    r"Controller reason: [^\r\n]{1,2000}\n"
+)
 
-    Replaying the same terminal status and normalized reason is idempotent.
-    A different close request for an already closed task fails closed so audit
-    history cannot be silently rewritten.
+
+def release_blocked_stub(task_id: str, entry: dict) -> str | None:
+    """Free a closed task's return_artifact path so a re-dispatch can promote.
+
+    The promoter's stub-reclaim (`_is_board_blocked_stub` in
+    dispatch_context_builder) matches the stub against the *promoting* task's id.
+    Supersede-and-redispatch deliberately uses a NEW id, so the stub still names
+    the old one, the exact-match fails, and promotion is refused with
+    "return artifact destination already differs" -- AFTER the replacement lane
+    has done all of its work. Measured four times in one campaign; each cost a
+    completed lane its promotion and was recovered only by sweeping the worktree.
+
+    Widening the promoter's match would weaken a real control: it is what stops
+    one task clobbering another's artifact. Instead the stub is retired here, at
+    close time, where the task is already terminal and the stub is provably dead
+    residue rather than someone else's work.
+
+    Renames rather than deletes: the stub is audit history, and deletion is
+    operator-gated. Returns the new path, or None if there was nothing to do.
+    """
+    raw = str(entry.get("return_artifact") or "").strip()
+    if not raw:
+        return None
+
+    try:
+        lexical_root = VAULT_ROOT.absolute()
+        resolved_root = VAULT_ROOT.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return None
+
+    supplied = Path(raw)
+    if supplied.is_absolute():
+        relative: Path | None = None
+        # `VAULT_ROOT` may itself be a symlink. Accept either spelling of an
+        # absolute in-vault artifact, but never infer containment from a common
+        # string prefix.
+        for root_form in (lexical_root, resolved_root):
+            try:
+                relative = supplied.relative_to(root_form)
+                break
+            except ValueError:
+                continue
+        if relative is None:
+            return None
+    else:
+        relative = supplied
+
+    if (
+        not relative.parts
+        or relative == Path(".")
+        or any(part in {"", ".", ".."} for part in relative.parts)
+    ):
+        return None
+
+    # Anchor every lookup to an already-opened vault directory and refuse
+    # symlinks at every component. A resolve-then-rename check alone leaves a
+    # race in which a parent can be swapped for a symlink after validation.
+    # The dir-fd walk also permits the documented absolute-in-vault fallback
+    # without ever operating on an absolute path supplied by the registry.
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    directory_flag = getattr(os, "O_DIRECTORY", 0)
+    if not nofollow or not directory_flag:
+        return None
+    opened: list[int] = []
+    try:
+        parent_fd = os.open(
+            resolved_root,
+            os.O_RDONLY | directory_flag | nofollow,
+        )
+        opened.append(parent_fd)
+        for component in relative.parts[:-1]:
+            parent_fd = os.open(
+                component,
+                os.O_RDONLY | directory_flag | nofollow,
+                dir_fd=parent_fd,
+            )
+            opened.append(parent_fd)
+
+        source_name = relative.name
+        source_fd = os.open(
+            source_name,
+            os.O_RDONLY | nofollow | getattr(os, "O_NONBLOCK", 0),
+            dir_fd=parent_fd,
+        )
+        opened.append(source_fd)
+        source_stat = os.fstat(source_fd)
+        if not stat.S_ISREG(source_stat.st_mode):
+            return None
+        try:
+            with os.fdopen(os.dup(source_fd), "rb") as stream:
+                source_bytes = stream.read()
+            text = source_bytes.decode("utf-8")
+        except (OSError, UnicodeDecodeError):
+            return None
+
+        match = BOARD_BLOCKED_STUB_RE.fullmatch(text)
+        if match is None:
+            return None  # a real artifact, never touch it
+        if match.group(1) != task_id:
+            return None  # names a different task; not ours to retire
+
+        retired_name = f"{source_name}.blocked-{task_id}"
+        # Re-check that the directory entry still names the file we inspected.
+        # The rename remains anchored to the no-follow parent descriptor and is
+        # atomic no-replace, so a concurrently-created audit path survives.
+        current_stat = os.stat(
+            source_name,
+            dir_fd=parent_fd,
+            follow_symlinks=False,
+        )
+        if (
+            not stat.S_ISREG(current_stat.st_mode)
+            or current_stat.st_dev != source_stat.st_dev
+            or current_stat.st_ino != source_stat.st_ino
+        ):
+            return None
+        _rename_noreplace(
+            source_name,
+            retired_name,
+            src_dir_fd=parent_fd,
+            dst_dir_fd=parent_fd,
+        )
+
+        # Native rename cannot predicate on the source inode. Verify the moved
+        # entry still names the exact regular file and bytes inspected above.
+        # If a writer replaced or rewrote the source in the narrow pre-rename
+        # window, move that entry back with the same no-overwrite primitive.
+        moved_valid = False
+        try:
+            moved_fd = os.open(
+                retired_name,
+                os.O_RDONLY | nofollow | getattr(os, "O_NONBLOCK", 0),
+                dir_fd=parent_fd,
+            )
+            opened.append(moved_fd)
+            moved_stat = os.fstat(moved_fd)
+            if (
+                stat.S_ISREG(moved_stat.st_mode)
+                and moved_stat.st_dev == source_stat.st_dev
+                and moved_stat.st_ino == source_stat.st_ino
+            ):
+                with os.fdopen(os.dup(moved_fd), "rb") as stream:
+                    moved_valid = stream.read() == source_bytes
+        except OSError:
+            moved_valid = False
+        if not moved_valid:
+            try:
+                _rename_noreplace(
+                    retired_name,
+                    source_name,
+                    src_dir_fd=parent_fd,
+                    dst_dir_fd=parent_fd,
+                )
+            except OSError:
+                pass
+            return None
+        return str(relative.with_name(retired_name))
+    except (OSError, ValueError):
+        return None
+    finally:
+        for descriptor in reversed(opened):
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+
+
+# ── Batch close: all-or-nothing, and never silent about a requested id ───────
+# Found in use 2026-08-12: `--close-task A --close-task B` closed B, left A
+# open, and printed `closed task=B` -- a success message for a half-applied
+# batch. The abort was NOT mid-loop and the preflight was not at fault.
+# `--close-task` was declared `nargs="+"` with no accumulating action, so
+# argparse OVERWROTE the first occurrence and handed close_task a ONE-id batch;
+# A was discarded before this function was ever entered, and the report could
+# only name what survived parsing. A 69-test suite missed it because every test
+# called close_task(["a", "b", "c"]) directly and so never crossed the argv
+# boundary where the id is lost.
+#
+# Two rules follow, and the tests pin both:
+#   1. Repeated flags accumulate, so the batch the operator typed is the batch
+#      that gets validated (see `action="extend"` on the argument).
+#   2. Every requested id gets its own line in the report -- on success, on
+#      idempotent replay, and on refusal. Silence about a requested id is the
+#      defect, because it is what makes a partial result look like a whole one.
+CLOSE_CLOSED = "closed"
+CLOSE_ALREADY = "already-closed"
+CLOSE_ELIGIBLE = "eligible"
+CLOSE_REFUSED = "REFUSED"
+
+
+class CloseOutcome:
+    """What one batch member's close did, or would have done had the batch run.
+
+    Deliberately a plain class, not a `@dataclass`. `bin/review-loop-guard-
+    selftest.py` loads this module via `importlib.spec_from_file_location`
+    WITHOUT registering it in `sys.modules`, and `@dataclass` resolves its
+    annotations through `sys.modules.get(cls.__module__).__dict__` -- which is
+    `None` under that loader, so the decorator raises at import time and takes
+    the whole selftest down with it.
+    """
+
+    def __init__(self, task_id: str, disposition: str, detail: str) -> None:
+        self.task_id = task_id
+        self.disposition = disposition
+        self.detail = detail
+        self.notes: list[str] = []
+
+    def render(self) -> str:
+        line = f"  {self.task_id}: {self.disposition} ({self.detail})"
+        for note in self.notes:
+            line += f"\n      ! {note}"
+        return line
+
+
+class CloseReport:
+    """Per-id result of a batch close.
+
+    Truthy exactly when the registry changed, so every existing caller that
+    treated `close_task`'s return value as a bool keeps its old meaning; carries
+    `outcomes` so the CLI can prove it accounted for every requested member.
+    """
+
+    def __init__(self, outcomes: list[CloseOutcome]) -> None:
+        self.outcomes = outcomes
+
+    def __bool__(self) -> bool:
+        return any(item.disposition == CLOSE_CLOSED for item in self.outcomes)
+
+    @property
+    def follow_through_failures(self) -> list[CloseOutcome]:
+        return [item for item in self.outcomes if item.notes]
+
+    def render(self) -> list[str]:
+        return [item.render() for item in self.outcomes]
+
+
+class BatchCloseRefused(ValueError):
+    """Preflight refused the whole batch; nothing was written.
+
+    Subclasses ValueError so existing `except ValueError` callers are
+    unaffected, and aggregates EVERY ineligible member's reason into the message
+    rather than raising on the first one found -- a refusal that names only the
+    first bad id makes the operator rerun the batch once per defect.
+    """
+
+    def __init__(self, message: str, report: CloseReport) -> None:
+        super().__init__(message)
+        self.report = report
+
+
+def close_task(
+    task_ids: str | list[str],
+    reason: str,
+    target_status: str = "superseded",
+) -> CloseReport:
+    """Terminalize one or more stale registry tasks with durable audit records.
+
+    The full batch is validated before any entry is changed, then every changed
+    entry is committed in one atomic registry write. Replaying the same terminal
+    status and normalized reason is idempotent. A different close request for
+    any already closed task fails the entire batch closed so audit history
+    cannot be silently rewritten.
+
+    Returns a `CloseReport` holding one outcome per requested id. It is truthy
+    exactly when the registry changed, so `bool(close_task(...))` keeps its
+    previous meaning; read `.outcomes` to report what happened to each member.
     """
     allowed = {"superseded", "closed"}
     if target_status not in allowed:
@@ -2504,59 +2608,163 @@ def close_task(task_id: str, reason: str, target_status: str = "superseded") -> 
     normalized_reason = re.sub(r"\s+", " ", reason or "").strip()
     if not normalized_reason:
         raise ValueError("--close-reason must be non-empty")
+    requested_ids = [task_ids] if isinstance(task_ids, str) else list(task_ids)
+    if not requested_ids:
+        raise ValueError("--close-task requires at least one task id")
+    normalized_ids: list[str] = []
+    seen: set[str] = set()
+    for raw_task_id in requested_ids:
+        task_id = str(raw_task_id).strip()
+        if not task_id:
+            raise ValueError("--close-task task ids must be non-empty")
+        if task_id in seen:
+            raise ValueError(f"duplicate --close-task id: {task_id}")
+        seen.add(task_id)
+        normalized_ids.append(task_id)
+
     now = datetime.now(timezone.utc)
+    plan: dict[str, CloseOutcome] = {}
     with locked_registry() as _lock:
         registry = load_registry()
-        entry = registry.get(task_id)
-        if not isinstance(entry, dict):
-            raise ValueError(f"unknown registry task: {task_id}")
-        current = str(entry.get("status") or "")
-        if current in allowed:
-            if (
-                current == target_status
-                and entry.get("closure_reason") == normalized_reason
-                and entry.get("lifecycle_closed_by") == "chrono-explicit"
-            ):
-                namespace = str(
-                    entry.get("compatibility_namespace")
-                    or entry.get("source_namespace")
-                    or "coding"
-                )
-                archive_inbox_packet(task_id, namespace)
-                return False
-            raise ValueError(
-                f"task is already terminal lifecycle status {current}: {task_id}"
+        prepared: list[tuple[str, dict[str, Any], str, str, bool]] = []
+        refusals: list[str] = []
+
+        # Preflight every member before mutating even the in-memory registry.
+        # This is the all-or-nothing boundary for an invalid batch member. Every
+        # member is judged even after one is found ineligible, so the refusal can
+        # name all of them at once instead of one rerun per defect.
+        for task_id in normalized_ids:
+            entry = registry.get(task_id)
+            if not isinstance(entry, dict):
+                detail = f"unknown registry task: {task_id}"
+                refusals.append(detail)
+                plan[task_id] = CloseOutcome(task_id, CLOSE_REFUSED, detail)
+                continue
+            current = str(entry.get("status") or "")
+            namespace = str(
+                entry.get("compatibility_namespace")
+                or entry.get("source_namespace")
+                or "coding"
             )
-        history = entry.setdefault("closure_history", [])
-        if not isinstance(history, list):
-            raise ValueError(f"task has malformed closure_history: {task_id}")
-        history.append(
-            {
-                "at": now.isoformat(),
-                "from_status": current,
-                "to_status": target_status,
-                "reason": normalized_reason,
-                "by": "chrono-explicit",
-            }
+            if current in allowed:
+                if (
+                    current == target_status
+                    and entry.get("closure_reason") == normalized_reason
+                    and entry.get("lifecycle_closed_by") == "chrono-explicit"
+                ):
+                    prepared.append((task_id, entry, current, namespace, False))
+                    plan[task_id] = CloseOutcome(
+                        task_id,
+                        CLOSE_ALREADY,
+                        f"already {current} under this exact reason; no change",
+                    )
+                    continue
+                detail = (
+                    f"task is already terminal lifecycle status {current}: {task_id}"
+                )
+                refusals.append(detail)
+                plan[task_id] = CloseOutcome(task_id, CLOSE_REFUSED, detail)
+                continue
+            history = entry.get("closure_history")
+            if history is not None and not isinstance(history, list):
+                detail = f"task has malformed closure_history: {task_id}"
+                refusals.append(detail)
+                plan[task_id] = CloseOutcome(task_id, CLOSE_REFUSED, detail)
+                continue
+            prepared.append((task_id, entry, current, namespace, True))
+            plan[task_id] = CloseOutcome(
+                task_id, CLOSE_ELIGIBLE, f"{current} -> {target_status}"
+            )
+
+        if refusals:
+            # Nothing has been mutated yet -- not even in memory -- so raising
+            # here IS the all-or-nothing guarantee. The report travels with the
+            # error so the caller can show that no member closed.
+            raise BatchCloseRefused(
+                "; ".join(refusals),
+                CloseReport([plan[task_id] for task_id in normalized_ids]),
+            )
+
+        changed_entries: list[tuple[str, dict[str, Any], str]] = []
+        for task_id, entry, current, namespace, should_change in prepared:
+            if not should_change:
+                continue
+            history = entry.setdefault("closure_history", [])
+            history.append(
+                {
+                    "at": now.isoformat(),
+                    "from_status": current,
+                    "to_status": target_status,
+                    "reason": normalized_reason,
+                    "by": "chrono-explicit",
+                }
+            )
+            entry["status"] = target_status
+            entry["lifecycle_closed_at"] = now.isoformat()
+            entry["lifecycle_closed_by"] = "chrono-explicit"
+            entry["closed_from_status"] = current
+            entry["closure_reason"] = normalized_reason
+            changed_entries.append((task_id, entry, namespace))
+
+        if changed_entries:
+            # One write commits every member. This single call is what makes the
+            # registry side of the batch genuinely all-or-nothing: it either
+            # renames into place for all of them or for none of them.
+            atomic_write(
+                REGISTRY_PATH,
+                json.dumps(registry, indent=2, ensure_ascii=False) + "\n",
+            )
+        for task_id, _entry, current, _namespace, should_change in prepared:
+            if should_change:
+                plan[task_id] = CloseOutcome(
+                    task_id, CLOSE_CLOSED, f"{current} -> {target_status}"
+                )
+
+    # Follow-through runs after the durable commit, so a failure here can no
+    # longer un-close anything. Aborting the loop would leave the REMAINING
+    # members without their archive/stub/queue records -- the same
+    # partial-application shape, one layer down -- so each member's failure is
+    # recorded against that member and the loop continues. The caller reports
+    # every note and exits non-zero; nothing here is swallowed.
+    def _follow_through(task_id: str, what: str, action: Any) -> Any:
+        try:
+            return action()
+        except Exception as exc:  # noqa: BLE001 - recorded per id, never silent
+            plan[task_id].notes.append(
+                f"{what} failed after the close committed: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            return None
+
+    for task_id, _entry, _current, namespace, _should_change in prepared:
+        _follow_through(
+            task_id,
+            "inbox packet archive",
+            lambda task_id=task_id, namespace=namespace: archive_inbox_packet(
+                task_id, namespace
+            ),
         )
-        entry["status"] = target_status
-        entry["lifecycle_closed_at"] = now.isoformat()
-        entry["lifecycle_closed_by"] = "chrono-explicit"
-        entry["closed_from_status"] = current
-        entry["closure_reason"] = normalized_reason
-        atomic_write(REGISTRY_PATH, json.dumps(registry, indent=2, ensure_ascii=False) + "\n")
-        namespace = str(
-            entry.get("compatibility_namespace")
-            or entry.get("source_namespace")
-            or "coding"
+    for task_id, entry, namespace in changed_entries:
+        retired = _follow_through(
+            task_id,
+            "blocked stub release",
+            lambda task_id=task_id, entry=entry: release_blocked_stub(task_id, entry),
         )
-    archive_inbox_packet(task_id, namespace)
-    append_chrono_queue(
-        f"TASK-{target_status.upper()}",
-        f"{namespace}/{task_id}",
-        f"explicit Chrono lifecycle close; reason={normalized_reason}",
-    )
-    return True
+        if retired:
+            print(
+                f"  → retired blocked stub to {retired}; "
+                "return_artifact path is free for re-dispatch"
+            )
+        _follow_through(
+            task_id,
+            "chrono-queue append",
+            lambda task_id=task_id, namespace=namespace: append_chrono_queue(
+                f"TASK-{target_status.upper()}",
+                f"{namespace}/{task_id}",
+                f"explicit Chrono lifecycle close; reason={normalized_reason}",
+            ),
+        )
+    return CloseReport([plan[task_id] for task_id in normalized_ids])
 
 
 def parse_dt(value: Any) -> datetime | None:
@@ -2910,7 +3118,7 @@ def reconcile_swarm_parent(
                 child["status"] = "timed_out"
                 child["completed_at"] = now.isoformat()
                 child["reconciled_at"] = now.isoformat()
-                mark_delivery_terminal(child, now, "swarm-timeout")
+                mark_delivery_terminal(child_id, child, now, "swarm-timeout")
                 changed = True
 
     open_children = [
@@ -2976,9 +3184,12 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                 # order places the controller before its members.
                 continue
             current_status = str(raw_entry.get("status", ""))
+            schema, process_descriptor = settlement_process(task_id, raw_entry)
             if current_status in {"blocked", "complete", "completed"}:
-                terminal_receipt, receipt_status, raw_receipt_status = (
-                    terminal_board_receipt(task_id, raw_entry)
+                terminal_receipt, receipt_status, raw_receipt_status, receipt_completed_at = (
+                    terminal_board_receipt(
+                        task_id, raw_entry, schema, process_descriptor
+                    )
                 )
                 if (
                     terminal_receipt is not None
@@ -2993,6 +3204,7 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                         response_review_pending(raw_entry, receipt_status)
                     )
                     mark_delivery_terminal(
+                        task_id,
                         raw_entry,
                         now,
                         f"board-receipt:{receipt_status}",
@@ -3001,6 +3213,7 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                         terminal_receipt.relative_to(VAULT_ROOT)
                     )
                     raw_entry["terminal_receipt_status"] = raw_receipt_status
+                    raw_entry["completed_at"] = receipt_completed_at
                     receipt_diagnostics = receipt_failure_diagnostics(
                         terminal_receipt
                     )
@@ -3015,6 +3228,7 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                         )
                     else:
                         auto_close_terminal_receipt(
+                            task_id,
                             raw_entry,
                             now,
                             receipt_status,
@@ -3033,13 +3247,22 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
             )
             if current_status not in {"in-flight", SETTLED_WITHOUT_ENVELOPE, REVIEW_REQUIRED} \
                 and not legacy_review_open:
-                if mark_delivery_terminal(raw_entry, now, f"registry-status:{current_status}"):
+                if mark_delivery_terminal(
+                    task_id, raw_entry, now, f"registry-status:{current_status}"
+                ):
                     changed += 1
                 if task_id_filter:
                     messages.append(f"already-settled {task_id} -> {current_status}")
                 continue
-            candidates = response_candidates(task_id)
-            response, status = landed_response(task_id, candidates)
+            receipt_preempts_response = schema == "v2" and terminal_board_receipt(
+                task_id, raw_entry, schema, process_descriptor
+            )[0] is not None
+            candidates = (
+                []
+                if receipt_preempts_response
+                else response_candidates(task_id, raw_entry, schema)
+            )
+            response, status = landed_response(task_id, candidates, schema, raw_entry)
             if response is None and candidates:
                 # BLOCK2 (wave-2): a response file may EXIST and be old enough to
                 # settle yet carry a non-canonical status (typo/unknown). landed_response
@@ -3060,7 +3283,9 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                     raw_entry.pop("missing_envelope_artifact", None)
                     raw_entry.pop("prior_missing_envelope_status", None)
 
-                stray = next((cand for cand in candidates if response_ready(cand)), None)
+                stray = next(
+                    (cand for cand in candidates if response_ready(cand, schema)), None
+                )
                 if stray is None:
                     if reopened:
                         raw_entry["reconciled_at"] = now.isoformat()
@@ -3120,7 +3345,7 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                 capability_issue = capability_response_issue(
                     raw_entry, response
                 ) or swarm_response_issue(raw_entry, response)
-                worker_issue = worker_response_issue(task_id, raw_entry, response)
+                worker_issue = worker_response_issue(task_id, raw_entry, response, schema)
                 contract_issue = capability_issue or worker_issue
                 if contract_issue:
                     response_path = str(response.relative_to(VAULT_ROOT))
@@ -3157,15 +3382,68 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                             )
                         )
                     continue
+                # A declared hash must resolve to something a reviewer can open.
+                # This runs AFTER the pin/fence checks so an off-attempt
+                # response is rejected on identity first, and it HOLDS rather
+                # than rejects: the response file and the deliverable are left
+                # exactly where they are, and the hold clears the moment the
+                # manifest lands or the unbacked digest is removed.
+                hash_issue = declared_hash_issue(raw_entry, response)
+                if hash_issue:
+                    response_path = str(response.relative_to(VAULT_ROOT))
+                    metadata_changed = (
+                        current_status != "in-flight"
+                        or str(raw_entry.get("declared_hash_issue") or "") != hash_issue
+                        or raw_entry.get("response_path") != response_path
+                    )
+                    raw_entry["status"] = "in-flight"
+                    raw_entry["declared_hash_issue"] = hash_issue
+                    raw_entry["response_path"] = response_path
+                    raw_entry["reconciled_at"] = now.isoformat()
+                    if metadata_changed or drift_changed:
+                        changed += 1
+                    if metadata_changed:
+                        messages.append(
+                            f"declared-hash-hold {task_id} -> {hash_issue}"
+                        )
+                        # No terminal receipt is in play on this route, so the
+                        # preserved-work verdict would be unfounded here. What
+                        # IS knowable is the attempt branch name, which is where
+                        # the worker's full tree sits if the manifest was
+                        # written but never promoted.
+                        attempt_ref = attempt_evidence_ref(task_id, raw_entry)
+                        events.append(
+                            (
+                                "DECLARED-HASH-HOLD",
+                                f"{namespace}/{task_id}",
+                                hash_issue,
+                                f"DECLARED HASH RESOLVES TO NOTHING: {task_id} "
+                                f"{hash_issue}. The response and its artifact are "
+                                "UNTOUCHED and the registry is kept OPEN; land the "
+                                "manifest or drop the unbacked digest and "
+                                "re-reconcile."
+                                + (
+                                    f" The attempt's full tree is on {attempt_ref}."
+                                    if attempt_ref
+                                    else ""
+                                ),
+                            )
+                        )
+                    continue
                 capability_issue_cleared = (
                     raw_entry.pop("capability_response_issue", None) is not None
                 )
                 worker_issue_cleared = (
                     raw_entry.pop("worker_response_issue", None) is not None
                 )
-                contract_issue_cleared = capability_issue_cleared or worker_issue_cleared
+                hash_issue_cleared = (
+                    raw_entry.pop("declared_hash_issue", None) is not None
+                )
+                contract_issue_cleared = (
+                    capability_issue_cleared or worker_issue_cleared or hash_issue_cleared
+                )
                 delivery_changed = mark_delivery_terminal(
-                    raw_entry, now, f"response:{status}"
+                    task_id, raw_entry, now, f"response:{status}"
                 )
                 pinned_hash = str(
                     raw_entry.get("capability_card_sha256") or ""
@@ -3212,7 +3490,8 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                     )
                     if hold_changed:
                         changed += 1
-                    reason = f"awaiting explicit Chrono settlement after {review_lane} review"
+                    reason = review_hold_reason(executing_lane, review_lane)
+                    next_action = review_hold_next_action(executing_lane, review_lane)
                     if newly_flagged or lane_changed:
                         messages.append(f"review-required {task_id} -> {reason}")
                     elif task_id_filter:
@@ -3225,20 +3504,27 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                                 "REVIEW-REQUIRED",
                                 f"{namespace}/{task_id}",
                                 f"{executing_lane} specialist '{raw_entry.get('specialist')}' "
-                                f"needs {review_lane} review; {reason}",
+                                f"is held; {reason}",
                                 f"REVIEW-REQUIRED: {task_id} ({raw_entry.get('specialist')}, lane "
-                                f"{executing_lane}) must be cross-family reviewed by {review_lane} "
-                                f"before it can settle. {reason}. Dispatch/read the {review_lane} review, "
-                                "then use registry_reconciler.py --settle-review with its review ref.",
+                                f"{executing_lane}) cannot settle: {reason}. {next_action}.",
                             )
                         )
                     continue
                 if current_status == SETTLED_WITHOUT_ENVELOPE:
                     raw_entry["prior_missing_envelope_status"] = current_status
                 raw_entry["status"] = status
-                raw_entry["completed_at"] = datetime.fromtimestamp(
-                    response.stat().st_mtime, tz=timezone.utc
-                ).isoformat()
+                if schema == "v2":
+                    *_, receipt_completed_at = terminal_board_receipt(
+                        task_id, raw_entry, schema, process_descriptor
+                    )
+                    if receipt_completed_at:
+                        raw_entry["completed_at"] = receipt_completed_at
+                    else:
+                        raw_entry.pop("completed_at", None)
+                else:  # Explicit V1 compatibility: response mtime is legacy display truth.
+                    raw_entry["completed_at"] = datetime.fromtimestamp(
+                        response.stat().st_mtime, tz=timezone.utc
+                    ).isoformat()
                 raw_entry["reconciled_at"] = now.isoformat()
                 raw_entry["auto_reconciled_at"] = now.isoformat()
                 raw_entry["response_path"] = str(response.relative_to(VAULT_ROOT))
@@ -3256,8 +3542,10 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                         )
                     )
                 continue
-            terminal_receipt, receipt_status, raw_receipt_status = (
-                terminal_board_receipt(task_id, raw_entry)
+            terminal_receipt, receipt_status, raw_receipt_status, receipt_completed_at = (
+                terminal_board_receipt(
+                    task_id, raw_entry, schema, process_descriptor
+                )
             )
             if terminal_receipt is not None:
                 namespace = str(
@@ -3266,16 +3554,20 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                     or "coding"
                 )
                 delivery_changed = mark_delivery_terminal(
+                    task_id,
                     raw_entry,
                     now,
                     f"board-receipt:{receipt_status}",
                 )
-                receipt_completed_at = datetime.fromtimestamp(
-                    terminal_receipt.stat().st_mtime,
-                    tz=timezone.utc,
-                ).isoformat()
                 receipt_path = str(terminal_receipt.relative_to(VAULT_ROOT))
                 receipt_diagnostics = receipt_failure_diagnostics(terminal_receipt)
+                # This route fires exactly when NO response envelope was
+                # promoted -- the shape where a reader has nothing but the
+                # notification text to go on, and so the one place the preserved
+                # location must be stated rather than merely stored.
+                preserved = preserved_work_statement(
+                    task_id, raw_entry, receipt_diagnostics
+                )
                 # Diagnostics must join change-detection: on a re-reconcile where
                 # nothing else moved, `changed` stays 0, the registry is never
                 # written, and the fields would be silently dropped.
@@ -3298,6 +3590,7 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                     raw_entry, receipt_status
                 )
                 if pending:
+                    reason = review_hold_reason(executing_lane, review_lane)
                     hold_changed = (
                         current_status != REVIEW_REQUIRED
                         or raw_entry.get("review_required_by") != review_lane
@@ -3310,7 +3603,7 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                         changed += 1
                         messages.append(
                             f"review-required {task_id} -> terminal board receipt "
-                            f"{raw_receipt_status} awaits {review_lane} review"
+                            f"{raw_receipt_status}; {reason}"
                         )
                     if notification_due(
                         raw_entry, task_id, REVIEW_REQUIRED, now
@@ -3321,10 +3614,11 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                             (
                                 "REVIEW-REQUIRED",
                                 f"{namespace}/{task_id}",
-                                f"terminal board receipt={raw_receipt_status}",
+                                f"terminal board receipt={raw_receipt_status}; "
+                                f"{preserved}",
                                 f"REVIEW-REQUIRED: {task_id} reached terminal board "
                                 f"status {raw_receipt_status} on {executing_lane}, but "
-                                f"must be reviewed by {review_lane} before lifecycle close.",
+                                f"cannot close: {reason}. {preserved}.",
                             )
                         )
                     continue
@@ -3338,10 +3632,10 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                         (
                             receipt_status,
                             f"{namespace}/{task_id}",
-                            f"terminal board receipt={raw_receipt_status}",
+                            f"terminal board receipt={raw_receipt_status}; {preserved}",
                             f"{receipt_status}: {task_id} reached terminal board status "
                             f"{raw_receipt_status}; registry reconciled from the fenced receipt "
-                            "because no promoted response envelope was available.",
+                            f"because no promoted response envelope was available. {preserved}.",
                         )
                     )
                 continue
@@ -3358,7 +3652,7 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                     or raw_entry.get("source_namespace")
                     or "coding"
                 )
-                mark_delivery_terminal(raw_entry, now, "never-launched")
+                mark_delivery_terminal(task_id, raw_entry, now, "never-launched")
                 raw_entry["status"] = "cancelled"
                 raw_entry["never_launched_reason"] = never_launched
                 raw_entry["completed_at"] = now.isoformat()
@@ -3384,8 +3678,15 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
             if current_status == SETTLED_WITHOUT_ENVELOPE:
                 # This is a provisional settled state: it stops counting as
                 # running, but a later real envelope must still win.
-                continue
-            artifact = return_artifact_path(task_id, raw_entry)
+                if schema == "v1":
+                    continue
+                raw_entry["status"] = "in-flight"
+                raw_entry.pop("work_landed_at", None)
+                raw_entry.pop("missing_envelope_artifact", None)
+                raw_entry["reconciled_at"] = now.isoformat()
+                changed += 1
+            # Artifact presence/age is settlement authority only on the V1 rail.
+            artifact = return_artifact_path(task_id, raw_entry) if schema == "v1" else None
             if artifact and artifact.is_file():
                 pane_state, snippet = pane_snapshot(str(raw_entry.get("to_model") or "unknown-model"))
                 artifact_mtime = datetime.fromtimestamp(artifact.stat().st_mtime, tz=timezone.utc)
@@ -3407,7 +3708,7 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                     raw_entry["reconciled_at"] = now.isoformat()
                     raw_entry["missing_envelope_artifact"] = str(artifact)
                     mark_delivery_terminal(
-                        raw_entry, now, SETTLED_WITHOUT_ENVELOPE
+                        task_id, raw_entry, now, SETTLED_WITHOUT_ENVELOPE
                     )
                     changed += 1
                     reason = "lane idle" if pane_state == "idle" else f"artifact grace {artifact_age}"
@@ -3448,6 +3749,16 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                 changed += 1
             if parent_message:
                 messages.append(parent_message)
+        if task_id_filter:
+            held_entry = registry.get(task_id_filter)
+            if isinstance(held_entry, dict) and str(held_entry.get("status") or "") in {"in-flight", REVIEW_REQUIRED, "needs_review"}:
+                held_schema, _held_descriptor = settlement_process(
+                    task_id_filter, held_entry
+                )
+                if held_schema in {"v2", "invalid"}:
+                    messages.append(
+                        f"v2-settlement-hold {task_id_filter} -> schema={held_schema}"
+                    )
         if changed and not dry_run:
             atomic_write(REGISTRY_PATH, json.dumps(registry, indent=2, ensure_ascii=False) + "\n")
         if not dry_run:
@@ -3485,36 +3796,25 @@ def main() -> int:
     parser.add_argument("--register-swarm")
     parser.add_argument("--parent-entry-json")
     parser.add_argument("--member-entries-json")
-    parser.add_argument("--mark-swarm-publication-failed")
-    parser.add_argument("--unpublished-children-json")
-    parser.add_argument("--failure-detail")
-    parser.add_argument("--authorize-delivery")
     parser.add_argument("--claim-task")
-    parser.add_argument("--advance-delivery")
-    parser.add_argument("--schedule-workers-json")
-    parser.add_argument("--plan-worker-targets-json")
-    parser.add_argument("--worker-policy")
-    parser.add_argument("--host-snapshot-json")
-    parser.add_argument("--provider-states-json")
-    parser.add_argument("--provider-usage-json")
-    parser.add_argument("--scan-interval-seconds", type=int)
     parser.add_argument("--attempt-id")
-    parser.add_argument("--generation", type=int)
-    parser.add_argument("--lane")
     parser.add_argument("--worker-id")
     parser.add_argument("--worker-epoch")
     parser.add_argument("--lease-generation", type=int)
     parser.add_argument("--worker-lane")
-    parser.add_argument("--lease-seconds", type=int, default=300)
-    parser.add_argument("--heartbeat-max-age-seconds", type=int, default=30)
-    parser.add_argument("--hard-signal", choices=sorted(HARD_REQUEUE_SIGNALS))
     parser.add_argument("--now")
     parser.add_argument("--settle-review")
     parser.add_argument("--review-ref")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--reopen")
     parser.add_argument("--reopen-status", choices=("needs_review", "needs_rework"))
-    parser.add_argument("--close-task")
+    # `action="extend"` is load-bearing, not cosmetic: with plain `nargs="+"`
+    # argparse OVERWRITES on a repeated flag, so `--close-task A --close-task B`
+    # silently discarded A and closed only B while reporting success. Both the
+    # space-separated form (`--close-task A B`) and the repeated-flag form now
+    # produce the same batch, and the duplicate check inside close_task catches
+    # an id supplied twice across the two forms.
+    parser.add_argument("--close-task", nargs="+", action="extend", metavar="TASK_ID")
     parser.add_argument(
         "--close-status", choices=("superseded", "closed"), default="superseded"
     )
@@ -3534,15 +3834,6 @@ def main() -> int:
         )
     if args.register_task and args.register_swarm:
         parser.error("choose only one registration action")
-    publication_values = (
-        args.mark_swarm_publication_failed,
-        args.unpublished_children_json,
-        args.failure_detail,
-    )
-    if any(publication_values) and not all(publication_values):
-        parser.error(
-            "--mark-swarm-publication-failed, --unpublished-children-json, and --failure-detail must be used together"
-        )
     if bool(args.settle_review) != bool(args.review_ref):
         parser.error("--settle-review and --review-ref must be used together")
     lifecycle_actions = sum(
@@ -3558,95 +3849,16 @@ def main() -> int:
         parser.error("--close-task and --close-reason must be used together")
     if args.close_status != "superseded" and not args.close_task:
         parser.error("--close-status requires --close-task")
-    delivery_actions = sum(
-        bool(value)
-        for value in (
-            args.authorize_delivery,
-            args.claim_task,
-            args.advance_delivery,
-            args.schedule_workers_json,
-            args.plan_worker_targets_json,
-        )
-    )
-    if delivery_actions > 1:
-        parser.error("choose only one delivery action")
-    if delivery_actions and (
+    if args.claim_task and (
         args.register_task
         or args.register_swarm
-        or args.mark_swarm_publication_failed
         or args.settle_review
         or args.reopen
         or args.close_task
         or args.task_id
         or args.dry_run
     ):
-        parser.error("delivery actions cannot be combined with register/reconcile/review actions")
-    if args.authorize_delivery:
-        try:
-            result = authorize_delivery(
-                args.authorize_delivery, attempt_id=args.attempt_id, now_raw=args.now
-            )
-        except (RegistryCorruptError, ValueError) as exc:
-            print(json.dumps({"authorized": False, "error": str(exc)}), file=sys.stderr)
-            return 2
-        print(json.dumps(result, sort_keys=True))
-        return 0
-    if args.plan_worker_targets_json:
-        if not worker_pool_enabled() or not worker_pool_guards_enabled():
-            print(json.dumps({"planned": False, "error": "P1 and P3 worker-pool flags are required"}), file=sys.stderr)
-            return 2
-        try:
-            raw = json.loads(args.plan_worker_targets_json)
-            providers = json.loads(args.provider_states_json or "null")
-            if not isinstance(raw, dict) or set(raw) != {
-                "current_targets", "stable_scans", "pressure", "workers"
-            } or not isinstance(raw["pressure"], bool):
-                raise ValueError("supervisor input keys or pressure value are invalid")
-            policy = _load_enforced_worker_policy(
-                Path(args.worker_policy) if args.worker_policy else None
-            )
-            from worker_pool_policy import supervisor_aimd
-
-            result = supervisor_aimd(
-                policy,
-                current_targets=raw["current_targets"],
-                stable_scans=raw["stable_scans"],
-                pressure=raw["pressure"],
-                provider_states=providers,
-                workers=raw["workers"],
-            )
-        except (json.JSONDecodeError, OSError, ValueError) as exc:
-            print(json.dumps({"planned": False, "error": str(exc)}), file=sys.stderr)
-            return 2
-        print(json.dumps(result, sort_keys=True))
-        return 0
-    if args.schedule_workers_json:
-        try:
-            workers = json.loads(args.schedule_workers_json)
-        except json.JSONDecodeError as exc:
-            parser.error(f"--schedule-workers-json is not valid JSON: {exc}")
-        if not isinstance(workers, list):
-            parser.error("--schedule-workers-json must decode to a list")
-        try:
-            host_snapshot = json.loads(args.host_snapshot_json or "null")
-            provider_states = json.loads(args.provider_states_json or "null")
-            provider_usage = json.loads(args.provider_usage_json or "null")
-            result = schedule_worker_scan(
-                workers,
-                now_raw=args.now,
-                lease_seconds=args.lease_seconds,
-                heartbeat_max_age_seconds=args.heartbeat_max_age_seconds,
-                policy_markdown_path=Path(args.worker_policy) if args.worker_policy else None,
-                host_snapshot=host_snapshot,
-                provider_states=provider_states,
-                provider_usage=provider_usage,
-                scan_interval_seconds=args.scan_interval_seconds,
-            )
-        except (json.JSONDecodeError, OSError, RegistryCorruptError, ValueError) as exc:
-            print(json.dumps({"scheduled": False, "error": str(exc)}), file=sys.stderr)
-            return 2
-        print(json.dumps(result, sort_keys=True))
-        return 0
+        parser.error("--claim-task cannot be combined with register/reconcile/review actions")
     if args.claim_task:
         if not args.attempt_id:
             parser.error("--claim-task requires --attempt-id")
@@ -3675,23 +3887,6 @@ def main() -> int:
             )
         except (RegistryCorruptError, ValueError) as exc:
             print(json.dumps({"claimed": False, "error": str(exc)}), file=sys.stderr)
-            return 3
-        print(json.dumps(result, sort_keys=True))
-        return 0
-    if args.advance_delivery:
-        if not args.attempt_id or args.generation is None or not args.lane:
-            parser.error("--advance-delivery requires --attempt-id, --generation, and --lane")
-        try:
-            result = advance_delivery(
-                args.advance_delivery,
-                args.attempt_id,
-                args.generation,
-                args.lane,
-                hard_signal=args.hard_signal,
-                now_raw=args.now,
-            )
-        except (RegistryCorruptError, ValueError) as exc:
-            print(json.dumps({"advanced": False, "error": str(exc)}), file=sys.stderr)
             return 3
         print(json.dumps(result, sort_keys=True))
         return 0
@@ -3740,27 +3935,6 @@ def main() -> int:
         outcome = "registered" if registered else "idempotent"
         print(f"registry-reconciler swarm: task={args.register_swarm} outcome={outcome}")
         return 0
-    if args.mark_swarm_publication_failed:
-        if args.dry_run or args.task_id or args.settle_review or args.reopen or args.close_task:
-            parser.error("publication failure marking cannot be combined with reconcile/review")
-        try:
-            child_ids = json.loads(args.unpublished_children_json)
-        except json.JSONDecodeError as exc:
-            parser.error(f"--unpublished-children-json is invalid: {exc}")
-        if not isinstance(child_ids, list):
-            parser.error("--unpublished-children-json must decode to a list")
-        try:
-            changed = mark_swarm_publication_failed(
-                args.mark_swarm_publication_failed, child_ids, args.failure_detail
-            )
-        except (RegistryCorruptError, ValueError) as exc:
-            print(f"registry-reconciler ERROR: {exc}", file=sys.stderr)
-            return 3
-        print(
-            f"registry-reconciler swarm-publication: task={args.mark_swarm_publication_failed} "
-            f"outcome={'marked' if changed else 'idempotent'}"
-        )
-        return 0
     if args.settle_review:
         if args.dry_run or args.task_id:
             parser.error("--settle-review cannot be combined with --task-id or --dry-run")
@@ -3794,17 +3968,49 @@ def main() -> int:
         if args.dry_run or args.task_id:
             parser.error("--close-task cannot be combined with --task-id or --dry-run")
         try:
-            changed = close_task(args.close_task, args.close_reason, args.close_status)
+            report = close_task(args.close_task, args.close_reason, args.close_status)
         except RegistryCorruptError as exc:
             print(f"registry-reconciler ERROR: {exc}", file=sys.stderr)
             return 2
+        except BatchCloseRefused as exc:
+            # A refusal is all-or-nothing, so say so about EVERY requested id.
+            # Naming only the member that failed reads as "the rest went
+            # through", which is the misreading this whole path exists to stop.
+            print(
+                f"registry-reconciler close: REFUSED, no task was closed: {exc}",
+                file=sys.stderr,
+            )
+            for line in exc.report.render():
+                print(line, file=sys.stderr)
+            return 2
         except ValueError as exc:
             parser.error(str(exc))
-        outcome = "closed" if changed else "already-closed"
+        outcome = "closed" if report else "already-closed"
+        task_field = "task" if len(args.close_task) == 1 else "tasks"
+        task_value = (
+            args.close_task[0]
+            if len(args.close_task) == 1
+            else ",".join(args.close_task)
+        )
         print(
-            f"registry-reconciler close: {outcome} task={args.close_task} "
+            f"registry-reconciler close: {outcome} {task_field}={task_value} "
             f"status={args.close_status}"
         )
+        # One line per requested id. A partial result cannot hide behind the
+        # summary line, because the summary is no longer the only thing printed.
+        for line in report.render():
+            print(line)
+        incomplete = report.follow_through_failures
+        if incomplete:
+            print(
+                "registry-reconciler close: FOLLOW-THROUGH INCOMPLETE for "
+                f"{len(incomplete)} task(s); the registry close is committed and "
+                "durable, but the records below were not written",
+                file=sys.stderr,
+            )
+            for item in incomplete:
+                print(item.render(), file=sys.stderr)
+            return 1
         return 0
     try:
         changed, messages = reconcile(args.task_id, args.dry_run)

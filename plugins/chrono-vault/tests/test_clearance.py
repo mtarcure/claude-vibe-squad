@@ -72,7 +72,7 @@ class ClearancePolicyTests(unittest.TestCase):
             {
                 "title": f"{token} {sensitivity} evidence",
                 "body": f"{token} body has {sensitivity} sensitivity.",
-                "target": "push-chain",
+                "target": "example-chain",
                 "component": "executor",
                 "attack_class": "clearance",
                 "status": "verified",

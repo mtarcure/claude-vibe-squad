@@ -4,6 +4,8 @@ Cited by `shared/lifecycle.md` rule 13 (mode-close cleanup is mandatory).
 
 This file declares per mode what's ephemeral (cleaned at mode-close) vs. durable (preserved). Each mode reads this on engagement start (Phase 0) and applies the cleanup at mode-close.
 
+There are exactly **two modes** — `project` and `bounty` (`shared/modes/`). The former domain modes (content, maintenance, incident, research) are folded into `project` as profile families / the Incident flow, and triage is now a dispatch mechanic (`shared/modes/project.md`). Their declarations below are grouped as Project Mode family sections: a project engagement in one of those families applies both its family table and the Project Mode base table. (The outreach family carries no dedicated declaration yet — the universal rules apply.)
+
 **Stub status (2026-05-03)**: Universal patterns documented. Per-mode declarations are starter rules — refine each in Phase 5 when the mode-close cleanup discipline is wired into actual mode workflows.
 
 ---
@@ -12,7 +14,7 @@ This file declares per mode what's ephemeral (cleaned at mode-close) vs. durable
 
 **Always preserved (across all modes)**:
 - Operator's main Chrome at port 9222 + `--user-data-dir=~/.chrono/chrome-persistent-profile`
-- Vault entries (`vault/security/findings/F-NN-*.md`, `vault/research/topics/*.md`, `vault/programs/*.md`, etc.)
+- chrono-vault notes (typed `attempt` / `finding` / `learning` records). These live in the private off-repo vault under `CHRONO_VAULT_ROOT` and are never cleanup targets. There is no tracked vault directory in this repo.
 - Memory.md entries with durable learnings (per `shared/memory-discipline.md`)
 - Dispatch log entries (`_state/dispatch-log.jsonl`)
 - Audit trails / per-mode run logs (`_state/runs/<run-id>/run-log.md`)
@@ -51,11 +53,11 @@ Vibecoding-check must fail a mode-close if completed plan/spec/handoff scaffoldi
 
 | Category | Items | Action at mode-close |
 |----------|-------|----------------------|
-| **Durable (preserve)** | F-NN findings, program intel, reusable technique notes, submission narratives, payout records | Commit to `vault/security/` as appropriate, promote program records to `vault/security/programs/<program>/`, update `memory.md` |
+| **Durable (preserve)** | F-NN findings, program intel, reusable technique notes, submission narratives, payout records | `record` to chrono-vault as a `finding` or `learning` note (`restricted` sensitivity), promote confirmed notes with `set_status`, update `memory.md` |
 | **Ephemeral (clean)** | Cloned target repos in `scratch/`, spawned Playwright/chrome-devtools profiles, sandbox containers tagged with `run_id`, PoC scratch artifacts under `/tmp/poc-*`, test exploit outputs | Delete after vibecoding-check passes |
 | **Operator-decision** | Disclosed PoCs, public writeups | Surface to operator before deletion |
 
-**Specific to bounty**: PoC code sometimes has long shelf-life value (variant hunting). Default: archive to `vault/security/techniques/<technique>.md` and delete the runtime artifact. Operator can override.
+**Specific to bounty**: PoC code sometimes has long shelf-life value (variant hunting). Default: `record` the technique to chrono-vault as a `learning` note and delete the runtime artifact. Operator can override.
 
 ### Colima / Docker container discipline (bounty mode)
 
@@ -98,17 +100,17 @@ docker start <run-id-containers>
 
 ---
 
-## Content Mode
+## Project Mode — content family (`profile_family: content`)
 
 | Category | Items | Action at mode-close |
 |----------|-------|----------------------|
-| **Durable (preserve)** | Final approved pieces, final approved assets, voice anchors learned, audience-pattern updates, brand-voice refinements | Commit to `vault/content/` and `memory.md` |
+| **Durable (preserve)** | Final approved pieces, final approved assets, voice anchors learned, audience-pattern updates, brand-voice refinements | `record` durable refinements to chrono-vault as `learning` notes and update `memory.md`; final pieces/assets stay where the operator approved them |
 | **Ephemeral (clean)** | Draft iterations, dead-end variants, scratch outlines, rough generated assets | Delete after final approved |
-| **Operator-decision** | Drafts marked "maybe later" by operator | Move to `vault/content/parked/` |
+| **Operator-decision** | Drafts marked "maybe later" by operator | Do not delete; operator names the destination at mode-close |
 
 ---
 
-## Maintenance Mode
+## Project Mode — operations family (maintenance work, `profile_family: operations`)
 
 | Category | Items | Action at mode-close |
 |----------|-------|----------------------|
@@ -117,25 +119,27 @@ docker start <run-id-containers>
 
 ---
 
-## Incident Mode
+## Project Mode — Incident flow (reactive incident work, no cards)
 
 | Category | Items | Action at mode-close |
 |----------|-------|----------------------|
-| **Durable (preserve)** | `postmortem.md`, fix commits, verification notes, runbook updates, learnings under `vault/incidents/` | Commit + propagate |
+| **Durable (preserve)** | `postmortem.md`, fix commits, verification notes, runbook updates, learnings `record`ed to chrono-vault as `learning` notes | Commit the repo artifacts + propagate |
 | **Ephemeral (clean)** | Stack-trace scratch files, ruled-out hypothesis docs, raw trace dumps | Delete after postmortem written |
 
 ---
 
-## Research Mode
+## Project Mode — research family (`profile_family: research`)
 
 | Category | Items | Action at mode-close |
 |----------|-------|----------------------|
-| **Durable (preserve)** | Final synthesis, source-tier learnings, topic-map updates, citation chains, `integrity-report.md` | Commit to `vault/research/` |
+| **Durable (preserve)** | Final synthesis, source-tier learnings, topic-map updates, citation chains, `integrity-report.md` | Commit the repo artifacts; `record` durable source-tier learnings to chrono-vault as `learning` notes |
 | **Ephemeral (clean)** | Raw fetched source dumps, intermediate synthesis drafts, exploration scratch | Delete after final synthesis written |
 
 ---
 
-## Triage Mode
+## Triage (dispatch mechanic, not a mode)
+
+Triage runs as a dispatch mechanic under a mode (`shared/modes/project.md` Dispatch Notes); its decision log stays durable regardless of which mode invoked it.
 
 | Category | Items | Action at mode-close |
 |----------|-------|----------------------|

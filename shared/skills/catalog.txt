@@ -168,8 +168,6 @@ cross-chain-bridge-audit
 cosmos-sdk-audit-checklist
 known-advisory-backport-check
 solana-anchor-audit-checklist
-systematic-attacking
-systematic-bug-hunting
 visual-verify
 wirework-preflight
 auto-scaffold

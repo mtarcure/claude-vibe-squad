@@ -65,7 +65,7 @@ send_alert() {
 
 # ── watchdog helpers (Fix 1 / Fix 2 / Fix 3) ─────────────────────────────────
 
-# Read a packet's to_model frontmatter (same awk as bin/inbox-watcher.sh:41).
+# Read a packet's to_model frontmatter.
 packet_to_model() {
     awk '/^---$/{p=!p; next} p && /^to_model:/ {sub(/^to_model:[[:space:]]*/, ""); print; exit}' "$1" 2>/dev/null
 }
@@ -118,6 +118,68 @@ task_idle_secs() {
 task_registry_status() {
     [[ -f "$REGISTRY" ]] || return
     jq -r --arg t "$1" '.[$t].status // empty' "$REGISTRY" 2>/dev/null
+}
+
+# Completion evidence must match the live reconciliation rail, not an inferred
+# mailbox state. A terminal registry status, a promoted response (including the
+# V1 cross-namespace compatibility search), or an identity-fenced terminal board
+# receipt all falsify "no response yet". This helper is deliberately re-run at
+# the alert boundary because completion can land after detect_stuck starts.
+task_has_completion_evidence() {
+    local task_id="$1" status evidence_path state candidate
+    status=$(task_registry_status "$task_id")
+    case "$status" in
+        complete|completed|blocked|needs_review|needs_human|cancelled|closed|superseded|work-done-no-envelope|review-required)
+            return 0
+            ;;
+    esac
+
+    # Reconciliation records either the selected response or its canonical
+    # expected path. Presence is enough to falsify this monitor's literal claim;
+    # status/schema validation remains the reconciler's responsibility.
+    evidence_path=$(jq -r --arg t "$task_id" \
+        '.[$t].response_path // .[$t].expected_response_path // empty' \
+        "$REGISTRY" 2>/dev/null)
+    if [[ -n "$evidence_path" && -f "${VAULT_ROOT}/${evidence_path}" ]]; then
+        return 0
+    fi
+
+    # Live V3 response discovery searches every mailbox outbox/archive. This
+    # also prevents source/compatibility namespace splits from becoming a stall.
+    for state in outbox archive; do
+        for candidate in \
+            "${VAULT_ROOT}"/departments/*/"${state}"/"${task_id}-response.md"
+        do
+            [[ -f "$candidate" ]] && return 0
+        done
+    done
+
+    # The board receipt is the completion path's safety net when response
+    # promotion has not happened yet. Accept it only when task, attempt, and
+    # generation match the registry fence.
+    local attempt_id generation receipt receipt_status
+    attempt_id=$(jq -r --arg t "$task_id" \
+        '.[$t].delivery_attempt_id // empty' "$REGISTRY" 2>/dev/null)
+    generation=$(jq -r --arg t "$task_id" \
+        '.[$t].delivery_generation // 1' "$REGISTRY" 2>/dev/null)
+    [[ "$attempt_id" =~ ^[A-Za-z0-9._-]+$ ]] || return 1
+    [[ "$generation" =~ ^[1-9][0-9]*$ ]] || return 1
+    receipt="${VAULT_ROOT}/_state/board-dispatch/${task_id}.${attempt_id}.receipt.json"
+    [[ -f "$receipt" ]] || return 1
+    receipt_status=$(jq -r \
+        --arg task "$task_id" --arg attempt "$attempt_id" \
+        --argjson generation "$generation" '
+        if .task_id == $task and .attempt_id == $attempt
+           and ((.generation == null and $generation == 1)
+                or .generation == $generation)
+        then (.status // empty) else empty end
+        ' "$receipt" 2>/dev/null)
+    case "$receipt_status" in
+        complete|completed|blocked|failed|denied|needs_review|needs_human|cancelled)
+            return 0
+            ;;
+    esac
+    return 1
 }
 
 # Hash all 4 model-lane panes once per run; reset the idle timestamp on change.
@@ -225,15 +287,13 @@ detect_stuck() {
     # >= STUCK_THRESHOLD with the task still un-responded.
     local namespace="$1"
     local inbox_dir="${VAULT_ROOT}/departments/${namespace}/inbox"
-    local outbox_dir="${VAULT_ROOT}/departments/${namespace}/outbox"
 
     while IFS= read -r task_file; do
         [[ -z "$task_file" ]] && continue
-        local task_name task_id response
+        local task_name task_id
         task_name=$(basename "$task_file")
         task_id="${task_name%.md}"
-        response="${outbox_dir}/${task_id}-response.md"
-        [[ -f "$response" ]] && continue          # already complete — not stuck
+        task_has_completion_evidence "$task_id" && continue
 
         # Fix 1: executing lane comes from the packet, not the namespace default.
         local to_model lane pane
@@ -277,6 +337,10 @@ detect_stuck() {
         [[ -n "$disp_epoch" && $disp_epoch -gt $now ]] && disp_epoch="$now"
         [[ -n "$disp_epoch" ]] && age_min=$(( ( now - disp_epoch ) / 60 ))
         local idle_min=$(( idle_secs / 60 ))
+
+        # Completion can race every check above. Re-read the same authoritative
+        # evidence immediately before making the falsifiable "no response" claim.
+        task_has_completion_evidence "$task_id" && continue
 
         # ALERT-FIRST (always): correct lane + correct age, keyed by task id + lane.
         send_alert "task ${task_id} → ${to_model} lane ($(runtime_display_name "$to_model")) idle ${idle_min}m, no response yet (dispatched ${age_min}m ago); pending in ${namespace}/inbox"
@@ -424,19 +488,6 @@ auto_archive_completed() {
 
 # ── run all detectors ─────────────────────────────────────────────────────────
 
-# The failover watchdog shares the controller's dormant-by-default gate. It
-# consumes only hard typed sensors automatically; the existing pane/staleness
-# detectors below remain alert-only for ambiguous liveness observations.
-if [[ "${FAILOVER_CONTROL_ENABLED:-0}" == "1" || -f "${VAULT_ROOT}/_state/failover/ENABLED" ]]; then
-    if command -v uv >/dev/null 2>&1; then
-        uv run --with-requirements "${VAULT_ROOT}/daemon/requirements.txt" \
-            python "${VAULT_ROOT}/daemon/failover_watchdog.py" --once \
-            || send_alert "conservative failover watchdog failed; operator inspection required"
-    else
-        send_alert "conservative failover watchdog requires uv; operator inspection required"
-    fi
-fi
-
 # Keep per-lane pane snapshots for diagnostics; task idle comes from the registry.
 update_lane_hashes
 
@@ -449,7 +500,7 @@ done
 detect_thrash
 
 # ── write monitor state for status bar ───────────────────────────────────────
-# squad-health.sh picks up _state/monitor/alert-count for its mon: field.
+# bin/chrono-status-segment.sh picks up _state/monitor/alert-count for its mon: field.
 echo "$alerts" > "${STATE_DIR}/last-alert-count"
 
 if [[ $alerts -eq 0 ]]; then

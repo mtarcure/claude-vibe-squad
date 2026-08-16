@@ -6,26 +6,23 @@ trusted_host_path="${TRUSTED_HOST_PATH:-${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}}"
 unset TRUSTED_HOST_PATH
 board_transcript_fd="${BOARD_TRANSCRIPT_FD:-}"
 unset BOARD_TRANSCRIPT_FD
+board_dispatch_descriptor="${BOARD_DISPATCH_DESCRIPTOR_PATH:-}"
+unset BOARD_DISPATCH_DESCRIPTOR_PATH
 PATH="/usr/bin:/bin:/usr/sbin:/sbin"
 export PATH
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-readonly python_bin="/usr/bin/python3"
-if [[ ! -x "$python_bin" ]]; then
-  echo '{"status":"denied","reason":"canonical /usr/bin/python3 unavailable"}' >&2
-  exit 74
-fi
+# Runtime authority for the memory audit home.  It must not follow VAULT_ROOT:
+# a missing vault is the failure this trail exists to retain.  The launcher has
+# the same entry-point default, held byte-identical by
+# _state/v4-audit/vault-audit-dir/test_worker_unavailable_event.py; this
+# supervisor remains authoritative for plain-shell board launches.
+export CHRONO_VAULT_AUDIT_DIR="${CHRONO_VAULT_AUDIT_DIR:-${HOME:-/var/tmp/chrono-vault-${EUID}}/.local/state/chrono-vault/audit}"
 
 usage() {
-  echo "Usage: board-supervisor.sh prepare REQUEST.json WORKLOAD_CLASS [RUNTIME_CONTEXT.json]"
-  echo "       board-supervisor.sh trusted-launch CONTEXT.json"
+  echo "Usage: board-supervisor.sh trusted-launch CONTEXT.json"
   echo "       board-supervisor.sh trusted-launch --strict CONTEXT.json"
   echo "       board-supervisor.sh detached-launch CONTEXT.json LOG RECEIPT FAILURE_MARKER BUILDER REPO_ROOT TASK_ID LANE RETURN_ARTIFACT NAMESPACE RECONCILER"
-  echo "NON-model controller: validate -> live admission -> sealed boundary launch + attestation"
-  echo "  prepare         opt-in F2 broker-custody strict path (untrusted-input work)."
-  echo "                  Currently always denies: tool_surface_attest.py's"
-  echo "                  _trusted_boundary_receipt() requires a CredentialBroker binding"
-  echo "                  that Task 1.3 does not yet supply. Left unchanged by this task."
+  echo "NON-model controller: validate -> sealed boundary launch + attestation"
   echo "  trusted-launch  DEFAULT trusted path (operator threat-model reframe 2026-07-22)."
   echo "                  Normal env, own worktree (2.3), scheduler-safe (2.1),"
   echo "                  lineage-rooted (2.4), no broker custody required."
@@ -35,21 +32,88 @@ usage() {
   echo "                  durable combined transcript, settlement, and reconciliation."
 }
 
+# Syntax is dependency-free. A caller with a malformed invocation must receive
+# the precise usage contract even when a copied or partially deployed supervisor
+# has none of its launch-time siblings yet.
 if [[ "${1:-}" == "--help" ]]; then
   usage
   exit 0
 fi
+case "${1:-}" in
+  detached-launch)
+    if [[ "$#" -ne 12 ]]; then
+      usage >&2
+      exit 64
+    fi
+    ;;
+  trusted-launch)
+    if [[ "${2:-}" == "--strict" ]]; then
+      if [[ "$#" -ne 3 ]]; then
+        usage >&2
+        exit 64
+      fi
+    elif [[ "$#" -ne 2 ]]; then
+      usage >&2
+      exit 64
+    fi
+    ;;
+  *)
+    usage >&2
+    exit 64
+    ;;
+esac
+
+# Doctor evidence uses the same root-independent local-state pattern. This
+# entry point remains authoritative for plain-shell board launches. It is a
+# required dependency for a valid launch, so report its exact path if a partial
+# deployment omitted it.
+# shellcheck source=doctor-log-home.sh disable=SC1091
+doctor_log_home_resolver="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/doctor-log-home.sh"
+if [[ ! -f "$doctor_log_home_resolver" ]]; then
+  printf 'board-supervisor.sh: required launch infrastructure is missing: %s\n' \
+    "$doctor_log_home_resolver" >&2
+  exit 1
+fi
+source "$doctor_log_home_resolver" || exit $?
+export CHRONO_DOCTOR_LOG_DIR
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# Six downstream consumers fall back to a hardcoded "v2" when SQUAD_BASE_BRANCH
+# is unset -- the worktree pool, the trusted launch request, the integration
+# target branch, launch hygiene (x2) and worktree isolation. On any branch that
+# is not literally "v2" those defaults silently branch workers off the wrong
+# ref, and the failure is invisible: the worker gets a clean worktree holding
+# somebody else's code. send-task.sh derives the value from the checkout and
+# exports it, so the literals normally never fire; derive it here too so a
+# supervisor reached by any other path cannot quietly disagree with the
+# checkout it is running from. git is present on the restricted PATH above.
+if [[ -z "${SQUAD_BASE_BRANCH:-}" ]]; then
+    _vs_branch="$(git -C "$repo_root" branch --show-current 2>/dev/null || true)"
+    if [[ -n "$_vs_branch" ]]; then
+        SQUAD_BASE_BRANCH="$_vs_branch"
+        export SQUAD_BASE_BRANCH
+    fi
+    unset _vs_branch
+fi
+readonly python_bin="/usr/bin/python3"
+# Structured receipts go to STDOUT, always. The detached transport reads this
+# process's stdout as the one machine channel and hands it to the finalizer;
+# stderr is the transcript. Until 2026-08-10 both denials below printed a
+# receipt to stderr and were only ever read because the detached wrapper merged
+# the streams with `2>&1`. Now that stderr goes to the transcript descriptor
+# instead, a receipt written there would vanish from the machine channel and the
+# attempt would terminalise as an unexplained empty capture.
+if [[ ! -x "$python_bin" ]]; then
+  echo '{"status":"denied","reason":"canonical /usr/bin/python3 unavailable"}'
+  exit 74
+fi
 
 if [[ "$EUID" -eq 0 ]]; then
-  echo '{"status":"denied","reason":"supervisor refuses root execution"}' >&2
+  echo '{"status":"denied","reason":"supervisor refuses root execution"}'
   exit 74
 fi
 
 if [[ "${1:-}" == "detached-launch" ]]; then
-  if [[ "$#" -ne 12 ]]; then
-    usage >&2
-    exit 64
-  fi
   context_file="$2"
   log_path="$3"
   receipt_path="$4"
@@ -61,29 +125,72 @@ if [[ "${1:-}" == "detached-launch" ]]; then
   return_artifact="${10}"
   compatibility_namespace="${11}"
   reconciler="${12}"
-  timeout_bin="$(PATH="$trusted_host_path" command -v timeout || true)"
-  if [[ -z "$timeout_bin" || "$timeout_bin" != /* || ! -x "$timeout_bin" ]]; then
-    echo '{"status":"denied","reason":"bounded timeout executable unavailable"}' \
+  require_vault_root() {
+    if [[ ! -d "$vault_root" ]]; then
+      # A vanished root cannot publish or reconcile any further state. This is
+      # terminal, not an uncertain process-identity condition: never route it
+      # through the resumable SIGSTOP path used by trusted-launch cleanup.
+      printf 'board supervisor blocked: vault root disappeared: %s\n' \
+        "$vault_root" >&2
+      exit 75
+    fi
+  }
+  require_vault_root
+  if [[ -z "$board_dispatch_descriptor" ]]; then
+    echo '{"status":"denied","reason":"board dispatch descriptor path unavailable"}' \
       >>"$log_path"
     exit 74
   fi
-
+  descriptor_ready=0
+  for _ in {1..100}; do
+    require_vault_root
+    if [[ -f "$board_dispatch_descriptor" ]]; then
+      descriptor_ready=1
+      break
+    fi
+    /bin/sleep 0.01
+  done
+  require_vault_root
+  if [[ "$descriptor_ready" -ne 1 ]]; then
+    echo '{"status":"denied","reason":"board dispatch descriptor was not published"}' \
+      >>"$log_path"
+    exit 74
+  fi
   set +e
+  receipt_capture="$(/usr/bin/mktemp "${receipt_path}.capture.XXXXXX")"
+  if [[ -z "$receipt_capture" ]]; then
+    printf "receipt capture staging failed\n" >"$failure_marker"
+    exit 70
+  fi
   exec 4>>"$log_path"
-  # Legacy short wrapper was: "$timeout_bin" --kill-after=30 1860
+  # STREAM SEPARATION. stdout is the machine channel and carries exactly one
+  # structured receipt; stderr is diagnostics and goes to the transcript
+  # descriptor, never into the capture.
+  #
+  # This was `2>&1` until 2026-08-10, which put both into `$receipt_capture`.
+  # The finalizer parses the ENTIRE capture as one JSON object and substitutes a
+  # blocked receipt when it is not, so a single stderr line -- a Python warning,
+  # an `import` trace, a subprocess note -- was enough to make a SUCCESSFUL
+  # launch terminalise as blocked, and enough to reduce a specific early
+  # exception to a generic "invalid launch receipt". Board observability failed
+  # in exactly the moment it was needed.
+  #
+  # FD 4 is already open (append) on the transcript above and is the same
+  # descriptor the child frames its own child-transcript into, so diagnostics
+  # stay durable and readable -- they are relocated, not discarded.
   TRUSTED_HOST_PATH="$trusted_host_path" BOARD_TRANSCRIPT_FD=4 \
-    "$timeout_bin" --kill-after=30 3660 \
     "$repo_root/bin/board-supervisor.sh" trusted-launch "$context_file" \
-    >"$receipt_path" 2>&1
+    >"$receipt_capture" 2>&4
   supervisor_rc=$?
+  require_vault_root
   exec 4>&-
-  /bin/cat "$receipt_path" >>"$log_path"
+  /bin/cat "$receipt_capture" >>"$log_path"
   capture_rc=$?
 
   # trusted-launch fsyncs the private child-transcript FD. Force the separate
   # canonical receipt and the appended controller record to stable storage
   # before interpreting status or settling the detached run.
-  "$python_bin" - "$log_path" "$receipt_path" <<'PYEOF'
+  "$python_bin" - "$log_path" "$receipt_capture" <<'PYEOF'
 import os
 import sys
 
@@ -95,6 +202,11 @@ for value in sys.argv[1:]:
         os.close(descriptor)
 PYEOF
   sync_rc=$?
+  "$python_bin" "$repo_root/scripts/python/board_process_truth.py" \
+    finalize-receipt "$receipt_capture" "$board_dispatch_descriptor" \
+    "$receipt_path" >>"$log_path" 2>&1
+  finalize_rc=$?
+  /bin/rm -f -- "$receipt_capture"
   supervisor_status="$(
     "$python_bin" - "$receipt_path" "$context_file" "$task_id" <<'PYEOF' \
       2>/dev/null
@@ -110,20 +222,25 @@ if not isinstance(receipt, dict) or not isinstance(authority, dict):
     raise SystemExit(1)
 expected_task = authority.get("task_id")
 expected_attempt = authority.get("attempt_id")
+expected_generation = authority.get("generation")
 if expected_task != sys.argv[3]:
     raise SystemExit(1)
 status = receipt.get("status")
 if status not in {"launched", "blocked", "denied"}:
     raise SystemExit(1)
-if status == "launched" and (
-    receipt.get("task_id") != expected_task
+if (
+    receipt.get("schema") != "board-dispatch-receipt/v2"
+    or receipt.get("task_id") != expected_task
     or receipt.get("attempt_id") != expected_attempt
+    or receipt.get("generation") != expected_generation
+    or not isinstance(receipt.get("completed_at"), str)
+    or not isinstance(receipt.get("terminal_outcome"), str)
 ):
     raise SystemExit(1)
 print(status)
 PYEOF
   )"
-  if [[ "$capture_rc" -ne 0 || "$sync_rc" -ne 0 || "$supervisor_rc" -ne 0 || "$supervisor_status" != "launched" ]]; then
+  if [[ "$capture_rc" -ne 0 || "$sync_rc" -ne 0 || "$finalize_rc" -ne 0 || "$supervisor_rc" -ne 0 || "$supervisor_status" != "launched" ]]; then
     # The receipt already records WHY the launch failed. Without lifting it here the
     # envelope only said "status blocked exit N; inspect <log>", so every block cost a
     # round trip into the log to learn whether the packet was too large, the mode
@@ -145,6 +262,7 @@ PYBLOCKED
     )"
     if ! "$python_bin" "$context_builder" blocked \
       --repo-root "$vault_root" \
+      --context-file "$context_file" \
       --task-id "$task_id" \
       --lane "$lane" \
       --return-artifact "$return_artifact" \
@@ -198,13 +316,11 @@ PYEOF
     exit 70
   fi
   if [[ -n "$child_worktree" ]]; then
-    git_bin="$(PATH="$trusted_host_path" command -v git || true)"
-    if [[ -z "$git_bin" || "$git_bin" != /* || ! -x "$git_bin" ]] \
-      || ! "$git_bin" -C "$vault_root" worktree remove --force "$child_worktree"; then
-      printf "board child worktree cleanup failed\n" >"$failure_marker"
-      exit 70
-    fi
-    printf 'worktree_autocleaned=%s\n' "$child_worktree" >>"$log_path"
+    # A successful response proves its declared artifact, not that every extra
+    # PoC/file in this child worktree was promoted. Retain it as a cleanup
+    # candidate until an exact promotion manifest exists.
+    printf 'worktree_cleanup_candidate=%s reason=promotion-proof-unavailable\n' \
+      "$child_worktree" >>"$log_path"
   fi
   if ! "$python_bin" "$context_builder" cleanup-canary \
     --repo-root "$vault_root" \
@@ -224,7 +340,7 @@ try:
 finally:
     os.close(descriptor)
 PYEOF
-  [[ "$capture_rc" -eq 0 && "$sync_rc" -eq 0 && "$supervisor_rc" -eq 0 && "$supervisor_status" == "launched" ]]
+  [[ "$capture_rc" -eq 0 && "$sync_rc" -eq 0 && "$finalize_rc" -eq 0 && "$supervisor_rc" -eq 0 && "$supervisor_status" == "launched" ]]
   exit
 fi
 
@@ -232,16 +348,9 @@ if [[ "${1:-}" == "trusted-launch" ]]; then
   launch_mode="trusted"
   if [[ "${2:-}" == "--strict" ]]; then
     launch_mode="strict"
-    if [[ "$#" -ne 3 ]]; then
-      usage >&2
-      exit 64
-    fi
     context_file="$3"
-  elif [[ "$#" -eq 2 ]]; then
-    context_file="$2"
   else
-    usage >&2
-    exit 64
+    context_file="$2"
   fi
   if [[ ! -f "$context_file" ]]; then
     echo '{"status":"denied","reason":"trusted-launch context file missing"}'
@@ -257,26 +366,118 @@ if [[ "${1:-}" == "trusted-launch" ]]; then
   TRUSTED_HOST_PATH="$trusted_host_path" \
   BOARD_TRANSCRIPT_FD_VALUE="$board_transcript_fd" \
     exec "$python_bin" - "$context_file" <<'PYEOF'
-import hashlib
-import hmac
 import json
 import os
+import sys
+import traceback
+
+# --- structured receipt funnel -------------------------------------------------
+# Deliberately ABOVE every other import, which is why the import block below is
+# split. stdout of this process is the board's machine channel: the detached
+# transport reads exactly one JSON object from it and the finalizer terminalises
+# whatever it finds. Every EXPECTED failure here is already structured --
+# deny() and block_after_provision() each print one JSON object -- but an
+# UNEXPECTED exception during module initialisation printed a raw traceback
+# instead, which the finalizer could only reduce to a generic "invalid launch
+# receipt". The exception type, message and location were lost from the machine
+# channel, so the most informative failures produced the least informative
+# receipts.
+#
+# This covers the surface a local handler cannot: a failing repo import, and the
+# plain OSError that WorktreePool construction can raise (its call site catches
+# only WorktreeIsolationError). SystemExit is never routed to an excepthook, so
+# deny() and block_after_provision() keep their exact payloads and exit codes;
+# this fires only on a genuine crash.
+#
+# The traceback is not discarded. It goes to the board transcript -- the human
+# channel -- so stdout stays one object while the detail stays readable.
+def _funnel_note(text):
+    """Best-effort transcript write, usable before write_board_note is defined."""
+    writer = globals().get("write_board_note")
+    if writer is not None:
+        writer(text)
+        return
+    raw_descriptor = os.environ.get("BOARD_TRANSCRIPT_FD_VALUE", "")
+    if not raw_descriptor:
+        return
+    try:
+        descriptor = int(raw_descriptor)
+        payload = ("board: " + str(text).strip() + "\n").encode("utf-8", "replace")
+        offset = 0
+        while offset < len(payload):
+            written = os.write(descriptor, payload[offset:])
+            if written <= 0:
+                return
+            offset += written
+        os.fsync(descriptor)
+    except (OSError, TypeError, ValueError):
+        return
+
+
+def _uncaught_launch_exception(kind, value, trace):
+    detail = "unreportable exception during trusted launch"
+    try:
+        try:
+            message = " ".join(str(value).split())
+        except Exception:  # noqa: BLE001 - a raising __str__ must not hide the type
+            message = "<exception message is unprintable>"
+        where = ""
+        frames = traceback.extract_tb(trace)
+        if frames:
+            where = " at %s:%s" % (
+                os.path.basename(frames[-1].filename or "<string>"),
+                frames[-1].lineno,
+            )
+        detail = "%s%s: %s" % (
+            getattr(kind, "__name__", None) or str(kind), where, message
+        )
+        detail = detail[:600]
+        _funnel_note("uncaught trusted-launch exception: " + detail)
+        _funnel_note("".join(traceback.format_exception(kind, value, trace))[-8192:])
+    except Exception:  # noqa: BLE001 - the funnel itself must never crash
+        pass
+    try:
+        print(json.dumps(
+            {
+                "status": "blocked",
+                "reason": "trusted launch raised an uncaught exception: " + detail,
+            },
+            sort_keys=True,
+        ))
+        sys.stdout.flush()
+    except Exception:  # noqa: BLE001
+        pass
+    # os._exit, not sys.exit: an excepthook cannot raise its way out, and 75 is
+    # the same nonzero the post-provision block path uses.
+    os._exit(75)
+
+
+sys.excepthook = _uncaught_launch_exception
+# --- end structured receipt funnel ---------------------------------------------
+
+import hashlib
+import hmac
 import re
 import shutil
+import signal
 import stat
 import subprocess
 import threading
-import sys
 import time
 from dataclasses import asdict
 from pathlib import Path
+from types import MappingProxyType
 
 repo_root = Path(os.environ["REPO_ROOT"])
 sys.path.insert(0, str(repo_root / "scripts" / "python"))
-
-
-def deny(reason):
-    print(json.dumps({"status": "denied", "reason": str(reason)}, sort_keys=True))
+sys.path.insert(0, str(repo_root / "plugins" / "chrono-vault"))
+def deny(reason, failure_class=None):
+    payload = {"status": "denied", "reason": str(reason)}
+    if failure_class is not None:
+        if failure_class not in globals().get("CLI_TRANSPORT_FAILURE_CLASSES", ()):
+            raise ValueError("invalid CLI transport failure class")
+        payload["failure_class"] = failure_class
+    print(json.dumps(payload, sort_keys=True))
     sys.exit(74)
 
 
@@ -316,8 +517,45 @@ def write_board_note(text):
             if written <= 0:
                 return
             offset += written
+        os.fsync(descriptor)
     except OSError:
         return
+
+
+def hold_for_operator_stop(reason):
+    """Freeze once, resumably, after telling the operator exactly how to clear it.
+
+    This used to be `while True: SIGSTOP`, which made SIGCONT useless -- resuming
+    the process only looped it straight back into another stop, so the only exit
+    was SIGKILL. On 2026-08-09 that froze a lane in state T for 48 minutes with a
+    live descriptor, no receipt and no artifact, while the registry showed it
+    in-flight forever. `vs-cancel-spawn.sh` refuses the same attempt for the same
+    identity reason that got us here, so the documented cancel path could not
+    clear it either.
+
+    The freeze itself is right: the process-identity guard fired because a PID may
+    have been recycled, and signalling an unverifiable process is worse than
+    stalling. What was wrong is that the stall was permanent, undocumented and
+    unresumable. Now it stops ONCE -- SIGCONT resumes it -- and the note carries
+    the exact command to terminalise the attempt.
+    """
+    detail = " ".join(str(reason).split())[:600]
+    recovery = (
+        f"recover with: python3 {os.environ.get('BOARD_PROCESS_TRUTH', 'scripts/python/board_process_truth.py')} "
+        f"reap {os.environ.get('VAULT_ROOT', '<vault>')} {os.environ.get('BOARD_LOG_PATH', '<attempt>.log')}"
+    )
+    write_board_note(
+        f"process cleanup uncertain; operator Stop required: {detail} | {recovery} | "
+        "or SIGCONT this pid to let it terminalise itself"
+    )
+    os.kill(os.getpid(), signal.SIGSTOP)
+    # Reached only on SIGCONT. The attempt cannot be trusted to have cleaned up,
+    # so it terminalises as blocked rather than pretending to have succeeded --
+    # but it does terminalise, which is what stops the registry stranding it.
+    block_after_provision(
+        f"resumed after an operator stop; process cleanup was never confirmed: {detail}",
+        failure_class="other",
+    )
 
 
 def write_board_transcript(stdout, stderr):
@@ -376,12 +614,16 @@ authority_fields = {
     "scheduler_concurrency", "scheduler_capacities", "scheduler_settled",
     "network_scope",
     "action_scope", "budgets", "expected_result_path", "expected_outbox_path",
+    "evidence_outputs",
     # CC-03: pins/fences the promoted response envelope must echo so the
     # reconciler can settle a capability/swarm/worker completion.
     "reconciliation_echo",
     "required_phase_ids", "verification_kinds", "operator_gates",
     "packet_sha256", "plan_sha256", "verification_contract_sha256",
-    "selected_model_sha256", "profile_bundle_sha256", "active_board_tasks",
+    "selected_model_sha256", "profile_bundle_sha256", "capability_surface_sha256",
+    "auth_class", "lane_policy_row_sha256",
+    "memory_context",
+    "active_board_tasks",
     "created_at", "expires_at",
     "nonce",
 }
@@ -465,7 +707,8 @@ if strict_context or trusted_context:
         deny("launch authority is stale, expired, or not yet valid")
     for hash_field in (
         "packet_sha256", "plan_sha256", "verification_contract_sha256",
-        "selected_model_sha256", "profile_bundle_sha256",
+        "selected_model_sha256", "profile_bundle_sha256", "capability_surface_sha256",
+        "lane_policy_row_sha256",
         "canonical_role_sha256", "lane_overlay_sha256", "executable_sha256",
         "nonce",
     ):
@@ -477,6 +720,8 @@ if strict_context or trusted_context:
             or value == "0" * 64
         ):
             deny(f"launch authority has an invalid {hash_field}")
+    if authority["auth_class"] not in {"subscription", "managed-login", "gemini-api-key"}:
+        deny("launch authority has an invalid auth_class")
     context = {
         "task_id": authority["task_id"],
         "attempt_id": authority["attempt_id"],
@@ -514,18 +759,30 @@ try:
     import board_router
     import delegation_lineage
     from held_action_gate import HELD_CATEGORIES
+    from board_process_truth import ProcessTruthError
+    from clearance import (
+        ClearanceError,
+        project_worker_vault_environment,
+        validate_memory_context,
+    )
     from dispatch_context_builder import (
+        CLI_TRANSPORT_FAILURE_CLASSES,
         DispatchContextError,
+        ModeExitVerificationError,
         prepare_worktree_outputs,
         publish_prepared_worktree_outputs,
         reclaim_lane_cwd_outputs,
+        lane_policy_evidence_for,
         selected_model_sha256_for,
         trusted_lane_args_for,
     )
     from lane_capability_enforcement import (
         CapabilityDenied,
         adapter_path_for,
+        broker_chrono_vault_plan,
+        chrono_vault_relay_server,
         cli_args_for_materialized,
+        codex_chrono_vault_relay_args,
         load_json_mcp_servers,
         load_projection,
         load_tool_classes,
@@ -546,6 +803,7 @@ try:
     from runtime_envelope import RuntimeEnvelopeClaims, launch_task, seal_runtime_envelope
     from launch_hygiene import (
         HygieneError,
+        ProcessGroupReaper,
         ResourceLimits,
         _load_task_request,
         _request_digest,
@@ -555,10 +813,20 @@ try:
         run_preflight_canary,
     )
     from seatbelt_profile import (
+        BROKER_RELAY_PYTHON,
         DEFAULT_LANE_PATH,
+        HOST_HOME,
         LANE_CLI_PATHS,
         OFFLINE_LAUNCH_EXECUTABLES,
         scoped_lane_launch_profile,
+    )
+    from broker import (
+        BrokerBinding,
+        BrokerError,
+        CONTEXT_ENV as VAULT_CONTEXT_ENV,
+        ROOT_ALIASES as VAULT_ROOT_ALIASES,
+        TOKEN_ENV as VAULT_BROKER_TOKEN_ENV,
+        VaultBroker,
     )
 except Exception as exc:  # noqa: BLE001 - fail-closed report, not a crash
     deny(f"trusted-launch dependency import failed: {exc}")
@@ -573,14 +841,14 @@ pool_root = Path(str(context["pool_root"]))
 executable = Path(str(context["executable"]))
 
 
-def sha256_file(path):
+def sha256_file(path, failure_class=None):
     digest = hashlib.sha256()
     try:
         with Path(path).open("rb") as stream:
             for chunk in iter(lambda: stream.read(1024 * 1024), b""):
                 digest.update(chunk)
     except OSError as exc:
-        deny(f"authenticated launch file is unavailable: {exc}")
+        deny(f"authenticated launch file is unavailable: {exc}", failure_class)
     return digest.hexdigest()
 
 execution_kind = authority["execution_kind"]
@@ -611,12 +879,43 @@ if board_dispatch_context:
             lane=lane,
             specialist=specialist,
         )
+        controller_lane_policy = lane_policy_evidence_for(repo_path, lane)
     except DispatchContextError as exc:
         deny(f"trusted launch profile cannot be resolved: {exc}")
     if tuple(authority["lane_args"]) != controller_lane_args:
         deny("trusted launch lane arguments do not match the closed controller ABI")
     if authority["selected_model_sha256"] != controller_model_sha256:
         deny("trusted launch selected model does not match the profile registry")
+    if any(authority[key] != controller_lane_policy[key] for key in controller_lane_policy):
+        deny("trusted launch auth policy does not match the lane registry")
+packet_path = None
+packet_frontmatter = {}
+pinned_contract = {}
+canary_cleanup_requested = False
+if board_dispatch_context:
+    packet_scope_pattern = re.compile(
+        rf"^departments/[^/]+/inbox/{re.escape(task_id)}\.md$"
+    )
+    packet_scope_entries = [
+        item for item in authority["read_scope"] if packet_scope_pattern.fullmatch(item)
+    ]
+    if len(packet_scope_entries) != 1:
+        deny("scheduler authority must name the exact inbox packet in read_scope")
+    packet_path = repo_path / packet_scope_entries[0]
+    if sha256_file(packet_path) != authority["packet_sha256"]:
+        deny("inbox packet content does not match authenticated authority")
+    try:
+        packet_frontmatter = read_yaml_frontmatter(packet_path)
+        pinned_contract = validate_verification_contract(
+            packet_frontmatter.get("verification_contract")
+        )
+    except ContractError as exc:
+        deny(f"canonical packet verification contract is invalid: {exc}")
+    if verification_contract_sha256(pinned_contract) != authority[
+        "verification_contract_sha256"
+    ]:
+        deny("canonical packet contract does not match the authenticated contract hash")
+    canary_cleanup_requested = packet_frontmatter.get("board_canary_autoclean") is True
 if (
     not isinstance(authority["action_scope"], list)
     or any(not isinstance(item, str) for item in authority["action_scope"])
@@ -631,7 +930,7 @@ if sha256_file(authority["canonical_role_path"]) != authority["canonical_role_sh
 if sha256_file(authority["lane_overlay_path"]) != authority["lane_overlay_sha256"]:
     deny("lane overlay content does not match authenticated authority")
 resolved_executable = Path(os.path.realpath(executable))
-if sha256_file(resolved_executable) != authority["executable_sha256"]:
+if sha256_file(resolved_executable, "cli_missing") != authority["executable_sha256"]:
     deny("lane executable content does not match authenticated authority")
 
 
@@ -761,6 +1060,70 @@ def load_research_api_keys():
         if value and len(value) <= 16384 and "\x00" not in value:
             keys[name] = value
     return keys
+
+
+def load_github_mcp_token():
+    # The `github` MCP (plugin:github:github -> api.githubcopilot.com) sends
+    # GITHUB_PERSONAL_ACCESS_TOKEN as its bearer credential. It is never ambient
+    # in the board process, so the scrubbed worker env rendered an EMPTY header
+    # and GitHub answered `HTTP 400: Authorization header is badly formatted`.
+    #
+    # That was fatal until 2026-08-10: the launch gate read an unhealthy
+    # authorized server as a hard denial, so every role authorizing github was
+    # undispatchable while the same server stayed healthy in Chrono's own
+    # session (measured 2026-08-09 on the research role, TASK-2026-08-09-0330).
+    # This comment used to claim the tool "degrades at call time"; production
+    # denied. `plan_lane` now separates structural absence (still fails closed)
+    # from runtime health (degrades and is named in the receipt and the worker's
+    # context), so the claim and the code agree.
+    #
+    # Bounded and best-effort, like the Solodit/research keys: a missing key is
+    # omitted from the snapshot and reported under `credential_missing` rather
+    # than failing the launch. Least-privilege: only this one token, and only
+    # for a role that actually authorizes the github MCP.
+    #
+    # PREFER GITHUB_MCP_TOKEN. The MCP server itself reads
+    # GITHUB_PERSONAL_ACCESS_TOKEN, so that is the name we must inject under, but
+    # the VALUE is taken from GITHUB_MCP_TOKEN whenever it is set. That matters:
+    # measured 2026-08-09, the ambient GITHUB_PERSONAL_ACCESS_TOKEN is a classic
+    # PAT carrying `gist, read:org, repo, workflow` -- full write to every repo the
+    # operator can reach, including the public release repo, plus workflow edit.
+    # The two roles that authorize this MCP (research, bounty-researcher) both
+    # ingest untrusted external web content, which is exactly the prompt-injection
+    # combination the 2026-07-27 trust-boundary ratification named as the one real
+    # risk. Setting a read-only fine-grained GITHUB_MCP_TOKEN in the secret store
+    # downgrades that exposure with no code change here.
+    home = os.environ.get("HOME", "")
+    if not home or "\x00" in home:
+        return None
+    try:
+        completed = subprocess.run(
+            (
+                "/bin/zsh",
+                "-f",
+                "-c",
+                'source "$HOME/.config/shell/secrets.zsh" 2>/dev/null; '
+                'print -rn -- "${GITHUB_MCP_TOKEN:-${GITHUB_PERSONAL_ACCESS_TOKEN:-}}"',
+            ),
+            check=False,
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            env={
+                "HOME": home,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            },
+            timeout=10,
+            close_fds=True,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if completed.returncode != 0 or "\n" in completed.stdout:
+        return None
+    token = completed.stdout
+    if not token or len(token) > 16384 or "\x00" in token:
+        return None
+    return token
 
 
 GUARDED_MCP_PREFIX = "guarded-"
@@ -895,12 +1258,18 @@ def trusted_worker_environment(worker_lane):
         "USER", "LOGNAME",
         "LANG", "LC_ALL", "LC_CTYPE", "TERM", "TMPDIR",
         "SSL_CERT_FILE", "SSL_CERT_DIR",
-        # Vault filesystem roots (PATHS, not secrets) — the spawn's chrono-vault MCP
-        # needs these to record/recall. Without CHRONO_VAULT_ROOT the memory-proof
-        # prevalidation fails and a *successful* spawn is falsely reported blocked
-        # (Phase 2 defect 1). The Obsidian REST credential is deliberately NOT here
-        # (optional human lens, off the recall correctness path).
+        # Vault filesystem roots (PATHS, not secrets) are provisionally allowed;
+        # the return below projects them by the validated aperture. Entitled
+        # workers need CHRONO_VAULT_ROOT to record/recall, while `none` must not
+        # receive either address. The Obsidian REST credential is deliberately
+        # NOT here (optional human lens, off the recall correctness path).
         "CHRONO_VAULT_ROOT", "OBSIDIAN_VAULT_ROOT",
+        # Independent audit home: unlike the roots above, this must survive an
+        # unset/broken CHRONO_VAULT_ROOT and an attempt-worktree release.
+        "CHRONO_VAULT_AUDIT_DIR",
+        # Doctor reports must survive those same failures and remain visible to
+        # worker-side status consumers.
+        "CHRONO_DOCTOR_LOG_DIR",
     }
     environment = {
         key: value for key, value in os.environ.items()
@@ -909,6 +1278,21 @@ def trusted_worker_environment(worker_lane):
     environment["PATH"] = _validated_trusted_host_path()
     environment["GIT_TERMINAL_PROMPT"] = "0"
     environment["NO_COLOR"] = "1"
+    # The allowlist above only FORWARDS a variable that the supervisor already
+    # has; it does not supply one. bin/launch-squad.sh defaults
+    # CHRONO_VAULT_ROOT, the board path did not, so whether a worker got vault
+    # access depended on who launched the supervisor -- silently, and
+    # differently per spawn. Measured 2026-08-08: one lane reported
+    # root_valid:true while a sibling in the same run got
+    # "CHRONO_VAULT_ROOT must be set". Default it the same way launch-squad
+    # does, and only to a directory that actually exists so a wrong path is
+    # never injected.
+    if not environment.get("CHRONO_VAULT_ROOT"):
+        _default_vault_root = os.path.join(
+            os.path.expanduser("~"), "Obsidian-Chrono"
+        )
+        if os.path.isdir(_default_vault_root):
+            environment["CHRONO_VAULT_ROOT"] = _default_vault_root
     # Provide a CA trust store so TLS-using bounty tools in the worker have
     # anchors (the semgrep OCaml OTel client aborts exit 2 on "empty trust
     # anchors" without one). SSL_CERT_FILE is already in the allowlist above.
@@ -927,27 +1311,6 @@ def trusted_worker_environment(worker_lane):
         # Gemini CLI's configured gemini-api-key auth is the sole lane-specific
         # exception. Match launch-squad.sh: retain only GEMINI_API_KEY.
         environment["GEMINI_API_KEY"] = load_gemini_api_key()
-    if worker_lane in {"claude", "codex"}:
-        # Least-privilege pass-through of the ONE guarded-stack credential.
-        # guarded-solodit is spawned as an MCP child of the claude/codex worker
-        # and inherits this process env; its config carries no key of its own.
-        # Only these two lanes host the guarded security arsenal (Gemini has no
-        # guarded wiring; Kimi subagents hold no MCP). Besides this key and the
-        # two research search keys below, no other ambient secret is widened.
-        # Best-effort: absent key -> guarded-solodit 401, never a blocked launch.
-        # The guarded trio is `available` in the capability registry
-        # (TASK-2026-07-26-1358), so this key is now on a live path for
-        # exploit-developer / security-analyst / smart-contract-engineer.
-        solodit_key = load_solodit_api_key()
-        if solodit_key is not None:
-            environment["SOLODIT_API_KEY"] = solodit_key
-        # Operator-approved (2026-07-28) least-privilege pass-through of the two
-        # research search credentials to the lanes that host the chrono-research-
-        # arsenal MCP. Fixes worker-side xai_search 400 (empty key) and keyless
-        # perplexity_search. Best-effort: absent key -> tool-level error, never a
-        # blocked launch.
-        for _research_name, _research_value in load_research_api_keys().items():
-            environment[_research_name] = _research_value
     if worker_lane == "codex":
         # The Codex CLI reads ONE config.toml from CODEX_HOME (default
         # ~/.codex), and the operator's live config does not declare the
@@ -997,10 +1360,153 @@ def trusted_worker_environment(worker_lane):
             environment["TMPDIR"] = str(scratch_root)
             environment["GOCACHE"] = str(scratch_root / "gocache")
             environment["CARGO_TARGET_DIR"] = str(scratch_root / "cargo-target")
+    # Projection happens at the call site after this controller-only copy has
+    # been retained for the out-of-sandbox broker backend.  Keeping the two
+    # objects distinct is what prevents a worker scrub from also erasing the
+    # backend's required root, or a backend entitlement from leaking back into
+    # the final CLI environment.
     return environment
 
 
+memory_context_value = authority.get("memory_context")
+try:
+    memory_context_value = validate_memory_context(
+        memory_context_value,
+        task_id=authority["task_id"],
+        attempt_id=authority["attempt_id"],
+        generation=authority["generation"],
+        mode=authority["mode_profile"],
+        created_at=authority["created_at"],
+    )
+except (ClearanceError, TypeError, ValueError, UnicodeEncodeError):
+    deny("launch authority has an invalid memory_context")
+
+
+MANAGED_CREDENTIAL_NAMES = (
+    "SOLODIT_API_KEY",
+    "XAI_API_KEY",
+    "PERPLEXITY_API_KEY",
+    "GITHUB_PERSONAL_ACCESS_TOKEN",
+)
+
+
+def load_managed_credentials(worker_lane, authorized_mcps):
+    """Read every managed credential ONCE per attempt into a frozen snapshot.
+
+    This used to be fused into `project_worker_credentials`, which pops each
+    managed name and then RE-INVOKES the secret loaders. That was fine while it
+    ran once; it is called twice per attempt since the health probe started
+    running against the projected environment, and two reads of a mutable
+    secret store are a real TOCTOU: if the first read returns a token and the
+    second returns None -- an unreadable/rotating `secrets.zsh`, a transient
+    zsh failure, a timeout -- the health gate passes WITH the credential and
+    the worker then launches WITHOUT it, which is precisely the silent,
+    unattributable failure the gate exists to prevent.
+
+    So the read happens exactly once, here, after direct-MCP authorization is
+    known, and the resulting snapshot is the single object handed to both the
+    health probe and the launcher. Never re-source the secret file to "refresh"
+    inside one attempt.
+
+    Returns `(snapshot, missing)`; `missing` names the credentials this role's
+    authorized MCPs need and the secret store did not supply, so the launch can
+    say so in the receipt and in the worker's context instead of letting the
+    worker find out by calling a dead tool.
+    """
+    if worker_lane not in {"claude", "codex"}:
+        return MappingProxyType({}), ()
+
+    authorized = set(authorized_mcps)
+    values = {}
+    missing = []
+    if "guarded-solodit" in authorized:
+        solodit_key = load_solodit_api_key()
+        if solodit_key is not None:
+            values["SOLODIT_API_KEY"] = solodit_key
+        else:
+            missing.append("SOLODIT_API_KEY")
+    if "chrono-research-arsenal" in authorized:
+        research_keys = load_research_api_keys()
+        values.update(research_keys)
+        missing.extend(
+            name
+            for name in ("XAI_API_KEY", "PERPLEXITY_API_KEY")
+            if name not in research_keys
+        )
+    if "github" in authorized:
+        github_token = load_github_mcp_token()
+        if github_token is not None:
+            values["GITHUB_PERSONAL_ACCESS_TOKEN"] = github_token
+        else:
+            missing.append("GITHUB_PERSONAL_ACCESS_TOKEN")
+    return MappingProxyType(values), tuple(sorted(missing))
+
+
+def project_worker_credentials(environment, credential_snapshot):
+    """Apply ONE already-loaded credential snapshot to a scrubbed environment.
+
+    Pure and idempotent: it reads no secret of its own, so calling it for the
+    health probe and again for the launcher cannot produce two different
+    environments. Every managed name is popped first, so an ambient value can
+    never survive into a role that did not authorize the MCP behind it.
+    """
+    projected = dict(environment)
+    for name in MANAGED_CREDENTIAL_NAMES:
+        projected.pop(name, None)
+    projected.update(credential_snapshot)
+    return projected
+
+
+# Loaded exactly once per attempt (see `load_managed_credentials`). `None` here
+# means "not yet read"; the codex gate below fills it after its own adapter
+# parse, since that is where its authorized set first becomes known.
+credential_snapshot = None
+credential_missing = ()
+
 trusted_environment = trusted_worker_environment(lane)
+controller_vault_environment = dict(trusted_environment)
+trusted_environment = project_worker_vault_environment(
+    controller_vault_environment,
+    aperture=memory_context_value["aperture"],
+)
+trusted_environment["CHRONO_VAULT_CONTEXT"] = json.dumps(
+    memory_context_value,
+    sort_keys=True,
+    separators=(",", ":"),
+    ensure_ascii=True,
+    allow_nan=False,
+)
+controller_vault_environment["CHRONO_VAULT_CONTEXT"] = trusted_environment[
+    "CHRONO_VAULT_CONTEXT"
+]
+
+
+def controller_vault_backend_environment():
+    """Return the minimal controller-owned environment for the MCP backend."""
+
+    projected = {
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        "PYTHONUNBUFFERED": "1",
+        "CHRONO_VAULT_CLEARANCE": "internal",
+        VAULT_CONTEXT_ENV: controller_vault_environment[VAULT_CONTEXT_ENV],
+    }
+    for name in (*VAULT_ROOT_ALIASES, "CHRONO_VAULT_AUDIT_DIR", "TMPDIR", "LANG", "LC_ALL"):
+        value = controller_vault_environment.get(name)
+        if isinstance(value, str) and value and "\x00" not in value:
+            projected[name] = value
+    return projected
+
+
+def controller_vault_denied_subtrees():
+    """Keep the documented lexical root plus every controller-supplied alias."""
+
+    values = {HOST_HOME / "Obsidian-Chrono"}
+    for name in VAULT_ROOT_ALIASES:
+        value = controller_vault_environment.get(name)
+        if isinstance(value, str) and value:
+            values.add(Path(value))
+    values.update(Path(os.path.realpath(value)) for value in tuple(values))
+    return tuple(sorted(values, key=str))
 
 
 def acknowledge_gemini_agents(project_root):
@@ -1043,12 +1549,17 @@ capability_projection = {
 }
 capability_lane_args = []
 configured_mcps = []
+authorized_mcps = []
 disabled_mcps = []
 available_tools = []
 missing_tools = []
 # F6: declared tools that are unreachable on this headless spawn but do not
 # gate it (GUI app bundles, operator-install-only tools, MCP-provided ops).
 capability_gaps = []
+# Authorized MCP servers that are configured but did not answer the launch
+# health probe. Degraded, not denied -- see `plan_lane`.
+unhealthy_mcps = []
+unhealthy_mcp_status = {}
 brokered_mcps = []
 capability_enforcement = "not-applicable"
 capability_plan = None
@@ -1061,7 +1572,7 @@ def declared_array(path, key):
     except OSError as exc:
         deny(f"role capability source is unavailable: {exc}")
     matches = re.findall(
-        rf"(?m)^[ \t]*{re.escape(key)}[ \t]*=[ \t]*(\[[^\r\n]*\])[ \t]*$",
+        rf"(?m)^[ \t]*{re.escape(key)}[ \t]*[:=][ \t]*(\[[^\r\n]*\])[ \t]*$",
         text,
     )
     values = []
@@ -1076,6 +1587,23 @@ def declared_array(path, key):
     return values
 
 
+def canonical_capability_surface(worker_lane, projection, overlay_path):
+    arrays = {key: list(projection[key]) for key in ("skills", "tools", "mcps")}
+    if worker_lane == "gemini":
+        arrays = {key: declared_array(overlay_path, f"capability_{key}") for key in arrays}
+    raw_mcps = arrays.pop("mcps")
+    brokered = set() if worker_lane == "gemini" else set(projection.get("brokered_mcps", ()))
+    brokered.update(item[5:] for item in raw_mcps if item.startswith("lead:"))
+    return {
+        "schema": "capability-surface/v1", "lane": "gpt-codex" if worker_lane == "codex" else worker_lane,
+        **{key: sorted(set(value), key=str.casefold) for key, value in arrays.items()},
+        "mcps": sorted({item for item in raw_mcps if not item.startswith("lead:")}, key=str.casefold),
+        "brokered_mcps": sorted(brokered, key=str.casefold),
+    }
+
+def trap_cli_missing(exc):
+    if isinstance(exc, (FileNotFoundError, PermissionError)): deny(f"native lane CLI is unavailable: {exc}", "cli_missing")
+
 if execution_kind == "lane" and lane in {"claude", "gemini", "kimi"}:
     try:
         native_adapter_path = adapter_path_for(
@@ -1089,6 +1617,34 @@ if execution_kind == "lane" and lane in {"claude", "gemini", "kimi"}:
             adapter_path=native_adapter_path,
             overlay_path=Path(authority["lane_overlay_path"]),
         )
+        # Read the worker's credentials ONCE, here, and measure the health probe
+        # in an environment that carries them.
+        #
+        # The probe runs `<cli> mcp list` -- but it used to run against the bare
+        # scrubbed env while credentials were not projected until much later
+        # (just before the child launch). It therefore measured an environment
+        # the worker would never run in, and any authorized MCP that
+        # authenticates with a projected key was guaranteed to look broken. That
+        # stayed invisible while the only projected keys belonged to the LOCAL
+        # research-arsenal server, which connects fine unauthenticated; the
+        # first remote bearer-token MCP to be authorized -- github -- turned it
+        # into a hard denial of every role that lists it (measured 2026-08-09).
+        #
+        # `credential_snapshot` is the exact object the launcher projects below,
+        # so the environment the gate measures and the one the worker gets can
+        # no longer disagree.
+        credential_snapshot, credential_missing = load_managed_credentials(
+            lane,
+            capability_projection.get("mcps", ()),
+        )
+        # Short-lived: the health probe is the ONLY child that needs a bearer
+        # token. `claude plugin list --json` is a local inventory command with
+        # no use for one, so it keeps the scrubbed environment -- a credential
+        # is handed to the smallest number of processes that can be correct.
+        health_probe_environment = project_worker_credentials(
+            trusted_environment,
+            credential_snapshot,
+        )
         if lane in {"claude", "gemini"}:
             try:
                 mcp_listing = subprocess.run(
@@ -1098,14 +1654,13 @@ if execution_kind == "lane" and lane in {"claude", "gemini", "kimi"}:
                     text=True,
                     stdin=subprocess.DEVNULL,
                     cwd=str(repo_root / "model-lanes" / lane),
-                    env=trusted_environment,
+                    env=health_probe_environment,
                     timeout=30,
                     close_fds=True,
                 )
             except (OSError, subprocess.SubprocessError) as exc:
-                raise CapabilityDenied(
-                    f"{lane} MCP configuration cannot be enumerated: {exc}"
-                ) from exc
+                trap_cli_missing(exc)
+                raise CapabilityDenied(f"{lane} MCP configuration cannot be enumerated: {exc}") from exc
             if mcp_listing.returncode != 0:
                 raise CapabilityDenied(
                     f"{lane} MCP configuration enumeration returned nonzero"
@@ -1154,9 +1709,8 @@ if execution_kind == "lane" and lane in {"claude", "gemini", "kimi"}:
                         close_fds=True,
                     )
                 except (OSError, subprocess.SubprocessError) as exc:
-                    raise CapabilityDenied(
-                        f"Claude plugin inventory cannot be enumerated: {exc}"
-                    ) from exc
+                    trap_cli_missing(exc)
+                    raise CapabilityDenied(f"Claude plugin inventory cannot be enumerated: {exc}") from exc
                 if plugin_listing.returncode != 0:
                     raise CapabilityDenied(
                         "Claude plugin inventory enumeration returned nonzero"
@@ -1168,20 +1722,22 @@ if execution_kind == "lane" and lane in {"claude", "gemini", "kimi"}:
                     plugin_listing.stdout
                 )
         else:
-            kimi_config_path = (
-                Path(trusted_environment.get("HOME", ""))
-                / ".kimi"
-                / "mcp.json"
-            )
-            configured_servers = (
-                load_json_mcp_servers(kimi_config_path)
-                if kimi_config_path.is_file()
-                else {}
-            )
+            configured_servers = {}
         capability_plan = plan_lane(
             lane=lane,
             projection=capability_projection,
             configured_servers=configured_servers,
+            repo_root=repo_root,
+            broker_chrono_vault=(launch_mode == "strict"),
+            kimi_vault_environment=(
+                {
+                    name: trusted_environment[name]
+                    for name in ("CHRONO_VAULT_ROOT", "CHRONO_VAULT_CONTEXT")
+                    if name in trusted_environment
+                }
+                if lane == "kimi"
+                else None
+            ),
             # F6: a GUI app bundle / operator-install tool is not a PATH lookup,
             # so a `which()` miss must record a capability gap, not deny a
             # headless spawn. Unclassified tools stay fail-closed.
@@ -1211,6 +1767,12 @@ if execution_kind == "lane" and lane in {"claude", "gemini", "kimi"}:
         if lane == "claude":
             selected_plugin_dirs = set()
             for server_name in capability_plan.authorized_mcps:
+                if launch_mode == "strict" and server_name == "chrono-vault":
+                    # The explicit path-free relay record below is the only
+                    # strict-mode provider for this server name. Loading the
+                    # direct plugin as well would make native merge precedence
+                    # part of the security boundary.
+                    continue
                 live_name = configured_servers[server_name].get("live_name")
                 if not isinstance(live_name, str) or not live_name.startswith(
                     "plugin:"
@@ -1237,10 +1799,13 @@ if execution_kind == "lane" and lane in {"claude", "gemini", "kimi"}:
         deny(f"role capability enforcement denied launch: {exc}")
     capability_lane_args = capability_plugin_args + list(capability_plan.cli_args)
     configured_mcps = list(capability_plan.configured_mcps)
+    authorized_mcps = list(capability_plan.authorized_mcps)
     disabled_mcps = list(capability_plan.disabled_mcps)
     available_tools = list(capability_plan.available_tools)
     missing_tools = list(capability_plan.missing_tools)
     capability_gaps = list(capability_plan.capability_gaps)
+    unhealthy_mcps = list(capability_plan.unhealthy_mcps)
+    unhealthy_mcp_status = dict(capability_plan.unhealthy_mcp_status)
     brokered_mcps = list(capability_plan.brokered_mcps)
     capability_enforcement = capability_plan.capability_enforcement
 
@@ -1291,6 +1856,7 @@ if execution_kind == "lane" and lane == "codex":
             close_fds=True,
         )
     except (OSError, subprocess.SubprocessError) as exc:
+        trap_cli_missing(exc)
         deny(f"Codex MCP configuration cannot be enumerated: {exc}")
     if mcp_listing.returncode != 0:
         deny("Codex MCP configuration enumeration returned nonzero")
@@ -1363,6 +1929,54 @@ if execution_kind == "lane" and lane == "codex":
         )
     capability_enforcement = "codex-cli-mcp-table-replacement-overrides/v1"
 
+if execution_kind == "lane":
+    if credential_snapshot is None:
+        # Codex reaches here without a snapshot: its authorized set is only
+        # known after its own adapter parse above. Every other lane already
+        # loaded one before the health probe and MUST reuse it -- re-reading
+        # the secret store here is the TOCTOU this refactor removed.
+        credential_snapshot, credential_missing = load_managed_credentials(
+            lane,
+            authorized_mcps,
+        )
+    trusted_environment = project_worker_credentials(
+        trusted_environment,
+        credential_snapshot,
+    )
+    if trusted_context and (unhealthy_mcps or credential_missing):
+        # Tell the worker BEFORE it spends a call on a dead tool. The receipt is
+        # the audit record; this is the operational one.
+        notice = ["\n\n## Degraded capability notice (measured at launch)\n\n"]
+        if unhealthy_mcps:
+            notice.append(
+                "These MCP servers are authorized for your role but did NOT "
+                "answer the launch health probe. This did not block your "
+                "launch and it is not your task to repair them. Expect a "
+                "failure at call time; declare a `capability_gap` and use the "
+                "task-approved fallback rather than debugging them:\n\n"
+            )
+            notice.extend(
+                f"- `{name}` -- {unhealthy_mcp_status.get(name, 'unhealthy')}\n"
+                for name in unhealthy_mcps
+            )
+            notice.append("\n")
+        if credential_missing:
+            notice.append(
+                "The secret store did not supply these credentials, so any "
+                "tool that authenticates with one will fail at call time:\n\n"
+            )
+            notice.extend(f"- `{name}`\n" for name in credential_missing)
+        degraded_notice = "".join(notice)
+        # The 32 KiB bound above guards OPERATOR-supplied prompt text. This
+        # suffix is controller-authored and separately bounded, so a pathological
+        # status string cannot push the prompt past a lane's input limit.
+        if len(degraded_notice.encode("utf-8")) > 4096:
+            degraded_notice = (
+                degraded_notice.encode("utf-8")[:4096].decode("utf-8", "ignore")
+                + "\n(truncated; see the launch receipt for the full list)\n"
+            )
+        trusted_task_prompt = trusted_task_prompt.rstrip() + degraded_notice
+
 capability_projection_bytes = json.dumps(
     capability_projection,
     sort_keys=True,
@@ -1372,6 +1986,15 @@ capability_projection_bytes = json.dumps(
 capability_projection_sha256 = hashlib.sha256(
     capability_projection_bytes
 ).hexdigest()
+observed_capability_surface_sha256 = ""
+if execution_kind == "lane":
+    capability_surface = canonical_capability_surface(lane, capability_projection, authority["lane_overlay_path"])
+    observed_capability_surface_sha256 = hashlib.sha256(json.dumps(
+        capability_surface, sort_keys=True, separators=(",", ":"),
+        ensure_ascii=True, allow_nan=False,
+    ).encode("ascii")).hexdigest()
+    if not hmac.compare_digest(observed_capability_surface_sha256, authority["capability_surface_sha256"]):
+        deny("capability surface does not match launch authority")
 
 
 def canonical_logical_path(value):
@@ -1405,48 +2028,21 @@ launch_timeout = 180.0
 # verification contract both match the authenticated authority.
 authorized_delete_paths = ()
 if board_dispatch_context:
-    packet_scope_pattern = re.compile(
-        rf"^departments/[^/]+/inbox/{re.escape(task_id)}\.md$"
-    )
-    packet_scope_entries = [
-        item for item in read_paths if packet_scope_pattern.fullmatch(item)
-    ]
-    if len(packet_scope_entries) != 1:
-        deny("scheduler authority must name the exact inbox packet in read_scope")
-    packet_path = repo_path / packet_scope_entries[0]
-    if sha256_file(packet_path) != authority["packet_sha256"]:
-        deny("inbox packet content does not match authenticated authority")
-    # The canonical packet's bytes are now pinned by the MAC'd authority, so its
-    # contract is the trustworthy copy. Re-hashing it against the authority's
-    # own verification_contract_sha256 closes the remaining seam: forging a
-    # deletion authorization requires breaking that hash, which is exactly the
-    # bar already accepted for forging write_scope.
-    try:
-        packet_frontmatter = read_yaml_frontmatter(packet_path)
-        pinned_contract = validate_verification_contract(
-            packet_frontmatter.get("verification_contract")
-        )
-    except ContractError as exc:
-        deny(f"canonical packet verification contract is invalid: {exc}")
-    if (
-        verification_contract_sha256(pinned_contract)
-        != authority["verification_contract_sha256"]
-    ):
-        deny("canonical packet contract does not match the authenticated contract hash")
     authorized_delete_paths = tuple(
         pinned_contract.get("authorized_delete_paths") or ()
     )
     if authorized_delete_paths:
         # Launch-side operator gate: a delete-carrying packet must not start at
-        # all unless deletion is a controller-held category AND the packet
-        # carries the operator's approval. Hard Rule 6 is answered at dispatch
-        # time, where the operator actually is -- not at integration time, after
-        # a worker has already spent its budget.
-        if "delete-from-main" not in authority["operator_gates"]:
-            deny(
-                "packet authorizes deletions but delete-from-main is not a "
-                "controller-held operator gate"
-            )
+        # all unless it carries the operator's approval. Hard Rule 6 is answered
+        # at dispatch time, where the operator actually is -- not at integration
+        # time, after a worker has already spent its budget.
+        #
+        # A second branch here also required "delete" to be a controller-held
+        # category. It was removed on 2026-08-08 as provably unreachable: the
+        # authority check above refuses dispatch unless operator_gates equals
+        # HELD_CATEGORIES exactly, and "delete" is always a member, so the
+        # membership test was a constant. It read as a deletion control while
+        # enforcing nothing -- operator_approved is, and always was, the gate.
         if packet_frontmatter.get("operator_approved") is not True:
             deny(
                 "packet authorizes deletions without operator_approved: true in the "
@@ -1459,10 +2055,10 @@ if board_dispatch_context:
         or isinstance(budgets["timeout_seconds"], bool)
         or not isinstance(budgets["timeout_seconds"], int)
         or not (
-            30 <= budgets["timeout_seconds"] <= 1800
+            30 <= budgets["timeout_seconds"] <= 2700
             or (
                 authority["mode_profile"] == "bounty"
-                and 1800 < budgets["timeout_seconds"] <= 3600
+                and 2700 < budgets["timeout_seconds"] <= 3600
             )
         )
     ):
@@ -1591,21 +2187,73 @@ except wti.WorktreeIsolationError as exc:
 def _classify_block_reason(reason):
     """Typed failure class so downstream shows the real cause, not a bare 'exit 75'.
 
-    Classify only the reason's leading clause. Several reasons append the
-    offending file list, and those filenames match these keywords: an
-    integration failure whose list contained `memory-curator.md` was typed
-    `memory_proof`, which is exactly the kind of misdirection this function
-    exists to prevent. Split on the first ': ' so the words being matched are
-    the diagnosis, not the evidence.
+    Classify ordinary reasons by their leading clause. Several reasons append
+    offending file lists whose names match these keywords, so the evidence must
+    not outvote the diagnosis. A timeout exception is the deliberate exception
+    only when a generic launch clause wraps it: inspect that clause's tail for
+    an actual timeout phrase before falling back to the generic launch class.
+
+    A timeout word that is part of a *filename* is never a timeout signal --
+    `analysis timed out.md` names a report. That guard has to cover the leading
+    clause too, not just a wrapped tail: a reason carrying no diagnostic clause
+    at all reaches neither the launch branch nor the tail inspection, so without
+    it a bare report name was diagnosed `timeout`.
     """
-    r = str(reason).lower().split(": ", 1)[0]
+    full_reason = str(reason).lower()
+    r, separator, tail = full_reason.partition(": ")
+
+    def matched_a_filename(value, start, end):
+        # The whole word the match landed in has to be a filename, not just the
+        # characters straight after it: `timeouts.md` and `timeout-notes.md` are
+        # report names exactly as much as `timed out.md` is.
+        while end < len(value) and not value[end].isspace() and value[end] not in ",;":
+            end += 1
+        stem, dot, extension = value[start:end].rstrip(",;:)]}").rpartition(".")
+        return bool(dot) and bool(stem) and extension.isalnum()
+
+    def matches_outside_a_filename(value, tokens):
+        for token in tokens:
+            search_from = 0
+            while (match_at := value.find(token, search_from)) != -1:
+                if not matched_a_filename(value, match_at, match_at + len(token)):
+                    return True
+                search_from = match_at + len(token)
+        return False
+
+    def has_timeout_signal(value):
+        # The tail is evidence, not diagnosis, so a bare `timeout` word is not
+        # enough here: it is often the subject ("timeout policy file could not
+        # be loaded"). Only an actual timeout *event* phrase promotes.
+        normalized = value.strip()
+        if normalized in {"timeout", "deadline"}:
+            return True
+
+        timeout_phrases = (
+            "timed out",
+            "timeoutexpired",
+            "timeout expired",
+            "timeout exceeded",
+            "timeout after",
+            "timeout while",
+            "timeout waiting",
+            "timeout reached",
+            "operation timeout",
+            "deadline exceeded",
+            "deadline expired",
+            "deadline reached",
+        )
+        return matches_outside_a_filename(normalized, timeout_phrases)
+
     if "canary" in r:
         return "launch_canary"
-    if "trusted launch failed" in r or ("launch" in r and "fail" in r):
+    generic_launch = "trusted launch failed" in r or ("launch" in r and "fail" in r)
+    if generic_launch and separator and has_timeout_signal(tail):
+        return "timeout"
+    if generic_launch:
         return "launch"
     if "worktree" in r:
         return "worktree"
-    if "timeout" in r or "timed out" in r or "deadline" in r:
+    if matches_outside_a_filename(r, ("timeout", "timed out", "deadline")):
         return "timeout"
     if "vault" in r or "chrono_vault_root" in r or "memory" in r:
         return "memory_proof"
@@ -1613,6 +2261,8 @@ def _classify_block_reason(reason):
         return "missing_envelope"
     if "integration" in r or "drift" in r:
         return "integration"
+    if "verification" in r or "verifier" in r:
+        return "verification"
     if "capability" in r or "denied" in r or "authoriz" in r:
         return "capability"
     if "validation" in r:
@@ -1620,11 +2270,13 @@ def _classify_block_reason(reason):
     return "other"
 
 
-def block_after_provision(reason, *, returncode=None, cli_stdout="", cli_stderr=""):
+def block_after_provision(reason, *, failure_class=None, returncode=None, cli_stdout="", cli_stderr=""):
+    if failure_class is not None and failure_class not in CLI_TRANSPORT_FAILURE_CLASSES:
+        raise ValueError("invalid CLI transport failure class")
     print(json.dumps({
         "status": "blocked",
         "reason": str(reason),
-        "failure_class": _classify_block_reason(reason),
+        "failure_class": failure_class or _classify_block_reason(reason),
         "task_id": task_id,
         "attempt_id": attempt_id,
         "worktree_root": str(handle.worktree_root),
@@ -1643,7 +2295,10 @@ def block_after_provision(reason, *, returncode=None, cli_stdout="", cli_stderr=
         "role_context_sha256": getattr(globals().get("role"), "sha256", ""),
         "capability_projection_sha256": capability_projection_sha256,
         "capability_enforcement": capability_enforcement,
+        "authorized_mcps": authorized_mcps,
         "brokered_mcps": brokered_mcps,
+        "vault_broker_required": bool(globals().get("vault_broker_required", False)),
+        "vault_broker_started": bool(globals().get("vault_broker_started", False)),
         "capability_config_path": (
             str(globals().get("capability_config_path"))
             if globals().get("capability_config_path") is not None
@@ -1655,55 +2310,11 @@ def block_after_provision(reason, *, returncode=None, cli_stdout="", cli_stderr=
         "cli_stderr_sha256": hashlib.sha256(
             str(cli_stderr).encode("utf-8")
         ).hexdigest(),
-        "cli_stdout_tail": str(cli_stdout)[-4000:],
-        "cli_stderr_tail": str(cli_stderr)[-4000:],
     }, sort_keys=True))
     sys.exit(75)
 
 
 capability_config_path = None
-if capability_plan is not None and capability_plan.role_config_json is not None:
-    try:
-        capability_config_path = materialize_role_config(
-            capability_plan,
-            worktree_root=handle.worktree_root,
-            task_id=task_id,
-            attempt_id=attempt_id,
-        )
-        capability_lane_args = list(
-            cli_args_for_materialized(
-                capability_plan,
-                capability_config_path,
-            )
-        )
-    except (CapabilityDenied, OSError) as exc:
-        block_after_provision(
-            f"role capability config materialization failed: {exc}"
-        )
-if execution_kind == "lane" and lane == "gemini":
-    acknowledge_gemini_agents(
-        handle.worktree_root / "model-lanes" / "gemini"
-    )
-    capability_lane_args.extend(
-        ("--include-directories", str(handle.worktree_root))
-    )
-if execution_kind == "lane" and lane == "kimi":
-    capability_lane_args.extend(
-        (
-            "--agent-file",
-            str(handle.worktree_root / "model-lanes" / "kimi" / "main.yaml"),
-            "--add-dir",
-            str(handle.worktree_root),
-        )
-    )
-if execution_kind == "lane" and lane == "codex":
-    try:
-        for git_write_dir in wti.linked_worktree_commit_write_dirs(handle):
-            capability_lane_args.extend(("--add-dir", str(git_write_dir)))
-    except wti.WorktreeIsolationError as exc:
-        block_after_provision(
-            f"linked worktree commit scope derivation failed: {exc}"
-        )
 
 
 lineage = delegation_lineage.root_lineage(originating_parent=task_id, requester_specialist=specialist)
@@ -1727,11 +2338,25 @@ except HygieneError as exc:
 
 audited_scopes = audit_writable_scopes((handle.worktree_root,))
 prepared = None
+vault_broker = None
+vault_broker_started = False
+vault_broker_closed = False
+vault_broker_required = (
+    launch_mode == "strict"
+    and execution_kind == "lane"
+    and "chrono-vault" in authorized_mcps
+)
 try:
     request_sha256 = _request_digest(request)
     with scoped_lane_launch_profile(
         lane=(lane if execution_kind == "lane" else None),
         offline_probe=(execution_kind == "offline-probe"),
+        broker_relay=vault_broker_required,
+        denied_subtrees=(
+            controller_vault_denied_subtrees()
+            if launch_mode == "strict" and execution_kind == "lane"
+            else ()
+        ),
     ):
         prepared = run_preflight_canary(
             handle.worktree_root,
@@ -1741,6 +2366,143 @@ try:
         )
     if not prepared.canary.passed:
         block_after_provision(f"Stage-1 canary failed: {prepared.canary.to_json()}")
+
+    if vault_broker_required:
+        broker_token = os.urandom(32).hex()
+        try:
+            relay = chrono_vault_relay_server(
+                repo_root=handle.worktree_root,
+                broker_port=prepared.broker_listener.getsockname()[1],
+                broker_token=broker_token,
+                task_id=task_id,
+                attempt_id=attempt_id,
+                generation=int(generation),
+                python_executable=BROKER_RELAY_PYTHON,
+            )
+            if lane == "codex":
+                capability_lane_args.extend(
+                    codex_chrono_vault_relay_args(
+                        relay=relay,
+                        broker_token=broker_token,
+                    )
+                )
+            else:
+                if capability_plan is None:
+                    raise CapabilityDenied(
+                        "chrono-vault broker has no lane capability plan"
+                    )
+                capability_plan = broker_chrono_vault_plan(
+                    capability_plan,
+                    repo_root=handle.worktree_root,
+                    broker_port=prepared.broker_listener.getsockname()[1],
+                    broker_token=broker_token,
+                    task_id=task_id,
+                    attempt_id=attempt_id,
+                    generation=int(generation),
+                    python_executable=BROKER_RELAY_PYTHON,
+                )
+                capability_lane_args = capability_plugin_args + list(
+                    capability_plan.cli_args
+                )
+        except (CapabilityDenied, OSError, ValueError) as exc:
+            block_after_provision(
+                f"chrono-vault broker plan rewrite failed closed: {exc}"
+            )
+
+    if capability_plan is not None and capability_plan.role_config_json is not None:
+        try:
+            capability_config_path = materialize_role_config(
+                capability_plan,
+                worktree_root=handle.worktree_root,
+                task_id=task_id,
+                attempt_id=attempt_id,
+            )
+            capability_lane_args = capability_plugin_args + list(
+                cli_args_for_materialized(
+                    capability_plan,
+                    capability_config_path,
+                )
+            )
+        except (CapabilityDenied, OSError) as exc:
+            block_after_provision(
+                f"role capability config materialization failed: {exc}"
+            )
+
+    if vault_broker_required:
+        worker_plan_text = "\n".join(capability_lane_args)
+        if capability_plan is not None and capability_plan.role_config_json is not None:
+            worker_plan_text += "\n" + capability_plan.role_config_json
+        exposed_paths = sorted(
+            {
+                str(path)
+                for path in controller_vault_denied_subtrees()
+                if str(path) in worker_plan_text
+            }
+        )
+        if exposed_paths:
+            block_after_provision(
+                "chrono-vault broker plan exposed a private filesystem path"
+            )
+
+    if vault_broker_required:
+        backend_environment = controller_vault_backend_environment()
+        backend_command = (
+            ("/usr/bin/false",)
+            if memory_context_value["aperture"] == "none"
+            else (
+                str(repo_path / ".venv" / "bin" / "python"),
+                str(repo_path / "plugins" / "chrono-vault" / "mcp_server.py"),
+            )
+        )
+        try:
+            vault_broker = VaultBroker(
+                listener=prepared.broker_listener,
+                token=broker_token,
+                binding=BrokerBinding(
+                    task_id=task_id,
+                    attempt_id=attempt_id,
+                    generation=int(generation),
+                ),
+                backend_command=backend_command,
+                backend_environment=backend_environment,
+                backend_cwd=repo_path / "plugins" / "chrono-vault",
+            )
+            vault_broker.start()
+            vault_broker_started = True
+        except (BrokerError, OSError, RuntimeError, ValueError) as exc:
+            diagnostics = (
+                vault_broker.diagnostics() if vault_broker is not None else ""
+            )
+            block_after_provision(
+                "chrono-vault broker startup failed closed: "
+                + str(exc)
+                + (f"; {diagnostics}" if diagnostics else "")
+            )
+
+    if execution_kind == "lane" and lane == "gemini":
+        acknowledge_gemini_agents(
+            handle.worktree_root / "model-lanes" / "gemini"
+        )
+        capability_lane_args.extend(
+            ("--include-directories", str(handle.worktree_root))
+        )
+    if execution_kind == "lane" and lane == "kimi":
+        capability_lane_args.extend(
+            (
+                "--agent-file",
+                str(handle.worktree_root / "model-lanes" / "kimi" / "main.yaml"),
+                "--add-dir",
+                str(handle.worktree_root),
+            )
+        )
+    if execution_kind == "lane" and lane == "codex":
+        try:
+            for git_write_dir in wti.linked_worktree_commit_write_dirs(handle):
+                capability_lane_args.extend(("--add-dir", str(git_write_dir)))
+        except wti.WorktreeIsolationError as exc:
+            block_after_provision(
+                f"linked worktree commit scope derivation failed: {exc}"
+            )
 
     launch_overlay_path = Path(str(context["lane_overlay_path"]))
     if launch_mode == "trusted" and execution_kind == "lane":
@@ -1822,7 +2584,7 @@ try:
     signing_key = authority_signing_key
     envelope = seal_runtime_envelope(claims, signing_key)
 
-    if sha256_file(Path(os.path.realpath(executable))) != authority["executable_sha256"]:
+    if sha256_file(Path(os.path.realpath(executable)), "cli_missing") != authority["executable_sha256"]:
         raise ValueError("lane executable changed after profile compilation")
 
     # Strict mode uses the retained PreparedLaunch for the final child.  The
@@ -1830,18 +2592,26 @@ try:
     # the subscription CLI on the trusted host with its existing home/config
     # authentication and an explicit, non-secret environment allowlist.
     prepared.environment["PATH"] = DEFAULT_LANE_PATH
+    # The strict worker gets neither the private root nor the controller's
+    # aperture context.  Its chrono-vault child receives only the one-attempt
+    # relay token from the rewritten native config; the broker-owned backend
+    # holds context and root outside this Seatbelt domain.
+    # Seed the legacy value, then scrub it in the same closed allowlist below;
+    # this keeps the transition observable to the existing launch-contract
+    # check while proving the final prepared environment cannot retain it.
+    prepared.environment["CHRONO_VAULT_CONTEXT"] = trusted_environment[
+        "CHRONO_VAULT_CONTEXT"
+    ]
     for provider_key in (
+        *VAULT_ROOT_ALIASES,
+        VAULT_CONTEXT_ENV,
+        VAULT_BROKER_TOKEN_ENV,
         "ANTHROPIC_API_KEY",
         "OPENAI_API_KEY",
         "GEMINI_API_KEY",
         "GOOGLE_API_KEY",
     ):
         prepared.environment.pop(provider_key, None)
-    if execution_kind == "lane" and lane == "gemini":
-        prepared.environment["GEMINI_API_KEY"] = trusted_environment[
-            "GEMINI_API_KEY"
-        ]
-
     def bounded_real_launcher(canary_runner, command, **kwargs):
         kwargs["limits"] = ResourceLimits(process_count=4096)
         if execution_kind == "lane" and lane == "gemini":
@@ -1883,6 +2653,8 @@ try:
             close_fds=True,
             start_new_session=True,
         )
+        manager = ProcessGroupReaper()
+        manager.register(proc.pid)
         out_chunks = []
         err_chunks = []
 
@@ -1911,11 +2683,15 @@ try:
         try:
             proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
-            proc.kill()
+            manager.terminate(proc.pid)
             proc.wait()
             for thread in threads:
                 thread.join(timeout=2)
+            if any(thread.is_alive() for thread in threads):
+                raise ProcessTruthError("child pipes remained open after verified process cleanup")
             raise
+        finally:
+            manager.unregister(proc.pid)
         for thread in threads:
             thread.join()
         if mirror_fd is not None:
@@ -1927,6 +2703,14 @@ try:
     selected_launcher = (
         bounded_real_launcher if launch_mode == "strict" else trusted_real_launcher
     )
+
+    def run_with_restored_prompt(prompt_path, suffix, callback):
+        original = prompt_path.read_bytes()
+        try:
+            prompt_path.write_bytes(original.rstrip() + suffix.encode("utf-8"))
+            return callback()
+        finally:
+            prompt_path.write_bytes(original)
 
     def gemini_ordered_launcher(canary_runner, command, **kwargs):
         if len(command) < 4 or command[0] != str(executable) or command[1] != "-p":
@@ -2019,12 +2803,27 @@ try:
             separators=(",", ":"),
             ensure_ascii=True,
         )
+        lead_allowlist_json = json.dumps(
+            list(capability_plan.authorized_mcps),
+            separators=(",", ":"),
+            ensure_ascii=True,
+        )
+        if len(lead_allowlist_json.encode("ascii")) > 2048:
+            raise ValueError("Kimi lead MCP allowlist exceeds prompt bound")
+        lead_contract = (
+            "\n\n## Main-lead MCP contract\n\n"
+            f"Exact allowed MCP server names: `{lead_allowlist_json}`.\n"
+            "Only this main Kimi lead may call them. Native `Agent(...)` subagents remain MCP-free; "
+            "do not ask a subagent to call or inherit MCP tools. Treat every other MCP as unavailable. "
+            "Never reveal or pass MCP configuration, credentials, environment, or values.\n"
+        )
         concise_prompt = (
             trusted_task_prompt.strip()
             + "\n\n## Read-only task runtime envelope\n\n"
             + "```json\n"
             + projection_json
             + "\n```\n"
+            + lead_contract
         )
         role_path_args = tuple(capability_lane_args[-4:])
         role_capability_args = tuple(capability_lane_args[:-4])
@@ -2057,18 +2856,16 @@ try:
         # authenticated specialist role there for this child, then restore the
         # tracked worktree byte-for-byte before output integration.
         kimi_prompt_path = handle.worktree_root / "model-lanes" / "kimi" / "KIMI.md"
-        base_kimi_prompt = kimi_prompt_path.read_text(encoding="utf-8")
-        kimi_prompt_path.write_text(
-            base_kimi_prompt.rstrip()
-            + "\n\n## Board-dispatched specialist context\n\n"
+        specialist_suffix = (
+            "\n\n## Board-dispatched specialist context\n\n"
             + agent_system_context.rstrip()
-            + "\n",
-            encoding="utf-8",
+            + "\n"
         )
-        try:
-            return selected_launcher(canary_runner, kimi_command, **kwargs)
-        finally:
-            kimi_prompt_path.write_text(base_kimi_prompt, encoding="utf-8")
+        return run_with_restored_prompt(
+            kimi_prompt_path,
+            specialist_suffix,
+            lambda: selected_launcher(canary_runner, kimi_command, **kwargs),
+        )
 
     lane_launcher = (
         kimi_role_launcher
@@ -2077,20 +2874,42 @@ try:
         if execution_kind == "lane" and lane == "gemini"
         else selected_launcher
     )
-    completed = launch_task(
-        envelope,
-        signing_key,
-        role,
-        executable=executable,
-        canary_runner=lambda: prepared,
-        expected_task_id=task_id,
-        expected_attempt_id=attempt_id,
-        expected_generation=int(generation),
-        now=now,
-        lane_args=tuple(capability_lane_args) + tuple(authority["lane_args"]),
-        timeout=launch_timeout,
-        launcher=lane_launcher,
-    )
+    if vault_broker is not None:
+        try:
+            vault_broker.require_ready()
+        except BrokerError as exc:
+            block_after_provision(
+                f"chrono-vault broker lost readiness before worker launch: {exc}"
+            )
+    try:
+        completed = launch_task(
+            envelope,
+            signing_key,
+            role,
+            executable=executable,
+            canary_runner=lambda: prepared,
+            expected_task_id=task_id,
+            expected_attempt_id=attempt_id,
+            expected_generation=int(generation),
+            now=now,
+            lane_args=tuple(capability_lane_args) + tuple(authority["lane_args"]),
+            timeout=launch_timeout,
+            launcher=lane_launcher,
+        )
+    except ProcessTruthError as exc:
+        hold_for_operator_stop(exc)
+    except subprocess.TimeoutExpired as exc:
+        block_after_provision(f"fresh lane CLI timed out: {exc}", failure_class="cli_timeout")
+    except (FileNotFoundError, PermissionError) as exc:
+        block_after_provision(f"fresh lane CLI is unavailable: {exc}", failure_class="cli_missing")
+    if vault_broker is not None:
+        try:
+            vault_broker.close()
+            vault_broker_closed = True
+        except BrokerError as exc:
+            block_after_provision(
+                f"chrono-vault broker shutdown failed closed: {exc}"
+            )
     if not isinstance(completed, subprocess.CompletedProcess):
         deny("fresh lane launcher returned the wrong receipt type")
     # If the launcher already streamed stdout live to the transcript fd, append only
@@ -2102,6 +2921,7 @@ try:
     if completed.returncode != 0:
         block_after_provision(
             "fresh lane CLI returned nonzero",
+            failure_class="cli_nonzero",
             returncode=completed.returncode,
             cli_stdout=completed.stdout or "",
             cli_stderr=completed.stderr or "",
@@ -2152,12 +2972,21 @@ try:
             # already at its declared path, so a worker that resolved the path
             # correctly is untouched.
             if execution_kind == "lane" and lane == "gemini":
+                # Declared evidence is reclaimed with the result and envelope.
+                # A declared evidence path that is absent blocks preparation, so
+                # omitting these here would turn every Gemini packet that
+                # declares a PoC into a stranded completion.
                 reclaimed_outputs = reclaim_lane_cwd_outputs(
                     handle.worktree_root,
                     GEMINI_LANE_CWD_RELATIVE,
                     (
                         authority["expected_result_path"],
                         authority["expected_outbox_path"],
+                        *(
+                            str(declared.get("path", ""))
+                            for declared in authority.get("evidence_outputs", [])
+                            if isinstance(declared, dict) and declared.get("path")
+                        ),
                     ),
                 )
                 if reclaimed_outputs:
@@ -2221,38 +3050,23 @@ try:
                 f"fresh lane code integration failed: {exc}"
             )
         try:
+            # The bridge is also the mode-close commit boundary: when the
+            # authenticated evidence list contains the run manifest it promotes
+            # evidence, runs the canonical verifier, and withholds this result
+            # plus the watcher-visible envelope unless the report is PASS.
             bridge_receipt = publish_prepared_worktree_outputs(
                 repo_path,
                 prepared_outputs,
+            )
+        except ModeExitVerificationError as exc:
+            block_after_provision(
+                f"mode-exit verification failed: {exc}"
             )
         except DispatchContextError as exc:
             block_after_provision(
                 f"fresh lane output bridge failed: {exc}"
             )
 
-    observed_role_tools = []
-
-    def inspect_event(value):
-        if isinstance(value, dict):
-            item_type = str(value.get("type", ""))
-            if item_type in {"mcp_tool_call", "mcp_call"}:
-                server = value.get("server") or value.get("server_name")
-                tool = value.get("tool") or value.get("name")
-                if server in capability_projection["mcps"]:
-                    observed_role_tools.append(
-                        f"{server}/{tool}" if isinstance(tool, str) else str(server)
-                    )
-            for child in value.values():
-                inspect_event(child)
-        elif isinstance(value, list):
-            for child in value:
-                inspect_event(child)
-
-    for output_line in (completed.stdout or "").splitlines():
-        try:
-            inspect_event(json.loads(output_line))
-        except json.JSONDecodeError:
-            continue
     receipt = {
         "status": "launched",
         "task_id": task_id,
@@ -2279,20 +3093,28 @@ try:
         ),
         "capability_projection_sha256": capability_projection_sha256,
         "capability_enforcement": capability_enforcement,
-        "authorized_mcps": capability_projection["mcps"],
+        "authorized_mcps": authorized_mcps,
         "brokered_mcps": brokered_mcps,
+        "vault_broker_required": vault_broker_required,
+        "vault_broker_started": vault_broker_started,
         "configured_mcps": configured_mcps,
         "disabled_mcps": disabled_mcps,
         "authorized_tools": capability_projection["tools"],
         "available_tools": available_tools,
         "missing_tools": missing_tools,
         "capability_gaps": capability_gaps,
+        # The audit record for a DEGRADED launch: which authorized servers were
+        # unhealthy, verbatim what they said, and which managed credentials the
+        # secret store did not supply. Absent these, a degraded attempt is
+        # indistinguishable from a healthy one after the fact.
+        "unhealthy_mcps": unhealthy_mcps,
+        "unhealthy_mcp_status": unhealthy_mcp_status,
+        "credential_missing": list(credential_missing),
         "capability_config_path": (
             str(capability_config_path)
             if capability_config_path is not None
             else None
         ),
-        "observed_role_tools": sorted(set(observed_role_tools)),
         "memory_id": globals().get("completion_memory_id"),
         "learning_status": globals().get("learning_status", "unknown"),
         "cli_stdout_sha256": hashlib.sha256(
@@ -2308,11 +3130,51 @@ try:
             "expected_result_sha256": hashlib.sha256(result_bytes).hexdigest(),
             "main_artifact_path": bridge_receipt["artifact_path"],
             "main_artifact_sha256": bridge_receipt["artifact_sha256"],
+            "artifact_promotions": bridge_receipt["artifact_promotions"],
             "main_envelope_path": bridge_receipt["envelope_path"],
             "main_envelope_sha256": bridge_receipt["envelope_sha256"],
             "response_status": bridge_receipt["status"],
             "worktree_integration": asdict(integration_receipt),
         })
+        if bridge_receipt.get("mode_exit_verification") is not None:
+            receipt["mode_exit_verification"] = bridge_receipt[
+                "mode_exit_verification"
+            ]
+    # Worktree lifecycle. The pool provisions one worktree per attempt and
+    # nothing ever released it, so release() sat with no production caller while
+    # 44 worktrees (0.92 GB) accumulated across two days of dispatch.
+    #
+    # Release only a CLEAN tree. Integration has already committed the residue
+    # inside write_scope, and `git worktree remove` deletes the directory but
+    # never the branch, so for a clean tree everything the worker produced stays
+    # reachable through `git show <branch>:<path>`. commit_worker_residue
+    # deliberately leaves OUT-OF-SCOPE paths dirty -- that is exactly the content
+    # removal would destroy and nothing else holds, so a dirty tree is retained
+    # and named in the receipt instead of being silently cleaned. The leak
+    # becomes bounded and visible rather than unbounded and silent.
+    worktree_state = "retained"
+    if execution_kind == "lane":
+        try:
+            residue = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=str(handle.worktree_root),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if residue.returncode != 0:
+                worktree_state = "retained-status-unreadable"
+            elif residue.stdout.strip():
+                worktree_state = "retained-out-of-scope-residue"
+            else:
+                pool.release(handle)
+                worktree_state = "released"
+        except wti.WorktreeIsolationError:
+            # Never fail a task that already succeeded over its own cleanup.
+            worktree_state = "retained-release-failed"
+        except OSError:
+            worktree_state = "retained-status-unreadable"
+    receipt["worktree_state"] = worktree_state
     print(json.dumps(receipt, sort_keys=True))
     # F3.2 (transport XOR): the pane-inbox packet was this supervisor's authenticated
     # launch file; the task is now terminally settled successfully, so remove it here —
@@ -2322,7 +3184,10 @@ try:
     # Only lane dispatches have a validated pane-inbox packet (packet_path, set during
     # lane packet validation); offline-probe has none, so guard on execution_kind to
     # avoid a NameError that would escape as a spurious second (blocked) receipt.
-    if execution_kind == "lane":
+    if (
+        execution_kind == "lane"
+        and not canary_cleanup_requested
+    ):
         try:
             packet_path.unlink()
         except OSError:
@@ -2332,39 +3197,16 @@ except SystemExit:
 except Exception as exc:  # noqa: BLE001
     block_after_provision(f"trusted launch failed: {exc}")
 finally:
+    if vault_broker is not None and not vault_broker_closed:
+        try:
+            vault_broker.close()
+        except BrokerError as exc:
+            write_board_note(f"chrono-vault broker cleanup failed: {exc}")
     if prepared is not None:
         prepared.close()
     close_writable_scopes(audited_scopes)
 PYEOF
 fi
 
-if [[ "${1:-}" != "prepare" || ( "$#" -ne 3 && "$#" -ne 4 ) ]]; then
-  usage >&2
-  exit 64
-fi
-
-request="$2"
-workload_class="$3"
-runtime_context="${4:-${request}.runtime.json}"
-if [[ ! -f "$request" ]]; then
-  echo '{"status":"denied","reason":"request file missing"}' >&2
-  exit 74
-fi
-if [[ ! -f "$runtime_context" ]]; then
-  echo '{"status":"denied","reason":"runtime context file missing"}' >&2
-  exit 74
-fi
-
-"$python_bin" "$repo_root/scripts/python/launch_hygiene.py" validate --request "$request"
-task_root="$($python_bin "$repo_root/scripts/python/launch_hygiene.py" field --request "$request" --name task_root)"
-admission_json="$("$python_bin" "$repo_root/scripts/python/host_admission.py" \
-  --live \
-  --hard-max 12 \
-  --task-path "$task_root" \
-  --workload-class "$workload_class")"
-
-exec "$python_bin" "$repo_root/scripts/python/tool_surface_attest.py" supervisor-launch \
-  --request "$request" \
-  --runtime-context "$runtime_context" \
-  --workload-class "$workload_class" \
-  --admission-json "$admission_json"
+usage >&2
+exit 64

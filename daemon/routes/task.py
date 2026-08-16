@@ -13,10 +13,16 @@ def _state_dir() -> Path:
 
 def _read_task_meta(task_file: Path) -> dict:
     """Best-effort read of task packet or outbox manifest — returns fields UX needs."""
+    default = {
+        "started_at_epoch": _mtime_epoch(task_file),
+        "tokens_used": 0,
+    }
     try:
         data = yaml.safe_load(task_file.read_text()) or {}
-    except Exception:
-        return {}
+    except (OSError, UnicodeError, yaml.YAMLError):
+        return default
+    if not isinstance(data, dict):
+        return default
     return {
         "started_at_epoch": data.get("started_at_epoch") or _mtime_epoch(task_file),
         "tokens_used": _sum_tokens(data.get("tokens_used", 0)),

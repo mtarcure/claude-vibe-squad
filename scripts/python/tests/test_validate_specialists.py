@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 import os
 import subprocess
@@ -167,6 +168,15 @@ class SpecialistValidatorTests(unittest.TestCase):
         self.fixture.row[23] = "[family:operation]"
         self.assertIn("ambiguous-namespaced-tool:required:family:operation", self.issues())
 
+    def test_elevenlabs_operations_cannot_be_parented_to_media_wrapper(self) -> None:
+        self.fixture.add_tool("chrono-media-studio", lanes="all")
+        self.fixture.row[24] = "[chrono-media-studio]"
+        self.fixture.row[25] = (
+            "operations[chrono-media-studio]=elevenlabs__text_to_speech; "
+            "unverified and unavailable."
+        )
+        self.assertIn("unknown-operation-root:chrono-media-studio", self.issues())
+
     def test_registered_colon_identifier_remains_valid(self) -> None:
         self.fixture.add_tool("plugin:github:github", lanes="all")
         self.fixture.row[23] = "[plugin:github:github]"
@@ -238,6 +248,37 @@ class SpecialistValidatorTests(unittest.TestCase):
         self.assertIn("Warnings(non-fatal): 0", completed.stderr)
         self.assertFalse(any(json.loads(line)["status"] == "warn"
                              for line in completed.stdout.splitlines()))
+
+    def test_codex_registry_indexes_exact_meaningful_subcommands(self) -> None:
+        path = REPO_ROOT / "shared/registries/skill-tool-registry.tsv"
+        with path.open(encoding="utf-8", newline="") as handle:
+            records = {
+                row["name"]: row for row in csv.DictReader(handle, delimiter="\t")
+            }
+        expected = {
+            "codex apply",
+            "codex debug app-server send-message-v2",
+            "codex debug models",
+            "codex debug prompt-input",
+            "codex doctor",
+            "codex exec",
+            "codex fork",
+            "codex mcp",
+            "codex mcp-server",
+            "codex resume",
+            "codex review",
+            "codex sandbox",
+        }
+        self.assertTrue(expected <= records.keys())
+        self.assertNotIn("codex mcp/mcp-server", records)
+        self.assertNotIn("codex resume/fork", records)
+        for name in expected:
+            with self.subTest(name=name):
+                self.assertEqual(records[name]["type"], "native-cli-subcommand")
+                self.assertIn(
+                    records[name]["verified_state"],
+                    {"yes", "partial", "needs-research"},
+                )
 
     def test_wrapper_splits_only_live_existence_from_generic_ci(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

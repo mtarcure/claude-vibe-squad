@@ -8,7 +8,7 @@ Reference for specialist `required_tools` / `preferred_tools`. Organized by capa
 
 - `chrono-research-arsenal:arxiv_search` — academic papers and preprints
 - `chrono-research-arsenal:xai_search` — web/X/news via xAI Grok
-- `chrono-research-arsenal:perplexity_search_web` — general web search
+- `chrono-research-arsenal:perplexity_search` — canonical budgeted cited-web search; fresh worker receipt pending
 - `firecrawl:scrape` — web page HTML extraction
 - `firecrawl:crawl` — web crawl with link following
 - `firecrawl:parse` — document parsing (PDF, HTML, etc.)
@@ -51,8 +51,6 @@ Reference for specialist `required_tools` / `preferred_tools`. Organized by capa
 ## Cross-model reasoning (as tools)
 
 - `chrono-research-arsenal:xai_search` — verified Grok-backed web/X/news route; the stale `grok_reason` token is not live
-- `chrono-research-arsenal:deepseek_analyze` — long-context analysis via DeepSeek
-- `chrono-research-arsenal:deepseek_review_diff` — huge-diff review via DeepSeek
 
 ## Content generation: image/video/audio
 
@@ -62,26 +60,20 @@ Reference for specialist `required_tools` / `preferred_tools`. Organized by capa
 - `higgsfield__generate_image` — **not live directly**; use the governed wrapper
 - `higgsfield__generate_video` — **not live directly**; use the governed wrapper
 - `higgsfield__generate_audio` — **not live directly**; use the governed wrapper
-- `higgsfield__models_explore` — Claude-only schema observed; harmless live probe still pending Claude review
-- `higgsfield__generate_3d` — Claude-only partial; paid action requires approval and cost preflight
-- `higgsfield__upscale_image` — Claude-only partial; paid action requires approval and cost preflight
-- `higgsfield__upscale_video` — Claude-only partial; paid action requires approval and cost preflight
-- `higgsfield__outpaint_image` — Claude-only partial; paid action requires approval and cost preflight
-- `higgsfield__reframe` — Claude-only partial; paid action requires approval and cost preflight
-- `higgsfield__remove_background` — Claude-only partial; paid action requires approval and cost preflight
-- `higgsfield__motion_control` — Claude-only partial; paid action requires approval and cost preflight
-- `higgsfield__virality_predictor` — Claude-only partial; preview/create behavior remains unverified
+- `higgsfield__models_explore` — Claude-child schema observed; semantic liveness remains unproven
+- `higgsfield__generate_3d` — Claude-child schema observed; paid action and semantic liveness remain gated
+- `higgsfield__upscale_image` — Claude-child schema observed; paid action and semantic liveness remain gated
+- `higgsfield__upscale_video` — Claude-child schema observed; paid action and semantic liveness remain gated
+- `higgsfield__outpaint_image` — Claude-child schema observed; paid action and semantic liveness remain gated
+- `higgsfield__reframe` — Claude-child schema observed; paid action and semantic liveness remain gated
+- `higgsfield__remove_background` — Claude-child schema observed; paid action and semantic liveness remain gated
+- `higgsfield__motion_control` — Claude-child schema observed; paid action and semantic liveness remain gated
+- `higgsfield__virality_predictor` — Claude-child schema observed; preview/create behavior remains unproven
 - Website/game deployment child names previously listed here had no typed registry declaration and are not claimed as tools.
 
 ## Voice + audio
 
-- `chrono-media-studio:elevenlabs__text_to_speech` — TTS narration
-- `chrono-media-studio:elevenlabs__voice_clone` — voice cloning
-- `chrono-media-studio:elevenlabs__compose_music` — AI music composition
-- `chrono-media-studio:elevenlabs__video_to_music` — music from video
-- `chrono-media-studio:elevenlabs__text_to_sound_effects` — SFX generation
-- `chrono-media-studio:elevenlabs__create_agent` — conversational agent creation
-- `chrono-media-studio:elevenlabs__add_knowledge_base_to_agent` — agent knowledge base
+- `elevenlabs:{text_to_speech,voice_clone,speech_to_speech,text_to_sound_effects,compose_music,video_to_music,upload_music_for_inpainting,create_agent,add_knowledge_base_to_agent}` — canonical Claude sibling-MCP operations; available-gated/unproven pending role-scoped credential and semantic receipts
 
 ## Knowledge & memory
 

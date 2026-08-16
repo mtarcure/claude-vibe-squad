@@ -109,7 +109,7 @@ class RegistryReconcilerSwarmTests(unittest.TestCase):
             }
         )
 
-    def entries(self) -> tuple[dict, dict[str, dict]]:
+    def entries(self, review_class: str = "standard") -> tuple[dict, dict[str, dict]]:
         children = [f"{PARENT}-swarm-claude", f"{PARENT}-swarm-gemini"]
         taxonomy = self.root / "shared" / "finding-taxonomy.md"
         taxonomy.parent.mkdir(parents=True, exist_ok=True)
@@ -152,6 +152,10 @@ class RegistryReconcilerSwarmTests(unittest.TestCase):
             "expected_response_path": f"departments/security/outbox/{PARENT}-response.md",
             "status": "in-flight",
             "mandatory_review": "true",
+            # The controller record carries the one validated class for the
+            # whole swarm. Members inherit it explicitly; see
+            # test_swarm_members_inherit_the_parent_review_class.
+            "review_class": review_class,
         }
         members: dict[str, dict] = {}
         for lane, child_id in zip(("claude", "gemini"), children):
@@ -181,23 +185,127 @@ class RegistryReconcilerSwarmTests(unittest.TestCase):
         self.assertFalse(rr.register_swarm(PARENT, parent, members))
         written = json.loads(self.registry.read_text(encoding="utf-8"))
         self.assertEqual(set(written), {PARENT, *members})
+        self.assertEqual(
+            {written[child_id]["review_class"] for child_id in members},
+            {"standard"},
+        )
 
         self.registry.write_text(json.dumps({PARENT: parent}), encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "partial prior swarm"):
             rr.register_swarm(PARENT, parent, members)
 
-    def test_publication_failure_marks_all_unpublished_children(self) -> None:
+    def test_missing_review_class_is_refused_not_defaulted_to_standard(self) -> None:
+        """A security field has no weakest-value default on any registration path.
+
+        `standard` accepts any independent cross-family review; `factual` and
+        `security-finding` bind the exact response hash. Silently selecting
+        `standard` for an entry that never declared a class lets work dispatched
+        under a stronger contract settle on an ordinary review.
+        """
+
         parent, members = self.entries()
-        rr.register_swarm(PARENT, parent, members)
-        unpublished = [f"{PARENT}-swarm-claude", f"{PARENT}-swarm-gemini"]
-        self.assertTrue(
-            rr.mark_swarm_publication_failed(PARENT, unpublished, "mailbox failure")
-        )
+        parent.pop("review_class")
+        with self.assertRaisesRegex(ValueError, "missing an explicit review_class"):
+            rr.register_swarm(PARENT, parent, members)
+        self.assertFalse(self.registry.exists())
+
+        single = {
+            "compatibility_namespace": "coding",
+            "specialist": "backend-engineer",
+            "to_model": "claude",
+            "mandatory_review": "true",
+            "review_model": "gpt-codex",
+            "status": "in-flight",
+        }
+        with self.assertRaisesRegex(ValueError, "missing an explicit review_class"):
+            rr.register_task("TASK-NO-CLASS", dict(single))
+        for invalid in ("", "   ", None, "standrad", "security_finding", "SECURITY"):
+            with self.subTest(review_class=invalid):
+                with self.assertRaises(ValueError):
+                    rr.register_task("TASK-BAD-CLASS", {**single, "review_class": invalid})
+
+    def test_swarm_members_inherit_the_parent_review_class(self) -> None:
+        """Inheritance is explicit and stored, not implied by a shared default.
+
+        The sender now sets `review_class` on every member. Registration retains
+        parent-to-member inheritance for legacy/external batches, so a reader of
+        a stored member entry must never have to consult the parent.
+        """
+
+        for review_class in ("security-finding", "factual", "standard"):
+            with self.subTest(review_class=review_class):
+                self.registry.unlink(missing_ok=True)
+                parent, members = self.entries(review_class)
+                self.assertTrue(rr.register_swarm(PARENT, parent, members))
+                written = json.loads(self.registry.read_text(encoding="utf-8"))
+                self.assertEqual(written[PARENT]["review_class"], review_class)
+                self.assertEqual(
+                    {written[child_id]["review_class"] for child_id in members},
+                    {review_class},
+                )
+                self.assertEqual(
+                    {rr._review_class(written[child_id]) for child_id in members},
+                    {review_class},
+                )
+
+    def test_swarm_member_cannot_diverge_from_the_parent_review_class(self) -> None:
+        parent, members = self.entries("security-finding")
+        weakened = next(iter(members))
+        members[weakened]["review_class"] = "standard"
+        with self.assertRaisesRegex(ValueError, "must match the parent"):
+            rr.register_swarm(PARENT, parent, members)
+        self.assertFalse(self.registry.exists())
+
+    def test_equivalent_review_class_retry_is_idempotent_not_conflicting(self) -> None:
+        """`" FACTUAL "` and `"factual"` are the same class, so a retry is a retry.
+
+        Registration stores the canonical value, so dispatch identity compares
+        canonical forms and a semantically identical re-registration no longer
+        raises `conflicting task re-registration`.
+        """
+
+        entry = {
+            "compatibility_namespace": "coding",
+            "specialist": "backend-engineer",
+            "to_model": "claude",
+            "mandatory_review": "true",
+            "review_model": "gpt-codex",
+            "review_class": " FACTUAL ",
+            "status": "in-flight",
+        }
+        self.assertTrue(rr.register_task("TASK-RETRY-CLASS", dict(entry)))
+        stored = json.loads(self.registry.read_text(encoding="utf-8"))
+        self.assertEqual(stored["TASK-RETRY-CLASS"]["review_class"], "factual")
         self.assertFalse(
-            rr.mark_swarm_publication_failed(PARENT, unpublished, "mailbox failure")
+            rr.register_task("TASK-RETRY-CLASS", {**entry, "review_class": "factual"})
         )
-        registry = json.loads(self.registry.read_text(encoding="utf-8"))
-        self.assertTrue(all(registry[child]["status"] == "blocked" for child in unpublished))
+
+    def test_unreadable_review_class_holds_review_instead_of_settling(self) -> None:
+        """An entry whose class cannot be read is held, never quietly exempted.
+
+        `cross_family_review_pending` runs over every entry in a sweep, so it
+        answers "pending" rather than raising; the settlement reader refuses
+        outright, because settling is where the downgrade would land.
+        """
+
+        entry = {
+            "specialist": "code-reviewer",
+            "to_model": "claude",
+            "review_model": "gpt-codex",
+            "mandatory_review": "true",
+            "write_scope": [],
+        }
+        # A read-only reviewer task is the one shape that is exempt from review,
+        # and only when its class is explicitly `standard`.
+        self.assertFalse(
+            rr.cross_family_review_pending({**entry, "review_class": "standard"})[0]
+        )
+        self.assertTrue(rr.cross_family_review_pending(dict(entry))[0])
+        self.assertTrue(
+            rr.cross_family_review_pending({**entry, "review_class": "bogus"})[0]
+        )
+        with self.assertRaisesRegex(ValueError, "review_class"):
+            rr._review_class(entry)
 
     def test_close_task_is_audited_and_idempotent(self) -> None:
         task_id = "TASK-STALE"

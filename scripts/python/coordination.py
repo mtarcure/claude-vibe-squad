@@ -1,25 +1,18 @@
 #!/usr/bin/env python3
-"""Uniform board-routed delegation checkpoint/continuation primitive (V2 Task 2.4, F5).
+"""Library-only delegation checkpoint/continuation records (V2 Task 2.4, F5).
 
-Implements the drop-subagents advisory's "uniform replacement": the
-specialist-delegation/v1 spec's same-lane special case is removed. Every
-delegation, same-lane or cross-lane, becomes:
+This module does not dispatch work and has no live production caller. The
+currently supported continuation route is manual and controller-owned:
 
     requester emits bounded delegation request
-      -> current task checkpoints (this module, persist-before-anything-else)
-      -> Chrono resolves target specialist/lane and dispatches an ordinary
-         child task, admitted onto the board via board_router.schedule()
-         (Task 2.1's settled interface — reused, not reimplemented)
+      -> Chrono records any checkpoint it chooses to preserve
+      -> Chrono authors and dispatches an ordinary board child packet
       -> child RESULT settles
-      -> Chrono injects a hash-bound continuation back into the checkpoint
+      -> Chrono authors the next ordinary packet with a bounded Markdown capsule
 
-This module owns the checkpoint's durable state machine: TTL expiry,
-cancellation, crash recovery, and idempotent/duplicate/stale-return
-fencing. It is deliberately modeled on scripts/python/nudge_receipts.py's
-proven shape (persist-before-transition atomic JSON writes, a fail-closed
-exception for unverifiable state, bounded staleness via an injectable
-clock) since that is this codebase's established idiom for exactly this
-problem shape.
+The checkpoint helpers retain TTL, cancellation, crash-recovery, and
+duplicate/stale-return fencing for compatibility tests. Their existence does
+not imply automatic child dispatch, return injection, or a running sweeper.
 """
 
 from __future__ import annotations
@@ -114,8 +107,7 @@ def _pid_is_alive(pid: int) -> bool:
 def _store_lock(state_dir: Path, timeout_seconds: float = 10.0) -> Iterator[None]:
     """Mkdir-based mutual exclusion scoped to this store's own state
     directory (not the shared chrono-notify.lockdir, which guards a
-    different resource). Same protocol as nudge_receipts.shared_notify_lock
-    and registry_reconciler.lockdir, made atomic: the claim and its owner
+    different resource). Like registry_reconciler.lockdir, the claim and its owner
     marker are written in a private staging directory FIRST, then published
     with a single ``os.rename()`` -- the same prepare-then-atomically-
     publish idiom ``_atomic_write_json`` already uses for files, applied to
@@ -208,7 +200,7 @@ def _store_lock(state_dir: Path, timeout_seconds: float = 10.0) -> Iterator[None
 
 
 def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
-    """Temp + fsync + rename + directory fsync, matching nudge_receipts.py."""
+    """Temp + fsync + rename + directory fsync."""
 
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
@@ -252,8 +244,7 @@ def _delegation_id(
     generation's request as what it is — a genuinely new delegation. A
     real retry WITHIN the same attempt/generation still correctly hits the
     idempotent-return path; only a generation or attempt change now mints a
-    distinct identity, matching nudge_receipts.py's established idiom for
-    this exact problem shape."""
+    distinct identity."""
 
     material = _canonical_json(
         {
@@ -421,8 +412,8 @@ class CoordinationStore:
         """Validate the delegation against the GLOBAL lineage cap, the
         concurrent-delegations-per-ACTING-PARENT cap, and the intersected
         authority BEFORE any file is written. A denied request leaves no
-        trace on disk — fail closed, matching memory_gate.py's
-        record()-denies-before-persistence discipline.
+        trace on disk, so validation remains fail closed without persisting a
+        partial checkpoint.
 
         The concurrency cap is scoped to ``parent_task_id`` (the immediate
         acting task making THIS delegation call), not
@@ -619,11 +610,7 @@ class CoordinationStore:
             return record
 
     def sweep_expired(self, now: float | None = None) -> list[dict[str, Any]]:
-        """Crash-recovery / TTL sweep. Mirrors nudge_receipts.resend_due's
-        scan shape: whoever owns the periodic caller (a supervisor loop or
-        Chrono) must actually invoke this on a schedule — building the
-        mechanism does not by itself make it run, the same operational gap
-        already flagged for --resend-due in the path-B nudge review."""
+        """Library-only TTL sweep; no production loop invokes it automatically."""
 
         moment = now if now is not None else self.clock()
         expired: list[dict[str, Any]] = []
@@ -648,11 +635,11 @@ class CoordinationStore:
 
 
 def delegation_board_task(checkpoint: dict[str, Any]):
-    """Map a checkpoint's effective authority onto a real
-    board_router.BoardTask, so whoever schedules the delegated child (Chrono)
-    admits it through Task 2.1's actual, settled schedule()/can_parallelize()
-    — genuine reuse of the board scheduler, not a reimplementation of
-    admission or locking."""
+    """Build a validation-only BoardTask for a manually authored child.
+
+    This helper has test callers only. Chrono still authors and sends the
+    ordinary child packet; this function neither schedules nor dispatches it.
+    """
 
     import board_router as br
 

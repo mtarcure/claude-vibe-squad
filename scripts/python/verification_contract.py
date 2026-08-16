@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 import sys
 from pathlib import Path
@@ -79,6 +80,35 @@ def sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _unique_object(items: list[tuple[str, object]]) -> dict[str, object]:
+    value: dict[str, object] = {}
+    for key, item in items:
+        if key in value:
+            raise ValueError(f"duplicate JSON key: {key}")
+        value[key] = item
+    return value
+
+
+def _finite_float(raw: str) -> float:
+    value = float(raw)
+    if not math.isfinite(value):
+        raise ValueError("non-finite JSON number")
+    return value
+
+
+def _reject_constant(_value: str) -> None:
+    raise ValueError("non-finite JSON number")
+
+
+def _strict_json(raw: str) -> object:
+    return json.loads(
+        raw,
+        object_pairs_hook=_unique_object,
+        parse_constant=_reject_constant,
+        parse_float=_finite_float,
+    )
+
+
 def author_family_for_lane(to_model: object) -> str:
     if not isinstance(to_model, str) or to_model not in LANE_TO_AUTHOR_FAMILY:
         raise ContractError(f"unsupported to_model lane: {to_model!r}")
@@ -142,13 +172,17 @@ def normalize_authorized_delete_path(value: object) -> str:
         raise ContractError(
             f"authorized_delete_paths entry must be repo-relative: {value!r}"
         )
-    if value.startswith(":"):
+    # Pathspec magic and glob syntax were two separately-maintained clauses
+    # asking one question: is this entry a literal path, or something git would
+    # expand into more than one file? They are one clause now. Both forms are
+    # still rejected and the diagnostic still names which shapes are refused --
+    # the merge removes a duplicated decision, not a refusal.
+    if value.startswith(":") or any(
+        character in _PATHSPEC_PATTERN_CHARACTERS for character in value
+    ):
         raise ContractError(
-            f"authorized_delete_paths entry must not use pathspec magic: {value!r}"
-        )
-    if any(character in _PATHSPEC_PATTERN_CHARACTERS for character in value):
-        raise ContractError(
-            f"authorized_delete_paths entry must be a literal path, not a pattern: {value!r}"
+            "authorized_delete_paths entry must be a literal path, not pathspec "
+            f"magic or a pattern: {value!r}"
         )
     if value.endswith("/"):
         raise ContractError(
@@ -178,22 +212,34 @@ def _authorized_delete_paths(admission: Mapping[str, object]) -> list[str]:
     return sorted(normalized)
 
 
+def _collect_gate_list(
+    values: list[object], source: Mapping[str, object], key: str, label: str
+) -> None:
+    """Accumulate one gate field, refusing any non-list value.
+
+    The capability-scoped and admission-scoped gate fields asked the same
+    question -- "is this field a list?" -- from two separately-maintained
+    clauses. One validator owns it now. ``label`` carries the caller's
+    qualified field name, so a rejection still names the exact field that was
+    wrong rather than collapsing six diagnostics into one.
+    """
+
+    raw = source.get(key)
+    if raw is None:
+        return
+    if not isinstance(raw, list):
+        raise ContractError(f"{label} must be a list")
+    values.extend(raw)
+
+
 def _gate_values(admission: Mapping[str, object]) -> list[str]:
     values: list[object] = []
     capability = admission.get("capability", admission.get("capability_snapshot"))
     if isinstance(capability, Mapping):
         for key in ("expected_gates", "operator_gates", "gates"):
-            raw = capability.get(key)
-            if raw is not None:
-                if not isinstance(raw, list):
-                    raise ContractError(f"capability.{key} must be a list")
-                values.extend(raw)
+            _collect_gate_list(values, capability, key, f"capability.{key}")
     for key in ("runtime_map_gates", "runtime_gates", "expected_gates"):
-        raw = admission.get(key)
-        if raw is not None:
-            if not isinstance(raw, list):
-                raise ContractError(f"{key} must be a list")
-            values.extend(raw)
+        _collect_gate_list(values, admission, key, key)
     gates: set[str] = set()
     for value in values:
         if not isinstance(value, str) or value not in _VALID_GATES:
@@ -207,122 +253,12 @@ def derive_verification_contract(admission: dict[str, object]) -> dict[str, obje
         raise ContractError("admission must be an object")
     forbidden = sorted(_DERIVATION_RESERVED_FIELDS.intersection(admission))
     if forbidden:
-        raise ContractError(f"admission contains dispatcher-owned field: {forbidden[0]}")
-
-    mode = admission.get("mode")
-    if mode not in SUPPORTED_TYPED_MODES:
-        raise ContractError(f"unsupported typed mode: {mode!r}")
-    task_id = _nonempty_string(admission.get("task_id"), "task_id")
-    run_id = _nonempty_string(admission.get("run_id"), "run_id")
-    result_type = admission.get("result_type") or "normal"
-    if mode == "project" and result_type != "normal":
-        raise ContractError("Project supports only result_type normal")
-    if mode == "bounty" and result_type not in {"normal", "dry_run"}:
-        raise ContractError("Bounty result_type must be normal or dry_run")
-    if mode == "advisory" and result_type != "normal":
-        raise ContractError("Advisory supports only result_type normal")
-    dispatch_kind = admission.get("dispatch_kind", "single")
-    if dispatch_kind not in {"single", "panel", "swarm"}:
-        raise ContractError("dispatch_kind must be single, panel, or swarm")
-    author_family = author_family_for_lane(admission.get("to_model"))
-
-    if mode == "project":
-        verification_kinds = ["project_tests", "recipient_contract"]
-        bounty_policy: dict[str, object] | None = None
-        required_phase_ids = list(REQUIRED_PHASE_IDS)
-        memory_policy = {"recall": "required", "record": "required"}
-        plan_review_policy = {
-            "required": True,
-            "anti_affinity": "author_family",
-            "subject": "plan_sha256",
-        }
-    elif mode == "bounty":
-        verification_kinds = (
-            ["scope_gate", "no_self_inflicted", "negative_control"]
-            if result_type == "dry_run"
-            else ["scope_gate", "no_self_inflicted", "poc_reproduction"]
+        raise ContractError(
+            f"admission contains dispatcher-owned field: {forbidden[0]}"
         )
-        bounty_policy = {
-            "scope_gate_required": True,
-            "exact_target_allowlist_required": True,
-            "no_self_inflicted_required": True,
-            "submission_attempted_allowed": False,
-            "normal_finding_requirements": [
-                "cvss_v4",
-                "cross_family_reproduction",
-                "negative_control",
-            ],
-            "dry_run_requirements": [
-                "empty_findings",
-                "kill_or_negative_evidence",
-                "no_submit_evidence",
-                "primitive_ledger",
-            ],
-        }
-        required_phase_ids = list(REQUIRED_PHASE_IDS)
-        # `recall` is OPTIONAL in bounty mode, deliberately. A cold lane cannot both call
-        # recall and stay uncontaminated: no filter excludes prior *runs*, because
-        # `written_before` compartments only same-run notes and so includes every earlier
-        # campaign. Four lanes on one run received a sealed run's kill conclusions this
-        # way despite never opening the quarantined directory, and one leaked claim was
-        # also factually wrong. Requiring the call mandated the contamination. Recording
-        # stays required: writing findings biases nobody. If a lane does call recall, the
-        # mode requires it to disclose verbatim what came back.
-        memory_policy = {"recall": "optional", "record": "required"}
-        plan_review_policy = {
-            "required": True,
-            "anti_affinity": "author_family",
-            "subject": "plan_sha256",
-        }
-    else:
-        verification_kinds = ["artifact_written"]
-        bounty_policy = None
-        required_phase_ids = []
-        memory_policy = {"recall": "optional", "record": "optional"}
-        plan_review_policy = {"required": False}
-
-    contract: dict[str, object] = {
-        "contract_version": CONTRACT_VERSION,
-        "task_id": task_id,
-        "run_id": run_id,
-        "mode": mode,
-        "result_type": result_type,
-        "dispatch_kind": dispatch_kind,
-        "author_family": author_family,
-        "capability": _capability_from_admission(admission),
-        "required_phase_ids": required_phase_ids,
-        "required_verification_kinds": verification_kinds,
-        "memory_policy": memory_policy,
-        "plan_review_policy": plan_review_policy,
-        "deliverable_review_policy": {
-            "required": True,
-            "anti_affinity": "author_family",
-            "subject": "artifact_bundle_sha256",
-        },
-        "artifact_policy": {
-            "hashes_required": True,
-            "bundle_hash_algorithm": "canonical-artifact-list-sha256/v1",
-        },
-        "action_log_policy": {"required": True},
-        "iteration_policy": {
-            "routes": ["S2", "S3"],
-            "invalidates_on": ["plan_sha256", "artifact_bundle_sha256"],
-        },
-        "expected_gates": _gate_values(admission),
-        "external_delivery_policy": {"allowed": False},
-        "bounty_policy": bounty_policy,
-    }
-    _apply_authorized_delete_paths(contract, _authorized_delete_paths(admission), mode)
-    if mode == "advisory":
-        for project_or_bounty_key in (
-            "deliverable_review_policy",
-            "artifact_policy",
-            "action_log_policy",
-            "iteration_policy",
-            "bounty_policy",
-        ):
-            contract.pop(project_or_bounty_key)
-    return validate_verification_contract(contract)
+    return validate_verification_contract(
+        derive_verification_contract_unchecked(admission)
+    )
 
 
 def _apply_authorized_delete_paths(
@@ -385,7 +321,9 @@ def validate_verification_contract(contract: object) -> dict[str, object]:
     if set(contract) != required_keys:
         missing = sorted(required_keys - set(contract))
         extra = sorted(set(contract) - required_keys)
-        raise ContractError(f"contract keys mismatch (missing={missing}, extra={extra})")
+        raise ContractError(
+            f"contract keys mismatch (missing={missing}, extra={extra})"
+        )
     if contract.get("contract_version") != CONTRACT_VERSION:
         raise ContractError("contract_version is not verification-contract/v1")
 
@@ -400,7 +338,9 @@ def validate_verification_contract(contract: object) -> dict[str, object]:
         "result_type": result_type,
         "dispatch_kind": contract.get("dispatch_kind"),
         "to_model": next(
-            lane for lane, family in LANE_TO_AUTHOR_FAMILY.items() if family == author_family
+            lane
+            for lane, family in LANE_TO_AUTHOR_FAMILY.items()
+            if family == author_family
         ),
         "capability": contract.get("capability"),
         "expected_gates": contract.get("expected_gates"),
@@ -408,12 +348,32 @@ def validate_verification_contract(contract: object) -> dict[str, object]:
     }
     expected = derive_verification_contract_unchecked(admission)
     if contract != expected:
-        raise ContractError("contract does not match the fixed v1 policy")
+        # Name the fields. This function's contract is to identify the bad field
+        # (F7), but a whole-object comparison collapsed every divergence into one
+        # message that named nothing -- leaving an author to diff a 19-key
+        # contract by eye to find which value the dispatcher disagreed with.
+        # Compare MEMBERSHIP as well as value. `.get()` returns None both for
+        # an absent key and for a key explicitly set to null, so an extra
+        # `"authorized_delete_paths": null` differed from the policy yet
+        # produced an empty field list -- the first version of this fix still
+        # named nothing in exactly the case it was written for.
+        missing = object()
+        differing = sorted(
+            key
+            for key in set(contract) | set(expected)
+            if contract.get(key, missing) != expected.get(key, missing)
+        )
+        raise ContractError(
+            "contract does not match the fixed v1 policy; differing field(s): "
+            + ", ".join(differing)
+        )
     canonical_json_bytes(contract)
     return contract
 
 
-def derive_verification_contract_unchecked(admission: dict[str, object]) -> dict[str, object]:
+def derive_verification_contract_unchecked(
+    admission: dict[str, object],
+) -> dict[str, object]:
     """Re-derive for validation without recursively invoking the validator."""
 
     mode = admission.get("mode")
@@ -428,7 +388,7 @@ def derive_verification_contract_unchecked(admission: dict[str, object]) -> dict
         raise ContractError("Bounty result_type must be normal or dry_run")
     if mode == "advisory" and result_type != "normal":
         raise ContractError("Advisory supports only result_type normal")
-    dispatch_kind = admission.get("dispatch_kind")
+    dispatch_kind = admission.get("dispatch_kind", "single")
     if dispatch_kind not in {"single", "panel", "swarm"}:
         raise ContractError("dispatch_kind must be single, panel, or swarm")
     author_family = author_family_for_lane(admission.get("to_model"))
@@ -541,7 +501,11 @@ def read_yaml_frontmatter(path: Path) -> dict[str, object]:
     if not lines or lines[0].strip() != "---":
         raise ContractError(f"packet has no YAML frontmatter: {path}")
     try:
-        close = next(index for index, line in enumerate(lines[1:], start=1) if line.strip() == "---")
+        close = next(
+            index
+            for index, line in enumerate(lines[1:], start=1)
+            if line.strip() == "---"
+        )
     except StopIteration as exc:
         raise ContractError(f"packet frontmatter is unterminated: {path}") from exc
     parsed: dict[str, object] = {}
@@ -553,10 +517,12 @@ def read_yaml_frontmatter(path: Path) -> dict[str, object]:
         value = raw_value.strip()
         if not key:
             continue
+        if key in parsed:
+            raise ContractError(f"packet has duplicate frontmatter field {key}: {path}")
         if value.startswith(("{", "[")):
             try:
-                parsed[key] = json.loads(value)
-            except json.JSONDecodeError as exc:
+                parsed[key] = _strict_json(value)
+            except (json.JSONDecodeError, ValueError) as exc:
                 if key == "verification_contract":
                     raise ContractError(
                         f"packet frontmatter field {key} is invalid inline JSON: {path}"
@@ -604,9 +570,9 @@ def read_packet_contract_echoes(
 
 def _derive_cli(admission_json: str) -> dict[str, object]:
     try:
-        admission = json.loads(admission_json)
-    except json.JSONDecodeError as exc:
-        raise ContractError(f"invalid admission JSON: {exc.msg}") from exc
+        admission = _strict_json(admission_json)
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise ContractError(f"invalid admission JSON: {exc}") from exc
     contract = derive_verification_contract(admission)
     return {
         "verification_contract": contract,

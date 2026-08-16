@@ -33,38 +33,48 @@ class ProviderRoutingTests(unittest.TestCase):
             value = function(**kwargs)
         return value, client.post.call_args
 
-    def test_gemini_image_routes_to_imagen_and_returns_data_url(self):
-        with patch.dict(os.environ, {"GEMINI_API_KEY": "gemini-test-secret"}):
-            result, call = self.call_with_response(
-                response(
-                    200,
-                    {
-                        "predictions": [
-                            {"safetyAttributes": {"contentType": "Positive Prompt"}},
-                            {"bytesBase64Encoded": "aW1hZ2U=", "mimeType": "image/png"},
-                        ]
-                    },
-                ),
-                media.generate_image,
-                prompt="a blue square",
-                provider="GEMINI",
-                model="imagen-4",
-                size="1024x1024",
+    def test_gemini_image_public_aliases_fail_closed_without_generation(self):
+        self.assertEqual(set(media._IMAGE_MODEL_ALIASES["gemini"]), {"gpt-image-2", "imagen-4"})
+        self.assertTrue(all(value is None for value in media._IMAGE_MODEL_ALIASES["gemini"].values()))
+
+        for alias in ("gpt-image-2", "imagen-4"):
+            with (
+                self.subTest(alias=alias),
+                patch.dict(os.environ, {"GEMINI_API_KEY": "gemini-test-secret"}),
+                patch.object(media.httpx, "Client") as client,
+            ):
+                result = media.generate_image(
+                    prompt="must not be sent",
+                    provider="GEMINI",
+                    model=alias,
+                    size="1024x1024",
+                )
+
+            self.assertEqual(
+                result,
+                {
+                    "ok": False,
+                    "error": media._GEMINI_IMAGE_ROUTE_ERROR,
+                    "provider": "gemini",
+                    "model": alias,
+                },
+            )
+            client.assert_not_called()
+
+    def test_gemini_image_rejects_retiring_concrete_model_without_generation(self):
+        with (
+            patch.dict(os.environ, {"GEMINI_API_KEY": "gemini-test-secret"}),
+            patch.object(media.httpx, "Client") as client,
+        ):
+            result = media.generate_image(
+                prompt="must not be sent",
+                provider="gemini",
+                model="imagen-4.0-generate-001",
             )
 
-        self.assertEqual(call.args[0], f"{media._GEMINI_BASE_URL}/models/imagen-4.0-generate-001:predict")
-        self.assertEqual(call.kwargs["headers"], {"x-goog-api-key": "gemini-test-secret"})
-        self.assertEqual(call.kwargs["json"]["instances"], [{"prompt": "a blue square"}])
-        self.assertEqual(call.kwargs["json"]["parameters"]["aspectRatio"], "1:1")
-        self.assertEqual(
-            result,
-            {
-                "ok": True,
-                "url": "data:image/png;base64,aW1hZ2U=",
-                "provider": "gemini",
-                "model": "imagen-4.0-generate-001",
-            },
-        )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], media._GEMINI_IMAGE_ROUTE_ERROR)
+        client.assert_not_called()
 
     def test_gemini_image_all_safety_records_returns_clean_missing_data_error(self):
         secret = "gemini-safety-secret-that-must-not-escape"
@@ -81,7 +91,7 @@ class ProviderRoutingTests(unittest.TestCase):
                 media.generate_image,
                 prompt="a filtered image",
                 provider="gemini",
-                model="imagen-4",
+                model="test-image-model",
             )
 
         self.assertEqual(
@@ -90,7 +100,7 @@ class ProviderRoutingTests(unittest.TestCase):
                 "ok": False,
                 "error": "invalid response: image data missing",
                 "provider": "gemini",
-                "model": "imagen-4.0-generate-001",
+                "model": "test-image-model",
             },
         )
         self.assertNotIn(secret, repr(result))
@@ -113,7 +123,7 @@ class ProviderRoutingTests(unittest.TestCase):
                 media.generate_image,
                 prompt="at-cap image",
                 provider="gemini",
-                model="imagen-4",
+                model="test-image-model",
             )
 
         self.assertTrue(result["ok"])
@@ -140,7 +150,7 @@ class ProviderRoutingTests(unittest.TestCase):
                 media.generate_image,
                 prompt="over-cap image",
                 provider="gemini",
-                model="imagen-4",
+                model="test-image-model",
             )
 
         self.assertEqual(result["error"], "media payload exceeds 32 MiB cap")
@@ -311,6 +321,7 @@ class ProviderErrorTests(unittest.TestCase):
                 media.generate_image,
                 prompt="test",
                 provider="gemini",
+                model="test-image-model",
             )
 
         self.assertEqual(result["error"], "HTTP 403 Forbidden")

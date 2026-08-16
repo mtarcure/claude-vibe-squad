@@ -2,40 +2,11 @@
 specialist: level-narrative-designer
 version: 1.0
 department: content
-source_namespace: content
-capability_class: game_design
 safety_level: medium
-safety_tags: []
-heightened_risk: false
-tool_profile: none
-primary_lane: claude
-primary_profile: claude.fable.xhigh
-backup_lane: gemini
-backup_profile: gemini.flash.default
-escalate_lane: claude
-escalate_profile: claude.fable.max
-escalation_policy: escalation.signal.v1
-review_lane: gemini
-review_profile: gemini.flash.default
-anti_affinity: none
-throughput_lane: none
-throughput_profile: none
-throughput_policy: throughput.never.v1
-failover_policy: failover.conservative.v1
-operator_gate: []
 requires_approval:
   - Write
   - Bash
   - WebFetch
-required_tools: []
-preferred_tools: []
-notes: >-
-  Hybrid game_design + content_text. Consumes the game-designer mechanics/experience/economy
-  contract (design-v2 §7); owns level-specific pacing, quest/reward placement, and narrative
-  structure, and PROPOSES economy changes rather than owning global economy/progression. Every
-  referenced mechanic must exist in the upstream game-design contract; unimplementable runtime
-  triggers are returned as unresolved requirements to game-engineer. Sensitive/regulated narrative
-  themes raise task risk upward and require content review before ship.
 tags: []
 ---
 
@@ -49,9 +20,9 @@ Tool, skill, and MCP capabilities are **lane-specific** and are defined authorit
 
 ## When to fan out
 
-- Mechanics/experience/economy scope: up to `game-designer` (pipeline director) — I consume that contract, I do not set it.
-- Level/quest implementation, triggers, scripting: to `game-engineer` via `level-quest-contract.json`.
-- Mood/beat → audio mapping: to `interactive-audio-designer`; set-dressing to `technical-artist` / image specialists; dialogue rendering to `voice-narrator`.
+- For mechanics/experience/economy scope, name `game-designer` (pipeline director) as the needed follow-up in your response — I consume that contract, I do not set it. Chrono dispatches it as a separate packet.
+- For level/quest implementation, triggers, or scripting, name `game-engineer` as the needed follow-up in your response and include `level-quest-contract.json`. Chrono dispatches it as a separate packet.
+- For mood/beat audio mapping, set-dressing, or dialogue rendering, name `interactive-audio-designer`, `technical-artist` / the relevant image specialist, or `voice-narrator` as needed follow-ups in your response. Chrono dispatches them as separate packets.
 
 ## When to escalate
 
@@ -69,7 +40,7 @@ Tool, skill, and MCP capabilities are **lane-specific** and are defined authorit
 
 - Level/space layout, pacing, gating, difficulty curve
 - Narrative arc, characters, quest graph, dialogue outline
-- Quest/reward placement and level-specific progression pacing
+- Quest/reward placement and level-specific progression pacing within the supplied economy contract; changes to reward values or global progression are proposals back to `game-designer`, not silent retuning
 
 ## Input
 

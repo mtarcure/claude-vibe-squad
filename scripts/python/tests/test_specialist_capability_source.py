@@ -13,10 +13,14 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "scripts/python"))
 from specialist_capability_source import (  # noqa: E402
+    SURFACE_SCHEMA,
+    CapabilityRef,
     CapabilitySourceError,
     SOURCE_RELATIVE,
     available_arrays,
     load_source,
+    role_surface_payload,
+    role_surface_sha256,
 )
 
 VALIDATOR_SPEC = importlib.util.spec_from_file_location(
@@ -37,6 +41,72 @@ REGISTRY_SPEC.loader.exec_module(registry)
 
 
 class SpecialistCapabilitySourceTests(unittest.TestCase):
+    def test_role_surface_payload_is_canonical_and_splits_brokered_mcps(self) -> None:
+        entry = {
+            "specialist": "example",
+            "lane": "claude",
+            "coverage": "partial",
+            "limitations": ("metadata is not part of the surface",),
+            "skills": (
+                CapabilityRef("z-skill", "preferred", "available", "lane-inventory"),
+                CapabilityRef("a-skill", "required", "installed-skill-root", "installed-skill-root"),
+                CapabilityRef("draft", "preferred", "authored:stub", "shared-skills:stub"),
+            ),
+            "tools": (
+                CapabilityRef("z-tool", "preferred", "available", "host-PATH"),
+                CapabilityRef("missing", "preferred", "uninstalled", "host-PATH:absent"),
+                CapabilityRef("a-tool", "required", "available", "host-PATH"),
+            ),
+            "mcps": (
+                CapabilityRef("lead:research", "preferred", "available", "lane-inventory"),
+                CapabilityRef("vault", "required", "available", "lane-inventory"),
+            ),
+        }
+
+        self.assertEqual(
+            role_surface_payload(entry),
+            {
+                "schema": SURFACE_SCHEMA,
+                "lane": "claude",
+                "skills": ["a-skill", "z-skill"],
+                "tools": ["a-tool", "z-tool"],
+                "mcps": ["vault"],
+                "brokered_mcps": ["research"],
+            },
+        )
+
+    def test_role_surface_hash_ignores_metadata_but_binds_lane_and_route(self) -> None:
+        direct = {
+            "specialist": "alpha",
+            "lane": "claude",
+            "coverage": "full",
+            "limitations": (),
+            "skills": (),
+            "tools": (),
+            "mcps": (
+                CapabilityRef("vault", "required", "available", "lane-inventory"),
+                CapabilityRef("ignored-a", "preferred", "uninstalled", "lane-not-wired"),
+            ),
+        }
+        metadata_changed = {
+            **direct,
+            "specialist": "beta",
+            "coverage": "partial",
+            "limitations": ("different",),
+            "mcps": (
+                CapabilityRef("ignored-b", "preferred", "probe-failed", "pending-reprobe"),
+                CapabilityRef("vault", "preferred", "available", "verified-registry:claude-mcp"),
+            ),
+        }
+        brokered = {
+            **direct,
+            "mcps": (CapabilityRef("lead:vault", "required", "available", "lane-inventory"),),
+        }
+
+        self.assertEqual(role_surface_sha256(direct), role_surface_sha256(metadata_changed))
+        self.assertNotEqual(role_surface_sha256(direct), role_surface_sha256({**direct, "lane": "gpt-codex"}))
+        self.assertNotEqual(role_surface_sha256(direct), role_surface_sha256(brokered))
+
     def test_source_covers_every_routed_pair_and_every_primary_is_full(self) -> None:
         entries, payload = load_source(ROOT)
         rows = validator.runtime_rows(ROOT)
@@ -46,13 +116,13 @@ class SpecialistCapabilitySourceTests(unittest.TestCase):
             for lane in validator.routed_lanes(row)
         }
         self.assertEqual(set(entries), expected)
-        # 164 = 163 + 1: experimental-attacker gained the claude lane so the
-        # experimental role can run on Fable as well as Kimi (a251c9c). The set
-        # assertion above is the real invariant -- this count is the tripwire
-        # that forces a routing change to be acknowledged here.
-        self.assertEqual(len(entries), 164)
         self.assertEqual(
-            sum(entry["coverage"] == "full" for entry in entries.values()), 73
+            len(entries),
+            sum(len(validator.routed_lanes(row)) for row in rows.values()),
+        )
+        self.assertEqual(
+            sum(entry["coverage"] == "full" for entry in entries.values()),
+            len(rows),
         )
         self.assertEqual(
             sum("primary_requirements" in entry for entry in entries.values()), 0
@@ -88,26 +158,29 @@ class SpecialistCapabilitySourceTests(unittest.TestCase):
             item["id"]: set(item["provides"])
             for item in payload["servers"]
         }
-        operations = 0
+        assigned_operations = {
+            server_id: set()
+            for server_id in servers
+            if not server_id.startswith("lead:")
+        }
         for entry in entries.values():
             assigned = {ref.identifier for ref in entry["mcps"]}
             for ref in entry["tools"]:
                 if not ref.provided_by:
                     continue
-                operations += 1
                 self.assertIn(ref.identifier, servers[ref.provided_by])
                 self.assertIn(ref.provided_by, assigned)
-        # 160 = 151 + 9. +7: prior_art_check reclassified from a phantom local
-        # binary to the chrono-dedup MCP operation it actually is (the board
-        # denied exploit-developer launch looking for a `prior_art_check`
-        # executable that never existed). +2: exploit-developer@claude gained
-        # arxiv_search/xai_search when its 2-tool set was mirrored from the
-        # 28-tool codex set so cross-family PoC reproduction is symmetric.
-        # 166 = 160 + 6: three research tools were declared as phantom local
-        # binaries on codex and were reclassified to the chrono-research-arsenal
-        # MCP operations they actually are (32f6a15). Each is counted once per
-        # entry that declares it, so three declarations move the total by six.
-        self.assertEqual(operations, 166)
+                if not ref.provided_by.startswith("lead:"):
+                    assigned_operations[ref.provided_by].add(ref.identifier)
+        # Every directly callable provider operation must have at least one
+        # current routed consumer. This closes both directions without copying a
+        # roster-dependent declaration count into the test.
+        direct_server_operations = {
+            server_id: operations
+            for server_id, operations in servers.items()
+            if not server_id.startswith("lead:")
+        }
+        self.assertEqual(assigned_operations, direct_server_operations)
 
     def test_validator_fails_closed_on_runtime_projection_drift(self) -> None:
         entries, _payload = load_source(ROOT)
@@ -276,15 +349,39 @@ class SpecialistCapabilitySourceTests(unittest.TestCase):
 
     def test_firecrawl_wrapper_is_primary_while_legacy_plugin_stays_claude_only(self) -> None:
         entries, _payload = load_source(ROOT)
+        rows = validator.runtime_rows(ROOT)
         self.assertIn(
             "firecrawl", available_arrays(entries, "research", "claude")["tools"]
         )
         self.assertNotIn(
             "firecrawl", available_arrays(entries, "research", "gemini")["tools"]
         )
-        self.assertIn(
-            "firecrawl_scrape",
-            available_arrays(entries, "copywriter", "gemini")["tools"],
+        gemini_wrapper_consumers = []
+        for specialist, row in sorted(rows.items()):
+            if "gemini" not in validator.routed_lanes(row):
+                continue
+            entry = entries[(specialist, "gemini")]
+            wrapper = next(
+                (
+                    ref
+                    for ref in entry["tools"]
+                    if ref.identifier == "firecrawl_scrape"
+                ),
+                None,
+            )
+            if wrapper is None:
+                continue
+            gemini_wrapper_consumers.append(specialist)
+            self.assertEqual(wrapper.availability, "mcp-operation")
+            self.assertEqual(wrapper.provided_by, "chrono-research-arsenal")
+            self.assertIn(
+                "chrono-research-arsenal",
+                {ref.identifier for ref in entry["mcps"]},
+            )
+        self.assertGreater(
+            len(gemini_wrapper_consumers),
+            0,
+            "no current Gemini-routed specialist consumes firecrawl_scrape",
         )
 
     def test_pending_and_failed_capabilities_are_tracked_but_not_projected(self) -> None:

@@ -22,6 +22,50 @@ ENTROPY_ASSIGNMENT = re.compile(
     r"(?i)(?:api[_-]?key|access[_-]?token|auth[_-]?token|secret|password|credential)"
     r"\s*[:=]\s*[\"']?([A-Za-z0-9_./+=-]{20,})"
 )
+TEXT_SUFFIXES = frozenset(
+    {
+        ".bash",
+        ".c",
+        ".cfg",
+        ".cjs",
+        ".conf",
+        ".css",
+        ".csv",
+        ".cts",
+        ".go",
+        ".h",
+        ".html",
+        ".ini",
+        ".java",
+        ".js",
+        ".json",
+        ".jsonl",
+        ".jsx",
+        ".lock",
+        ".md",
+        ".mjs",
+        ".mts",
+        ".pl",
+        ".py",
+        ".rb",
+        ".rs",
+        ".sh",
+        ".sol",
+        ".svg",
+        ".toml",
+        ".ts",
+        ".tsv",
+        ".tsx",
+        ".txt",
+        ".xml",
+        ".yaml",
+        ".yml",
+        ".zsh",
+    }
+)
+TEXT_FILENAMES = frozenset(
+    {"Dockerfile", "Gemfile", "LICENSE", "Makefile", "README"}
+)
 
 
 class ScanError(RuntimeError):
@@ -145,9 +189,39 @@ def _tracked_text(root: Path, relative_path: str) -> str | None:
     if not stat.S_ISREG(metadata.st_mode):
         raise ScanError(f"tracked path is not a regular file or symlink: {relative_path!r}")
     try:
-        return candidate.read_bytes().decode("utf-8", errors="ignore")
+        data = candidate.read_bytes()
     except OSError as error:
         raise ScanError(f"cannot read tracked file {relative_path!r}: {error}") from error
+    encodings = (
+        (b"\x00\x00\xfe\xff", "utf-32"),
+        (b"\xff\xfe\x00\x00", "utf-32"),
+        (b"\xfe\xff", "utf-16"),
+        (b"\xff\xfe", "utf-16"),
+        (b"\xef\xbb\xbf", "utf-8-sig"),
+    )
+    for marker, encoding in encodings:
+        if data.startswith(marker):
+            try:
+                return data.decode(encoding)
+            except UnicodeError as error:
+                raise ScanError(
+                    f"tracked text file has invalid {encoding} bytes: {relative_path!r}"
+                ) from error
+    path = Path(relative_path)
+    known_text = path.suffix.lower() in TEXT_SUFFIXES or path.name in TEXT_FILENAMES
+    try:
+        text = data.decode("utf-8")
+    except UnicodeError as error:
+        if known_text:
+            raise ScanError(
+                f"tracked text file is not valid UTF-8/16/32: {relative_path!r}"
+            ) from error
+        return None
+    if known_text and "\x00" in text:
+        raise ScanError(
+            f"tracked text file is not valid UTF-8/16/32: {relative_path!r}"
+        )
+    return text
 
 
 def scan(

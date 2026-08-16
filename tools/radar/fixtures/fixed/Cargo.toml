@@ -1,4 +1,0 @@
-[workspace]
-members = ["programs/pda-canary"]
-resolver = "2"
-

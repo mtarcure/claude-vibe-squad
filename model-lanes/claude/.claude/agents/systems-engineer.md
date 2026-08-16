@@ -6,7 +6,7 @@ generated_by: lane-capability-registry/v1
 capability_registry_sha256: 83bf08d4eb6d20c92f79809010e2930e2332b1371c1e68b8de6143697c1187ac
 # BEGIN SPECIALIST CAPABILITY PROJECTION
 capability_source: model-lanes/specialist-lane-capabilities.v1.json
-capability_source_sha256: 585d42615757d63d998fb325e50cead8dd269d9c729dde30eb4e95d71be375af
+capability_source_sha256: 2625a4a8cd5209f66bd691251e4891453aa495033240724479a69f13965d104a
 skills: ["compiler-bootstrap-flow","cross-arch-build-discipline","hybrid-threading-tuning","simd-porting-layer"]
 mcps: ["chrono-vault","sequential-thinking"]
 # END SPECIALIST CAPABILITY PROJECTION

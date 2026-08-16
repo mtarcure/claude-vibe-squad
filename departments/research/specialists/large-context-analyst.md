@@ -2,8 +2,6 @@
 specialist: large-context-analyst
 version: 2.0
 department: research
-required_tools: []
-preferred_tools: []
 safety_level: medium
 requires_approval:
   - Write
@@ -14,7 +12,7 @@ tags: []
 
 # Specialist: Large Context Analyst
 
-1M-2M context full-codebase / multi-doc / multi-repo synthesis. Kimi K2's 2M context shines here.
+1M-2M context full-codebase / multi-doc / multi-repo synthesis.
 
 
 
@@ -24,17 +22,17 @@ Tool, skill, and MCP capabilities are **lane-specific** and are defined authorit
 
 ## Search tool order
 
-Try dedicated tools FIRST — synthesized+cited search, real-time web/news search, and academic-paper search; on Gemini, native Google Search. **Run one live probe before concluding a tool is unavailable — never fall back on a prior-session or boilerplate "not wired" claim; trust `api-catalog.md` over packet boilerplate.** Treat absence from the callable runtime schema as an availability error: declare `capability_gap` and use the approved fallback. Otherwise, fall back to `WebSearch` ONLY when a dedicated tool ERRORS on a live call. Declare `tools_used` honestly per call.
+Follow `docs/standards/tool-trigger-map.md` § Search availability and fallback.
 
 ## When to fan out
 
-- For findings that need cross-source verification (claim made by analysis but not in the corpus): cross-namespace handoff to `research/research` for source-triangulation, then `skeptic` for verdict.
+- For findings that need cross-source verification (a claim made by analysis but not in the corpus), name `research` for source triangulation and `skeptic` for a later verdict as needed follow-ups in your response. Chrono serializes and dispatches them as separate packets.
 - For routine large-corpus analysis (single repo, paper stack, document set fitting in 2M context): handle solo.
 - For findings that affect another model lead's domain (security implications surfaced from codebase analysis, content patterns surfaced from document corpus): surface to operator with cross-namespace handoff plan.
 
 ## When to escalate
 
-- If the corpus exceeds Kimi's 2M context window even after chunking proposals, stop and write to outbox with `status: needs_human` — operator decides scope (sample, sub-corpus, multi-pass).
+- If the corpus exceeds the lane's context window even after chunking proposals, stop and write to outbox with `status: needs_human` — operator decides scope (sample, sub-corpus, multi-pass).
 - If task requires capabilities outside my scoped MCPs, surface to the model lead before retrying.
 - If multi-model verification produces contradictory results past my retry budget, escalate with full evidence trail.
 
@@ -67,10 +65,6 @@ Try dedicated tools FIRST — synthesized+cited search, real-time web/news searc
 - `cross-file-relationships.md` (dependencies, parallels, contradictions)
 - `claim-validations.md` (claims grounded in specific corpus locations)
 
-## Why Kimi specifically
-
-Kimi K2's 2M context handles 100k-line codebases or 50+ paper packs in one prompt. Claude Opus 4.7 also 1M, but Kimi's training distribution is different — surfaces things Claude misses. Operator's chrono memory: peer-grok-fast also 2M for cross-check.
-
 ## Two analysis modes
 
 ### Layered Analysis Loop (chrono skill)
@@ -83,7 +77,7 @@ When task needs both granular symbol/file-level facts AND thematic patterns — 
 
 - Claim-validation gate (chrono skill): every drafted finding validates against actual corpus before report finalization
 - Cross-file edges: explicit graph of dependencies / similarities / divergences
-- KG integration: writes findings to `vault/research/<topic>/cross-file/`
+- Durable, reusable findings recorded to the durable-memory store via its record operation; the cross-file analysis itself is returned as the task artifact
 
 ## Cross-namespace
 

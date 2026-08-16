@@ -14,6 +14,10 @@ gates: []
 > real target code, and see `shared/registries/recommended-toolchain.tsv` for
 > what to install by technique class and target class.
 
+## Availability in a fresh clone
+
+A zero-key checkout gets this protocol and its validation metadata as documentation; automated dispatch is `needs_tool`. To make it runnable, install and authenticate the selected model CLI, configure every MCP declared by the dispatched specialists, bind the private vault (`CHRONO_VAULT_ROOT`; Kimi also requires its exact vault context), install any required host-local binaries, and provide approved credentials plus a bounded budget for any metered provider named below. After setup, re-run the production role planner and validators on that host; availability remains subject to the narrower gaps and operator gates documented in this card.
+
 **When to use:** audit the squad's own configuration for drift — prompt/instruction adapters, tool
 declarations, script/config compatibility, and MCP reachability. **Audit-only:** findings are reported and
 handed off; remediation (mutating the harness) routes to the owning implementer, not this card.
@@ -31,15 +35,7 @@ handed off; remediation (mutating the harness) routes to the owning implementer,
 **Notes.** `harness-optimizer` audits/reviews only — its runtime charter says implementation is a future
 split, so this card produces findings + a handoff, never a harness mutation (that would be a
 `self-extension`/implementation task under its own gates). MCP reachability uses the lane shell + the
-`mcp-reachability-audit` methodology; note that the `parity-probe` SKILL still references the retired
-`chrono-catalog` namespace and needs maintenance before it can be a hard acceptance gate.
-
-**Confirmed MCP breakages (open audit findings — route to the owning implementer; this card does not fix them):**
-1. **`chrono-content-engineer` disconnected.** The plugin directory was renamed `chrono-content-engineer` →
-   `chrono-media-studio`, so `~/.kimi/mcp.json` and `.gemini/settings.json` still point at a now-missing
-   `mcp_server.py`. Fix = repair the path in those lane configs (restart-unsafe even where a live pane still
-   holds the old tools).
-2. **`chrono-catalog` disconnected.** `unknown MCP namespace: catalog` — the vault `mcp_server.py` only handles
-   the `kg`/`obsidian` namespaces. Fix = implement the `catalog` namespace or re-register under a valid one.
-Both are config/implementation repairs (a `self-extension`/maintenance task), not harness mutations by this
-audit card.
+`mcp-reachability-audit` methodology. `parity-probe` now points only to retained Project/Bounty v2 board
+canaries; it runs no provider command and grants no liveness by itself. Retired `chrono-content-engineer` and
+`chrono-catalog` spellings are historical findings, not current routes, and must not be reintroduced by an
+audit or compatibility repair.

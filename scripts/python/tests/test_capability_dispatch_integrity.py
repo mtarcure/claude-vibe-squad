@@ -17,10 +17,26 @@ INSPECTOR = REPO_ROOT / "scripts/python/capability_dispatch.py"
 RECONCILER = REPO_ROOT / "scripts/python/registry_reconciler.py"
 VERIFICATION_HELPER = REPO_ROOT / "scripts/python/verification_contract.py"
 
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 if str(VERIFICATION_HELPER.parent) not in sys.path:
     sys.path.insert(0, str(VERIFICATION_HELPER.parent))
 
+from scripts.python.tests.supervisor_lifecycle import (  # noqa: E402
+    cleanup_supervisors_before_root,
+)
 from verification_contract import verification_contract_sha256  # noqa: E402
+
+
+class ManagedSupervisorTestCase(unittest.TestCase):
+    """Own temp roots and any detached board supervisors launched against them."""
+
+    def _managed_root(self, prefix: str) -> Path:
+        root = Path(tempfile.mkdtemp(prefix=prefix))
+        # One cleanup owns both operations, making the required ordering
+        # structural rather than dependent on unittest's LIFO registration.
+        self.addCleanup(cleanup_supervisors_before_root, root)
+        return root
 
 
 def envelope(frontmatter: dict[str, str], body: str = "done") -> str:
@@ -32,11 +48,48 @@ def install_board_rail_fixture(root: Path) -> None:
     for relative in (
         "scripts/python/registry_reconciler.py",
         "scripts/python/repo_root.py",
+        "scripts/python/board_process_truth.py",
+        # board_process_truth imports this to validate and publish the dispatcher's
+        # plan-item declaration; send-task.sh also runs it directly to validate the
+        # packet field. Staged for the same reason durable_publish is.
+        "scripts/python/plan_item_binding.py",
+        "scripts/python/durable_publish.py",
     ):
         source = REPO_ROOT / relative
         destination = root / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
+
+    # Capability dispatch is the subject here; process-table parsing has its own
+    # suite. Keep the real process-truth serialization contract, but replace its
+    # host probe because the Codex macOS sandbox denies /bin/ps. The spawned
+    # supervisor is a fresh session leader, so pid/pgid still fence the exact
+    # fixture process that the production detach path launched.
+    with (root / "scripts/python/board_process_truth.py").open(
+        "a", encoding="utf-8"
+    ) as process_truth:
+        process_truth.write(
+            "\n\ndef observe_process(pid):\n"
+            "    try:\n"
+            "        pid, pgid = int(pid), os.getpgid(int(pid))\n"
+            "    except (TypeError, ValueError, OSError):\n"
+            "        return None\n"
+            "    argv = ('capability-dispatch-fixture:%s' % pid).encode()\n"
+            "    return {\n"
+            "        'pid': pid,\n"
+            "        'pgid': pgid,\n"
+            "        'process_start_token': 'fixture:%s' % pid,\n"
+            "        'argv_sha256': hashlib.sha256(argv).hexdigest(),\n"
+            "    }\n"
+        )
+
+    (root / "scripts/python/host_admission.py").write_text(
+        "import json,sys\n"
+        "args=sys.argv[1:]\n"
+        "vector=args[args.index('--vector-sha256')+1]\n"
+        "print(json.dumps({'admitted':True,'action':'admit','candidate_vector_sha256':vector}))\n",
+        encoding="utf-8",
+    )
 
     context_builder = root / "scripts/python/dispatch_context_builder.py"
     context_builder.write_text(
@@ -58,13 +111,15 @@ def install_board_rail_fixture(root: Path) -> None:
     supervisor.write_text(
         "#!/bin/sh\n"
         "[ \"${1:-}\" = \"detached-launch\" ] || exit 64\n"
+        ": \"${BOARD_DISPATCH_DESCRIPTOR_PATH:?}\"\n"
+        "while [ ! -f \"$BOARD_DISPATCH_DESCRIPTOR_PATH\" ]; do sleep 0.01; done\n"
         "exit 0\n",
         encoding="utf-8",
     )
     supervisor.chmod(0o755)
 
 
-class CapabilityDispatchSnapshotTests(unittest.TestCase):
+class CapabilityDispatchSnapshotTests(ManagedSupervisorTestCase):
     def _frontmatter(self, text: str) -> dict[str, object]:
         _start, raw, _body = text.split("---", 2)
         parsed: dict[str, object] = {}
@@ -77,8 +132,7 @@ class CapabilityDispatchSnapshotTests(unittest.TestCase):
         return parsed
 
     def test_degraded_blueprint_requires_exact_typed_acknowledgement(self) -> None:
-        root = Path(tempfile.mkdtemp(prefix="capability-inspector-"))
-        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        root = self._managed_root("capability-inspector-")
         (root / "shared/registries").mkdir(parents=True)
         shutil.copy2(
             REPO_ROOT / "shared/registries/skill-tool-registry.tsv",
@@ -150,8 +204,7 @@ cost_note: subscription
         self.assertEqual(json.loads(allowed.stdout)["dispatch_decision"], "allow")
 
     def test_actual_dispatch_injects_and_registers_snapshot(self) -> None:
-        root = Path(tempfile.mkdtemp(prefix="capability-dispatch-"))
-        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        root = self._managed_root("capability-dispatch-")
         for relative in (
             "shared/registries/skill-tool-registry.tsv",
             "shared/specialist-runtime-map.tsv",
@@ -248,10 +301,9 @@ cost_note: subscription
         )
 
 
-class VerificationContractDispatchTests(unittest.TestCase):
+class VerificationContractDispatchTests(ManagedSupervisorTestCase):
     def _root(self) -> Path:
-        root = Path(tempfile.mkdtemp(prefix="verification-contract-dispatch-"))
-        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        root = self._managed_root("verification-contract-dispatch-")
         for relative in (
             "shared/registries/skill-tool-registry.tsv",
             "shared/specialist-runtime-map.tsv",
@@ -435,7 +487,7 @@ class VerificationContractDispatchTests(unittest.TestCase):
         self.assertEqual(registry[task_id]["verification_contract_sha256"], "1" * 64)
 
 
-class CapabilityReconciliationTests(unittest.TestCase):
+class CapabilityReconciliationTests(ManagedSupervisorTestCase):
     def _fixture(
         self,
         echoed_hash: str | None,
@@ -444,8 +496,7 @@ class CapabilityReconciliationTests(unittest.TestCase):
         mandatory_review: bool = False,
         initial_status: str = "in-flight",
     ) -> tuple[Path, Path, dict[str, str], str, str]:
-        root = Path(tempfile.mkdtemp(prefix="capability-reconcile-"))
-        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        root = self._managed_root("capability-reconcile-")
         original = b"dispatched card bytes\n"
         pinned = hashlib.sha256(original).hexdigest()
         card = root / "shared/capabilities/project/web-app.md"

@@ -1,32 +1,10 @@
 ---
 specialist: technical-artist
-source_namespace: coding
-capability_class: implementation
-safety_level: medium
-safety_tags: []
-tool_profile: none
-primary_lane: codex
-primary_profile: codex.sol.high
-backup_lane: gemini
-backup_profile: gemini.flash.default
-escalate_lane: codex
-escalate_profile: codex.sol.ultra
-escalation_policy: escalation.signal.v1
-review_lane: claude
-review_profile: claude.fable.xhigh
-anti_affinity: none
-throughput_lane: none
-throughput_profile: none
-throughput_policy: throughput.never.v1
-failover_policy: failover.conservative.v1
-operator_gate: [public_release]
-heightened_risk: false
-requires_approval: [Write, Bash, WebFetch]
-required_tools: []
-preferred_tools: []
-notes: Bridges generated art to real-time runtime assets; Gemini is the graphics backup and Claude provides independent code/performance review.
-tags: [games, graphics, asset-pipeline]
 version: 1.0
+department: coding
+safety_level: medium
+requires_approval: [Write, Bash, WebFetch]
+tags: [games, graphics, asset-pipeline]
 ---
 
 # Specialist: Technical Artist
@@ -39,10 +17,10 @@ Tool, skill, and MCP capabilities are **lane-specific** and are defined authorit
 
 ## When to fan out
 
-- Send art direction and source-image/video generation to `image-designer` or `video-director`.
-- Send runtime code, engine state, packaging, and asset loading to `game-engineer`.
-- Send visual product/UI intent to `ui-engineer`; use Gemini as an optional multimodal visual spot-check.
-- Send license, provenance, likeness, and publication questions to `asset-provenance-and-rights-auditor`.
+- Name art direction and source-image/video generation for `image-designer` or `video-director` as a needed follow-up in your response. Chrono dispatches it as a separate packet.
+- Name runtime code, engine state, packaging, and asset loading for `game-engineer` as a needed follow-up in your response. Chrono dispatches it as a separate packet.
+- Name visual product/UI intent for `ui-engineer` and any optional Gemini multimodal spot-check as needed follow-ups in your response. Chrono dispatches them as separate packets.
+- Name license, provenance, likeness, and publication questions for `asset-provenance-and-rights-auditor` as a needed follow-up in your response. Chrono dispatches it as a separate packet.
 - `performance-optimizer` owns code/algorithmic profiling; `site-reliability-engineer` owns production capacity/SLO/saturation; `database-engineer` owns query-plan/index performance; `technical-artist` owns GPU/frame/memory budgets.
 
 ## When to escalate

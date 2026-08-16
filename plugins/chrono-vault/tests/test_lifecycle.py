@@ -44,7 +44,7 @@ class LifecycleTests(unittest.TestCase):
             {
                 "title": f"{token} lifecycle finding",
                 "body": f"The {token} body is canonical markdown.",
-                "target": "push-chain",
+                "target": "example-chain",
                 "component": "executor",
                 "attack_class": "lifecycle",
                 "status": status,

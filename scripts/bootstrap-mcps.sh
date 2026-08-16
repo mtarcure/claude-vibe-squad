@@ -37,11 +37,15 @@ fi
 CHRONO_PY="${CHRONO_PY:-${VAULT_ROOT}/.venv/bin/python}"
 CHRONO_PLUGINS="${CHRONO_PLUGINS:-${VAULT_ROOT}/plugins}"
 
+# The venv is required to *register* the chrono MCPs, but not to *report* what is
+# already registered. Record its absence and keep going, so `--status` still
+# answers rather than exiting silently and reading as "nothing to report".
+VENV_OK=1
 if [[ ! -x "${CHRONO_PY}" ]]; then
-    echo "WARNING: chrono Python venv not at ${CHRONO_PY}"
-    echo "Skipping registration (chrono MCP servers can't run without it)."
-    exit 0
+    VENV_OK=0
 fi
+
+cli_available() { command -v "$1" >/dev/null 2>&1; }
 
 # === MCP definitions ===
 # Format per MCP:  name|args|env_vars (space-separated KEY=VAR_NAME pairs to forward)
@@ -84,18 +88,27 @@ mask_env_flags() {
 # Snapshot current registrations
 # `gemini mcp list` is unreliable (silent on user-scope) so we parse settings.json.
 echo "=== Discovering existing MCP registrations ==="
-CODEX_LIST=$(codex mcp list 2>/dev/null || echo "")
+CODEX_LIST=""
+cli_available codex && CODEX_LIST=$(codex mcp list 2>/dev/null || echo "")
 GEMINI_SETTINGS="${HOME}/.gemini/settings.json"
 GEMINI_LIST=""
 if [[ -f "${GEMINI_SETTINGS}" ]] && command -v jq >/dev/null 2>&1; then
     GEMINI_LIST=$(jq -r '.mcpServers // {} | keys[]' "${GEMINI_SETTINGS}" 2>/dev/null || echo "")
 fi
-KIMI_LIST=$(kimi mcp list 2>&1 | grep -v 'AuthlibDeprecation\|authlib.jose\|It will be compatible\|from authlib' || echo "")
+KIMI_LIST=""
+cli_available kimi && KIMI_LIST=$(kimi mcp list 2>&1 | grep -v 'AuthlibDeprecation\|authlib.jose\|It will be compatible\|from authlib' || echo "")
 
+# An absent CLI and a CLI with nothing registered produce the same empty list.
+# Report them differently: "not installed" is a known state, whereas printing
+# every MCP as "missing" invents a measurement that was never taken.
 show_status() {
     local cli="$1"; local list="$2"; local label="$3"
     echo ""
     echo "## ${label}"
+    if ! cli_available "${cli}"; then
+        echo "  — ${cli} CLI not installed; registration state UNKNOWN (not measured)"
+        return
+    fi
     for entry in "${MCPS[@]}"; do
         local name="${entry%%|*}"
         if echo "${list}" | grep -q "^[ ]*${name}\b\|^${name}\b"; then
@@ -110,7 +123,59 @@ show_status "codex" "${CODEX_LIST}" "Codex CLI"
 show_status "gemini" "${GEMINI_LIST}" "Gemini CLI"
 show_status "kimi" "${KIMI_LIST}" "Kimi CLI"
 
+# === Optional dependency: Trail of Bits mcp-context-protector ===
+#
+# The guarded security MCPs (guarded-semgrep, guarded-slither, guarded-solodit)
+# are declared in the per-lane CLI configs and each runs as a CHILD of the Trail
+# of Bits context-protector wrapper. The wrapper is a ~704 MB third-party
+# checkout: it is an install-time dependency and is deliberately never vendored
+# into this repository. Its absence must take out exactly those three servers.
+CONTEXT_PROTECTOR="${CONTEXT_PROTECTOR:-${VAULT_ROOT}/_state/tooling-arsenal-2026-07-18/sources/mcp-context-protector/mcp-context-protector.sh}"
+GUARDED_MCPS="guarded-semgrep guarded-slither guarded-solodit"
+
+show_context_protector_status() {
+    echo ""
+    echo "## Guarded security MCPs (mcp-context-protector)"
+    # The wrapper is a shim that execs .venv/bin/mcp-context-protector inside its
+    # own checkout and exits 127 when that entry point is missing. Checking only
+    # the shim would report a non-functional install as present, so require the
+    # entry point it actually dispatches to.
+    local cp_dir cp_entry
+    cp_dir="$(dirname "${CONTEXT_PROTECTOR}")"
+    cp_entry="${cp_dir}/.venv/bin/mcp-context-protector"
+    if [[ -x "${CONTEXT_PROTECTOR}" ]] && [[ -x "${cp_entry}" ]]; then
+        echo "  ✓ mcp-context-protector: ${CONTEXT_PROTECTOR}"
+        for g in ${GUARDED_MCPS}; do echo "    ✓ ${g} (wrapper present)"; done
+        return 0
+    fi
+    if [[ -x "${CONTEXT_PROTECTOR}" ]] && [[ ! -x "${cp_entry}" ]]; then
+        echo "  ✗ mcp-context-protector wrapper found, but its entry point is missing:"
+        echo "      ${cp_entry}"
+        echo "    The wrapper would exit 127. Its venv is not built."
+    elif [[ -e "${CONTEXT_PROTECTOR}" ]]; then
+        echo "  ✗ mcp-context-protector present but not executable: ${CONTEXT_PROTECTOR}"
+    else
+        echo "  ✗ mcp-context-protector not installed at: ${CONTEXT_PROTECTOR}"
+    fi
+    for g in ${GUARDED_MCPS}; do echo "    — ${g}: UNAVAILABLE (its wrapper is absent)"; done
+    echo "  This disables those three servers and nothing else. Every other MCP,"
+    echo "  specialist, and lane is unaffected."
+    echo "  Install it (never vendored — ~704 MB third-party checkout):"
+    echo "    docs/install/security-mcps.md"
+    return 1
+}
+
+show_context_protector_status || true
+
 if [[ ${STATUS_ONLY} -eq 1 ]]; then
+    exit 0
+fi
+
+if [[ ${VENV_OK} -eq 0 ]]; then
+    echo ""
+    echo "WARNING: chrono Python venv not at ${CHRONO_PY}"
+    echo "Cannot register the chrono MCP servers without it. Nothing was changed."
+    echo "Fix: run 'uv sync' in ${VAULT_ROOT}, then re-run this script."
     exit 0
 fi
 

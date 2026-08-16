@@ -18,13 +18,25 @@ import sys
 from pathlib import Path
 
 
+class RemoteRefAuditError(RuntimeError):
+    """The advertised-ref audit could not obtain trustworthy evidence."""
+
+
 def _git(repo: Path, *args: str) -> str:
-    return subprocess.run(
-        ["git", "-C", str(repo), *args],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
+    command = ["git", "-C", str(repo), *args]
+    try:
+        return subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+    except subprocess.CalledProcessError as error:
+        detail = (error.stderr or error.stdout or "no diagnostic output").strip()
+        operation = " ".join(args)
+        raise RemoteRefAuditError(
+            f"git {operation} exited {error.returncode}: {detail}"
+        ) from None
 
 
 def audit_refs(repo_dir, remote: str, clean_ref: str, allow=()) -> list[dict]:
@@ -65,7 +77,11 @@ def main() -> int:
     parser.add_argument("--allow", nargs="*", default=[])
     args = parser.parse_args()
 
-    records = audit_refs(args.repo, args.remote, args.clean_ref, tuple(args.allow))
+    try:
+        records = audit_refs(args.repo, args.remote, args.clean_ref, tuple(args.allow))
+    except RemoteRefAuditError as error:
+        print(f"ERROR: remote-ref audit could not complete: {error}", file=sys.stderr)
+        return 2
     leaks = [r for r in records if r["status"] == "LEAK"]
     for record in records:
         print(f"{record['sha']}  {record['ref']}  {record['status']}")

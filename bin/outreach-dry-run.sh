@@ -5,7 +5,17 @@
 
 set -euo pipefail
 
-LEGACY_OUTREACH="${LEGACY_OUTREACH_ROOT:-${HOME}/916mechaniks}"
+# The legacy outreach package lives outside this repo. Its location is supplied
+# by the operator rather than defaulted, so no private path is baked into the
+# public tree.
+LEGACY_OUTREACH="${LEGACY_OUTREACH_ROOT:-}"
+
+if [[ -z "${LEGACY_OUTREACH}" ]]; then
+    echo "ERROR: LEGACY_OUTREACH_ROOT is not set." >&2
+    echo "Set LEGACY_OUTREACH_ROOT to the parent directory that contains outreach/." >&2
+    exit 1
+fi
+
 OUTREACH_PACKAGE="${LEGACY_OUTREACH}/outreach"
 
 if [[ ! -d "${OUTREACH_PACKAGE}" ]]; then

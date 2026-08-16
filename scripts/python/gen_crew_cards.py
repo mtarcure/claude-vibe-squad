@@ -12,6 +12,7 @@ each card's existing frontmatter (name/anime/department/motif); replaces only th
 ---idle--- and ---active--- frames.
 """
 import sys
+import difflib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -50,7 +51,7 @@ FACES = {
         "mouth": "<katsu>", "base": "\\_(><)_/",
     },
     "scout": {  # Killua — lightning assassin, spiky hair
-        "top": "/\\/\\/\\", "eyes_i": "( -  - )", "eyes_a": "( zZz )",
+        "top": "/\\/\\/\\", "eyes_i": "( zZz )", "eyes_a": "( o  o )",
         "mouth": "  --  ", "base": "-=[/\\]=-",
     },
     "exploit-developer": {  # Sukuna — king of curses, tattoos, extra eye
@@ -144,12 +145,49 @@ def build(specialist, write=True):
     return text
 
 
-def main():
+def check_cards():
+    """Return false when any generator-owned card differs from its rendering."""
+    clean = True
     for specialist in FACES:
-        result = build(specialist, write="--check" not in sys.argv)
+        path = CARDS / f"{specialist}.card"
+        display_path = path.relative_to(ROOT) if path.is_relative_to(ROOT) else path
+        result = build(specialist, write=False)
+        if result is None:
+            print(f"FAIL crew-card: missing generator-owned card: {path}", file=sys.stderr)
+            clean = False
+            continue
+        actual = path.read_text(encoding="utf-8")
+        if actual == result:
+            print(f"  {specialist}: ok")
+            continue
+        clean = False
+        print(
+            f"FAIL crew-card: {display_path} is stale; "
+            "run scripts/python/gen_crew_cards.py",
+            file=sys.stderr,
+        )
+        sys.stderr.writelines(
+            difflib.unified_diff(
+                actual.splitlines(keepends=True),
+                result.splitlines(keepends=True),
+                fromfile=str(display_path),
+                tofile=f"generated:{display_path}",
+            )
+        )
+    if clean:
+        print("PASS crew-card")
+    return clean
+
+
+def main():
+    if "--check" in sys.argv:
+        return 0 if check_cards() else 1
+    for specialist in FACES:
+        result = build(specialist, write=True)
         status = "ok" if result else "SKIP (missing card/face)"
         print(f"  {specialist}: {status}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

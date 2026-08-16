@@ -39,9 +39,19 @@ class TestCapabilityAliasResolution(unittest.TestCase):
 
     def test_resolver_bare_slug_keyed_by_packet_mode(self) -> None:
         self.assertEqual(
-            resolve_capability_alias("maintenance", "personal-operations"),
-            ("project", "project/personal-operations", True),
+            resolve_capability_alias("maintenance", "memory-vault-hygiene"),
+            ("project", "project/memory-vault-hygiene", True),
         )
+
+    def test_retired_capability_ids_are_not_aliased(self) -> None:
+        # P13.64 roster consolidation retired the study-coaching and personal-
+        # operations roles along with their capability cards. An alias whose
+        # target card no longer exists is worse than no alias: it resolves to a
+        # missing file instead of failing where the packet is authored. Pin the
+        # removal so neither id can be re-added without its card.
+        for retired in ("research/learning-study", "maintenance/personal-operations"):
+            with self.subTest(retired=retired):
+                self.assertNotIn(retired, CAPABILITY_ALIASES)
 
     def test_resolver_passes_non_legacy_through_unchanged(self) -> None:
         self.assertEqual(

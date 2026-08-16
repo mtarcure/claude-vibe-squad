@@ -1,4 +1,4 @@
-<title>Vibe Squad Routing Map — 73 Specialists</title>
+<title>Vibe Squad Routing Map — 68 Specialists</title>
 <style>
   :root {
     color-scheme: light;
@@ -471,15 +471,21 @@
 </style>
 
 <main class="routing-map" aria-labelledby="routing-title">
+  <aside class="panel" role="note" aria-label="Historical snapshot warning">
+    <strong>Historical snapshot — not routing authority.</strong>
+    <p>This hand-maintained 2026-07-28 view has drifted. Read
+      <code>shared/specialist-runtime-map.tsv</code> for current assignments; do not
+      make routing decisions from the embedded table below.</p>
+  </aside>
   <header>
     <p class="eyebrow">Vibe Squad · Control-plane reference</p>
     <h1 id="routing-title">Specialist routing map</h1>
-    <p class="subtitle">A scan-first reference for 73 role-based specialists: primary execution CLI, opt-in cross-family backup, and independent review CLI. Each specialist binds its own model — the CLI is a vehicle, not a standing lane.</p>
+    <p class="subtitle">A scan-first reference for 68 role-based specialists: primary execution CLI, manually selected cross-family backup, and independent review CLI. Each specialist binds its own model — the CLI is a vehicle, not a standing lane.</p>
     <div class="header-meta" aria-label="Map summary">
-      <span class="meta-pill">73 specialists</span>
+      <span class="meta-pill">68 specialists</span>
       <span class="meta-pill">6 namespaces</span>
       <span class="meta-pill">4 CLI vehicles</span>
-      <span class="meta-pill">Updated 2026-07-28</span>
+      <span class="meta-pill">Updated 2026-08-14</span>
     </div>
   </header>
 
@@ -493,19 +499,19 @@
           <div class="lane-note">OpenAI · implementation + cross-family review</div>
         </article>
         <article class="lane-card fable" tabindex="0">
-          <div class="lane-top"><span class="lane-name">Claude</span><span class="lane-count">43 primary</span></div>
+          <div class="lane-top"><span class="lane-name">Claude</span><span class="lane-count">40 primary</span></div>
           <code class="model-id">claude</code>
           <div class="lane-note">Anthropic · judgment, safety, adversarial challenge</div>
         </article>
         <article class="lane-card gemini" tabindex="0">
-          <div class="lane-top"><span class="lane-name">Gemini</span><span class="lane-count">14 primary</span></div>
+          <div class="lane-top"><span class="lane-name">Gemini</span><span class="lane-count">13 primary</span></div>
           <code class="model-id">gemini</code>
           <div class="lane-note">Google · grounded research + media production</div>
         </article>
         <article class="lane-card kimi" tabindex="0">
-          <div class="lane-top"><span class="lane-name">Kimi</span><span class="lane-count">4 primary</span></div>
+          <div class="lane-top"><span class="lane-name">Kimi</span><span class="lane-count">3 primary</span></div>
           <code class="model-id">kimi</code>
-          <div class="lane-note">Moonshot · deny-default, 4 allowlisted primaries</div>
+          <div class="lane-note">Moonshot · deny-default, 3 allowlisted primaries</div>
         </article>
       </div>
       <p class="panel-label">Exact model, effort, and flags resolve per specialist through <code>shared/registries/profiles.tsv</code>; no CLI is pinned to one model.</p>
@@ -523,19 +529,19 @@
   <section class="panel distribution" aria-labelledby="distribution-title">
     <div class="distribution-head">
       <strong id="distribution-title">Primary-lane distribution</strong>
-      <span>73 total assignments</span>
+      <span>68 total assignments</span>
     </div>
-    <div class="bar" role="img" aria-label="Claude 43, Gemini 14, Codex 12, Kimi 4 primary specialists">
-      <span class="bar-segment fable" style="width:58.9041%"></span>
-      <span class="bar-segment gemini" style="width:19.1781%"></span>
-      <span class="bar-segment sol" style="width:16.4384%"></span>
-      <span class="bar-segment kimi" style="width:5.4795%"></span>
+    <div class="bar" role="img" aria-label="Claude 40, Gemini 13, Codex 12, Kimi 3 primary specialists">
+      <span class="bar-segment fable" style="width:58.8235%"></span>
+      <span class="bar-segment gemini" style="width:19.1176%"></span>
+      <span class="bar-segment sol" style="width:17.6471%"></span>
+      <span class="bar-segment kimi" style="width:4.4118%"></span>
     </div>
     <div class="distribution-key" aria-hidden="true">
-      <span class="key-item fable"><i class="key-dot"></i>Claude <strong>43</strong></span>
-      <span class="key-item gemini"><i class="key-dot"></i>Gemini <strong>14</strong></span>
+      <span class="key-item fable"><i class="key-dot"></i>Claude <strong>40</strong></span>
+      <span class="key-item gemini"><i class="key-dot"></i>Gemini <strong>13</strong></span>
       <span class="key-item sol"><i class="key-dot"></i>Codex <strong>12</strong></span>
-      <span class="key-item kimi"><i class="key-dot"></i>Kimi <strong>4</strong></span>
+      <span class="key-item kimi"><i class="key-dot"></i>Kimi <strong>3</strong></span>
     </div>
   </section>
 
@@ -545,11 +551,11 @@
   <footer>
     <div class="footer-notes">
       <article class="note"><strong>Escalation stays in-family</strong><p>Escalation means the best variant within the primary lane, so it is intentionally omitted as a separate column.</p></article>
-      <article class="note"><strong>Kimi is deny-by-default</strong><p>It may only hold a primary where <code>shared/lane-policy.tsv</code> carries an operator-ratified exception — currently <code>experimental-attacker</code>, <code>large-context-analyst</code>, <code>summarizer</code>, and <code>web-builder</code>. Everywhere else it is gated throughput only.</p></article>
-      <article class="note"><strong>Backup is opt-in failover</strong><p>The Backup column is the cross-family target for the reviewed conservative control plane. The implementation ships inert and remains dormant until explicitly enabled.</p></article>
+      <article class="note"><strong>Kimi is deny-by-default</strong><p>It may only hold a primary where <code>shared/lane-policy.tsv</code> carries an operator-ratified exception — currently <code>experimental-attacker</code>, <code>large-context-analyst</code>, and <code>summarizer</code>. Everywhere else it is gated throughput only.</p></article>
+      <article class="note"><strong>Backup is manual</strong><p>The Backup column is the cross-family option Chrono may use in a new ordinary board packet after an operator decision. Signals may surface an operational failure, but automatic redispatch is unsupported.</p></article>
       <article class="note"><strong>High safety means mandatory review</strong><p>Subtle HIGH markers identify rows whose safety level carries a mandatory independent review requirement.</p></article>
     </div>
-    <p class="source-line">Source: <code>shared/specialist-runtime-map.tsv</code> · hand-maintained, verified against the TSV 2026-07-28</p>
+    <p class="source-line">Historical hand-maintained snapshot, last hand-synced 2026-08-14. Source of truth: <code>shared/specialist-runtime-map.tsv</code> — this view has no generator or drift-check, so it drifts between hand-syncs.</p>
   </footer>
 </main>
 
@@ -575,12 +581,10 @@ CODING|systems-engineer|implementation|medium|codex|claude|claude
 CODING|technical-artist|implementation|medium|claude|codex|codex
 CODING|test-engineer|implementation|medium|claude|codex|codex
 CODING|ui-engineer|implementation|medium|claude|codex|codex
-CODING|web-builder|implementation|medium|kimi|claude|codex
 CONTENT|accessibility-engineer|content_text|medium|gemini|codex|claude
 CONTENT|asset-provenance-and-rights-auditor|judgment|high|claude|codex|codex
 CONTENT|brand-voice|content_text|medium|claude|codex|codex
 CONTENT|content-verifier|judgment|high|claude|codex|codex
-CONTENT|copywriter|content_text|low|gemini|codex|claude
 CONTENT|editor|content_text|medium|claude|codex|codex
 CONTENT|game-designer|game_design|medium|claude|codex|codex
 CONTENT|growth-and-search-analyst|research_synthesis|low|gemini|codex|claude
@@ -597,7 +601,7 @@ CONTENT|video-editor|media_production|low|gemini|codex|claude
 CONTENT|voice-agent-builder|media_production|high|gemini|codex|claude
 CONTENT|voice-narrator|media_production|low|gemini|codex|claude
 SECURITY|detection-engineer|security_defense|high|claude|codex|codex
-SECURITY|experimental-attacker|implementation|high|kimi|codex|codex
+SECURITY|experimental-attacker|implementation|high|kimi|claude|codex
 SECURITY|exploit-developer|implementation|high|codex|claude|claude
 SECURITY|impact-validator|security_reasoning|high|claude|codex|codex
 SECURITY|incident-responder|security_defense|high|claude|codex|codex
@@ -610,7 +614,6 @@ SECURITY|threat-modeler|security_reasoning|high|claude|codex|codex
 RESEARCH|bounty-researcher|research_synthesis|medium|gemini|codex|claude
 RESEARCH|data-extraction-engineer|extraction|medium|codex|claude|claude
 RESEARCH|large-context-analyst|research_synthesis|medium|kimi|claude|codex
-RESEARCH|learning-coach|judgment|medium|claude|codex|codex
 RESEARCH|research|research_synthesis|medium|gemini|codex|claude
 RESEARCH|synthesizer|research_synthesis|medium|claude|codex|codex
 SHARED|fable|judgment|medium|claude|codex|codex
@@ -622,13 +625,11 @@ SHARED|summarizer|research_synthesis|low|kimi|codex|codex
 SHARED|triage|judgment|medium|claude|codex|codex
 SHARED|vibecoding-check|code_review|medium|codex|claude|claude
 SYSMGMT|agentops|judgment|high|claude|codex|codex
-SYSMGMT|finance-analyst|judgment|medium|claude|codex|codex
 SYSMGMT|harness-optimizer|judgment|medium|claude|codex|codex
 SYSMGMT|knowledge-librarian|judgment|medium|claude|codex|codex
 SYSMGMT|loop-operator|judgment|high|claude|codex|codex
 SYSMGMT|mac-ops|judgment|high|claude|codex|codex
 SYSMGMT|memory-curator|judgment|medium|claude|codex|codex
-SYSMGMT|personal-ops|judgment|medium|claude|codex|codex
   `.trim();
 
   const rows = raw.split("\n").map(line => {

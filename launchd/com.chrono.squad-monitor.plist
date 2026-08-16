@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>HOME</key>
+		<string>__HOME__</string>
+		<key>PATH</key>
+		<string>__HOME__/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin</string>
+		<key>VAULT_ROOT</key>
+		<string>__VAULT_ROOT__</string>
+	</dict>
+	<key>Label</key>
+	<string>com.chrono.squad-monitor</string>
+	<key>ProcessType</key>
+	<string>Background</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>__VAULT_ROOT__/bin/squad-monitor.sh</string>
+	</array>
+	<key>RunAtLoad</key>
+	<false/>
+	<key>StandardErrorPath</key>
+	<string>__VAULT_ROOT__/_state/monitor/monitor-err.log</string>
+	<key>StandardOutPath</key>
+	<string>__VAULT_ROOT__/_state/monitor/monitor.log</string>
+	<key>StartInterval</key>
+	<integer>120</integer>
+</dict>
+</plist>

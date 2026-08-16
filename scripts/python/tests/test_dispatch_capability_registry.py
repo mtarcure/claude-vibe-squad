@@ -2,12 +2,20 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from dispatch_checkout import normal_checkout_root  # noqa: E402
+
+# See dispatch_checkout: send-task.sh refuses to dispatch from a linked
+# worktree, and that refusal runs before the guards this suite tests -- so
+# without this the result depends on checkout shape, not on behaviour.
+# The helper returns the root unchanged in a main checkout.
+REPO_ROOT = normal_checkout_root(Path(__file__).resolve().parents[3])
 SEND_TASK = REPO_ROOT / "bin/send-task.sh"
 TOOLKIT = REPO_ROOT / "shared/dispatch-toolkit.sh"
 
@@ -79,6 +87,7 @@ return_artifact: _state/test-dispatch.md
         blocked = {
             "registry-no": "Use `DigitalOcean API` for the deployment.",
             "registry-needs-research": "Use `Nano Banana` for image generation.",
+            "codex-apply-unproven": "Use `codex apply` to apply the generated diff.",
         }
 
         for label, body in allowed.items():
@@ -164,8 +173,14 @@ return_artifact: _state/test-dispatch.md
         self.assertNotIn("[DRY RUN]", result.stdout)
 
     def test_toolkit_renders_research_status_from_registry(self) -> None:
+        # The research add-ons block is now conditionally injected (2026-08-10): it
+        # renders on the research namespace (and on any security/bounty dispatch), and
+        # NOT on an ordinary coding task. Target the research namespace so this still
+        # exercises the registry-derived rendering it exists to verify. The gating
+        # itself is pinned separately by
+        # test_board_dispatch.test_toolkit_gates_security_and_research_doctrine_both_ways.
         result = subprocess.run(
-            [str(TOOLKIT), "coding", "gpt-codex"],
+            [str(TOOLKIT), "research", "gpt-codex"],
             cwd=REPO_ROOT,
             text=True,
             stdout=subprocess.PIPE,

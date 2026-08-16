@@ -1,4 +1,4 @@
-"""Gemini 3.5 Flash synchronous summarizer for daemon."""
+"""Gemini 3.7 Flash synchronous summarizer for daemon."""
 import os
 import httpx
 from typing import Optional
@@ -7,9 +7,9 @@ GEMINI_API = "https://generativelanguage.googleapis.com/v1beta"
 
 
 class FlashSummarizer:
-    """Wraps Gemini 3.5 Flash API for summarization."""
+    """Wraps Gemini 3.7 Flash API for summarization."""
 
-    def __init__(self, model: str = "gemini-3.5-flash"):
+    def __init__(self, model: str = "gemini-3.7-flash"):
         self.model = model
         self.key = os.environ.get("GEMINI_API_KEY")
         if not self.key:

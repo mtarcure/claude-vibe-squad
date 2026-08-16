@@ -7,13 +7,18 @@
 #
 # Usage:
 #   squad           — launch / attach (alias: `squad up`, `squad start`)
-#   squad up --safe — launch conservative permissions profile
-#   squad stop      — update live state + transient summary, then kill session (alias: `squad down`, `squad close`)
+#   squad up --safe — suppress the first-run warning and skip doctor; permissions are unchanged
+#   squad stop      — stop + verify the daemon, update live state, then kill the session (aliases: `down`, `close`)
 #   squad status    — print where-are-we summary (no attach)
 #   squad doctor    — run health check + MCP/runtime audit
 #   squad attach    — attach to existing session (no launch)
 #   squad detach    — detach the current client (same as Ctrl-b d inside tmux)
 #   squad help      — show this help
+#
+# The launchd daemon is OPTIONAL. `squad up` runs without one; it adds the live
+# daemon segment in the status bar and the weekly-review summary, and nothing
+# else. Add it whenever you want it, or never:
+#   bash bin/install-routines.sh --daemon-only
 
 set -uo pipefail
 
@@ -21,6 +26,78 @@ set -uo pipefail
 source "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")/.." && pwd -P)/shared/repo-root.sh"
 
 cmd="${1:-up}"
+
+# Canonical value: launchd/com.vibesquad.daemon.plist. The lifecycle regression
+# test enforces this local shell copy because the wrapper cannot import plist XML.
+DAEMON_LABEL="com.vibesquad.daemon"
+
+stop_daemon() {
+    local launchd_domain service_target print_rc bootout_rc attempt
+    local verify_attempts="${SQUAD_DAEMON_VERIFY_ATTEMPTS:-20}"
+    local verify_delay="${SQUAD_DAEMON_VERIFY_DELAY:-0.1}"
+
+    if ! [[ "${verify_attempts}" =~ ^[1-9][0-9]*$ ]]; then
+        echo "ERROR: SQUAD_DAEMON_VERIFY_ATTEMPTS must be a positive integer." >&2
+        return 64
+    fi
+    if ! [[ "${verify_delay}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+        echo "ERROR: SQUAD_DAEMON_VERIFY_DELAY must be a non-negative number." >&2
+        return 64
+    fi
+    if ! command -v launchctl >/dev/null 2>&1; then
+        echo "ERROR: launchctl is unavailable; cannot confirm the daemon stopped." >&2
+        return 127
+    fi
+
+    launchd_domain="gui/$(id -u)"
+    service_target="${launchd_domain}/${DAEMON_LABEL}"
+
+    launchctl print "${service_target}" >/dev/null 2>&1
+    print_rc=$?
+    case "${print_rc}" in
+        0)
+            echo "Stopping launchd daemon '${DAEMON_LABEL}'..."
+            bootout_rc=0
+            launchctl bootout "${service_target}" || bootout_rc=$?
+            ;;
+        113)
+            echo "✓ Daemon already stopped: ${service_target} is absent from launchd."
+            return 0
+            ;;
+        *)
+            echo "ERROR: launchctl print could not determine daemon state (rc=${print_rc}): ${service_target}" >&2
+            return "${print_rc}"
+            ;;
+    esac
+
+    attempt=1
+    while [[ "${attempt}" -le "${verify_attempts}" ]]; do
+        launchctl print "${service_target}" >/dev/null 2>&1
+        print_rc=$?
+        case "${print_rc}" in
+            113)
+                if [[ "${bootout_rc}" -ne 0 ]]; then
+                    echo "WARNING: launchctl bootout returned ${bootout_rc}, but verified absence won the race." >&2
+                fi
+                echo "✓ Daemon stopped and verified absent from launchd: ${service_target}"
+                return 0
+                ;;
+            0)
+                ;;
+            *)
+                echo "ERROR: launchctl print could not verify daemon absence (rc=${print_rc}): ${service_target}" >&2
+                return "${print_rc}"
+                ;;
+        esac
+        if [[ "${attempt}" -lt "${verify_attempts}" ]]; then
+            sleep "${verify_delay}"
+        fi
+        attempt=$((attempt + 1))
+    done
+
+    echo "ERROR: daemon remains loaded after launchctl bootout (rc=${bootout_rc}): ${service_target}" >&2
+    return 1
+}
 
 case "${cmd}" in
     up|start|launch|"")
@@ -31,6 +108,7 @@ case "${cmd}" in
         fi
         ;;
     stop|down|close|exit|kill)
+        stop_daemon || exit $?
         bash "${VAULT_ROOT}/bin/squad-stop.sh" "${@:2}"
         ;;
     status|where|state)
@@ -59,7 +137,9 @@ case "${cmd}" in
         fi
         ;;
     help|-h|--help)
-        sed -n '2,17p' "$0" | sed 's/^# //; s/^#//'
+        # Range tracks the comment header above; extending the header without
+        # extending this truncates the help silently.
+        sed -n '2,22p' "$0" | sed 's/^# //; s/^#//'
         ;;
     *)
         echo "unknown subcommand: ${cmd}"

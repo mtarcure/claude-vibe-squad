@@ -1,32 +1,10 @@
 ---
 specialist: game-engineer
-source_namespace: coding
-capability_class: implementation
-safety_level: medium
-safety_tags: []
-tool_profile: none
-primary_lane: codex
-primary_profile: codex.sol.high
-backup_lane: claude
-backup_profile: claude.fable.xhigh
-escalate_lane: codex
-escalate_profile: codex.sol.ultra
-escalation_policy: escalation.signal.v1
-review_lane: claude
-review_profile: claude.fable.xhigh
-anti_affinity: none
-throughput_lane: none
-throughput_profile: none
-throughput_policy: throughput.never.v1
-failover_policy: failover.conservative.v1
-operator_gate: [public_release]
-heightened_risk: false
-requires_approval: [Write, Bash, WebFetch]
-required_tools: []
-preferred_tools: []
-notes: Runtime owner in the staged game-production pipeline; engine and platform toolchains are task-specific prerequisites.
-tags: [games, runtime, cross-platform]
 version: 1.0
+department: coding
+safety_level: medium
+requires_approval: [Write, Bash, WebFetch]
+tags: [games, runtime, cross-platform]
 ---
 
 # Specialist: Game Engineer
@@ -39,11 +17,11 @@ Tool, skill, and MCP capabilities are **lane-specific** and are defined authorit
 
 ## When to fan out
 
-- Send mechanics, balance, progression, and economy decisions to `game-designer`.
-- Send levels, quests, story flow, and narrative beats to `level-narrative-designer`.
-- Send shaders, rigs, materials, LODs, and asset-import constraints to `technical-artist`.
-- Send generated visuals and audio to their media specialists; send adaptive audio design to `interactive-audio-designer`.
-- Send benchmark investigation to `performance-optimizer` and all acceptance coverage to `test-engineer`.
+- Name mechanics, balance, progression, and economy decisions for `game-designer` as a needed follow-up in your response. Chrono dispatches it as a separate packet.
+- Name levels, quests, story flow, and narrative beats for `level-narrative-designer` as a needed follow-up in your response. Chrono dispatches it as a separate packet.
+- Name shaders, rigs, materials, LODs, and asset-import constraints for `technical-artist` as a needed follow-up in your response. Chrono dispatches it as a separate packet.
+- Name generated visuals and audio for their media specialists, and adaptive audio design for `interactive-audio-designer`, as needed follow-ups in your response. Chrono dispatches them as separate packets.
+- Name benchmark investigation for `performance-optimizer` and acceptance coverage for `test-engineer` as needed follow-ups in your response. Chrono dispatches them as separate packets.
 
 ## When to escalate
 

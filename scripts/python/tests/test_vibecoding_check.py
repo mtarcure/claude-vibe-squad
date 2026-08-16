@@ -434,9 +434,55 @@ class PositiveCanaryTests(unittest.TestCase):
             "test_cwd": str(fixture.root), "base_ref": "HEAD^",
             "allow_dirty_tree": True,
         })
-        report = checker.run_all_checks(manifest)
-        self.assertEqual(report.overall_tier, checker.TIER_OK, checker.render_report(report))
-        self.assertEqual([item for item in report.checks if not item.passed], [])
+        manifest_path = fixture.state / "runs" / fixture.run_id / "manifest.yaml"
+        manifest_path.parent.mkdir(parents=True)
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+        with mock.patch.object(
+            sys,
+            "argv",
+            ["vibecoding_check.py", "--run-id", fixture.run_id, "--quiet"],
+        ):
+            returncode = checker.main()
+
+        state_record = fixture.state / "vibecoding-check" / f"{fixture.run_id}.md"
+        self.assertEqual(returncode, checker.TIER_OK, state_record.read_text())
+        self.assertIn("verdict: PASS", state_record.read_text(encoding="utf-8"))
+
+    def test_project_canary_failing_tests_write_retry_record(self) -> None:
+        fixture = SpineFixture(self)
+        manifest = fixture.complete_common()
+        source = fixture.root / "tiny.py"
+        test_source = fixture.root / "test_tiny.py"
+        source.write_text("def add(a, b):\n    return a + b\n")
+        test_source.write_text(
+            "import unittest\nfrom tiny import add\n"
+            "class T(unittest.TestCase):\n"
+            "    def test_add(self): self.assertEqual(add(1, 2), 4)\n"
+        )
+        subprocess.run(["git", "add", "tiny.py", "test_tiny.py"], cwd=fixture.root, check=True)
+        subprocess.run(["git", "commit", "-qm", "failing tiny canary"], cwd=fixture.root, check=True)
+        manifest.update({
+            "test_command": [sys.executable, "-m", "unittest", "test_tiny.py"],
+            "test_cwd": str(fixture.root), "base_ref": "HEAD^",
+            "allow_dirty_tree": True,
+        })
+        manifest_path = fixture.state / "runs" / fixture.run_id / "manifest.yaml"
+        manifest_path.parent.mkdir(parents=True)
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+        with mock.patch.object(
+            sys,
+            "argv",
+            ["vibecoding_check.py", "--run-id", fixture.run_id, "--quiet"],
+        ):
+            returncode = checker.main()
+
+        state_record = fixture.state / "vibecoding-check" / f"{fixture.run_id}.md"
+        state_text = state_record.read_text(encoding="utf-8")
+        self.assertEqual(returncode, checker.TIER_RETRY, state_text)
+        self.assertIn("verdict: RETRY-NEEDED", state_text)
+        self.assertIn("**tests_pass** *(tier 2)*", state_text)
 
     def test_bounty_dry_run_complete_trace_bundle_passes(self) -> None:
         fixture = SpineFixture(self, mode="bounty", result_type="dry_run")
@@ -520,6 +566,60 @@ class PositiveCanaryTests(unittest.TestCase):
                 self.assertFalse(result.passed)
                 self.assertEqual(result.tier, checker.TIER_OPERATOR)
 
+
+class WrapperTests(unittest.TestCase):
+    def test_wrapper_uses_prewarmed_default_and_honors_explicit_cache(self) -> None:
+        wrapper = ROOT / "bin" / "vibecoding-check.sh"
+        with tempfile.TemporaryDirectory() as directory:
+            temporary = Path(directory)
+            # The wrapper intentionally prepends $HOME/.local/bin. Put the
+            # fake there so this test observes its exact argv without invoking
+            # the host's real uv binary.
+            fake_bin = temporary / ".local" / "bin"
+            fake_bin.mkdir(parents=True)
+            fake_uv = fake_bin / "uv"
+            fake_uv.write_text(
+                "#!/usr/bin/env bash\n"
+                "printf 'cache=%s\\n' \"${UV_CACHE_DIR}\"\n"
+                "printf 'arg=%s\\n' \"$@\"\n",
+                encoding="utf-8",
+            )
+            fake_uv.chmod(0o755)
+            data_root = temporary / "data-root"
+            data_root.mkdir()
+            base_environment = {
+                **os.environ,
+                "HOME": str(temporary),
+                "PATH": f"{fake_bin}:/usr/bin:/bin",
+                "VAULT_ROOT": str(data_root),
+            }
+            base_environment.pop("UV_CACHE_DIR", None)
+
+            for supplied, expected in (
+                (None, "/tmp/uv-cache"),
+                (str(temporary / "caller-cache"), str(temporary / "caller-cache")),
+            ):
+                with self.subTest(supplied=supplied):
+                    environment = dict(base_environment)
+                    if supplied is not None:
+                        environment["UV_CACHE_DIR"] = supplied
+                    completed = subprocess.run(
+                        ["/bin/bash", str(wrapper), "--help"],
+                        env=environment,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    self.assertEqual(completed.returncode, 0, completed.stderr)
+                    self.assertIn(f"cache={expected}\n", completed.stdout)
+                    self.assertIn(
+                        f"arg={ROOT / 'scripts/python/vibecoding_check.py'}\n",
+                        completed.stdout,
+                    )
+                    self.assertNotIn(
+                        str(data_root / "scripts/python/vibecoding_check.py"),
+                        completed.stdout,
+                    )
 
 if __name__ == "__main__":
     unittest.main()

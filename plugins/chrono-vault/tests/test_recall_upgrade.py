@@ -35,6 +35,11 @@ class _VaultTestCase(unittest.TestCase):
         )
         self.env.start()
         self.addCleanup(self.env.stop)
+        # See test_recall.py: clearance must be absent unless a test grants it
+        # via _restricted_env(). patch.dict does not clear, so an exported
+        # CHRONO_VAULT_CLEARANCE would silently satisfy the very condition the
+        # "cannot widen" test exists to refute.
+        os.environ.pop("CHRONO_VAULT_CLEARANCE", None)
 
     def _record(
         self,
@@ -49,7 +54,7 @@ class _VaultTestCase(unittest.TestCase):
             {
                 "title": title,
                 "body": body,
-                "target": "push-chain",
+                "target": "example-chain",
                 "attack_class": attack_class,
                 "status": "verified",
                 "sensitivity": sensitivity,

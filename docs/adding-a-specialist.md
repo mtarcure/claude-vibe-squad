@@ -18,7 +18,7 @@ my-specialist	security	security_reasoning	high	[privacy]	none	claude	claude.fabl
 
 Column rules (enforced by `bin/validate-specialists.sh`):
 - `source_namespace` ∈ `coding | security | content | sysmgmt | research | shared`
-- routing lanes use `codex | claude | gemini | kimi`; `primary_lane` may not be `kimi` unless the specialist has an explicit `primary_exception` row in `shared/lane-policy.tsv` (currently four: `experimental-attacker`, `large-context-analyst`, `summarizer`, `web-builder`)
+- routing lanes use `codex | claude | gemini | kimi`; `primary_lane` may not be `kimi` unless the specialist has an explicit `primary_exception` row in `shared/lane-policy.tsv` (currently three: `experimental-attacker`, `large-context-analyst`, `summarizer`)
 - `primary_lane` and `backup_lane` must differ, and every lane/profile pair must resolve through `shared/registries/profiles.tsv`
 - `safety_level` ∈ `low | medium | high`
 - `high`/`heightened_risk` rows require an independent review, `escalation.safety_floor.v1`, and `throughput.never.v1`
@@ -27,7 +27,7 @@ Column rules (enforced by `bin/validate-specialists.sh`):
 - `notes` must be non-empty and `version` must be present
 - `operator_model_consult` ∈ `true | false` — whether operator-model consultation is part of the routed contract. A 28-column legacy row is still accepted and normalized to `false`, but new rows should be written with all 29 fields.
 
-Routing is `specialist → primary_lane`, not `source_namespace → lane`. Each specialist binds its own model, so two specialists in one namespace routinely run on different CLIs. `model-lanes/ROSTER.md` is a generated per-CLI view of this map — regenerate it from the TSV, don't hand-edit.
+Routing is `specialist → primary_lane`, not `source_namespace → lane`. Each specialist binds its own model, so two specialists in one namespace routinely run on different CLIs. `model-lanes/ROSTER.md` is a generated per-CLI view of this map — regenerate it with `bash bin/gen-roster.sh`, and never hand-edit it.
 
 ## 2. Specialist brief
 
@@ -97,12 +97,49 @@ The first command creates missing adapters and never replaces reviewed adapters.
 ## 4. Validate
 
 ```bash
+bash bin/gen-roster.sh
+bash bin/gen-roster.sh --check
 bash bin/validate-specialists.sh
 ```
 
-It emits one JSON line per file and a `Total / Passed / Failed` summary on stderr, exiting non-zero on any failure. It checks: runtime-map row shape + valid enums, a specialist file exists for each row, the brief has the required sections and no fill placeholders, cited MCPs are `verified: yes` in the api-catalog, cited skills exist, peer/fan-out references resolve, and the adapter is registered for each routed CLI. It then runs the capability-home gate (`scripts/python/validate_capability_homes.py`), which checks the generated adapters against their `capability_source_sha256` provenance stamps.
+The first command atomically regenerates the readable roster from the TSV; the second is the drift gate and fails with a unified diff if they disagree. Specialist validation then emits one JSON line per file and a `Total / Passed / Failed` summary on stderr, exiting non-zero on any failure. It checks: runtime-map row shape + valid enums, a specialist file exists for each row, the brief has the required sections and no fill placeholders, cited MCPs are `verified: yes` in the api-catalog, cited skills exist, peer/fan-out references resolve, and the adapter is registered for each routed CLI. It then runs the capability-home gate (`scripts/python/validate_capability_homes.py`), which checks the generated adapters against their `capability_source_sha256` provenance stamps.
 
-The current roster passes at **73/73**, with **163 adapters** indexed.
+In a public clone the two stages degrade differently, and the difference decides
+how to read the exit code:
+
+- Checks that resolve against `shared/registries/skill-tool-registry.tsv` are
+  **skipped, with non-fatal `registry-not-published` warnings**. The private
+  registry is deliberately withheld from the public tree, so its absence is the
+  export policy working rather than a defect.
+- The capability-home gate also reads each specialist's **pre-strip brief from
+  the pinned baseline commit** (`baseline_ref` in
+  `model-lanes/adapter-capability-policy.json`). That commit is private history
+  and is not an ancestor of the public tip, so a public clone does not have the
+  object. The gate **exits 2 with a `configuration` error naming the commit**
+  instead of reporting a pass it cannot justify: `base-boundary` and
+  `migration-parity` exist to prove no pre-strip capability was lost, and with
+  no history to compare against there is nothing to prove it from. Treating an
+  unreadable baseline as an empty one would make both checks succeed by
+  construction.
+
+So the exit code has three states, not two: `0` clean, `1` real diagnostics, `2`
+the gate could not run and says which input is missing. Only `1` means the tree
+is wrong.
+
+The capability checks that do not read history still run in a public clone:
+
+```bash
+python3 scripts/python/validate_capability_homes.py --only existence,source,required,index
+```
+
+That subset covers adapter/source sync, routed-lane coverage, primary-lane
+requirements, and the generated index. It does **not** cover migration parity —
+no public checkout can. The baseline-backed checks and the full registry
+cross-checks run on the maintainer checkout, which is also what
+`.github/workflows/public-validate.yml` says and why it does not run this gate.
+
+Read the current roster and adapter counts from the validator output; do not copy those mutable totals into
+this guide.
 
 ## 5. Test dispatch
 

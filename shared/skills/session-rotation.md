@@ -21,8 +21,9 @@ there is a document nobody reads. Live state is:
 
 1. `_state/chrono/resume.md` — the bounded resume capsule the controller reads **first**, regenerated
    from the decision-authority record.
-2. The active-task registry (`_state/tasks/active.json`, or `_state/active-tasks.json` where that is
-   what exists) — what is genuinely in flight.
+2. The live registry **partition** — `registry_view()` in `scripts/python/chrono_state/registry.py`,
+   which reads `_state/active-tasks.json`. This is what is genuinely in flight. Query it, do not read
+   the file: see the settled winner below.
 3. `departments/*/current.md` — live mailbox state per namespace.
 4. Response files, but only for task IDs still pending or in-flight.
 5. `_state/chrono-queue.md`, if present — response-completion records from the watcher.
@@ -30,11 +31,47 @@ there is a document nobody reads. Live state is:
 **`chrono/current.md` is an ARCHIVE, not the resume source.** `chrono/CLAUDE.md` says so directly and
 forbids bulk-reading it; open it only for a specific prior turn or task the operator names.
 
-> **Unresolved, do not paper over it:** the root `CLAUDE.md` "Session Resume" section still lists
-> `_state/active-tasks.json` → `chrono/current.md` → `departments/*/current.md`, which contradicts the
-> ordering above. `chrono/CLAUDE.md` is the more specific and more recent authority, so follow it — but
-> the two files disagree in the tree today, and this skill is not the place to settle it. Surface the
-> conflict to the operator rather than quietly picking a side.
+## The winning path for liveness — settled
+
+**Winner: `chrono_state.registry.registry_view()`.** Anything that needs to know what is live —
+this skill, the resume capsule, the operator status pane — asks the partition. Nothing reads a task
+file to decide liveness, because *neither file on disk encodes it*:
+
+| path | what it actually is | may it answer "what is live?" |
+|---|---|---|
+| `_state/active-tasks.json` | the registry the board feeds, retaining **every** terminal record (1,668 terminal of 1,737 total, measured 2026-08-13) | only **through** `registry_view()`, never by reading it |
+| `_state/tasks/active.json` | a frozen snapshot from the 2026-07-24 one-shot migration, fed by nothing since (`registry.py:18-20`) | **no** — it held 1 record while the board held 14 |
+
+The live/terminal/unclassified distinction is *computed*, and `registry_view()` is the only place it
+is computed. That is why there is no correct precedence between the two files: preferring one over
+the other only chooses which way to be wrong.
+
+`_state/tasks/active.json` stays on disk because deleting it is a held category requiring an
+operator decision, not a side effect of this rule. Do not read it. Its module-level lifecycle
+owners, `write_active` and `archive_terminal`, have no production callers today — tests only
+(verified 2026-08-13). Its one remaining live consumer is `load_active()` in
+`plugins/chrono-vault/skills/compact-now/SKILL.md`, which is a further instance of this same
+defect and is flagged for repair, not a counter-example to this rule.
+
+The direct query, when you need it outside the capsule:
+
+```bash
+python3 -c "import sys;sys.path.insert(0,'scripts/python')
+from chrono_state.registry import registry_view
+v=registry_view();print(len(v['live']),'live',len(v['deferred']),'deferred',v['unclassified'] or 'none')"
+```
+
+Always read `v['unclassified']`. A status classified nowhere is otherwise invisible: it is neither
+live nor terminal, so those tasks vanish from every count with no error at all.
+
+> **Previously flagged as unresolved; now settled.** This section used to record a contradiction
+> between root `CLAUDE.md` and `chrono/CLAUDE.md` over the resume ordering and decline to pick a
+> side. Root `CLAUDE.md` § Session Resume no longer carries the disputed
+> `_state/active-tasks.json` → `chrono/current.md` ordering — verified 2026-08-13 — so the two files
+> agree today and `chrono/CLAUDE.md` § Start Of Session remains the operational authority. The
+> settlement above extends that agreement to the one question neither file answered: *which path
+> encodes liveness.* Background, including the two cross-family REJECTs the same root cause cost in
+> `resume.py`, is in `chrono/resume-contract-decision-record.md`.
 
 Durable cross-session learning goes to `chrono-vault` via `record`, not into a file. Old plans, specs,
 and prior reports are historical unless current state points at them.
@@ -78,6 +115,10 @@ merely *stored*.
   used to be. Nobody reads it; the resume path does not open it.
 - **Rotating too late** — no context left to perform the handover.
 - **Stale in-flight list** — carrying forward work that already finished, or dropping work that has not.
+- **Reading a task file for liveness** — asking `_state/tasks/active.json` or `_state/active-tasks.json`
+  what is in flight instead of asking `registry_view()`. Neither file encodes it, so the answer is
+  confidently wrong rather than missing, and it *looks* like a clean read. This has now cost three
+  call sites (`resume.py`, `bin/chrono-status-segment.sh`, `compact-now`).
 - **Transcript restatement** — summarising the conversation instead of updating state. The next session
   needs the current world, not this session's narrative.
 - **Duplicating the repo** — restating code and structure the successor can simply read.

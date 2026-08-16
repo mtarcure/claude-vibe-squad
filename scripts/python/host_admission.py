@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-"""Live, fail-closed host admission for V2 board-supervised work."""
-
+"""One live, fail-closed host-admission policy for board work."""
 from __future__ import annotations
-
 import argparse
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import hashlib
 import json
 import math
@@ -15,45 +13,50 @@ import shutil
 import subprocess
 import time
 from typing import Callable, Mapping, Sequence
-
-
+try:
+    import board_process_truth as bpt
+except ImportError:  # pragma: no cover - package-context fallback
+    from . import board_process_truth as bpt  # type: ignore[no-redef]
 GIB = 1024**3
 MIN_SAMPLE_INTERVAL = 2.0
 MAX_SAMPLE_INTERVAL = 5.0
 MAX_SAMPLE_AGE = 10.0
-
-
+FAMILY_TARGET = 4
+LANE_FAMILY = {"claude": "anthropic", "codex": "openai", "gpt-codex": "openai",
+               "gemini": "google", "kimi": "moonshot"}
+MODEL_LANE = {"gpt-codex": "codex", "claude": "claude", "gemini": "gemini", "kimi": "kimi"}
 @dataclass(frozen=True)
 class WorkloadPolicy:
-    p50_rss_bytes: int
     p95_rss_bytes: int
     reserve_bytes: int
     pressure_floor_percent: float
     expected_processes: int
     calibrated: bool = True
-
-
 WORKLOAD_POLICIES: Mapping[str, WorkloadPolicy] = {
-    "light-text": WorkloadPolicy(400 * 1024**2, 512 * 1024**2, 1 * GIB, 15.0, 16),
-    "repo-build-test": WorkloadPolicy(768 * 1024**2, 1 * GIB, 2 * GIB, 20.0, 64),
-    "browser-media": WorkloadPolicy(1 * GIB, 2 * GIB, 3 * GIB, 25.0, 128),
-    "security-untrusted": WorkloadPolicy(2 * GIB, 3 * GIB, 4 * GIB, 30.0, 128, False),
+    "cpu-light": WorkloadPolicy(512 * 1024**2, 1 * GIB, 15.0, 16),
+    "repo-build-test": WorkloadPolicy(1 * GIB, 2 * GIB, 20.0, 64),
+    "browser-media": WorkloadPolicy(2 * GIB, 3 * GIB, 25.0, 128),
+    "security-untrusted": WorkloadPolicy(3 * GIB, 4 * GIB, 30.0, 128, False),
 }
-
-
+@dataclass(frozen=True)
+class Candidate:
+    task_id: str
+    lane: str
+    workload_class: str
+    packet_path: Path
+    packet_sha256: str
+@dataclass(frozen=True)
+class LiveAttempt:
+    task_id: str
+    lane: str
+    workload_class: str
+class HostStateError(RuntimeError):
+    """Exact board process truth is missing, malformed, or unsettled."""
 @dataclass(frozen=True)
 class HostSnapshot:
     captured_at: float
     physical_bytes: int
     resident_bytes: int
-    raw_free_bytes: int
-    active_bytes: int
-    inactive_bytes: int
-    wired_bytes: int
-    compressed_bytes: int
-    purgeable_bytes: int
-    supervisor_rss_bytes: int
-    external_baseline_rss_bytes: int
     pressure_free_percent: float
     pressure_level: str
     swap_total_bytes: int
@@ -67,37 +70,28 @@ class HostSnapshot:
     free_disk_bytes: int
     process_count: int
     pid_limit: int
-    active_workers: int
-    priority_state_known: bool
-    higher_priority_queued: bool
-    broker_port_available: bool
-    provider_budget_available: bool
-
-
 @dataclass(frozen=True)
 class AdmissionDecision:
     admitted: bool
     failed_clauses: tuple[int, ...]
     reasons: tuple[str, ...]
     snapshot_sha256: str
+    candidate_vector_sha256: str = ""
     backoff_seconds: int = 5
-
     @property
     def action(self) -> str:
         return "admit" if self.admitted else "queue"
-
     def to_json(self) -> str:
         payload = asdict(self)
         payload["action"] = self.action
         return json.dumps(payload, sort_keys=True)
-
-
 def _decision(
     failed: Mapping[int, str],
     snapshots: Sequence[HostSnapshot] = (),
+    evidence: Sequence[object] = (),
 ) -> AdmissionDecision:
     canonical = json.dumps(
-        [asdict(snapshot) for snapshot in snapshots],
+        [[asdict(snapshot) for snapshot in snapshots], list(evidence)],
         sort_keys=True,
         separators=(",", ":"),
     )
@@ -107,21 +101,11 @@ def _decision(
         reasons=tuple(f"clause-{number}: {failed[number]}" for number in sorted(failed)),
         snapshot_sha256=hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
     )
-
-
 def _snapshot_schema_valid(snapshot: HostSnapshot) -> bool:
     numeric = (
         snapshot.captured_at,
         snapshot.physical_bytes,
         snapshot.resident_bytes,
-        snapshot.raw_free_bytes,
-        snapshot.active_bytes,
-        snapshot.inactive_bytes,
-        snapshot.wired_bytes,
-        snapshot.compressed_bytes,
-        snapshot.purgeable_bytes,
-        snapshot.supervisor_rss_bytes,
-        snapshot.external_baseline_rss_bytes,
         snapshot.pressure_free_percent,
         snapshot.swap_total_bytes,
         snapshot.swap_free_bytes,
@@ -134,7 +118,6 @@ def _snapshot_schema_valid(snapshot: HostSnapshot) -> bool:
         snapshot.free_disk_bytes,
         snapshot.process_count,
         snapshot.pid_limit,
-        snapshot.active_workers,
     )
     if any(
         isinstance(value, bool)
@@ -144,53 +127,51 @@ def _snapshot_schema_valid(snapshot: HostSnapshot) -> bool:
         for value in numeric
     ):
         return False
-    booleans = (
-        snapshot.higher_priority_queued,
-        snapshot.priority_state_known,
-        snapshot.broker_port_available,
-        snapshot.provider_budget_available,
-    )
     return (
-        all(isinstance(value, bool) for value in booleans)
-        and snapshot.priority_state_known
-        and snapshot.pressure_level in {"normal", "warn", "critical"}
+        snapshot.pressure_level in {"normal", "warn", "critical"}
         and snapshot.physical_bytes > 0
         and snapshot.swap_total_bytes > 0
         and snapshot.swap_free_bytes <= snapshot.swap_total_bytes
         and 0 <= snapshot.pressure_free_percent <= 100
         and snapshot.pid_limit > 0
     )
-
-
-def under_admission(
+def _under_admission(
     *,
-    hard_max: int = 8,
-    requested_workers: int = 1,
+    candidates: Sequence[Candidate],
+    live_attempts: Sequence[LiveAttempt],
     live_snapshot: Callable[[], tuple[HostSnapshot, HostSnapshot] | None],
-    workload_class: str,
-    reserve: int | None = None,
     now: float | None = None,
 ) -> AdmissionDecision:
-    """Evaluate the stable seven-clause predicate; every unknown queues."""
-
-    if isinstance(hard_max, bool) or not isinstance(hard_max, int) or hard_max <= 0 or hard_max > 12:
-        return _decision({1: "hard_max must be an integer in 1..12"})
-    if (
-        isinstance(requested_workers, bool)
-        or not isinstance(requested_workers, int)
-        or requested_workers <= 0
-        or requested_workers > hard_max
-    ):
-        return _decision({1: "requested_workers must be an integer in 1..hard_max"})
-    policy = WORKLOAD_POLICIES.get(workload_class)
-    if policy is None:
-        return _decision({4: f"unknown workload class {workload_class!r}"})
+    """Evaluate one whole candidate vector; every unknown queues."""
+    if not candidates or len({item.task_id for item in candidates}) != len(candidates):
+        return _decision({1: "candidate vector is empty or has duplicate task ids"})
+    evidence = [
+        {key: str(value) if isinstance(value, Path) else value for key, value in asdict(item).items()}
+        for item in (*live_attempts, *candidates)
+    ]
+    family_counts: dict[str, int] = {}
+    policies: list[WorkloadPolicy] = []
+    for item in (*live_attempts, *candidates):
+        family = LANE_FAMILY.get(item.lane)
+        policy = WORKLOAD_POLICIES.get(item.workload_class)
+        valid = isinstance(item.task_id, str) and bpt.IDENTIFIER.fullmatch(item.task_id)
+        if isinstance(item, Candidate):
+            valid = valid and isinstance(item.packet_path, Path) and bpt.SHA256.fullmatch(item.packet_sha256)
+        if family is None or policy is None or not valid:
+            clause = 4 if policy is None else 1
+            return _decision({clause: "candidate or live-attempt authority is invalid"}, evidence=evidence)
+        family_counts[family] = family_counts.get(family, 0) + 1
+        if isinstance(item, Candidate):
+            policies.append(policy)
+    over = sorted(name for name, count in family_counts.items() if count > FAMILY_TARGET)
+    if over:
+        return _decision({1: f"family target {FAMILY_TARGET} exceeded: {','.join(over)}"}, evidence=evidence)
     try:
         snapshots = live_snapshot()
     except Exception as exc:
-        return _decision({2: f"telemetry collection failed: {exc}"})
+        return _decision({2: f"telemetry collection failed: {exc}"}, evidence=evidence)
     if not snapshots or len(snapshots) != 2:
-        return _decision({2: "two complete telemetry snapshots are required"})
+        return _decision({2: "two complete telemetry snapshots are required"}, evidence=evidence)
     first, second = snapshots
     if (
         not isinstance(first, HostSnapshot)
@@ -201,22 +182,14 @@ def under_admission(
         or first.swap_total_bytes != second.swap_total_bytes
         or first.pid_limit != second.pid_limit
     ):
-        return _decision({2: "telemetry schema or stable host identity is invalid"})
+        return _decision({2: "telemetry schema or stable host identity is invalid"}, evidence=evidence)
     failed: dict[int, str] = {}
     current_time = time.monotonic() if now is None else now
-
-    if (
-        second.active_workers + requested_workers > hard_max
-        or second.higher_priority_queued
-    ):
-        failed[1] = "capacity reached or higher-priority work is queued"
-
     interval = second.captured_at - first.captured_at
     age = current_time - second.captured_at
     fresh = 0 <= age <= MAX_SAMPLE_AGE
     if not fresh or not MIN_SAMPLE_INTERVAL <= interval <= MAX_SAMPLE_INTERVAL:
         failed[2] = "telemetry is missing, stale, or outside the 2-5 second interval"
-
     if (
         second.swapins > first.swapins
         or second.pageouts > first.pageouts
@@ -224,51 +197,140 @@ def under_admission(
         or second.compressions > first.compressions
     ):
         failed[3] = "swapin, pageout, swapout, or compression growth is unsafe"
-
-    selected_reserve = policy.reserve_bytes if reserve is None else reserve
-    if isinstance(selected_reserve, bool) or not isinstance(selected_reserve, int) or selected_reserve < 0:
-        failed[4] = "reserve must be a non-negative integer"
-        selected_reserve = policy.reserve_bytes
-    selected_reserve = max(selected_reserve, policy.reserve_bytes)
+    selected_reserve = max(policy.reserve_bytes for policy in policies)
     projected = (
-        second.resident_bytes
-        + int(policy.p95_rss_bytes * 1.25 * requested_workers)
+        int(second.physical_bytes * (1.0 - second.pressure_free_percent / 100.0))
+        + sum(int(policy.p95_rss_bytes * 1.25) for policy in policies)
         + selected_reserve
     )
     pressure_budget = int(second.physical_bytes * 0.85)
-    if not policy.calibrated or projected > pressure_budget:
+    if not all(policy.calibrated for policy in policies) or projected > pressure_budget:
         failed[4] = "workload is uncalibrated or projected resident use exceeds budget"
-
-    projected_swap_use = max(0, projected - pressure_budget)
-    free_swap_after = max(0, second.swap_free_bytes - projected_swap_use)
-    minimum_swap = max(GIB, int(second.swap_total_bytes * 0.10))
-    if free_swap_after < minimum_swap:
-        failed[5] = "projected free swap is below max(1 GiB, 10% configured swap)"
-
+    # Clause 6 absorbs the former clause 5: that clause compared free space in the
+    # CURRENT swap file against max(1 GiB, 10% of swap_total), but macOS swap is
+    # dynamic (grown on demand from free disk), so it drifted with uptime instead of
+    # measuring capacity. Real pressure is here; growth is clause 3; disk is clause 7.
     if (
         second.pressure_level.lower() == "critical"
-        or second.pressure_free_percent < policy.pressure_floor_percent
+        or second.pressure_free_percent < max(policy.pressure_floor_percent for policy in policies)
     ):
         failed[6] = "memory pressure is critical or below the class threshold"
-
     process_ceiling = int(second.pid_limit * 0.80)
     disk_floor = selected_reserve + GIB
     if (
         second.free_disk_bytes < disk_floor
         or (
             second.process_count
-            + policy.expected_processes * requested_workers
+            + sum(policy.expected_processes for policy in policies)
             >= process_ceiling
         )
         or second.load_average_1m > max(float(os.cpu_count() or 1) * 2.0, 4.0)
         or second.runnable_processes > max((os.cpu_count() or 1) * 4, 16)
-        or not second.broker_port_available
-        or not second.provider_budget_available
     ):
-        failed[7] = "disk, PID, broker-port, or provider-budget limit failed"
-    return _decision(failed, snapshots)
-
-
+        failed[7] = "disk, PID, load, or runnable-process limit failed"
+    return _decision(failed, snapshots, evidence)
+def discover_live_attempts(repo_root: Path) -> tuple[LiveAttempt, ...]:
+    """Count only exact live V2 descriptors without a matching terminal receipt."""
+    board = Path(repo_root) / "_state" / "board-dispatch"
+    if not board.exists():
+        return ()
+    if board.is_symlink() or not board.is_dir():
+        raise HostStateError("board state root is not a real directory")
+    live: list[LiveAttempt] = []
+    for path in sorted(board.glob("*.dispatch.json")):
+        descriptor = bpt.load_json(path)
+        if isinstance(descriptor, dict) and descriptor.get("schema") == bpt.DESCRIPTOR_V1:
+            continue
+        if error := bpt.descriptor_error(path, descriptor, require_v2=True):
+            raise HostStateError(f"{path.name}: {error}")
+        if os.path.lexists(receipt_path := Path(descriptor["receipt_path"])):
+            if bpt.terminal_outcome(bpt.load_json(receipt_path), descriptor):
+                continue
+            raise HostStateError(f"{path.name}: receipt is not exactly fenced")
+        context = bpt.load_json(descriptor["context_path"])
+        if not bpt.context_matches(descriptor, context):
+            raise HostStateError(f"{path.name}: context identity mismatch")
+        truth = bpt.process_truth(path, descriptor)
+        if truth.get("state") != "live":
+            raise HostStateError(f"{path.name}: unresolved {truth.get('reason', 'process truth')}")
+        authority = context.get("authority")
+        lane, workload = authority.get("lane"), authority.get("workload_class")
+        if lane not in LANE_FAMILY or workload not in WORKLOAD_POLICIES:
+            raise HostStateError(f"{path.name}: lane or workload authority is invalid")
+        live.append(LiveAttempt(descriptor["task_id"], lane, workload))
+    return tuple(live)
+def candidate_from_task(
+    path: Path, repo_root: Path, expected_task_id: str, expected_sha256: str
+) -> Candidate:
+    """Bind admission identity to the exact already-validated packet bytes."""
+    packet = Path(path)
+    if packet.is_symlink() or not packet.is_file():
+        raise HostStateError(f"candidate packet is missing or symlinked: {packet}")
+    try:
+        from dispatch_context_builder import _parse_task_text, _unquote, dispatcher_workload_class
+    except ImportError:  # pragma: no cover - package-context fallback
+        from .dispatch_context_builder import (  # type: ignore[no-redef]
+            _parse_task_text, _unquote, dispatcher_workload_class)
+    raw = packet.read_bytes()
+    digest = hashlib.sha256(raw).hexdigest()
+    if bpt.IDENTIFIER.fullmatch(expected_task_id) is None \
+            or bpt.SHA256.fullmatch(expected_sha256) is None \
+            or digest != expected_sha256:
+        raise HostStateError(f"candidate expected identity or hash mismatched: {packet}")
+    try:
+        fields, _body = _parse_task_text(raw.decode("utf-8"))
+    except UnicodeDecodeError as exc:
+        raise HostStateError(f"candidate packet is not UTF-8: {packet}") from exc
+    task_id = _unquote(fields.get("id", ""))
+    lane = MODEL_LANE.get(_unquote(fields.get("to_model", "")))
+    workload = dispatcher_workload_class(Path(repo_root), _unquote(fields.get("specialist", "")))
+    if task_id != expected_task_id or lane is None:
+        raise HostStateError(f"candidate packet identity is invalid: {packet}")
+    return Candidate(task_id, lane, workload, packet.resolve(), digest)
+def _candidate_vector_sha256(candidates: Sequence[Candidate]) -> str:
+    digest = hashlib.sha256()
+    for item in candidates:
+        for value in (str(item.packet_path), item.task_id, item.packet_sha256):
+            digest.update(value.encode("utf-8") + b"\0")
+    return digest.hexdigest()
+def _binding_changed(candidates: Sequence[Candidate]) -> str | None:
+    for item in candidates:
+        try:
+            changed = item.packet_path.is_symlink() or not item.packet_path.is_file() \
+                or hashlib.sha256(item.packet_path.read_bytes()).hexdigest() != item.packet_sha256
+        except OSError:
+            changed = True
+        if changed:
+            return item.task_id
+    return None
+def admit(
+    *,
+    repo_root: Path,
+    candidates: Sequence[Candidate],
+    snapshots: tuple[HostSnapshot, HostSnapshot] | None = None,
+    now: float | None = None,
+) -> AdmissionDecision:
+    """Own the board-truth scan and host sampling behind the one public seam."""
+    try:
+        if changed := _binding_changed(candidates):
+            raise HostStateError(f"candidate packet binding changed: {changed}")
+        live = discover_live_attempts(repo_root)
+    except (HostStateError, OSError, ValueError) as exc:
+        return _decision({1: f"authoritative board state failed closed: {exc}"})
+    source = (
+        (lambda: snapshots)
+        if snapshots is not None
+        else (lambda: collect_live_snapshots(task_path=Path(repo_root)))
+    )
+    decision = _under_admission(
+        candidates=candidates,
+        live_attempts=live,
+        live_snapshot=source,
+        now=now,
+    )
+    if decision.admitted and (changed := _binding_changed(candidates)):
+        return _decision({1: f"candidate packet changed during telemetry: {changed}"})
+    return replace(decision, candidate_vector_sha256=_candidate_vector_sha256(candidates))
 def _run(command: Sequence[str]) -> str:
     completed = subprocess.run(
         list(command),
@@ -284,11 +346,9 @@ def _run(command: Sequence[str]) -> str:
         raise RuntimeError(f"telemetry command failed: {command[0]}: {detail}")
     return completed.stdout
 
-
 def _parse_bytes(value: str, unit: str) -> int:
     scale = {"K": 1024, "M": 1024**2, "G": GIB}[unit.upper()]
     return int(float(value) * scale)
-
 
 def parse_vm_stat(output: str) -> dict[str, int]:
     page_match = re.search(r"page size of (\d+) bytes", output)
@@ -323,7 +383,6 @@ def parse_vm_stat(output: str) -> dict[str, int]:
         raise ValueError(f"vm_stat fields missing: {sorted(missing)}")
     return fields
 
-
 def parse_memory_pressure(output: str) -> tuple[str, float]:
     match = re.search(r"System-wide memory free percentage:\s*(\d+(?:\.\d+)?)%", output)
     if not match:
@@ -332,7 +391,6 @@ def parse_memory_pressure(output: str) -> tuple[str, float]:
     level = "critical" if "critical" in lowered else "warn" if "warn" in lowered else "normal"
     return level, float(match.group(1))
 
-
 def parse_swapusage(output: str) -> tuple[int, int]:
     total = re.search(r"total\s*=\s*([0-9.]+)([KMG])", output)
     free = re.search(r"free\s*=\s*([0-9.]+)([KMG])", output)
@@ -340,15 +398,9 @@ def parse_swapusage(output: str) -> tuple[int, int]:
         raise ValueError("swapusage total/free missing")
     return _parse_bytes(total.group(1), total.group(2)), _parse_bytes(free.group(1), free.group(2))
 
-
 def collect_snapshot(
     *,
     task_path: Path,
-    active_workers: int,
-    priority_state_known: bool,
-    higher_priority_queued: bool,
-    broker_port_available: bool,
-    provider_budget_available: bool,
 ) -> HostSnapshot:
     vm = parse_vm_stat(_run(("/usr/bin/vm_stat",)))
     pressure_level, pressure_free = parse_memory_pressure(_run(("/usr/bin/memory_pressure", "-Q")))
@@ -365,21 +417,11 @@ def collect_snapshot(
         raise RuntimeError("vm.loadavg parse failed")
     available_pages = vm["free"] + vm["inactive"] + vm["purgeable"]
     resident = max(0, physical - available_pages * vm["page_size"])
-    supervisor_rss = int(_run(("/bin/ps", "-o", "rss=", "-p", str(os.getpid()))).strip()) * 1024
     free_disk = shutil.disk_usage(task_path).free
-    page_size = vm["page_size"]
     return HostSnapshot(
         captured_at=time.monotonic(),
         physical_bytes=physical,
         resident_bytes=resident,
-        raw_free_bytes=vm["free"] * page_size,
-        active_bytes=vm["active"] * page_size,
-        inactive_bytes=vm["inactive"] * page_size,
-        wired_bytes=vm["wired"] * page_size,
-        compressed_bytes=vm["compressed"] * page_size,
-        purgeable_bytes=vm["purgeable"] * page_size,
-        supervisor_rss_bytes=supervisor_rss,
-        external_baseline_rss_bytes=max(0, resident - supervisor_rss),
         pressure_free_percent=pressure_free,
         pressure_level=pressure_level,
         swap_total_bytes=swap_total,
@@ -393,68 +435,37 @@ def collect_snapshot(
         free_disk_bytes=free_disk,
         process_count=process_count,
         pid_limit=pid_limit,
-        active_workers=active_workers,
-        priority_state_known=priority_state_known,
-        higher_priority_queued=higher_priority_queued,
-        broker_port_available=broker_port_available,
-        provider_budget_available=provider_budget_available,
     )
-
 
 def collect_live_snapshots(
     *,
     task_path: Path,
     interval: float = 2.0,
-    active_workers: int = -1,
-    priority_state_known: bool = False,
-    higher_priority_queued: bool = False,
-    broker_port_available: bool = False,
-    provider_budget_available: bool = False,
 ) -> tuple[HostSnapshot, HostSnapshot]:
     if not MIN_SAMPLE_INTERVAL <= interval <= MAX_SAMPLE_INTERVAL:
         raise ValueError("sample interval must be 2-5 seconds")
-    kwargs = {
-        "active_workers": active_workers,
-        "priority_state_known": priority_state_known,
-        "task_path": task_path,
-        "higher_priority_queued": higher_priority_queued,
-        "broker_port_available": broker_port_available,
-        "provider_budget_available": provider_budget_available,
-    }
-    first = collect_snapshot(**kwargs)
+    first = collect_snapshot(task_path=task_path)
     time.sleep(interval)
-    second = collect_snapshot(**kwargs)
+    second = collect_snapshot(task_path=task_path)
     return first, second
-
 
 def _main(argv: Sequence[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--live", action="store_true", required=True)
-    parser.add_argument("--workload-class", choices=tuple(WORKLOAD_POLICIES), required=True)
-    parser.add_argument("--hard-max", type=int, default=8)
-    parser.add_argument("--requested-workers", type=int, default=1)
-    parser.add_argument("--task-path", type=Path, required=True)
-    parser.add_argument("--active-workers", type=int)
-    parser.add_argument("--priority-state-known", action="store_true")
-    parser.add_argument("--higher-priority-queued", action="store_true")
-    parser.add_argument("--broker-port-available", action="store_true")
-    parser.add_argument("--provider-budget-available", action="store_true")
-    parser.add_argument("--interval", type=float, default=2.0)
+    parser.add_argument("--repo-root", type=Path, required=True)
+    parser.add_argument("--candidate", nargs=3, action="append", required=True)
+    parser.add_argument("--vector-sha256", required=True)
     args = parser.parse_args(list(argv))
-    decision = under_admission(
-        hard_max=args.hard_max,
-        requested_workers=args.requested_workers,
-        workload_class=args.workload_class,
-        live_snapshot=lambda: collect_live_snapshots(
-            interval=args.interval,
-            task_path=args.task_path,
-            active_workers=-1 if args.active_workers is None else args.active_workers,
-            priority_state_known=args.priority_state_known,
-            higher_priority_queued=args.higher_priority_queued,
-            broker_port_available=args.broker_port_available,
-            provider_budget_available=args.provider_budget_available,
-        ),
-    )
+    try:
+        candidates = tuple(
+            candidate_from_task(Path(path), args.repo_root, task_id, sha256)
+            for path, task_id, sha256 in args.candidate
+        )
+        if _candidate_vector_sha256(candidates) != args.vector_sha256:
+            raise HostStateError("candidate vector binding mismatch")
+    except (HostStateError, OSError, ValueError) as exc:
+        decision = _decision({1: f"candidate parsing failed closed: {exc}"})
+    else:
+        decision = admit(repo_root=args.repo_root, candidates=candidates)
     print(decision.to_json())
     return 0 if decision.admitted else 75
 

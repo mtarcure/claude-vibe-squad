@@ -9,24 +9,24 @@ Task `TASK-2026-08-04-0300-W1C-witness` · lane `claude` · specialist `harness-
 
 ## The failure
 
-Two campaigns recorded **a bound on a harness as if it were a bound on the target**. The campaign's
-own post-mortem says so in its lessons section, `_state/bounty/evmgw-2026-08-02/CAMPAIGN-CLOSED.md:82-84`:
+Two campaigns recorded **a bound on a harness as if it were a bound on the target**. A campaign's own
+post-mortem says so in its own lessons section (private campaign record, closing notes):
 
 > **A bound measured on an isolated primitive is not a property of the system.** Twelve lanes recorded
 > harness limitations ("the fixture collapses the roles", "the balance is planted by me") as if they
 > bounded the target.
 
 The clean instance is recoverable in full, because the lane that removed the bound quoted the bound it
-was removing. `test/P4B/P4B_GatewayCompose.t.sol:342-345`:
+was removing. Restated in neutral terms from that lane's compose harness, `:342-345`:
 
-> L2 bounded P02 with "the fixture sets operator == admin == roleManager, so the separation cannot be
-> observed" AND "P-10 shows the gateway holds no balance at rest, so the terminus precondition is
-> planted". Compose: grant a FRESH address OPERATOR_ROLE only (through the system's own ROLE_MANAGER
-> path), and supply the balance from X1's donation instead of a mint.
+> L2 bounded P02 with "the fixture collapses the privileged roles onto a single address, so the
+> separation cannot be observed" AND "an earlier primitive shows the contract holds no balance at
+> rest, so the terminus precondition is planted". Compose: grant a FRESH address the lower role only
+> (through the system's own role-admin path), and supply the balance from an earlier primitive's
+> donation instead of a mint.
 
-P4B did exactly that, and the separation was observable on the next line —
-`assertTrue(gateway.hasRole(VAULT, puppet), "OPERATOR_ROLE minted VAULT_ROLE across the role-admin
-graph")` at `:43`, terminating in a live money path at `:43`.
+The compose lane did exactly that, and the separation became observable on the very next line — one
+assertion on the resulting role state, terminating in a value-bearing path.
 
 **This is a provenance problem, not a chaining problem.** The bound was already wrong at the moment it
 was banked; composition was merely its first consumer. A better composition algorithm cannot recover
@@ -34,10 +34,10 @@ information the ledger never carried. The fix therefore belongs in the schema: *
 production-code witness is not a bound.*
 
 The second, independent cost is vocabulary. Every ledger was written in its target's private terms —
-`GatewayContract.sol:220-229`, `vault_is_active`, `executed_sub_tx` — so **115 banked entries produced
-nothing a later campaign could spend** (`shared/modes/bounty.md:76`; corroborated by the moat advisory
-in vault note `mem-e07339c12bf6`: *"~115 entries / 41 distinct primitives -> 0 chains clearing 4
-gates"*). Without shared terms `vault_is_active` and `vault_status(ACTIVE)` never unify, and **"no chain
+`TokenBridge.sol:220-229`, `pool_is_active`, `executed_message` — so **115 banked entries produced
+nothing a later campaign could spend** (`shared/modes/bounty.md:76`; corroborated by a moat advisory
+held in the private vault: *"~115 entries / 41 distinct primitives -> 0 chains clearing 4
+gates"*). Without shared terms `pool_is_active` and `pool_status(ACTIVE)` never unify, and **"no chain
 found" is indistinguishable from "vocabulary mismatch."**
 
 ---
@@ -68,11 +68,11 @@ over 3-of-3.
 
 ### What this does to the historical failure
 
-The L2 bound's only available witness is `test/P4B/P4B_GatewayCompose.t.sol`. Banking it as a property
-of the target now fails validation on the path alone:
+The L2 bound's only available witness is the compose harness that produced it. Banking it as a
+property of the target now fails validation on the path alone:
 
 ```
-production-guard-cites-harness-path:test/P4B/P4B_GatewayCompose.t.sol
+production-guard-cites-harness-path:test/ExampleCompose.t.sol
 ```
 
 It remains bankable — as `HARNESS_ARTIFACT`, which reads *"we could not see past our own fixture"* and
@@ -88,14 +88,14 @@ extending the vocabulary should be a reviewable data diff, matching how
 `shared/specialist-runtime-map.tsv` already works. The `unifies` column records the target-private
 spellings each predicate absorbs, which is what makes adoption mechanical for a lane.
 
-The payoff is cross-campaign retrieval. EVM and SVM Gateway shared no language, toolchain or asset
-list, and their ledgers shared no vocabulary:
+The payoff is cross-campaign retrieval. The EVM and SVM deployments of one bridge shared no language,
+toolchain or asset list, and their ledgers shared no vocabulary:
 
 | EVM entry | SVM entry | Shared predicate |
 |---|---|---|
-| `isExecuted[messageId]`, set once at `GatewayContract.sol:681`, never cleared | `executed_sub_tx` gating the closable branch at `execute.rs:242` | `state.one_shot` |
-| `req.token` reaching the burn path unvalidated (`GatewayContract.sol:289`) | `stored_ix_data` unvalidated on the finalize entrypoint | `state.value_unbound` |
-| Vault finalize vs Gateway `isExecuted` in separate stores (L4-P04) | two entrypoints sharing one `#[derive(Accounts)]` | `state.domain_split` |
+| `processed[messageId]`, set once at `TokenBridge.sol:681`, never cleared | `executed_message` gating the closable branch at `settle.rs:242` | `state.one_shot` |
+| `req.asset` reaching the burn path unvalidated (`TokenBridge.sol:289`) | `stored_call_data` unvalidated on the finalize entrypoint | `state.value_unbound` |
+| Vault finalize vs bridge `processed` in separate stores (L4-P04) | two entrypoints sharing one `#[derive(Accounts)]` | `state.domain_split` |
 
 A backward chainer searching `state.one_shot` retrieves both. Under private vocabularies it would have
 had to already know those were the same idea — precisely the knowledge a fresh campaign lacks.
@@ -173,7 +173,7 @@ Total: 5  Passed: 0  Failed: 5        # exit 1
 
 The negative control is **not synthetic**: it is the real `L2-P02` bound, quoted from the harness that
 removed it, banked the way it was actually banked. It fires
-`production-guard-cites-harness-path:test/P4B/P4B_GatewayCompose.t.sol`.
+`production-guard-cites-harness-path` on the `*.t.sol` harness path that bound cites.
 
 `--target` enables quote verification against the real tree. It is not decorative: it caught a genuine
 off-by-one in a hand-written worked example here — a `PRODUCTION_GUARD` cited at
@@ -232,7 +232,7 @@ field as-is and validate the artifact it already demands, by adding one method t
 Placement is Chrono's call. The two sane homes are `scripts/python/primitive_ledger.py` with the
 vocabulary at `shared/bounty/predicates.tsv`, or leaving the rig standalone and calling it from the
 bounty prevalidation path. **Note the diff is written against `validate_specialists.py` as it exists on
-the `bounty-mode-rewrite` worktree, not on this branch — see Limitations.**
+a separate in-progress worktree, not on this branch — see Limitations.**
 
 ---
 
@@ -253,8 +253,8 @@ the `bounty-mode-rewrite` worktree, not on this branch — see Limitations.**
 
 1. **`validate_mode_phase_refs()` is not on this branch.** The packet names it in
    `scripts/python/validate_specialists.py`; on `main` and in this worktree that file has no such
-   method (its line 604 is `run()`). It exists only at
-   `.claude/worktrees/bounty-mode-rewrite/scripts/python/validate_specialists.py:604`. I matched that
+   method (its line 604 is `run()`). It exists only on a separate in-progress worktree, at
+   `scripts/python/validate_specialists.py:604` there. I matched that
    style, but the integration diff above **will not apply to `main` until that worktree lands**.
 2. **One `--target` per run.** Quote verification resolves witnesses under a single root, so a ledger
    spanning two target trees needs two runs. Unresolvable witnesses are *skipped*, not failed — which

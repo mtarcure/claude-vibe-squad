@@ -48,7 +48,6 @@ ROUTE_FIELDS = (
 GEMINI_GENERATED_ROLES = (
     "accessibility-engineer",
     "bounty-researcher",
-    "copywriter",
     "growth-and-search-analyst",
     "image-designer",
     "interactive-audio-designer",
@@ -61,7 +60,6 @@ GEMINI_GENERATED_ROLES = (
     "voice-agent-builder",
     "voice-narrator",
 )
-CODEX_GENERATED_ROLES = ("code-reviewer", "impact-validator")
 KIMI_GENERATED_ROLES: tuple[str, ...] = ()
 ADVISOR_GENERATED_ROLES = ("fable", "sol")
 SWARM_CRITICAL_ROLES = (
@@ -718,6 +716,20 @@ def _target(root: Path, lane: str, specialist: str) -> Path:
     return root / "model-lanes" / "kimi" / ".kimi" / "agents" / f"{specialist}.yaml"
 
 
+def generated_marker_files(repo_root: str | Path) -> list[tuple[str, Path]]:
+    """Return every lane file that claims registry ownership via the marker."""
+
+    root = Path(repo_root)
+    marker = GENERATED_MARKER.encode()
+    generated: list[tuple[str, Path]] = []
+    for lane in ("gpt-codex", "claude", "gemini", "kimi"):
+        lane_root = root / "model-lanes" / lane
+        for path in sorted(lane_root.rglob("*")):
+            if path.is_file() and marker in path.read_bytes():
+                generated.append((lane, path))
+    return generated
+
+
 def sync_derived_adapters(repo_root: str | Path) -> dict[str, int]:
     """Atomically refresh every capability projection and blank-advisor overlay."""
 
@@ -818,17 +830,10 @@ def repository_report(repo_root: str | Path) -> dict[str, object]:
     root = Path(repo_root)
     rows = _runtime_rows(root)
     mismatches: list[str] = []
-    for lane, roles in (
-        ("gemini", GEMINI_GENERATED_ROLES),
-        ("gpt-codex", CODEX_GENERATED_ROLES + ADVISOR_GENERATED_ROLES),
-        ("claude", ADVISOR_GENERATED_ROLES),
-        ("kimi", KIMI_GENERATED_ROLES),
-    ):
-        for role in roles:
-            path = _target(root, lane, role)
-            if not path.is_file():
-                mismatches.append(f"missing:{lane}:{role}")
-                continue
+    kimi_prompt_root = root / "model-lanes" / "kimi" / ".kimi" / "prompts"
+    for lane, path in generated_marker_files(root):
+        role = path.stem
+        if path == _target(root, lane, role):
             try:
                 text = path.read_text(encoding="utf-8")
                 expected = (
@@ -838,19 +843,19 @@ def repository_report(repo_root: str | Path) -> dict[str, object]:
                 )
                 if expected != text:
                     mismatches.append(f"projection:{lane}:{role}")
-                    continue
                 validate_adapter_file(root, lane, path)
             except AdapterValidationError as exc:
                 mismatches.append(f"invalid:{lane}:{role}:{exc}")
-    for role in KIMI_GENERATED_ROLES:
-        prompt = root / "model-lanes" / "kimi" / ".kimi" / "prompts" / f"{role}.md"
-        if not prompt.is_file() or prompt.read_text(encoding="utf-8") != render_kimi_prompt(
-            root, role
-        ):
-            mismatches.append(f"prompt:kimi:{role}")
-        main = (root / "model-lanes" / "kimi" / "main.yaml").read_text(encoding="utf-8")
-        if not re.search(rf"(?m)^\s{{4}}{re.escape(role)}:$", main):
-            mismatches.append(f"registration:kimi:{role}")
+            continue
+        if lane == "kimi" and path.parent == kimi_prompt_root:
+            try:
+                if path.read_text(encoding="utf-8") != render_kimi_prompt(root, role):
+                    mismatches.append(f"prompt:kimi:{role}")
+            except AdapterValidationError as exc:
+                mismatches.append(f"invalid:kimi-prompt:{role}:{exc}")
+            continue
+        relative = path.relative_to(root).as_posix()
+        mismatches.append(f"unrecognized-generated-file:{lane}:{relative}")
     physical_lanes: dict[str, list[str]] = {}
     for role in SWARM_CRITICAL_ROLES:
         valid_lanes: list[str] = []

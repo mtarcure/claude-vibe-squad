@@ -22,7 +22,7 @@ import unittest
 
 REPO = Path(__file__).resolve().parents[3]
 SEND_TASK = REPO / "bin" / "send-task.sh"
-LINKED_SUBTREES = ("shared", "scripts", "model-lanes")
+LINKED_SUBTREES = ("shared", "model-lanes")
 MAILBOXES = ("inbox", "active", "outbox", "archive")
 
 
@@ -39,6 +39,24 @@ class SendTaskFrontmatterInjectionTests(unittest.TestCase):
         self.vault.mkdir()
         for name in LINKED_SUBTREES:
             (self.vault / name).symlink_to(REPO / name)
+        scripts = self.vault / "scripts"
+        scripts.mkdir()
+        for entry in (REPO / "scripts").iterdir():
+            if entry.name != "python":
+                (scripts / entry.name).symlink_to(entry, target_is_directory=entry.is_dir())
+        python_dir = scripts / "python"
+        python_dir.mkdir()
+        for entry in (REPO / "scripts" / "python").iterdir():
+            if entry.name != "host_admission.py":
+                (python_dir / entry.name).symlink_to(entry, target_is_directory=entry.is_dir())
+        (python_dir / "host_admission.py").write_text(
+            "import json, sys\n"
+            "args = sys.argv[1:]\n"
+            "vector = args[args.index('--vector-sha256') + 1]\n"
+            "print(json.dumps({'admitted': True, 'action': 'admit', "
+            "'candidate_vector_sha256': vector}))\n",
+            encoding="utf-8",
+        )
 
         # Link every dispatcher helper except the board supervisor.  The missing
         # executable is a deterministic post-registration stop: the vulnerable
@@ -81,7 +99,6 @@ class SendTaskFrontmatterInjectionTests(unittest.TestCase):
                 **os.environ,
                 "VAULT_ROOT": str(self.vault),
                 "SKIP_NUDGE": "1",
-                "FAILOVER_CONTROL_ENABLED": "0",
                 "UV_CACHE_DIR": str(self.root / "uv-cache"),
             },
             capture_output=True,
@@ -185,6 +202,31 @@ class SendTaskFrontmatterInjectionTests(unittest.TestCase):
                 self.assertNotEqual(completed.returncode, 0, msg=output)
                 self.assertIn("contains a NUL byte", output)
                 self.assertFalse(marker.exists(), msg=output)
+
+    def test_memory_aperture_contract_rejects_before_registration(self) -> None:
+        cases = (
+            ({"memory_aperture": "wide-open"}, "invalid memory_aperture"),
+            ({"memory_aperture": "focused"}, "focused memory requires"),
+            (
+                {"memory_aperture": "cold", "memory_focus": "campaign-a"},
+                "memory_focus is valid only",
+            ),
+        )
+        for index, (overrides, expected) in enumerate(cases):
+            with self.subTest(overrides=overrides):
+                task_id = f"TASK-2026-07-27-041{index}-memoryfixture"
+                completed = self.dispatch(
+                    packet_bytes(self.fields(id=task_id, **overrides))
+                )
+                output = self.output(completed)
+                self.assertNotEqual(completed.returncode, 0, msg=output)
+                self.assertIn(expected, output)
+                registry = json.loads(
+                    (self.vault / "_state" / "active-tasks.json").read_text(
+                        encoding="utf-8"
+                    )
+                )
+                self.assertNotIn(task_id, registry)
 
     def test_every_python_heredoc_is_literal_and_packet_is_snapshotted_once(self) -> None:
         source = SEND_TASK.read_text(encoding="utf-8")

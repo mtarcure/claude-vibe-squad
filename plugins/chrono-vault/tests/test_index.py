@@ -49,7 +49,7 @@ class IndexTests(unittest.TestCase):
             {
                 "title": f"{token} forged payload",
                 "body": f"The {token} identifier appears in the note body.",
-                "target": "push-chain",
+                "target": "example-chain",
                 "component": "executor",
                 "attack_class": "forged-inbound",
                 "aliases": [f"{token}-alias"],

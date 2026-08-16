@@ -1,6 +1,6 @@
 # chrono-vault — private memory + learning loop
 
-`chrono-vault` is the squad's durable memory. **Markdown notes in a private, off-repo vault are the source of truth; a SQLite FTS5/BM25 index is a disposable, rebuildable derivative.** The write→recall→apply loop is: a lane `record`s a note, later `recall`s it by plain-English query, applies it, and reports back with `record_usage`. Obsidian is an optional human lens over the same markdown; it is never on the recall correctness path.
+`chrono-vault` is the squad's durable memory. **Markdown notes in a private, off-repo vault are the source of truth; a SQLite FTS5/BM25 index is a disposable, rebuildable derivative.** A lane `record`s a note, a later lane `recall`s and applies it, and `autocapture.py` passively closes the loop when the response lands. `record_usage` is opt-in telemetry for high-value feedback, not a routine settlement step. Obsidian is an optional human lens over the same markdown; it is never on the recall correctness path.
 
 This document describes the system **as shipped** (see `mcp_server.py`, `notes.py`, `recall.py`, `index.py`, `lifecycle.py`, `clearance.py`, `vaultroot.py`, `autocapture.py`).
 
@@ -11,13 +11,23 @@ This document describes the system **as shipped** (see `mcp_server.py`, `notes.p
 - **Recall = BM25.** `recall` compiles a natural-language query into a bounded, literal FTS5 query (`query.py`), ranks with weighted `bm25()`, breaks ties by recency, and returns quoted snippets with provenance. No vectors.
 - **Obsidian = human-only.** `vault_list` / `vault_get` / `vault_search` reach a local Obsidian REST API for browsing; `vault_search` is explicitly `legacy`/`human_only` and must never be used as a memory-correctness path.
 
+## Memory aperture contract
+
+[`shared/registries/memory-apertures.tsv`](../../shared/registries/memory-apertures.tsv) is the small, human-readable contract for the five apertures. It is data, not a second policy engine or engagement identity system.
+
+The existing board supervisor projects one authenticated engagement context into the native CLI and its MCP children. Missing packet policy becomes `cold`; unknown policy blocks dispatch. Enforcement lives at the existing raw note/recall/lifecycle boundary, so canonical MCP tools, legacy aliases, and direct imports share it. `focused` uses the note's canonical `created_at`, never filesystem mtime, plus an exact note target. Unbound controller/maintenance processes retain the legacy clearance behavior; this compatibility path is not a lane engagement.
+
 ## Setup / configuration
 
-Two environment variables, both read per MCP process:
+Two operator configuration variables are read per MCP process:
 
-- **`CHRONO_VAULT_ROOT`** — absolute path to the private vault. Resolution is **fail-closed** (`vaultroot.py`): it errors, and never writes, when the value is unset, still contains an unexpanded `${…}`, is relative, does not name an existing directory, resolves **inside any public git worktree**, or lacks a valid sentinel. The vault root must contain a `.chrono-vault` JSON sentinel: `{"vault_id": "<non-empty>", "schema_version": <int ≥ 1>}`. `bin/launch-squad.sh` exports `CHRONO_VAULT_ROOT` for every lane (currently `$HOME/Obsidian-Chrono`, outside the public repo).
+- **`CHRONO_VAULT_ROOT`** — absolute path to the private vault. Resolution is **fail-closed** (`vaultroot.py`): it errors, and never writes, when the value is unset, still contains an unexpanded `${…}`, is relative, does not name an existing directory, resolves **inside any public git worktree**, or lacks a valid sentinel. The vault root must contain a `.chrono-vault` JSON sentinel: `{"vault_id": "<non-empty>", "schema_version": <int ≥ 1>}`. Launcher and nightly entrypoints default it to `$HOME/Obsidian-Chrono`; launcher, doctor, and each board worker validate it through the same resolver before relying on memory.
 - **Provider wiring check** — run `python3 plugins/chrono-vault/provider_config_check.py` from the repo root after editing provider config and before restarting lanes. It checks all four persisted provider configs, absolute server anchoring, root/sentinel availability, and static `recall`/`record` declarations while intentionally redacting commands, paths to the private vault, and every credential value. A pass proves staged configuration, not that an already-running process loaded it; use `skills/parity-probe/SKILL.md` after restart for the callable round-trip gate.
-- **`CHRONO_VAULT_CLEARANCE`** — `internal` (default, fail-safe) or `restricted` (`clearance.py`). It is **server-owned** (set on the MCP process, never supplied by a caller). An `internal` instance can read only `internal` notes; a `restricted` instance can read both. `bin/launch-squad.sh` exports `CHRONO_VAULT_CLEARANCE=restricted` per-pane for the coordinator (chrono) and the security-capable lanes (claude, codex); the gemini and kimi panes receive no export and fall back to `internal` by least privilege.
+- **`CHRONO_VAULT_CLEARANCE`** — `internal` (default, fail-safe) or `restricted` (`clearance.py`). It is **server-owned** (set on the MCP process, never supplied by a caller). An `internal` instance can read only `internal` notes; a `restricted` instance can read both. `bin/launch-squad.sh` exports `restricted` only for the Chrono coordinator; board workers remain fail-safe `internal` unless their trusted launch environment explicitly narrows or authorizes more.
+
+`CHRONO_VAULT_CONTEXT` is not operator configuration. `board-supervisor.sh` derives its closed JSON value from authenticated task/attempt/generation authority and supplies it to the native CLI/MCP process. It binds mode, aperture, exact focus, and engagement start; callers cannot provide those as recall filters. A bound worker can create candidate notes only, its `source_task` is forced to the task identity, and Bounty writes are raised to `restricted`.
+
+This is enforcement at the trusted lane and vault APIs, not hostile same-UID OS containment. A process that can rewrite its own environment or read private Markdown directly is outside this boundary; stronger isolation would require a separately approved containment change.
 
 Vault layout (created on first write):
 
@@ -43,7 +53,7 @@ MCP tools (canonical server name `chrono-vault`; legacy aliases `chrono-kg` and 
 
 **Lifecycle (never delete)**
 - `set_status(id, new_status, reason, expected_revision, supersedes=None) -> {…note, reason, index_generation}` — compare-and-swap on `expected_revision` (raises on a revision conflict). `new_status` ∈ `candidate | verified | superseded | invalidated | archived`. When `new_status == "superseded"`, `supersedes` (the replacement note id) is required and cannot be the note itself; supersede/superseded-by links are maintained atomically across notes and the index. Notes are **retracted/superseded, never removed**.
-- `record_usage(recall_id, note_id, outcome, source_task=None) -> {…}` — apply-feedback. `outcome` ∈ `used | not_useful | incorrect`. Idempotent per `(recall_id, note_id)`; conflicting feedback for the same pair is rejected.
+- `record_usage(recall_id, note_id, outcome, source_task=None) -> {…}` — opt-in apply-feedback telemetry for high-value cases. `outcome` ∈ `used | not_useful | incorrect`. Idempotent per `(recall_id, note_id)`; conflicting feedback for the same pair is rejected.
 
 **Diagnostics**
 - `health() -> {vault_id, root_valid, schema_version, fts5, note_counts, index_generation, index_dirty, legacy_stores}` — reports the resolved vault identity, FTS5 availability, per-type note counts, whether the index is stale (`index_dirty`), and any leftover legacy KG stores (e.g., a stray `kg.db` or a literal `${CHRONO_VAULT_ROOT}` phantom directory) so drift is visible.
@@ -57,7 +67,7 @@ MCP tools (canonical server name `chrono-vault`; legacy aliases `chrono-kg` and 
 - **Record a finding or learning:** call `record("finding", {...})` (or the `record_finding` wrapper) with `title`, `body`, `target`, `attack_class`. New notes land as `candidate`; promote to `verified` with `set_status` once confirmed.
 - **Outbox auto-capture:** `bin/outbox-watcher.sh` runs `autocapture.py <TASK-…-response.md>` best-effort when a response lands. It parses the response frontmatter/body into a bounded `learning` note (≤1500-char summary), de-duplicates by `(source_task, source_artifact_hash)`, and — importantly — labels anything from the `security` namespace or `bounty` mode (or any note declaring it) **`restricted`**. This is the write trigger that keeps recall populated without a lane remembering to call `record`.
 - **Recall by plain English:** `recall("solana emitter binding forged inbound")` — no query syntax needed; optionally narrow with `filters` (e.g., `{"attack_class": "...", "type": "finding"}`).
-- **Apply feedback:** after using a recalled note, call `record_usage(recall_id, note_id, "used" | "not_useful" | "incorrect")` so recall quality can be measured over time.
+- **Apply feedback (opt-in):** reserve `record_usage(recall_id, note_id, "used" | "not_useful" | "incorrect")` for high-value cases where a note materially changed a decision, was clearly irrelevant, or appears incorrect. Routine loop closure is passive through outbox `autocapture.py`.
 - **Bounty capture step:** the bounty workflow's learnings-capture step records durable `finding`/`learning` notes (security/bounty content is `restricted`).
 
 ## Boundary & sensitivity

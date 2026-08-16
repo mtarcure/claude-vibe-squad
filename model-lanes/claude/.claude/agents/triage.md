@@ -4,7 +4,7 @@ description: "Initial classification, mode suggestion, and risk triage."
 model: inherit
 # BEGIN SPECIALIST CAPABILITY PROJECTION
 capability_source: model-lanes/specialist-lane-capabilities.v1.json
-capability_source_sha256: 585d42615757d63d998fb325e50cead8dd269d9c729dde30eb4e95d71be375af
+capability_source_sha256: 2625a4a8cd5209f66bd691251e4891453aa495033240724479a69f13965d104a
 mcps: ["chrono-vault","sequential-thinking"]
 # END SPECIALIST CAPABILITY PROJECTION
 ---

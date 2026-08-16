@@ -15,9 +15,12 @@ PYTHON_SCRIPTS = ROOT / "scripts" / "python"
 if str(PYTHON_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(PYTHON_SCRIPTS))
 
+from held_action_gate import HELD_CATEGORIES  # noqa: E402
 from verification_contract import (  # noqa: E402
     CONTRACT_VERSION,
     ContractError,
+    _VALID_GATES,
+    _derive_cli,
     author_family_for_lane,
     derive_verification_contract,
     read_packet_contract_echoes,
@@ -28,6 +31,15 @@ from verification_contract import (  # noqa: E402
 
 
 class VerificationContractTests(unittest.TestCase):
+    def test_valid_gate_vocabulary_contains_every_controller_held_category(
+        self,
+    ) -> None:
+        self.assertLessEqual(
+            HELD_CATEGORIES,
+            _VALID_GATES,
+            "verification-contract gates must include every controller-held category",
+        )
+
     def admission(
         self,
         *,
@@ -273,7 +285,9 @@ class VerificationContractTests(unittest.TestCase):
             "review": lambda contract: contract["deliverable_review_policy"].update(
                 required=False
             ),
-            "memory": lambda contract: contract["memory_policy"].update(recall="optional"),
+            "memory": lambda contract: contract["memory_policy"].update(
+                recall="optional"
+            ),
             "external": lambda contract: contract["external_delivery_policy"].update(
                 allowed=True
             ),
@@ -290,7 +304,9 @@ class VerificationContractTests(unittest.TestCase):
             "empty run": lambda item: item.update(run_id=""),
             "project dry run": lambda item: item.update(result_type="dry_run"),
             "unknown mode": lambda item: item.update(mode="content"),
-            "unknown gate": lambda item: item.update(runtime_map_gates=["made_up_gate"]),
+            "unknown gate": lambda item: item.update(
+                runtime_map_gates=["made_up_gate"]
+            ),
         }
         for name, mutate in mutations.items():
             with self.subTest(name=name):
@@ -299,14 +315,22 @@ class VerificationContractTests(unittest.TestCase):
                 with self.assertRaises(ContractError):
                     derive_verification_contract(admission)
 
-    def test_noncanonical_hash_policy_extras_and_weakened_policies_are_rejected(self) -> None:
+    def test_noncanonical_hash_policy_extras_and_weakened_policies_are_rejected(
+        self,
+    ) -> None:
         mutations = {
             "uppercase capability hash": lambda item: item["capability"].update(
                 card_sha256="A" * 64
             ),
-            "extra policy key": lambda item: item["memory_policy"].update(optional=True),
-            "weaken review": lambda item: item["plan_review_policy"].update(required=False),
-            "weaken memory": lambda item: item["memory_policy"].update(recall="optional"),
+            "extra policy key": lambda item: item["memory_policy"].update(
+                optional=True
+            ),
+            "weaken review": lambda item: item["plan_review_policy"].update(
+                required=False
+            ),
+            "weaken memory": lambda item: item["memory_policy"].update(
+                recall="optional"
+            ),
             "weaken external": lambda item: item["external_delivery_policy"].update(
                 allowed=True
             ),
@@ -326,13 +350,7 @@ class VerificationContractTests(unittest.TestCase):
         digest: str | None = None,
         write_scope: str | None = None,
     ) -> Path:
-        path = (
-            root
-            / "departments"
-            / "coding"
-            / mailbox_state
-            / "TASK-TEST-001.md"
-        )
+        path = root / "departments" / "coding" / mailbox_state / "TASK-TEST-001.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         write_scope_line = (
             f"write_scope: {write_scope}\n" if write_scope is not None else ""
@@ -354,7 +372,9 @@ class VerificationContractTests(unittest.TestCase):
             root = Path(temp_dir)
             first = self.write_packet(root, "inbox", contract)
             echoes = read_packet_contract_echoes(root, "TASK-TEST-001")
-            self.assertEqual(echoes, [(first, contract, verification_contract_sha256(contract))])
+            self.assertEqual(
+                echoes, [(first, contract, verification_contract_sha256(contract))]
+            )
             second = self.write_packet(root, "archive", contract)
             echoes = read_packet_contract_echoes(root, "TASK-TEST-001")
             self.assertEqual([item[0] for item in echoes], [second, first])
@@ -377,7 +397,9 @@ class VerificationContractTests(unittest.TestCase):
                 [(packet, contract, verification_contract_sha256(contract))],
             )
 
-    def test_frontmatter_reader_preserves_sibling_fields_and_raw_yaml_scope(self) -> None:
+    def test_frontmatter_reader_preserves_sibling_fields_and_raw_yaml_scope(
+        self,
+    ) -> None:
         contract = self.expected_contract(mode="project", result_type="normal")
         with tempfile.TemporaryDirectory() as temp_dir:
             packet = self.write_packet(
@@ -409,6 +431,25 @@ class VerificationContractTests(unittest.TestCase):
             )
 
             with self.assertRaisesRegex(ContractError, "invalid inline JSON"):
+                read_yaml_frontmatter(packet)
+
+    def test_json_and_frontmatter_inputs_reject_ambiguous_values(self) -> None:
+        for raw in ('{"mode":"project","mode":"bounty"}', '{"value":1e400}'):
+            with (
+                self.subTest(raw=raw),
+                self.assertRaisesRegex(ContractError, "invalid admission JSON"),
+            ):
+                _derive_cli(raw)
+        contract = self.expected_contract(mode="project", result_type="normal")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            packet = self.write_packet(Path(temp_dir), "inbox", contract)
+            packet.write_text(
+                packet.read_text(encoding="utf-8").replace(
+                    "id: TASK-TEST-001\n", "id: TASK-TEST-001\nid: TASK-OTHER\n"
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ContractError, "duplicate frontmatter"):
                 read_yaml_frontmatter(packet)
 
     def test_packet_contract_echoes_reject_divergent_or_missing_copies(self) -> None:

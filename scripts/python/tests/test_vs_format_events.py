@@ -162,6 +162,50 @@ class CodexGeminiItemSchema(unittest.TestCase):
         out = run_formatter(["just a plain human line"])
         self.assertIn("just a plain human line", out)
 
+    def test_kimi_role_schema_renders_tool_calls(self):
+        """Kimi emits no `type` key at all -- role/content/tool_calls instead.
+
+        Before this branch existed the formatter dispatched purely on `type`, so
+        a kimi lane rendered as blank while running dozens of calls (44 measured
+        on a live lane). `content` and `tool_calls` arrive as Python reprs, not
+        JSON, which is why literal_eval is in the path.
+        """
+        lines = [
+            json.dumps({
+                "role": "assistant",
+                "content": "[{'type': 'think', 'think': 'Parsing the task now'}]",
+                "tool_calls": "[{'type': 'function', 'id': 'x1', 'function':"
+                              " {'name': 'Shell', 'arguments':"
+                              ' \'{"command": "pwd && ls -la"}\'}}]',
+            }),
+            json.dumps({"role": "tool", "tool_call_id": "x1",
+                        "content": "total 8\ndrwxr-xr-x"}),
+        ]
+        out = run_formatter(lines)
+        self.assertIn("Parsing the task now", out)
+        self.assertIn("Shell", out)
+        self.assertIn("pwd && ls -la", out)
+        self.assertIn("total 8", out)
+
+    def test_kimi_truncated_arguments_still_render(self):
+        """Kimi truncates long argument strings in the log.
+
+        26 of 48 calls on a measured lane carried unparseable JSON such as
+        '{"command": "ls -'. Every call id appears exactly once, so these are
+        distinct calls rather than partial duplicates -- dropping them would lose
+        more than half the transcript. The hint is salvaged and marked lossy.
+        """
+        line = json.dumps({
+            "role": "assistant",
+            "tool_calls": "[{'type': 'function', 'id': 'x2', 'function':"
+                          " {'name': 'Shell', 'arguments':"
+                          ' \'{"command": "ls -\'}}]',
+        })
+        out = run_formatter([line])
+        self.assertIn("Shell", out)
+        self.assertIn("ls -", out)
+        self.assertNotIn('{"command"', out)  # raw JSON must not leak to the viewer
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -41,7 +41,13 @@ import tempfile
 import unittest
 
 
-REPO = Path(__file__).resolve().parents[3]  # scripts/python/tests -> repo root
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from dispatch_checkout import normal_checkout_root  # noqa: E402
+
+# send-task.sh refuses to dispatch from a linked worktree, and that refusal runs
+# before every guard this suite is about -- so without this the result would
+# depend on where the repo was checked out, not on the behaviour under test.
+REPO = normal_checkout_root(Path(__file__).resolve().parents[3])
 SEND_TASK = REPO / "bin" / "send-task.sh"
 RUNTIME_MAP = REPO / "shared" / "specialist-runtime-map.tsv"
 

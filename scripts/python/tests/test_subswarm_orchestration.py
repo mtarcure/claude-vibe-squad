@@ -41,7 +41,7 @@ class SubswarmOrchestrationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.feature = patch.dict(
             os.environ,
-            {FEATURE: "1", "SQUAD_SUBAGENT_CONCURRENCY_CAP": "16"},
+            {FEATURE: "1"},
             clear=False,
         )
         self.feature.start()
@@ -369,9 +369,8 @@ class SubswarmOrchestrationTests(unittest.TestCase):
         too_wide = copy.deepcopy(parallel)
         too_wide.pop("directive_sha256")
         too_wide["max_concurrency"] = 3
-        with patch.dict(os.environ, {"SQUAD_SUBAGENT_CONCURRENCY_CAP": "2"}, clear=False):
-            with self.assertRaisesRegex(SwarmDiffError, "configured per-lead cap"):
-                seal_orchestration_directive(too_wide)
+        with self.assertRaisesRegex(SwarmDiffError, "member count"):
+            seal_orchestration_directive(too_wide)
 
         bad_sequential = copy.deepcopy(sequential)
         bad_sequential.pop("directive_sha256")
@@ -459,7 +458,7 @@ class SubswarmOrchestrationTests(unittest.TestCase):
         directive_input = self.root / "directive-core.json"
         directive_input.write_text(json.dumps(directive_core), encoding="utf-8")
         dispatch_output = self.root / "dispatch.json"
-        env = {**os.environ, FEATURE: "1", "SQUAD_SUBAGENT_CONCURRENCY_CAP": "2"}
+        env = {**os.environ, FEATURE: "1"}
         built = subprocess.run(
             [
                 sys.executable,

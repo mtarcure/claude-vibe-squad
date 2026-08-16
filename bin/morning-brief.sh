@@ -6,6 +6,8 @@ set -uo pipefail
 
 # shellcheck source-path=SCRIPTDIR source=../shared/repo-root.sh disable=SC1091
 source "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")/.." && pwd -P)/shared/repo-root.sh"
+# shellcheck source=doctor-log-home.sh disable=SC1091
+source "${VAULT_ROOT}/bin/doctor-log-home.sh" || exit $?
 DATE="$(date -u +%Y-%m-%d)"
 DAY_OF_WEEK="$(date -u +%A)"
 BRIEF="${VAULT_ROOT}/_state/morning-briefs/${DATE}.md"
@@ -13,8 +15,20 @@ BRIEF="${VAULT_ROOT}/_state/morning-briefs/${DATE}.md"
 mkdir -p "$(dirname "${BRIEF}")"
 
 # Pull info from earlier phase logs
-DOCTOR_SUMMARY="${VAULT_ROOT}/_state/doctor-logs/${DATE}-summary.json"
-DREAM_LOG="${VAULT_ROOT}/_state/dream-logs/${DATE}.md"
+DOCTOR_SUMMARY="${CHRONO_DOCTOR_LOG_DIR}/${DATE}-summary.json"
+DOCTOR_REPORT="${CHRONO_DOCTOR_LOG_DIR}/${DATE}.md"
+# The dream journal is written by the separate chrono repo (~/chrono, via
+# `chrono dream run` at 05:00), which publishes into the vault under chrono/:
+# the machine log is chrono/_state/dream-logs/<date>.log and the readable
+# markdown view is chrono/dreams/<date>.md. This pointed at
+# ${VAULT_ROOT}/_state/dream-logs/<date>.md -- wrong path segment and wrong
+# extension -- so the brief silently showed no dream insight from the day the
+# dream system moved. The stale in-repo _state/dream-logs/ stops at 2026-06-26,
+# which dates the break. Fall back to the old path so an older vault still renders.
+DREAM_LOG="${VAULT_ROOT}/chrono/dreams/${DATE}.md"
+if [[ ! -f "${DREAM_LOG}" && -f "${VAULT_ROOT}/_state/dream-logs/${DATE}.md" ]]; then
+    DREAM_LOG="${VAULT_ROOT}/_state/dream-logs/${DATE}.md"
+fi
 TRIAGE_MANIFEST="${VAULT_ROOT}/_state/content-triage-${DATE}.json"
 CONTENT_SYNTHESIS="${VAULT_ROOT}/_state/content-synthesis-${DATE}.md"
 
@@ -22,15 +36,23 @@ CONTENT_SYNTHESIS="${VAULT_ROOT}/_state/content-synthesis-${DATE}.md"
 ISSUES_COUNT=0
 WARNINGS_COUNT=0
 HEALTHY_COUNT=0
+UNKNOWN_COUNT=0
+SKIPPED_COUNT=0
 ISSUES_LIST=""
 WARNINGS_LIST=""
+UNKNOWNS_LIST=""
+SKIPPED_LIST=""
 if [[ -f "${DOCTOR_SUMMARY}" ]]; then
     if command -v jq >/dev/null 2>&1; then
         ISSUES_COUNT=$(jq -r '.issue_count // 0' "${DOCTOR_SUMMARY}" 2>/dev/null || echo 0)
         WARNINGS_COUNT=$(jq -r '.warning_count // 0' "${DOCTOR_SUMMARY}" 2>/dev/null || echo 0)
         HEALTHY_COUNT=$(jq -r '.healthy_count // 0' "${DOCTOR_SUMMARY}" 2>/dev/null || echo 0)
+        UNKNOWN_COUNT=$(jq -r '.unknown_count // 0' "${DOCTOR_SUMMARY}" 2>/dev/null || echo 0)
+        SKIPPED_COUNT=$(jq -r '.skipped_count // 0' "${DOCTOR_SUMMARY}" 2>/dev/null || echo 0)
         ISSUES_LIST=$(jq -r '.issues[]? | "- 🔔 " + .' "${DOCTOR_SUMMARY}" 2>/dev/null || echo "")
         WARNINGS_LIST=$(jq -r '.warnings[]? | "- ⚠️ " + .' "${DOCTOR_SUMMARY}" 2>/dev/null || echo "")
+        UNKNOWNS_LIST=$(jq -r '.unknowns[]? | "- ? COULD NOT RUN: " + .' "${DOCTOR_SUMMARY}" 2>/dev/null || echo "")
+        SKIPPED_LIST=$(jq -r '.skipped[]? | "- ○ NOT APPLICABLE: " + .' "${DOCTOR_SUMMARY}" 2>/dev/null || echo "")
     fi
 fi
 
@@ -42,10 +64,10 @@ EOF
 
 # Status section
 echo "## Status" >> "${BRIEF}"
-if [[ "${ISSUES_COUNT}" -eq 0 ]] && [[ "${WARNINGS_COUNT}" -eq 0 ]]; then
-    echo "✓ All systems healthy (${HEALTHY_COUNT} checks passed)" >> "${BRIEF}"
+echo "${HEALTHY_COUNT} pass / ${ISSUES_COUNT} failure / ${UNKNOWN_COUNT} could-not-run / ${SKIPPED_COUNT} not-applicable / ${WARNINGS_COUNT} warnings" >> "${BRIEF}"
+if [[ "${ISSUES_COUNT}" -eq 0 ]] && [[ "${WARNINGS_COUNT}" -eq 0 ]] && [[ "${UNKNOWN_COUNT}" -eq 0 ]]; then
+    echo "✓ No measured failures or indeterminate checks" >> "${BRIEF}"
 else
-    echo "${HEALTHY_COUNT} healthy / ${WARNINGS_COUNT} warnings / ${ISSUES_COUNT} issues" >> "${BRIEF}"
     echo "" >> "${BRIEF}"
     if [[ -n "${ISSUES_LIST}" ]]; then
         echo "### Issues" >> "${BRIEF}"
@@ -57,7 +79,21 @@ else
         echo "${WARNINGS_LIST}" >> "${BRIEF}"
         echo "" >> "${BRIEF}"
     fi
-    echo "Full report: [doctor log](../doctor-logs/${DATE}.md)" >> "${BRIEF}"
+    if [[ -n "${UNKNOWNS_LIST}" ]]; then
+        echo "### Could not run — these are not passes" >> "${BRIEF}"
+        echo "${UNKNOWNS_LIST}" >> "${BRIEF}"
+        echo "" >> "${BRIEF}"
+    fi
+fi
+if [[ -n "${SKIPPED_LIST}" ]]; then
+    echo "" >> "${BRIEF}"
+    echo "### Not applicable to this install" >> "${BRIEF}"
+    echo "${SKIPPED_LIST}" >> "${BRIEF}"
+    echo "" >> "${BRIEF}"
+fi
+if [[ "${ISSUES_COUNT}" -gt 0 ]] || [[ "${WARNINGS_COUNT}" -gt 0 ]] \
+   || [[ "${UNKNOWN_COUNT}" -gt 0 ]] || [[ "${SKIPPED_COUNT}" -gt 0 ]]; then
+    echo "Full report: [doctor log](<file://${DOCTOR_REPORT}>)" >> "${BRIEF}"
 fi
 echo "" >> "${BRIEF}"
 

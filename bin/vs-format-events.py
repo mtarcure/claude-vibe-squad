@@ -6,7 +6,9 @@ coloured lines — agent messages, shell commands, file writes, tool calls, turn
 summaries — instead of raw JSON. Non-JSON lines pass through unchanged, so claude/
 gemini/kimi human-text logs still render. Lane-agnostic on the common keys.
 """
+import ast
 import json
+import re
 import sys
 
 
@@ -73,8 +75,102 @@ def emit_claude(obj):
                 print(c("   ← " + body, "38;5;109"), flush=True)
 
 
+def _maybe_list(value):
+    """Kimi writes `content` / `tool_calls` as a Python repr, not JSON.
+
+    The line itself is valid JSON, but these two fields arrive as the *string*
+    "[{'type': 'think', ...}]" — single-quoted, so json.loads on the outer line
+    leaves them as text. literal_eval recovers the list; anything unparseable is
+    returned as-is so a malformed record can never crash the viewer.
+    """
+    if isinstance(value, str):
+        # `content`/`tool_calls` arrive as Python reprs; `function.arguments`
+        # arrives as JSON. Try both before giving up.
+        for parse in (ast.literal_eval, json.loads):
+            try:
+                return parse(value)
+            except (ValueError, SyntaxError):
+                continue
+        return value
+    return value
+
+
+def _kimi_arg_hint(arguments):
+    """Best-effort hint from a kimi tool call's `arguments`.
+
+    Kimi truncates long argument strings IN THE LOG: 26 of 48 calls on a measured
+    lane carried incomplete JSON like '{"command": "ls -'. They are not partial
+    duplicates -- every call id appears exactly once -- so discarding the
+    unparseable ones would silently drop more than half the transcript. Parse when
+    we can; otherwise salvage the first quoted value so the viewer still shows
+    what the call was doing.
+    """
+    if not isinstance(arguments, str):
+        return _tool_hint(arguments)
+    try:
+        return _tool_hint(json.loads(arguments))
+    except ValueError:
+        pass
+    # Truncated: pull the first "key": "value" pair, value possibly unterminated.
+    match = re.search(r'"(?:command|path|pattern|file_path)"\s*:\s*"([^"]*)', arguments)
+    if match:
+        return first_line(match.group(1)) + " …"
+    match = re.search(r':\s*"([^"]*)', arguments)
+    return (first_line(match.group(1)) + " …") if match else ""
+
+
+def emit_kimi(obj):
+    """Render kimi's OpenAI chat-completion schema.
+
+    Kimi is the one lane that emits no `type` key: records are
+    {"role": ..., "content": [...], "tool_calls": [...]} and tool results come
+    back as {"role": "tool", "tool_call_id": ..., "content": ...}. Every other
+    consumer here switches on `type`, so kimi's records fell through and the
+    watcher showed an idle lane while it ran dozens of calls — 44 measured on a
+    live lane that looked dead (2026-08-06).
+
+    Reuses the same emoji/colour vocabulary as the other branches so a kimi
+    transcript reads identically to a claude or codex one.
+    """
+    role = obj.get("role", "")
+
+    if role == "tool":
+        body = _tool_result_text(_maybe_list(obj.get("content")))
+        if body:
+            print(c("   \u2190 " + body, "38;5;109"), flush=True)
+        return
+
+    if role != "assistant":
+        return  # system / user echo -> viewer noise
+
+    for block in _maybe_list(obj.get("content")) or []:
+        if not isinstance(block, dict):
+            continue
+        btype = block.get("type", "")
+        # kimi names the reasoning field after its own block type: think/think.
+        body = block.get(btype) or block.get("text")
+        if not body:
+            continue
+        if btype == "think":
+            print(c("   \u00b7 " + first_line(body, 160), "2"), flush=True)
+        else:
+            print(c("\U0001f4ac " + first_line(body, 400), "38;5;252"), flush=True)
+
+    for call in _maybe_list(obj.get("tool_calls")) or []:
+        if not isinstance(call, dict):
+            continue
+        fn = call.get("function") or {}
+        name = fn.get("name") or call.get("name") or "tool"
+        hint = _kimi_arg_hint(fn.get("arguments"))
+        print(c("\U0001f527 " + first_line(f"{name} {hint}".rstrip()), "38;5;147"), flush=True)
+
+
 def emit(obj):
     etype = obj.get("type", "")
+    # Kimi emits no `type` at all -- dispatch on `role` before anything else.
+    if not etype and ("role" in obj or "tool_calls" in obj):
+        emit_kimi(obj)
+        return
     # Claude Agent SDK stream-json nests content blocks under message.content.
     if etype in ("assistant", "user"):
         emit_claude(obj)

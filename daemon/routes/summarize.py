@@ -1,4 +1,4 @@
-"""POST /summarize endpoint proxies to Gemini 3.5 Flash."""
+"""POST /summarize endpoint proxies to Gemini 3.7 Flash."""
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from daemon.flash_summarizer import FlashSummarizer
@@ -13,7 +13,7 @@ class SummarizeRequest(BaseModel):
 
 @router.post("/summarize")
 async def summarize(req: SummarizeRequest):
-    """Summarize text using Gemini 3.5 Flash."""
+    """Summarize text using Gemini 3.7 Flash."""
     try:
         summarizer = FlashSummarizer()
     except RuntimeError as exc:

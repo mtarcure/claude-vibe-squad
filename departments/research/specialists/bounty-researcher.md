@@ -2,8 +2,6 @@
 specialist: bounty-researcher
 version: 1.0
 department: research
-required_tools: []
-preferred_tools: []
 safety_level: medium
 requires_approval:
   - Write
@@ -28,8 +26,8 @@ Tool, skill, and MCP capabilities are **lane-specific** and are defined authorit
 
 ## When to escalate
 
-- Send code-level or exploitability claims to Claude/Codex heavy hitters for direct validation.
-- Return `needs_tool` when grounding or a requested source cannot be verified; never fill gaps from model memory.
+- Name code-level or exploitability claims as needing direct Claude/Codex heavy-hitter validation in your response. Chrono dispatches that validation as a separate packet.
+- If grounding or a requested source cannot be verified, report it as a `needs_tool` capability gap (a field, not a status) and set status `blocked` when it stops the research; never fill gaps from model memory.
 
 ## What I do NOT do
 
