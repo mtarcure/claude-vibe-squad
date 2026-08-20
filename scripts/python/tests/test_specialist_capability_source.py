@@ -270,16 +270,16 @@ class SpecialistCapabilitySourceTests(unittest.TestCase):
             ("chrome-devtools", "playwright"),
         )
 
-    def test_security_recovered_skills_are_authored_and_registered(self) -> None:
+    def test_security_capability_skills_are_active_authored_and_registered(self) -> None:
         expected = {
-            "attack-coverage-map",
             "detection-as-code",
-            "detection-tuning",
             "program-rubric-lookup",
             "forensic-timeline-authoring",
             "incident-response-runbook",
             "data-flow-trace",
-            "threat-model-loop",
+            "pre-audit-threat-model",
+            "security-ownership-map",
+            "security-threat-model",
         }
         with (ROOT / "shared/registries/skill-tool-registry.tsv").open(
             encoding="utf-8", newline=""

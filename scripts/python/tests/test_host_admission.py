@@ -609,8 +609,76 @@ printf 'parent=%s:%s:%s:%s status=%s\n' "$BOARD_BATCH_ADMITTED" "$BOARD_PRE_REGI
         #     at integration when its base branch was rebased underneath it.
         # Roughly two-thirds of the increase is the explanatory comments above
         # each guard; the executable additions are ~20 lines.
-        # This remains an exact ratchet baseline with no headroom.
-        self.assertLessEqual(sum(bool(line.strip()) for line in sender.splitlines()), 2443)
+        #
+        # Measured 2026-08-16: 2,447. The four-line increase replaces the
+        # ATTACH A WATCHER heredoc's single `[ "$s" != "in-flight" ]` test
+        # with a `case` classification block, plus `exit 3` on TIMEOUT. It
+        # belongs in the sender because that heredoc is printed as the
+        # operator's fallback wake channel for sessions with no board
+        # alert -- and the old test treated ANY registry read failure
+        # (malformed JSON mid-write, missing file, missing task key) as
+        # `!= in-flight`, so it printed "TERMINAL status=" and exited 0
+        # while the dispatched work was still live. The `case` block
+        # routes READ_FAILED/empty and in-flight to keep-waiting and only
+        # a genuinely-read terminal status to TERMINAL; `exit 3` on
+        # TIMEOUT makes a loop that ran out distinguishable from a real
+        # landing (previously both exited 0).
+        #
+        # Measured 2026-08-16 (later same day): 2,448. One-line increase.
+        # `map_field` is `awk '$1 == s {print $idx; exit}'`: on a row shorter
+        # than the requested column, awk prints an empty string and exits 0,
+        # so the exit code carries no dispatch-time signal at all. Field 21
+        # (operator_gate) read that empty string and silently defaulted to
+        # MAP_OPERATOR_GATE="[]" -- no operator approval required. Field 4
+        # (safety_level) read it and just failed the `== "high"` test at the
+        # mandatory_review gate -- review silently skipped. Both are
+        # dispatch-time security gates, so both belong in the sender, not a
+        # downstream consumer: `[[ -z "$MAP_MODEL" ]] && die` six lines above
+        # already used the fail-closed idiom for field 7 (primary_lane) and
+        # was never extended to the two security-relevant fields beside it.
+        # All 69 rows in shared/specialist-runtime-map.tsv carry 29 fields
+        # today, so this was latent -- live only the moment a new row lands
+        # truncated or hand-edited short. One die line lands per field: the
+        # operator_gate fallback becomes a die instead of a default, and one
+        # new die line covers safety_level, for a net +1 non-blank line.
+        #
+        # Measured 2026-08-17: 2,461. Thirteen-line increase. SQUAD_BASE_BRANCH
+        # used to fall back to a literal "v2" whenever `git branch
+        # --show-current` came back empty -- which happens on detached HEAD
+        # (prints empty, exits 0) and on a non-repo, not just "no branch
+        # exists". Because this is the only production caller of
+        # board-supervisor.sh, that fallback also meant board-supervisor's own
+        # detached-HEAD refusal (the `if [[ -z "${SQUAD_BASE_BRANCH:-}" ]]`
+        # guard a few hundred lines into that file) could never fire in
+        # practice: this script always exported a non-empty value first, v2 or
+        # otherwise. A worker dispatched from a detached-HEAD checkout would
+        # silently branch off whatever "v2" happened to point at -- a stale
+        # branch of that literal name, if one existed -- and land in a clean
+        # worktree holding somebody else's code, same failure class as the
+        # linked-worktree guard above. It belongs in the sender because that
+        # is where the checkout's actual branch is known and where every
+        # downstream consumer's fallback (board-supervisor.sh, the worktree
+        # pool, launch hygiene, worktree isolation) inherits the exported
+        # value instead of guessing on its own.
+        #
+        # Measured 2026-08-17 (later same day): 2,463. Two-line increase.
+        # warn_unpromoted_write_scope's python3 heredoc call was
+        # `2>/dev/null || true`. Every failure mode the heredoc's own code
+        # anticipates (unreadable task file, a failing `git check-ignore`)
+        # was already caught inside it; the outer `2>/dev/null` only ever
+        # discarded a crash of the heredoc itself -- and `|| true` meant that
+        # discarded failure never even surfaced as a nonzero exit. This is
+        # the warner *about* silent write-scope omissions, so when it failed,
+        # the operator got exactly the outcome it exists to warn about,
+        # silently. The redirect is removed so the warner's own stderr
+        # reaches the terminal; `|| true` stays; the check remains
+        # advisory-only under `set -e` and must not block dispatch. The two
+        # added lines are the comment recording why the redirect is gone.
+        # Measured 2026-08-18: 2,512. The trigger-policy increase replaces the
+        # specialist-wide high-safety review default with one validated packet
+        # field, its four-value enum, typed-class compatibility mappings, and
+        # registry propagation. This remains an exact ratchet with no headroom.
+        self.assertLessEqual(sum(bool(line.strip()) for line in sender.splitlines()), 2512)
 
 
 if __name__ == "__main__":

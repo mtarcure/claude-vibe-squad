@@ -100,6 +100,12 @@ class SendTaskFrontmatterInjectionTests(unittest.TestCase):
                 "VAULT_ROOT": str(self.vault),
                 "SKIP_NUDGE": "1",
                 "UV_CACHE_DIR": str(self.root / "uv-cache"),
+                # self.vault is a plain directory, not a git checkout, so
+                # send-task.sh cannot derive a branch and now refuses to guess
+                # one -- correct for a real checkout in detached HEAD, but
+                # irrelevant to what this fixture exercises. Supply it
+                # explicitly rather than weakening the production guard.
+                "SQUAD_BASE_BRANCH": "v2",
             },
             capture_output=True,
             text=True,

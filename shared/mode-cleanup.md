@@ -13,7 +13,7 @@ There are exactly **two modes** — `project` and `bounty` (`shared/modes/`). Th
 ## Universal — apply to every mode
 
 **Always preserved (across all modes)**:
-- Operator's main Chrome at port 9222 + `--user-data-dir=~/.chrono/chrome-persistent-profile`
+- The operator's main CDP Chrome and its signed-in profile — never a cleanup target (port and profile path: `shared/lifecycle.md` rule 11, the one home)
 - chrono-vault notes (typed `attempt` / `finding` / `learning` records). These live in the private off-repo vault under `CHRONO_VAULT_ROOT` and are never cleanup targets. There is no tracked vault directory in this repo.
 - Memory.md entries with durable learnings (per `shared/memory-discipline.md`)
 - Dispatch log entries (`_state/dispatch-log.jsonl`)
@@ -47,7 +47,7 @@ Allowed exception: a deliberately curated sample under `examples/`.
 
 Not allowed: leaving completed plans/specs/handoffs in the product tree because they are "maybe useful later."
 
-Vibecoding-check must fail a mode-close if completed plan/spec/handoff scaffolding remains and is not listed as an explicit operator-approved exception.
+Leaving completed plan/spec/handoff scaffolding in the product tree blocks mode-close unless the operator has named it as an explicit approved exception. **This is an obligation on whoever closes the mode, not a check the executable performs** — verified 2026-08-17: `scripts/python/vibecoding_check.py` has no scaffolding check. What the gate actually enforces is stated once, in `shared/lifecycle.md` rule 14.
 
 ## Bounty Mode
 
@@ -175,5 +175,5 @@ done
 ## Audit hooks
 
 - `bin/squad-stop.sh` runs the universal cleanup (Chrome orphan profiles) on session close — partial coverage of this rule for the case where modes were left in-flight.
-- `vibecoding_check.py` should fail mode-end if `ephemeral_artifacts` listed in mode declaration still exist on disk after cleanup phase (Phase 5 wire-in).
+- **Not wired (proposal, not behaviour):** `vibecoding_check.py` does not check `ephemeral_artifacts` against the disk — verified 2026-08-17, no such `check_*` function exists. Until it does, the cleanup phase is unverified by machine. The gate's actual check set is stated once, in `shared/lifecycle.md` rule 14.
 - `bin/doctor.sh` should detect orphan resources (Chrome profiles >24h old, scratch directories >7d old, sandbox containers running >24h with no recent activity) and surface in morning brief.

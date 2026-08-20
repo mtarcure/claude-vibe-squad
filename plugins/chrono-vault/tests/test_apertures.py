@@ -6,10 +6,12 @@ import io
 import json
 import os
 import shutil
+import sqlite3
 import sys
 import tempfile
 import types
 import unittest
+import uuid
 from pathlib import Path
 from unittest import mock
 
@@ -64,6 +66,13 @@ class MemoryApertureTests(unittest.TestCase):
         )
         self.environment.start()
         self.addCleanup(self.environment.stop)
+        # Separate from the vault root: demoting outcomes flag the curation
+        # queue under a repo root, and this keeps that write out of the real
+        # checkout's `_state/curation-queue.jsonl`.
+        self.repo_root = Path(
+            os.path.realpath(tempfile.mkdtemp(prefix="chrono-aperture-repo-"))
+        )
+        self.addCleanup(shutil.rmtree, self.repo_root, ignore_errors=True)
 
     def _context(
         self,
@@ -122,7 +131,7 @@ class MemoryApertureTests(unittest.TestCase):
     def test_canonical_policy_and_context_are_closed(self) -> None:
         self.assertEqual(
             set(clearance.memory_policies()),
-            {"rich", "focused", "cold", "pool_blind", "none"},
+            {"rich", "focused", "default", "cold", "pool_blind", "none"},
         )
         with mock.patch.dict(
             os.environ,
@@ -223,7 +232,9 @@ class MemoryApertureTests(unittest.TestCase):
             self._policy_bytes(("rich", "browse", "deny"))
         )
         self.assertEqual(policies["rich"]["browse"], "deny")
-        self.assertEqual(set(policies), {"rich", "focused", "cold", "pool_blind", "none"})
+        self.assertEqual(
+            set(policies), {"rich", "focused", "default", "cold", "pool_blind", "none"}
+        )
 
     def test_cold_pool_blind_and_none_fail_before_vault_io(self) -> None:
         for aperture in ("cold", "pool_blind"):
@@ -338,6 +349,107 @@ class MemoryApertureTests(unittest.TestCase):
                     lifecycle.get_note(denied["id"])
             with self.assertRaises(clearance.ClearanceError):
                 lifecycle.set_status(visible["id"], "archived", "lane", 1)
+
+    def test_usage_feedback_is_independent_of_the_read_aperture(self) -> None:
+        """`record_usage` is a write, and must not inherit `recall`'s denial.
+
+        Until 2026-08-17 it required `recall` permission, which `cold` denies —
+        and 2,665 of 2,669 dispatches ran `cold`. So usage telemetry was
+        structurally unrecordable for almost every task, while `record` stayed
+        allowed, which is why note-writing never broke and the silence went
+        unnoticed for 23 days.
+
+        Operator decision 2026-08-17: decouple. Reporting that a note was
+        unhelpful discloses nothing — the caller already holds the note id and
+        already saw the note it is reporting on, so permitting the outcome write
+        reveals no memory it did not have.
+
+        Both halves are asserted in one test because the point is precisely that
+        the two permissions are now independent: the write lands, and the read
+        stays shut.
+        """
+        note = self._record_unbound("ColdUsageToken", target="alpha")
+        recall_id = str(uuid.uuid4())
+        with mock.patch.dict(
+            os.environ, {clearance.CONTEXT_ENV: self._context("cold")}
+        ):
+            # The read half is unchanged and must stay denied.
+            with self.assertRaises(clearance.ClearanceError):
+                vault_recall.recall("ColdUsageToken")
+            with self.assertRaises(clearance.ClearanceError):
+                lifecycle.get_note(note["id"])
+            # The write half now lands.
+            result = lifecycle.record_usage(
+                recall_id, note["id"], "not_useful", repo_root=self.repo_root
+            )
+        self.assertEqual(result["recall_id"], recall_id)
+        self.assertEqual(result["note_id"], note["id"])
+        self.assertEqual(result["outcome"], "not_useful")
+        # The engagement still owns source_task, exactly as it does for `record`.
+        self.assertEqual(result["source_task"], "TASK-2026-08-08-1200-aperture")
+
+        connection = sqlite3.connect(self.root / "index" / "kg.db")
+        try:
+            rows = connection.execute(
+                "SELECT recall_id, note_id, outcome, source_task FROM usage"
+            ).fetchall()
+        finally:
+            connection.close()
+        self.assertEqual(
+            rows,
+            [(recall_id, note["id"], "not_useful", "TASK-2026-08-08-1200-aperture")],
+        )
+
+    def test_usage_feedback_still_denied_where_the_vault_may_not_be_written(
+        self,
+    ) -> None:
+        """Decoupling from `recall` must not decouple it from `record`.
+
+        `none` is the aperture that denies every memory tool and is handed no
+        vault path at all; a usage row is still a write, so it stays denied there.
+        Lane clearance also still applies: a note above the lane's clearance is
+        one the caller could never have been shown, so feedback on it is a claim
+        about a note it does not hold.
+        """
+        note = self._record_unbound("NoneUsageToken", target="alpha")
+        recall_id = str(uuid.uuid4())
+        # Each assertion names the gate it expects. Without that these would pass
+        # for the wrong reason — every denial here raises the same class, so a
+        # regression that re-coupled the read aperture would look identical.
+        with mock.patch.dict(
+            os.environ, {clearance.CONTEXT_ENV: self._context("none")}
+        ):
+            with self.assertRaises(clearance.ClearanceError) as denied:
+                lifecycle.record_usage(recall_id, note["id"], "used")
+        self.assertEqual(
+            str(denied.exception), "memory record is denied by aperture none"
+        )
+
+        with mock.patch.dict(
+            os.environ,
+            {
+                clearance.CONTEXT_ENV: self._context("cold"),
+                "CHRONO_VAULT_CLEARANCE": "internal",
+            },
+        ):
+            with self.assertRaises(clearance.ClearanceError) as denied:
+                lifecycle.record_usage(recall_id, note["id"], "used")
+        self.assertEqual(
+            str(denied.exception), "memory note exceeds lane clearance"
+        )
+
+    def test_default_aperture_admits_candidate_and_all_three_types(self) -> None:
+        policy = clearance.memory_policies()["default"]
+        self.assertEqual(set(policy["statuses"].split("|")), {"candidate", "verified"})
+        self.assertEqual(
+            set(policy["note_types"].split("|")), {"attempt", "finding", "learning"}
+        )
+
+    def test_existing_apertures_are_unchanged_by_the_new_row(self) -> None:
+        policies = clearance.memory_policies()
+        self.assertEqual(policies["focused"]["statuses"], "verified")
+        self.assertEqual(policies["rich"]["statuses"], "candidate|verified")
+        self.assertEqual(policies["cold"]["statuses"], "-")
 
     def test_browse_denial_precedes_credentials_and_network(self) -> None:
         context = self._context("cold")

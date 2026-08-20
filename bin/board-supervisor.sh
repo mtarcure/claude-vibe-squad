@@ -92,6 +92,18 @@ if [[ -z "${SQUAD_BASE_BRANCH:-}" ]]; then
     if [[ -n "$_vs_branch" ]]; then
         SQUAD_BASE_BRANCH="$_vs_branch"
         export SQUAD_BASE_BRANCH
+    else
+        # `git branch --show-current` prints empty and exits 0 on detached HEAD,
+        # and the `|| true` above absorbs the non-repo case too -- both land here
+        # with nothing derived. There is no second signal to derive-then-verify
+        # against; git already gave its authoritative answer. Falling through
+        # leaves SQUAD_BASE_BRANCH unset, and the seven downstream `"v2"`
+        # fallbacks (worktree pool, launch request, integration-target gate,
+        # launch hygiene x2, worktree isolation x2) would then silently pick a
+        # branch that may hold somebody else's code. Refuse instead.
+        unset _vs_branch
+        echo '{"status":"denied","reason":"SQUAD_BASE_BRANCH is unset and could not be derived from the checkout (detached HEAD or non-repo); refusing to guess a base branch"}'
+        exit 74
     fi
     unset _vs_branch
 fi
@@ -487,6 +499,16 @@ def deny(reason, failure_class=None):
 # launch from anywhere else would authorize servers the child never loads. Packet
 # paths stay worktree-root relative, so this offset is reconciled after the run by
 # reclaim_lane_cwd_outputs().
+#
+# SKILL DISCOVERY DEPENDS ON A CWD BRIDGE. The gemini CLI enumerates project skills
+# from `<cwd>/.agents/skills/` — relative to its process cwd, NOT from
+# `--include-directories`. Because that cwd is this lane dir (not the worktree root),
+# skills are reachable only through the tracked bridge symlink
+# `model-lanes/gemini/.agents -> ../../.agents`, which makes `<cwd>/.agents/skills`
+# resolve to the worktree-root shared home. Without that symlink gemini sees only its
+# built-in skills (proven 2026-08-18: `gemini skills list --all` from this cwd
+# returned only `antigravity-support` + `skill-creator`; with the bridge it returns
+# the full shared set). scripts/python/validate_skill_wiring.py enforces the bridge.
 GEMINI_LANE_CWD_RELATIVE = "model-lanes/gemini"
 
 # Set True once a launcher has streamed the child's stdout live to the board
@@ -1139,6 +1161,40 @@ def load_github_mcp_token():
 GUARDED_MCP_PREFIX = "guarded-"
 
 
+def _toml_table_header(line):
+    """Return ``(is_array, body)`` for one conservative TOML header line."""
+    match = re.fullmatch(
+        r"\s*(?P<open>\[\[?)\s*(?P<body>.*?)\s*(?P<close>\]\]?)"
+        r"\s*(?:#.*)?",
+        line.rstrip("\r\n"),
+    )
+    if match is None:
+        return None
+    is_array = match.group("open") == "[["
+    if is_array != (match.group("close") == "]]"):
+        return None
+    return is_array, match.group("body")
+
+
+def _mcp_server_table_identity(line):
+    """Parse a bare-key MCP header into ``(is_array, dotted_path)``."""
+    header = _toml_table_header(line)
+    if header is None:
+        return None
+    is_array, body = header
+    match = re.fullmatch(
+        r"mcp_servers\s*\.\s*(?P<server>[A-Za-z0-9_-]+)"
+        r"(?P<suffix>(?:\s*\.\s*[A-Za-z0-9_-]+)*)",
+        body.strip(),
+    )
+    if match is None:
+        return None
+    suffix = tuple(
+        re.findall(r"[A-Za-z0-9_-]+", match.group("suffix"))
+    )
+    return is_array, ("mcp_servers", match.group("server"), *suffix)
+
+
 def _mcp_server_tables(text):
     """Split raw TOML into ``[mcp_servers.<name>]`` table ranges.
 
@@ -1166,21 +1222,98 @@ def _mcp_server_tables(text):
         if odd_quotes:
             in_multiline = True
             continue
-        stripped = line.strip()
-        if not stripped.startswith("[") or not stripped.endswith("]"):
+        header = _toml_table_header(line)
+        if header is None:
             continue
         if current is not None:
-            tables.append((current[0], current[1], index))
+            tables.append((current[0], current[1], current[2], index))
             current = None
-        match = re.match(r"^\[\[?mcp_servers\.([A-Za-z0-9_-]+)", stripped)
-        if match:
-            current = (match.group(1), index)
+        identity = _mcp_server_table_identity(line)
+        if identity is not None:
+            is_array, path = identity
+            current = (path, is_array, index)
     if current is not None:
-        tables.append((current[0], current[1], len(lines)))
+        tables.append((current[0], current[1], current[2], len(lines)))
     return lines, tables
 
 
-def _prepare_codex_home(base_home, repo_config, spawn_home):
+def _inject_codex_vault_context(config_text, vault_context):
+    """Bind one validated per-task context into a configured vault server.
+
+    Codex does not forward its own environment to stdio MCP children.  Edit the
+    exact TOML table the child consumes instead of relying on a dotted ``-c``
+    override, which could replace the existing env table.  The base config is
+    authoritative: if it does not define chrono-vault, return it byte-for-byte.
+    """
+    lines, tables = _mcp_server_tables(config_text)
+    vault_table = None
+    vault_env_table = None
+    for path, is_array, start, end in tables:
+        if path[:2] != ("mcp_servers", "chrono-vault"):
+            continue
+        if is_array:
+            raise ValueError(
+                "Codex chrono-vault uses unsupported array-of-tables"
+            )
+        if path == ("mcp_servers", "chrono-vault"):
+            vault_table = (start, end)
+        elif path == ("mcp_servers", "chrono-vault", "env"):
+            vault_env_table = (start, end)
+
+    # Match Kimi's authorization gate: context is bound only when the base
+    # configuration actually carries the chrono-vault server.
+    if vault_table is None:
+        return config_text
+    if not isinstance(vault_context, str) or "\x00" in vault_context:
+        raise ValueError("Codex chrono-vault context is invalid")
+
+    assignment = (
+        "CHRONO_VAULT_CONTEXT = "
+        + json.dumps(vault_context, ensure_ascii=True)
+        + "\n"
+    )
+    if vault_env_table is None:
+        start, end = vault_table
+        if any(
+            re.match(r"^\s*env\s*=", lines[index])
+            for index in range(start + 1, end)
+        ):
+            raise ValueError("Codex chrono-vault uses unsupported inline env")
+        merged = config_text
+        if merged and not merged.endswith("\n"):
+            merged += "\n"
+        if merged and not merged.endswith("\n\n"):
+            merged += "\n"
+        return merged + "[mcp_servers.chrono-vault.env]\n" + assignment
+
+    start, end = vault_env_table
+    matches = [
+        index
+        for index in range(start + 1, end)
+        if re.match(r"^\s*CHRONO_VAULT_CONTEXT\s*=", lines[index])
+    ]
+    if len(matches) > 1:
+        raise ValueError("Codex chrono-vault context is defined more than once")
+    if matches:
+        matched_line = lines[matches[0]]
+        indentation = matched_line[: len(matched_line) - len(matched_line.lstrip())]
+        lines[matches[0]] = indentation + assignment
+        return "".join(lines)
+
+    insert_at = end
+    while insert_at > start + 1 and not lines[insert_at - 1].strip():
+        insert_at -= 1
+    if (
+        insert_at > 0
+        and lines[insert_at - 1]
+        and not lines[insert_at - 1].endswith("\n")
+    ):
+        lines[insert_at - 1] += "\n"
+    lines.insert(insert_at, assignment)
+    return "".join(lines)
+
+
+def _prepare_codex_home(base_home, repo_config, spawn_home, vault_context):
     """Build a per-spawn CODEX_HOME that unions the live config with guarded MCPs.
 
     Design B: the operator's live ``~/.codex/config.toml`` is the base and stays
@@ -1195,12 +1328,13 @@ def _prepare_codex_home(base_home, repo_config, spawn_home):
     overlay_text = repo_config.read_text(encoding="utf-8") if repo_config.is_file() else ""
 
     _base_lines, base_tables = _mcp_server_tables(base_text)
-    defined = {name for name, _start, _end in base_tables}
+    defined = {path[1] for path, _is_array, _start, _end in base_tables}
     overlay_lines, overlay_tables = _mcp_server_tables(overlay_text)
 
     overlaid = []
     blocks = []
-    for name, start, end in overlay_tables:
+    for path, _is_array, start, end in overlay_tables:
+        name = path[1]
         # Only the guarded security trio is ever added, and only when the live
         # config is silent about it.  chrono-vault and every other live server
         # therefore survive exactly as the operator configured them.
@@ -1219,6 +1353,8 @@ def _prepare_codex_home(base_home, repo_config, spawn_home):
             "# Source: model-lanes/gpt-codex/.codex/config.toml. Do not edit here.\n"
         )
         merged += "\n".join(blocks)
+
+    merged = _inject_codex_vault_context(merged, vault_context)
 
     spawn_home.mkdir(parents=True, exist_ok=True)
     os.chmod(spawn_home, 0o700)
@@ -1321,27 +1457,6 @@ def trusted_worker_environment(worker_lane):
         # Gemini CLI's configured gemini-api-key auth is the sole lane-specific
         # exception. Match launch-squad.sh: retain only GEMINI_API_KEY.
         environment["GEMINI_API_KEY"] = load_gemini_api_key()
-    if worker_lane == "codex":
-        # The Codex CLI reads ONE config.toml from CODEX_HOME (default
-        # ~/.codex), and the operator's live config does not declare the
-        # guarded security MCPs -- they live in the repo lane config. Codex has
-        # no config-merge flag, so without this the capability gate below denies
-        # every security spawn with "requires unconfigured MCP servers".
-        # Build a per-spawn home that unions the two (design B) and point both
-        # the `codex mcp list --json` enumeration and the child launch at it.
-        base_home = Path(environment.get("HOME", "")) / ".codex"
-        if base_home.is_dir():
-            try:
-                _prepare_codex_home(
-                    base_home,
-                    repo_path / "model-lanes" / "gpt-codex" / ".codex" / "config.toml",
-                    repo_path / "_state" / "board-codex-homes" / attempt_id,
-                )
-            except OSError as exc:
-                deny(f"Codex guarded-MCP home could not be prepared: {exc}")
-            environment["CODEX_HOME"] = str(
-                repo_path / "_state" / "board-codex-homes" / attempt_id
-            )
     # Per-attempt scratch root, so build caches die with the attempt that made
     # them. Previously every lane inherited the ambient TMPDIR and pointed
     # GOCACHE/CARGO_TARGET_DIR at a fresh /tmp path that nothing ever reclaimed.
@@ -1489,6 +1604,27 @@ trusted_environment["CHRONO_VAULT_CONTEXT"] = json.dumps(
 controller_vault_environment["CHRONO_VAULT_CONTEXT"] = trusted_environment[
     "CHRONO_VAULT_CONTEXT"
 ]
+
+if lane == "codex":
+    # The Codex CLI reads ONE config.toml from CODEX_HOME (default ~/.codex)
+    # and does not forward its environment to stdio MCP children. Build the
+    # existing guarded-MCP union only after the aperture-projected per-task
+    # context exists, then bind that exact value into chrono-vault's env table.
+    # Both `codex mcp list --json` and the child launch use this spawn home.
+    base_home = Path(trusted_environment.get("HOME", "")) / ".codex"
+    if base_home.is_dir():
+        try:
+            _prepare_codex_home(
+                base_home,
+                repo_path / "model-lanes" / "gpt-codex" / ".codex" / "config.toml",
+                repo_path / "_state" / "board-codex-homes" / attempt_id,
+                trusted_environment["CHRONO_VAULT_CONTEXT"],
+            )
+        except (OSError, ValueError) as exc:
+            deny(f"Codex guarded-MCP home could not be prepared: {exc}")
+        trusted_environment["CODEX_HOME"] = str(
+            repo_path / "_state" / "board-codex-homes" / attempt_id
+        )
 
 
 def controller_vault_backend_environment():
@@ -2497,12 +2633,21 @@ try:
             ("--include-directories", str(handle.worktree_root))
         )
     if execution_kind == "lane" and lane == "kimi":
+        # Kimi runs with cwd=worktree root but does NOT auto-discover project skills
+        # from cwd; its `--skills-dir DIRECTORY` (repeatable) overrides discovery.
+        # Point it at the shared non-claude home `.agents/skills` (the SUPERSET: it
+        # mirrors every cross-lane `.claude/skills` entry via symlink plus the few
+        # `.agents`-native gate skills). Passing ONLY this dir — not also
+        # `.claude/skills` — avoids duplicate skill names, since the mirror symlinks
+        # would otherwise surface each cross-lane skill twice. See model-lanes/SKILL-HOMES.md.
         capability_lane_args.extend(
             (
                 "--agent-file",
                 str(handle.worktree_root / "model-lanes" / "kimi" / "main.yaml"),
                 "--add-dir",
                 str(handle.worktree_root),
+                "--skills-dir",
+                str(handle.worktree_root / ".agents" / "skills"),
             )
         )
     if execution_kind == "lane" and lane == "codex":
@@ -2835,13 +2980,15 @@ try:
             + "\n```\n"
             + lead_contract
         )
-        role_path_args = tuple(capability_lane_args[-4:])
-        role_capability_args = tuple(capability_lane_args[:-4])
+        role_path_args = tuple(capability_lane_args[-6:])
+        role_capability_args = tuple(capability_lane_args[:-6])
         expected_role_path_args = (
             "--agent-file",
             str(handle.worktree_root / "model-lanes" / "kimi" / "main.yaml"),
             "--add-dir",
             str(handle.worktree_root),
+            "--skills-dir",
+            str(handle.worktree_root / ".agents" / "skills"),
         )
         if role_path_args != expected_role_path_args:
             raise ValueError("Kimi agent-file arguments changed after provisioning")

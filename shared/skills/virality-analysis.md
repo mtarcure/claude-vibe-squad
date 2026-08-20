@@ -5,16 +5,27 @@ status: authored
 
 # Virality Analysis
 
-Analyze why content spreads — hook, shareability, and loop — and turn that into concrete, honest recommendations.
+Analyze a platform-specific sharing hypothesis — hook, retention, shareability, and loop — and turn it into
+an evidence-bounded experiment rather than a causal story.
+
+## Required experiment record
+
+For each hypothesis, record the platform, source, observation window, cohort definition, metric names and
+formulas, alternative hypotheses, current confidence, intervention/test, stopping rule, and result status.
+Also state whether the test needs paid distribution, credentials, or private audience/analytics data; those
+requirements stay behind their separate operator, budget, and privacy gates.
 
 ## Steps
-1. Identify the share driver: the emotion or utility that makes a person pass it on (not just "make it good").
-2. Analyze the hook and retention structure (first seconds, pattern interrupts, payoff) against the platform's mechanics.
-3. Map the sharing/growth loop: what action propagates the content and how the format lowers friction to share.
-4. Ground claims in observed signals (grounded search/analytics), never fabricated view counts or engagement rates.
-5. Output testable recommendations with the mechanism each targets; mark anything needing live analytics as measure-after-connector.
+1. Pin the platform, evidence source, observation window, cohort, and metric definitions before interpreting signals.
+2. Identify a candidate share driver: the emotion or utility that might make a person pass it on.
+3. Analyze hook and retention structure against the platform mechanics observed in the same window.
+4. Map the sharing/growth loop and state at least one alternative explanation for every proposed mechanism.
+5. Assign confidence from observed signals, never fabricated views, retention, or engagement rates.
+6. Define a testable intervention and stopping rule; mark gated or unavailable analytics as unmeasured, not inferred.
+7. Update the experiment record with the outcome and retain alternatives that the result did not distinguish.
 
 ## Acceptance
-- The share driver and hook/retention structure are named, not asserted vaguely.
-- Recommendations tie to a growth-loop mechanism and are testable.
-- No fabricated metrics; measurement gaps are explicitly deferred to a data connector.
+- Every recommendation is tied to one platform-specific experiment record and mechanism.
+- Source/window/cohort and metric formulas are explicit; alternatives and confidence are recorded.
+- A test and stopping rule exist before results are interpreted.
+- No causal claim exceeds the experiment, no metric is fabricated, and paid/credential/private-data needs remain gated.

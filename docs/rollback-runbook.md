@@ -105,6 +105,19 @@ create or move a public tag.
 
 ### Installed and tracked launchd agents
 
+> **Partly superseded 2026-08-17.** Four labels named below no longer exist in
+> this repository — `com.vibesquad.weekly-review`,
+> `com.vibesquad.transcription-cache-ttl`, `com.vibesquad.chrono-remote` and
+> `com.chrono.chrono-vault-mcp` — because the jobs were deleted along with their
+> scripts and plists. Seven tracked plists remain in `launchd/`. Squad memory is
+> unaffected: it is spawned per session over stdio from
+> `plugins/chrono-vault/.claude-plugin/plugin.json` and never used that port.
+> The ledger below is left exactly as
+> measured on 2026-08-11: editing a recorded command result would fabricate a
+> measurement nobody took. Removing any still-loaded LaunchAgent from the live
+> session is a separate operator action, and this note records only the
+> repository side.
+
 Each command below was run directly, without a pipe:
 
 ```bash

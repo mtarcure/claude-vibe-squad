@@ -37,6 +37,10 @@ class TestChronoResume(unittest.TestCase):
                     {"decision_id": "DEC-abc", "statement": "clean in place"}
                 ],
             ),
+            # Isolation (fix round 2): without this, pending_completions() reads
+            # this HOST's real _state/chrono-queue.md, making the test's outcome
+            # depend on whatever happens to be on disk right now.
+            mock.patch.object(resume, "pending_completions", return_value=[]),
         ):
             cap = resume.render_capsule(
                 "sess-1", latest_operator_turn="write the plan", max_tokens=3000
@@ -65,6 +69,8 @@ class TestChronoResume(unittest.TestCase):
                     "unclassified": {},
                 },
             ),
+            # Isolation (fix round 2): see the note in the previous test.
+            mock.patch.object(resume, "pending_completions", return_value=[]),
         ):
             cap = resume.render_capsule(
                 "sess-1", latest_operator_turn="go", max_tokens=200

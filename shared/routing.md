@@ -73,7 +73,7 @@ When a backup lane cannot invoke the required tools, it runs **specification-onl
 
 ## 5. Safety model
 
-- **`safety_level`** (`low | medium | high`) is a **quality floor, not a complexity detector.** `high` forces the strongest profile + stricter review + `throughput.never`. Complexity escalation is separate and signal-based.
+- **`safety_level`** (`low | medium | high`) is a **quality floor, not a change-level review detector.** `high` forces the strongest profile + `throughput.never`; packet review is derived separately from `review_triggers`. Complexity escalation is separate and signal-based.
 - **`heightened_risk`** (boolean) marks defense-in-depth roles. The complete machine-readable role set lives in `shared/lane-policy.tsv`; it includes the security, exploit, incident, privacy, provenance, reconnaissance, supply-chain, and experimental-attacker roles that require the high-safety floor.
 - **GLOBAL safety-refusal invariant.** A genuine safety refusal on **any** lane surfaces to the operator; the same request is **never cross-family re-dispatched in either direction** (Fable-refuses → do not shop to Sol; Sol-refuses → do not shop to Fable/Gemini/Kimi). An operational block (overload/down/timeout) may inform a later, manually authored operator/Chrono board packet to the backup lane; no automatic redispatch exists. Refusals are classified by (1) structured provider/wrapper policy event, (2) typed terminal status, then (3) content heuristic **only to downgrade certainty** to `possible_refusal` + surface. A schema-valid 200-style response is terminal; short output is never treated as an operational failure.
 - **`operator_gate`** — closed policy enum whose machine vocabulary lives in `shared/lane-policy.tsv`; Hard Rule 6 in `CLAUDE.md` states the corresponding policy set, and `scripts/python/tests/test_held_action_gate.py` requires both to equal the admission-time controller set. `production_mutation` (mutating a live production system that is not itself a public release) is **operator-ratified (2026-07-13)**. `requires_approval` in a brief is **harness tool names only** (`Write`, `Bash`, `WebFetch`, …) — domain gates live in `operator_gate`, never in `requires_approval`. Ordinary worker admission keeps all controller-held category tokens out of `action_scope`; this is not a per-tool-call approval mechanism. See `shared/protocol.md` § Held-category authority and logical scopes.
@@ -109,6 +109,7 @@ Every non-trivial task packet names:
 - `write_scope`: exact writable paths, or `[]`
 - `review_model`: read-only reviewer lane, or `none`
 - `mandatory_review`: `true | false`
+- `review_triggers`: explicit subset of `blast_radius | adversarial_claim | deciding_measurement | architecture`
 - `parallel_safe`: `true | false`
 - `direct_lane_work_allowed`: default `false`
 - `operator_approved`: `true | false` (must be `true` for any `operator_gate` work)
@@ -118,7 +119,7 @@ Every non-trivial task packet names:
 - specialist is unknown or missing from the runtime map
 - `to_model` or `review_model` is invalid
 - `to_model` differs from the map without `model_override_reason`
-- a `high` / `heightened_risk` specialist lacks mandatory review
+- `mandatory_review` disagrees with the packet's validated `review_triggers`
 - `mandatory_review: true` has `review_model: none`
 - normalized `review_model` equals `to_model` for mandatory review, or otherwise violates distinct-family `anti_affinity`
 - a deletion manifest is present without `operator_approved: true`; for other held categories, `operator_approved` records policy consent but does not grant ordinary worker action-time authority
@@ -137,6 +138,8 @@ Explicit operator approval is required by policy for every `operator_gate` actio
 - **Panel:** one lane coordinator asks multiple specialists to assess one objective; local members have no mailbox delivery identity.
 - **Fan-out:** one lane runs the same specialist over distinct assignments; it remains a panel variant and continues to coexist with swarm.
 - **Swarm:** the same specialist and objective are independently delivered to multiple model lanes. Each child has its own packet, claim, verification contract, artifact, sidecar, registry record, and response; a controller parent creates a deterministic agreement/divergence/lane-only diff.
+
+These are shapes, not modes: every one runs under `project` or `bounty`. There is no `shared/modes/panel.md` and there should not be — the panel/fan-out coordinator protocol is injected into the packet by `bin/send-task.sh` at dispatch time, and that injected block is its complete specification.
 
 Swarm is system-wide but requires a same-name adapter on every selected lane. It is read-only in v1, cannot nest with panel/fan-out, never majority-votes, and always remains `needs_review` until an explicit review settles the frozen swarm bundle. See `shared/finding-taxonomy.md`.
 

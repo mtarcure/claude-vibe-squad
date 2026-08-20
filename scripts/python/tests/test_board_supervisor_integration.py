@@ -6,6 +6,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import os
+import re
 import shutil
 import subprocess
 import sys
@@ -366,6 +368,213 @@ class BoardSupervisorLaunchTests(unittest.TestCase):
             }
             & set(prepared.environment)
         )
+
+
+class CodexVaultContextConfigTests(unittest.TestCase):
+    @staticmethod
+    def _prepare_codex_home():
+        source = (REPO_ROOT / "bin" / "board-supervisor.sh").read_text(
+            encoding="utf-8"
+        )
+        start = source.index('GUARDED_MCP_PREFIX = "guarded-"')
+        end = source.index("\ndef _validated_trusted_host_path", start)
+        namespace = {
+            "json": json,
+            "os": os,
+            "Path": Path,
+            "re": re,
+        }
+        exec(compile(source[start:end], "board-supervisor.sh", "exec"), namespace)
+        return namespace["_prepare_codex_home"]
+
+    @staticmethod
+    def _vault_environment(config_text: str) -> dict[str, str]:
+        header = re.search(
+            r"(?m)^\s*\[\s*mcp_servers\s*\.\s*chrono-vault\s*\.\s*env\s*\]"
+            r"\s*(?:#.*)?$",
+            config_text,
+        )
+        if header is None:
+            raise AssertionError("chrono-vault env table is missing")
+        block = config_text[header.end() :]
+        next_header = re.search(r"(?m)^\s*\[\[?", block)
+        if next_header is not None:
+            block = block[: next_header.start()]
+        return {
+            key.strip(): json.loads(value.strip())
+            for line in block.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+            for key, value in [line.split("=", 1)]
+        }
+
+    def test_codex_home_binds_context_without_clobbering_vault_roots(self) -> None:
+        prepare = self._prepare_codex_home()
+        vault_context = json.dumps(
+            {
+                "aperture": "focused",
+                "attempt_id": "d-0123456789abcdef0123456789abcdef",
+                "generation": 1,
+                "schema": "chrono-vault-context/v1",
+                "task_id": "TASK-codex-context",
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        base_prefix = textwrap.dedent(
+            """\
+            [mcp_servers.chrono-vault]
+            command = "/repo/.venv/bin/python"
+            args = ["/repo/plugins/chrono-vault/mcp_server.py"]
+
+            [mcp_servers.chrono-vault.env]
+            CHRONO_VAULT_ROOT = "/vault"
+            OBSIDIAN_VAULT_ROOT = "/vault"
+            """
+        )
+
+        for existing_context in (None, '{"stale":true}'):
+            with self.subTest(existing_context=existing_context):
+                base_text = base_prefix
+                if existing_context is not None:
+                    base_text += (
+                        "CHRONO_VAULT_CONTEXT = "
+                        + json.dumps(existing_context)
+                        + "\n"
+                    )
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    root = Path(temporary_directory)
+                    base_home = root / "base"
+                    spawn_home = root / "spawn"
+                    base_home.mkdir()
+                    (base_home / "config.toml").write_text(
+                        base_text, encoding="utf-8"
+                    )
+
+                    prepare(
+                        base_home,
+                        root / "missing-repo-config.toml",
+                        spawn_home,
+                        vault_context,
+                    )
+
+                    generated = (spawn_home / "config.toml").read_text(
+                        encoding="utf-8"
+                    )
+                    self.assertEqual(
+                        self._vault_environment(generated),
+                        {
+                            "CHRONO_VAULT_ROOT": "/vault",
+                            "OBSIDIAN_VAULT_ROOT": "/vault",
+                            "CHRONO_VAULT_CONTEXT": vault_context,
+                        },
+                    )
+                    self.assertEqual(generated.count("CHRONO_VAULT_CONTEXT ="), 1)
+
+    def test_codex_vault_header_formatting_cannot_drop_context(self) -> None:
+        prepare = self._prepare_codex_home()
+        vault_context = '{"task_id":"TASK-formatted-header"}'
+        variants = (
+            (
+                "[mcp_servers.chrono-vault]  # live",
+                "[mcp_servers.chrono-vault.env]  # live environment",
+            ),
+            (
+                "[  mcp_servers . chrono-vault  ]",
+                "[ mcp_servers . chrono-vault . env ]",
+            ),
+        )
+
+        for server_header, env_header in variants:
+            with self.subTest(server_header=server_header, env_header=env_header):
+                base_text = textwrap.dedent(
+                    f"""\
+                    {server_header}
+                    command = "/repo/.venv/bin/python"
+
+                    {env_header}
+                    CHRONO_VAULT_ROOT = "/vault"
+                    """
+                )
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    root = Path(temporary_directory)
+                    base_home = root / "base"
+                    spawn_home = root / "spawn"
+                    base_home.mkdir()
+                    (base_home / "config.toml").write_text(
+                        base_text, encoding="utf-8"
+                    )
+
+                    prepare(
+                        base_home,
+                        root / "missing-repo-config.toml",
+                        spawn_home,
+                        vault_context,
+                    )
+
+                    generated = (spawn_home / "config.toml").read_text(
+                        encoding="utf-8"
+                    )
+                    self.assertEqual(
+                        self._vault_environment(generated),
+                        {
+                            "CHRONO_VAULT_ROOT": "/vault",
+                            "CHRONO_VAULT_CONTEXT": vault_context,
+                        },
+                    )
+
+    def test_codex_vault_array_of_tables_is_refused_loudly(self) -> None:
+        prepare = self._prepare_codex_home()
+        base_text = textwrap.dedent(
+            """\
+            [[mcp_servers.chrono-vault]]
+            command = "/repo/.venv/bin/python"
+            """
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            base_home = root / "base"
+            spawn_home = root / "spawn"
+            base_home.mkdir()
+            (base_home / "config.toml").write_text(base_text, encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "array-of-tables"):
+                prepare(
+                    base_home,
+                    root / "missing-repo-config.toml",
+                    spawn_home,
+                    '{"task_id":"TASK-array-table"}',
+                )
+            self.assertFalse(spawn_home.exists())
+
+    def test_codex_home_without_chrono_vault_is_byte_for_byte_unchanged(
+        self,
+    ) -> None:
+        prepare = self._prepare_codex_home()
+        base_text = textwrap.dedent(
+            """\
+            model = "gpt-5.6-sol"
+
+            [mcp_servers.sequential-thinking]
+            command = "/usr/local/bin/sequential-thinking"
+            """
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            base_home = root / "base"
+            spawn_home = root / "spawn"
+            base_home.mkdir()
+            (base_home / "config.toml").write_text(base_text, encoding="utf-8")
+
+            prepare(
+                base_home,
+                root / "missing-repo-config.toml",
+                spawn_home,
+                '{"task_id":"TASK-must-not-appear"}',
+            )
+
+            generated = (spawn_home / "config.toml").read_text(encoding="utf-8")
+            self.assertEqual(generated, base_text)
+            self.assertNotIn("CHRONO_VAULT_CONTEXT", generated)
 
 
 class BlockReasonClassificationTests(unittest.TestCase):

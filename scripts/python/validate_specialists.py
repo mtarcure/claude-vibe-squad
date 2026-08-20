@@ -72,6 +72,47 @@ def bracket_list(value: str) -> list[str] | None:
     return items if all(items) else None
 
 
+BLIND_DISCOVERY_KEY = "blind_discovery"
+_FRONTMATTER_KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*):(.*)$")
+
+
+def blind_discovery_issues(text: str) -> list[str]:
+    """Guard the one frontmatter key the dispatch blind floor reads.
+
+    Nothing else in this validator looks at specialist frontmatter, so this
+    key is otherwise unchecked -- and a misspelling of it is silent in the
+    dangerous direction: `dispatch_context_builder.role_requires_blind_
+    discovery` sees a brief that parses cleanly and does not claim blindness,
+    so the role keeps its memory and a rediscovery lane is quietly
+    contaminated. A bad *value* fails closed instead, but silently blinding a
+    role is still worth saying out loud.
+    """
+
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return []
+    issues: list[str] = []
+    seen = 0
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        match = _FRONTMATTER_KEY_RE.match(line)
+        if match is None:
+            continue
+        key, value = match.group(1), match.group(2).strip()
+        if key.lower().replace("-", "").replace("_", "") != "blinddiscovery":
+            continue
+        if key != BLIND_DISCOVERY_KEY:
+            issues.append(f"misspelled-blind-discovery-key:{key}")
+            continue
+        seen += 1
+        if value not in {"true", "false"}:
+            issues.append(f"invalid-blind-discovery:{value or '(empty)'}")
+    if seen > 1:
+        issues.append("duplicate-blind-discovery")
+    return issues
+
+
 def json_line(finding: Finding) -> str:
     return json.dumps({"file": finding.file, "status": finding.status,
                        "issues": finding.issues}, separators=(",", ":"))
@@ -529,6 +570,7 @@ class Validator:
                     issues.append(f"missing-section: {heading}")
             if "<FILL:" in text:
                 issues.append("fill-placeholder-present")
+            issues.extend(blind_discovery_issues(text))
             if not any(row[0] == path.stem for row in self.normalized_runtime_rows()):
                 issues.append(f"missing-runtime-map-entry:{path.stem}")
             mcp_block = section(text, r"^### (Expected )?MCPs")

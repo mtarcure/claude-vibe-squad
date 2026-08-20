@@ -26,6 +26,7 @@ from scripts.python.tests.ci_host_independence import (  # noqa: E402
     skip_in_host_independent_ci,
 )
 from scripts.python.tests.test_trusted_launch import (  # noqa: E402
+    BASE_BRANCH,
     SCRIPT,
     SETTLED_T1P1_BUNDLE_SHA256,
     _init_repo,
@@ -150,6 +151,7 @@ def _run_authority_supervisor(
             "LC_ALL": "C",
             "VAULT_ROOT": str(ROOT),
             "BOARD_SUPERVISOR_AUTHORITY_FD": str(read_fd),
+            "SQUAD_BASE_BRANCH": BASE_BRANCH,
         }
         env.update(extra_env or {})
 
@@ -190,6 +192,7 @@ def _run_unsigned_supervisor(context: dict[str, object]):
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "LC_ALL": "C",
                 "VAULT_ROOT": str(ROOT),
+                "SQUAD_BASE_BRANCH": BASE_BRANCH,
             },
         )
     finally:

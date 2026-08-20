@@ -136,7 +136,15 @@ def _fields(text: str) -> _Fields:
 
 @dataclass(frozen=True)
 class ScanResult:
-    """Findings plus receipts that distinguish clean from never examined."""
+    """Findings plus receipts that distinguish clean from never examined.
+
+    `paths_skipped` records every walked file this scan did NOT read, tagged
+    with why: an exemption, or a decode/read failure. Both are "unread", and an
+    unread file leaves no mark on `files_scanned`, so reporting only one of them
+    reads as full coverage while the other silently vanishes.
+    `files_scanned + len(paths_skipped)` therefore equals the files walked, and
+    that arithmetic is the receipt a caller can actually check.
+    """
 
     findings: list[str]
     files_scanned: int
@@ -170,7 +178,11 @@ def scan(root: Path) -> ScanResult:
             continue
         try:
             text = path.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, OSError):
+        except (UnicodeDecodeError, OSError) as error:
+            # Recorded rather than dropped, for the same reason as the private
+            # scanner: unread is unread, and a receipt that omits it overstates
+            # coverage.
+            paths_skipped.append(f"{rel} (unread: {type(error).__name__})")
             continue
         files_scanned += 1
         exempt = SHAPE_EXEMPT.get(rel, frozenset())

@@ -215,9 +215,10 @@ class DispatchContextBuilderTests(unittest.TestCase):
         *,
         lane: str,
         model: str,
+        specialist: str | None = None,
     ) -> tuple[Path, Path]:
         root = base / lane
-        specialist = f"{lane}-canary"
+        specialist = specialist or f"{lane}-canary"
         namespace = "coding"
         header = (
             (ROOT / "shared" / "specialist-runtime-map.tsv")
@@ -649,7 +650,15 @@ class DispatchContextBuilderTests(unittest.TestCase):
                         dcb.SETTLED_T1P1_BUNDLE_SHA256,
                     )
 
-    def test_memory_aperture_defaults_cold_and_focused_requires_exact_target(self) -> None:
+    def test_memory_aperture_defaults_to_default_and_focused_requires_exact_target(
+        self,
+    ) -> None:
+        # Changed 2026-08-17 (memory-loop spec §4): a packet with no
+        # `memory_aperture` used to resolve to `cold`, which is why 2,665 of
+        # 2,669 measured dispatches ran memory-blind. The equality below is
+        # exact on purpose -- it must fail if the default is put back to
+        # `cold`, and it must fail on any other aperture too, so do not
+        # relax it to "is a member of MEMORY_APERTURES".
         with tempfile.TemporaryDirectory() as directory:
             root, packet = self._fake_repo_for_lane(
                 Path(directory), lane="codex", model="gpt-codex"
@@ -657,7 +666,7 @@ class DispatchContextBuilderTests(unittest.TestCase):
             with mock.patch.dict(
                 dcb.LANE_CLI_PATHS, {"codex": Path("/bin/sh")}, clear=True
             ):
-                cold = dcb.build_context(
+                omitted = dcb.build_context(
                     root,
                     packet,
                     attempt_id="d-" + "5" * 32,
@@ -665,9 +674,18 @@ class DispatchContextBuilderTests(unittest.TestCase):
                     now=1_784_800_000,
                     nonce="6" * 64,
                 )
-            self.assertEqual(cold["authority"]["memory_context"]["aperture"], "cold")
-            self.assertIsNone(cold["authority"]["memory_context"]["focus"])
-            self.assertIn("Do not call recall or get_note", cold["task_prompt"])
+            self.assertEqual(
+                omitted["authority"]["memory_context"]["aperture"], "default"
+            )
+            self.assertIsNone(omitted["authority"]["memory_context"]["focus"])
+            # The prompt has to agree with the policy the broker enforces.
+            # `memory.default.v1` permits recall, so a launch prompt telling
+            # the worker otherwise would switch memory back off in the only
+            # place that runs.
+            self.assertIn("Recall prior context ONCE", omitted["task_prompt"])
+            self.assertNotIn(
+                "Do not call recall or get_note", omitted["task_prompt"]
+            )
 
             original = packet.read_text(encoding="utf-8")
             packet.write_text(
@@ -1723,6 +1741,138 @@ class OutputBridgeTests(unittest.TestCase):
         )
         self.assertEqual(dcb._coerce_status(""), "needs_review")
         self.assertEqual(dcb._coerce_status("wat"), "needs_review")
+
+
+class AliasedOutputBridgeTests(unittest.TestCase):
+    """The standard packet shape: return_artifact IS the outbox envelope path.
+
+    Regression for the 2026-08-18 board incident: ~a dozen consecutive
+    completions auto-closed `blocked` with "response envelope destination
+    already differs" over finished, correct work. The bridge published the raw
+    artifact first and the pin-carrying envelope second at the SAME aliased
+    path, colliding with its own first write.
+    """
+
+    TASK_ID = "TASK-2026-08-18-9001-aliased"
+    ATTEMPT_ID = "d-" + "a" * 32
+    OUTBOX_RELATIVE = f"departments/coding/outbox/{TASK_ID}-response.md"
+
+    @classmethod
+    def _authority(cls) -> dict[str, object]:
+        return {
+            "task_id": cls.TASK_ID,
+            "lane": "codex",
+            "write_paths": [cls.OUTBOX_RELATIVE],
+            "expected_result_path": cls.OUTBOX_RELATIVE,
+            "expected_outbox_path": cls.OUTBOX_RELATIVE,
+            # Live board launches always carry the CC-03 fence, which is what
+            # guarantees the rendered envelope differs from the worker's raw
+            # file. The original fixtures omitted it and never saw this bug.
+            "reconciliation_echo": {
+                "delivery_attempt_id": cls.ATTEMPT_ID,
+                "delivery_generation": "1",
+            },
+        }
+
+    @classmethod
+    def _raw_response_text(cls) -> str:
+        return (
+            "---\n"
+            f"id: {cls.TASK_ID}-response\n"
+            f"in_response_to: {cls.TASK_ID}\n"
+            "from: gpt-codex\n"
+            "to: chrono\n"
+            "type: RESULT\n"
+            "status: complete\n"
+            f"return_artifact: {cls.OUTBOX_RELATIVE}\n"
+            "---\n\n"
+            "Aliased completion: the full report body.\n"
+        )
+
+    def _stage(self, directory: str) -> tuple[Path, Path, Path]:
+        root = Path(directory) / "main"
+        worktree = Path(directory) / "worktree"
+        (root / "departments" / "coding" / "outbox").mkdir(parents=True)
+        response = worktree / self.OUTBOX_RELATIVE
+        response.parent.mkdir(parents=True)
+        response.write_text(self._raw_response_text(), encoding="utf-8")
+        return root, worktree, root / self.OUTBOX_RELATIVE
+
+    def test_aliased_completion_promotes_one_canonical_envelope(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root, worktree, destination = self._stage(directory)
+            receipt = dcb.bridge_worktree_outputs(
+                root, worktree, self._authority()
+            )
+            self.assertEqual(receipt["status"], "complete")
+            self.assertTrue(receipt["artifact_published"])
+            self.assertTrue(receipt["envelope_published"])
+            self.assertEqual(receipt["artifact_path"], receipt["envelope_path"])
+            self.assertEqual(
+                receipt["artifact_sha256"], receipt["envelope_sha256"]
+            )
+            published = destination.read_text(encoding="utf-8")
+            # Canonical: trusted pins present, worker prose preserved.
+            self.assertIn(f"delivery_attempt_id: {self.ATTEMPT_ID}\n", published)
+            self.assertIn("delivery_generation: 1\n", published)
+            self.assertIn("status: complete\n", published)
+            self.assertIn("Aliased completion: the full report body.", published)
+            # Retry is idempotent because rendering is deterministic.
+            retry = dcb.bridge_worktree_outputs(root, worktree, self._authority())
+            self.assertTrue(retry["artifact_idempotent"])
+            self.assertTrue(retry["envelope_idempotent"])
+
+    def test_aliased_promotion_reclaims_interrupted_artifact_write(self) -> None:
+        # The exact state the pre-fix bug left behind: the worker's raw
+        # response landed at the destination (artifact write succeeded), the
+        # envelope write refused, the task auto-closed blocked. A re-promotion
+        # of the same completion must reconcile, not refuse.
+        with tempfile.TemporaryDirectory() as directory:
+            root, worktree, destination = self._stage(directory)
+            destination.write_text(self._raw_response_text(), encoding="utf-8")
+            receipt = dcb.bridge_worktree_outputs(
+                root, worktree, self._authority()
+            )
+            self.assertTrue(receipt["envelope_published"])
+            published = destination.read_text(encoding="utf-8")
+            self.assertIn(f"delivery_attempt_id: {self.ATTEMPT_ID}\n", published)
+
+    def test_aliased_promotion_reclaims_prior_blocked_stub(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root, worktree, destination = self._stage(directory)
+            destination.write_text(
+                "blocked\n\n"
+                f"# Board dispatch blocked — {self.TASK_ID}\n\n"
+                "Controller reason: earlier generation refused\n",
+                encoding="utf-8",
+            )
+            receipt = dcb.bridge_worktree_outputs(
+                root, worktree, self._authority()
+            )
+            self.assertTrue(receipt["envelope_published"])
+            self.assertIn(
+                f"delivery_attempt_id: {self.ATTEMPT_ID}\n",
+                destination.read_text(encoding="utf-8"),
+            )
+
+    def test_aliased_promotion_still_refuses_unrelated_destination(self) -> None:
+        # The clobber protection is intact: bytes that are neither this task's
+        # own raw response nor its blocked stub stay refused.
+        with tempfile.TemporaryDirectory() as directory:
+            root, worktree, destination = self._stage(directory)
+            destination.write_text(
+                "---\nid: someone-else\n---\n\nAnother task's file.\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                dcb.DispatchContextError,
+                "response envelope destination already differs",
+            ):
+                dcb.bridge_worktree_outputs(root, worktree, self._authority())
+            self.assertIn(
+                "Another task's file.",
+                destination.read_text(encoding="utf-8"),
+            )
 
 
 if __name__ == "__main__":

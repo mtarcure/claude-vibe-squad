@@ -12,6 +12,19 @@ set -u
 
 # shellcheck source-path=SCRIPTDIR source=../shared/repo-root.sh disable=SC1091
 source "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")/.." && pwd -P)/shared/repo-root.sh"
+# Where doctor writes its daily summary. Only the DIRECTORY is needed here; the
+# token built from the summary is a Python mirror of bin/doctor-state.sh, which
+# is the canonical home for that vocabulary.
+#
+# An inherited value wins outright -- bin/launch-squad.sh exports
+# CHRONO_DOCTOR_LOG_DIR before it spawns this poller, and VAULT_ROOT can be
+# pointed at a disposable tree that has no bin/ at all. Resolving the default
+# is a fallback for a standalone run, and failing to resolve it costs only this
+# one segment: the poller keeps polling either way.
+if [[ -z "${CHRONO_DOCTOR_LOG_DIR:-}" ]]; then
+    # shellcheck source-path=SCRIPTDIR source=doctor-log-home.sh disable=SC1091
+    source "${VAULT_ROOT}/bin/doctor-log-home.sh" 2>/dev/null || CHRONO_DOCTOR_LOG_DIR=""
+fi
 PANEL_ACTIVITY_DIR="${PANEL_ACTIVITY_DIR:-${VAULT_ROOT}/_state/runtime/lane-activity}"
 VIBESQUAD_STATUS_DIR="${VIBESQUAD_STATUS_DIR:-/tmp}"
 VS_DAEMON_TASKS_FILE="${VS_DAEMON_TASKS_FILE:-}"
@@ -60,12 +73,14 @@ while :; do
         VIBESQUAD_STATUS_DIR="$VIBESQUAD_STATUS_DIR" \
         ROSTER_FILE="$ROSTER_FILE" \
         VS_ORPHAN_GRACE_SECONDS="$VS_ORPHAN_GRACE_SECONDS" \
+        CHRONO_DOCTOR_LOG_DIR="${CHRONO_DOCTOR_LOG_DIR:-}" \
         /usr/bin/python3 - <<'PY'
 import json
 import os
 import re
 import sys
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 LANES = ("chrono", "gpt-codex", "claude", "gemini", "kimi")
@@ -357,6 +372,71 @@ else:
 atomic_text(status_root / "vs-swarm.status", swarm)
 daemon_status = f"{CYAN}● daemon{RESET}" if daemon_online else f"{RED}● daemon offline{RESET}"
 atomic_text(status_root / "vs-daemon.status", daemon_status)
+
+
+# --- doctor token ----------------------------------------------------------
+# MIRROR of doctor_state() in bin/doctor-state.sh, which is the canonical home
+# for this vocabulary (issues:N / warn:N / healthy / no reading). It is mirrored
+# rather than called because this block runs once a second: shelling out would
+# re-add the jq + subshell spawns that moving the doctor segment off the tmux
+# render path exists to remove. scripts/python/tests/test_doctor_status_token.py
+# runs both against the same fixtures and fails if they disagree.
+#
+# The status bar used to render all five doctor counters --
+# `pass:24 failure:1 could-not-run:1 not-applicable:0 warnings:3`, 68 of 163
+# columns, in the brightest colour on the bar -- for a value that changes once a
+# day, including a `not-applicable:0` that is a permanent zero.
+def doctor_token() -> str:
+    """(text, colour) collapsed to one pre-formatted tmux segment."""
+    log_dir = os.environ.get("CHRONO_DOCTOR_LOG_DIR", "")
+    if not log_dir:
+        return f"{DIM}doctor:?{RESET}"
+    # UTC, because bin/doctor.sh names the file with UTC.
+    today = datetime.fromtimestamp(now, timezone.utc).strftime("%Y-%m-%d")
+    summary = Path(log_dir) / f"{today}-summary.json"
+    try:
+        payload = json.loads(summary.read_text())
+    except (OSError, ValueError):
+        # No summary for today, or one that cannot be parsed. Neither is
+        # evidence of health, so neither may render as `healthy`.
+        return f"{DIM}doctor:?{RESET}"
+    if not isinstance(payload, dict):
+        return f"{DIM}doctor:?{RESET}"
+
+    def count(key: str) -> int:
+        # Mirror the canonical shell EXACTLY by mirroring its two steps: render
+        # the value the way jq's `tostring` does, then accept only ^[0-9]+$.
+        # Parallel-but-different logic is how the two copies drift -- `int(True)`
+        # is 1 and `int(3.5)` is 3, but jq renders those as "true" and "3.5",
+        # which the digit check rejects.
+        raw = payload.get(key, 0)
+        if raw is None:
+            raw = 0
+        if isinstance(raw, bool):
+            rendered = "true" if raw else "false"
+        elif isinstance(raw, float):
+            rendered = str(int(raw)) if raw.is_integer() else repr(raw)
+        elif isinstance(raw, int):
+            rendered = str(raw)
+        elif isinstance(raw, str):
+            rendered = raw
+        else:
+            rendered = json.dumps(raw, separators=(",", ":"))
+        if not re.fullmatch(r"[0-9]+", rendered):
+            return 0
+        return int(rendered, 10)
+
+    issues = count("issue_count")
+    if issues:
+        # The ONLY amber on the bar. A healthy system does not shout.
+        return f"{AMBER}issues:{issues}{RESET}"
+    warnings = count("warning_count")
+    if warnings:
+        return f"{TEXT}warn:{warnings}{RESET}"
+    return f"{DIM}healthy{RESET}"
+
+
+atomic_text(status_root / "vs-doctor.status", doctor_token())
 PY
 
     if [[ "$VS_STATUS_ONCE" == "1" ]]; then

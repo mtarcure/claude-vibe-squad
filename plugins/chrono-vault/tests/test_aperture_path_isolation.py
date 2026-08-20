@@ -35,6 +35,7 @@ import clearance  # noqa: E402
 EXPECTED_ENTITLEMENT = {
     "rich": clearance.PATH_READ,
     "focused": clearance.PATH_READ,
+    "default": clearance.PATH_READ,
     "cold": clearance.PATH_WRITE_ONLY,
     "pool_blind": clearance.PATH_WRITE_ONLY,
     "none": clearance.PATH_NONE,

@@ -16,6 +16,7 @@ from scripts.python.validate_specialists import (
     RUNTIME_HEADER,
     TOOL_HEADER,
     Validator,
+    blind_discovery_issues,
 )
 
 
@@ -329,6 +330,77 @@ class SpecialistValidatorTests(unittest.TestCase):
                 "boundary,parity,index,source,required",
             )
             self.assertIn("host-independent CI subset", ci.stderr)
+
+
+class BlindDiscoveryFrontmatterTests(unittest.TestCase):
+    """The blindness marker is the one brief field a typo can silently undo.
+
+    `dispatch_context_builder` fails closed on a brief it cannot parse, so a
+    bad *value* costs a role its memory and nothing worse. A misspelled *key*
+    is the dangerous one: the brief parses, the key the floor looks for is
+    absent, and a rediscovery scout quietly keeps its memory. Nothing else in
+    this validator reads specialist frontmatter, so this is the only place
+    that can say so out loud.
+    """
+
+    def frontmatter(self, *lines: str) -> str:
+        return "---\nspecialist: candidate\n" + "".join(
+            f"{line}\n" for line in lines
+        ) + "---\n\n# brief\n"
+
+    def test_a_correct_declaration_is_accepted(self):
+        for value in ("true", "false"):
+            with self.subTest(value=value):
+                self.assertEqual(
+                    blind_discovery_issues(
+                        self.frontmatter(f"blind_discovery: {value}")
+                    ),
+                    [],
+                )
+
+    def test_an_absent_declaration_is_accepted(self):
+        # 61 of the 68 shipped briefs say nothing, and that is a real answer.
+        self.assertEqual(blind_discovery_issues(self.frontmatter("tags: []")), [])
+
+    def test_a_misspelled_key_is_rejected(self):
+        for key in ("blind-discovery", "Blind_Discovery", "BLINDDISCOVERY"):
+            with self.subTest(key=key):
+                self.assertEqual(
+                    blind_discovery_issues(self.frontmatter(f"{key}: true")),
+                    [f"misspelled-blind-discovery-key:{key}"],
+                )
+
+    def test_a_non_boolean_value_is_rejected(self):
+        for value, reported in (("yes", "yes"), ("", "(empty)"), ("[true]", "[true]")):
+            with self.subTest(value=value):
+                self.assertEqual(
+                    blind_discovery_issues(
+                        self.frontmatter(f"blind_discovery: {value}".rstrip())
+                    ),
+                    [f"invalid-blind-discovery:{reported}"],
+                )
+
+    def test_a_duplicated_declaration_is_rejected(self):
+        self.assertEqual(
+            blind_discovery_issues(
+                self.frontmatter("blind_discovery: true", "blind_discovery: false")
+            ),
+            ["duplicate-blind-discovery"],
+        )
+
+    def test_the_body_is_not_scanned(self):
+        # Prose after the frontmatter that mentions the key is documentation,
+        # not a declaration, and must not be reported as a misspelling.
+        text = self.frontmatter("tags: []") + "\nWe honour blind-discovery here.\n"
+        self.assertEqual(blind_discovery_issues(text), [])
+
+    def test_the_shipped_briefs_all_pass_this_gate(self):
+        for pattern in ("departments/*/specialists/*.md", "shared/specialists/*.md"):
+            for brief in REPO_ROOT.glob(pattern):
+                with self.subTest(brief=brief.name):
+                    self.assertEqual(
+                        blind_discovery_issues(brief.read_text(encoding="utf-8")), []
+                    )
 
 
 if __name__ == "__main__":

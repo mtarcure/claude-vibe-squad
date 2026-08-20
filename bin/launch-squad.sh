@@ -14,6 +14,7 @@
 #   Ctrl-b + 5  → watchers/status (outbox notifications + reconciliation)
 #   Ctrl-b + z  → zoom the current pane
 #   Ctrl-b + d  → detach (panes keep running)
+#   Ctrl-b + g  → key cheat-sheet popup (Ctrl-b + ? for every tmux binding)
 #   Specialists have no persistent windows; each board task starts a fresh CLI.
 #
 # Re-run this script to re-attach if the session was killed; if a session
@@ -126,7 +127,7 @@ ensure_daemon_loaded() {
         # daemon is not nagged by `squad status`, `squad doctor` or `squad attach`.
         echo "NOTICE: the optional launchd daemon is not installed — continuing without it."
         echo "        It adds two things: the live daemon/lane segment in the tmux status"
-        echo "        bar, and the /summarize endpoint the weekly-review routine calls."
+        echo "        bar, and the documented POST /mcp/<server>/<tool> HTTP bridge."
         echo "        Board dispatch, the outbox watcher, the reconciliation sweep and the"
         echo "        Chrono coordinator do not use it. See docs/install/daemon.md."
         echo "        Add it whenever you want it:  bash bin/install-routines.sh --daemon-only"
@@ -192,6 +193,67 @@ for arg in "$@"; do
     esac
 done
 
+# Watcher-fleet pidfiles -- scoped by BOTH VAULT_ROOT (it's a path under
+# VAULT_ROOT) and SQUAD_SESSION (a subdirectory named after it), so a launcher
+# for one checkout/session can never read or act on another's PID. This is
+# the primary liveness mechanism for the watcher fleet (Plan B Task 8):
+# kill -0 on a PID *this launcher itself wrote here* on spawn, never a scan of
+# global `ps` output for a matching name or marker string. That old approach
+# is what let a 41KB specialist prompt (measured on a live `codex exec`,
+# containing the literal text "outbox-watcher.sh") register as a false
+# positive, and -- far worse -- let the real watcher-supervisor marker match
+# ANY process system-wide with no VAULT_ROOT/SQUAD_SESSION scoping at all,
+# which is the defect that killed the operator's live fleet from an isolated
+# regression test earlier in this remediation.
+#
+# The scoping claim above is about THESE PIDFILES, and only them. The fleet has
+# a second mechanism with deliberately weaker scoping -- watcher_seed()'s
+# orphan sweep is VAULT_ROOT-scoped but ROOT-WIDE across sessions, on purpose.
+# Read the "Scope of the sweep" note above watcher_cleanup_pids() before
+# assuming the two are interchangeable; they answer different questions.
+WATCHER_FLEET_RUNTIME_DIR="${VAULT_ROOT}/_state/runtime/watcher-fleet/${SESSION}"
+OUTBOX_SUPERVISOR_PIDFILE="${WATCHER_FLEET_RUNTIME_DIR}/outbox-supervisor.pid"
+RECONCILE_SUPERVISOR_PIDFILE="${WATCHER_FLEET_RUNTIME_DIR}/reconcile-sweep-supervisor.pid"
+
+# Args: $1 pidfile path. True only if the file names a PID this kernel still
+# schedules. Used for the watcher fleet (self-written pidfiles above) and
+# nowhere else in this file matches a process by name/argv for a liveness
+# question -- see watcher_seed() further down for why argv matching, where it
+# remains genuinely unavoidable (orphan cleanup, not liveness), is scoped and
+# exact-positional instead.
+pidfile_alive() {
+    local pidfile="$1" pid
+    [[ -f "$pidfile" ]] || return 1
+    pid="$(cat "$pidfile" 2>/dev/null)"
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+    kill -0 "$pid" 2>/dev/null
+}
+
+# Print one numeric Unix mtime for a file or directory, accepting either BSD
+# or GNU stat. Each probe captures into its own assignment so GNU stat's
+# `-f %m PATH` behaviour cannot leak a partial filesystem report into the GNU
+# fallback's epoch: GNU treats `%m` as another path, prints information for the
+# real path, and still exits non-zero. The old `cmd || cmd` substitution joined
+# both outputs and fed prose to Bash arithmetic.
+#
+# No synthetic timestamp on failure. Callers have different safety contracts:
+# freshness becomes indeterminate (do not replace a possibly healthy poller),
+# while an unreadable lock age must never authorize breaking the lock.
+file_mtime_epoch() {
+    local target="$1" value
+    if value="$(stat -f %m "$target" 2>/dev/null)" \
+        && [[ "$value" =~ ^-?[0-9]+$ ]]; then
+        printf '%s\n' "$value"
+        return 0
+    fi
+    if value="$(stat -c %Y "$target" 2>/dev/null)" \
+        && [[ "$value" =~ ^-?[0-9]+$ ]]; then
+        printf '%s\n' "$value"
+        return 0
+    fi
+    return 1
+}
+
 # Stable local state, deliberately outside the checkout and independent of
 # VAULT_ROOT/CHRONO_VAULT_ROOT.  board-supervisor.sh carries the same default so
 # a dispatch reached from a plain shell cannot lose the trail; the regression
@@ -245,12 +307,15 @@ if [[ "$WATCHER_FLEET_CHILD" == 1 ]]; then
     # retired inbox watcher script, which no longer exists in the repo. (Naming
     # that script literally here would trip the guard asserting it never appears
     # in this file.)
+    mkdir -p "$WATCHER_FLEET_RUNTIME_DIR"
     bash -c 'while true; do bash "$1" all; rc=$?; echo "watcher supervisor restart: kind=outbox namespace=all rc=$rc" >&2; sleep 2; done' \
         "watcher-supervisor:outbox:all" "${VAULT_ROOT}/bin/outbox-watcher.sh" &
     watcher_children+=("$!")
+    printf '%s\n' "$!" > "$OUTBOX_SUPERVISOR_PIDFILE"
     bash -c 'while true; do python3 "$1" reconcile-sweep; rc=$?; echo "watcher supervisor restart: kind=reconcile-sweep rc=$rc" >&2; sleep 2; done' \
         'watcher-supervisor:reconcile-sweep' "${VAULT_ROOT}/scripts/python/swarm_runtime.py" &
     watcher_children+=("$!")
+    printf '%s\n' "$!" > "$RECONCILE_SUPERVISOR_PIDFILE"
     wait
     exit 0
 fi
@@ -273,14 +338,32 @@ if [[ "${SQUAD_UNSAFE_AUTONOMY}" == "1" ]] && [[ ! -f "${FIRST_RUN_SENTINEL}" ]]
     echo ""
 fi
 
-# Verify tmux is installed
+# Verify the external commands this launch cannot proceed without.
+#
+# The list itself lives in shared/launch-dependencies.sh because bin/doctor.sh
+# gates on the SAME list, and README's Quickstart puts `squad doctor`
+# immediately before `squad up`. A copy here would let the documented
+# pre-flight go green for a launch this loop then refuses.
+#
+# Fail loudly if it cannot be loaded: this script runs `set -uo pipefail`
+# without -e, so a failed source would leave SQUAD_REQUIRED_COMMANDS unset and
+# the loop below would verify nothing while printing nothing.
+# shellcheck source=../shared/launch-dependencies.sh disable=SC1091
+source "${VAULT_ROOT}/shared/launch-dependencies.sh" || {
+    echo "FATAL: cannot load ${VAULT_ROOT}/shared/launch-dependencies.sh; the required-command gate would verify nothing. Refusing to launch." >&2
+    exit 1
+}
+if [[ -z "${SQUAD_REQUIRED_COMMANDS[*]+set}" ]]; then
+    echo "FATAL: ${VAULT_ROOT}/shared/launch-dependencies.sh defined no SQUAD_REQUIRED_COMMANDS; the required-command gate would verify nothing. Refusing to launch." >&2
+    exit 1
+fi
 missing=()
-for dep in tmux fswatch jq curl claude codex gemini kimi; do
+for dep in "${SQUAD_REQUIRED_COMMANDS[@]}"; do
     command -v "$dep" >/dev/null 2>&1 || missing+=("$dep")
 done
 if [[ "${#missing[@]}" -gt 0 ]]; then
     echo "ERROR: missing required command(s): ${missing[*]}"
-    echo "Fix: install/login the missing CLIs, and install core tools with: brew install jq tmux fswatch"
+    echo "Fix: ${SQUAD_REQUIRED_COMMANDS_HINT}"
     exit 1
 fi
 
@@ -359,8 +442,149 @@ fi
 # Background job: polls the daemon once/sec and writes /tmp/vs-*.status files
 # that the tmux status bar + pane borders read (see vs-lane-status.sh). Started
 # here — before the has-session reattach guard — so a reattach also re-ensures
-# it's running. pgrep-guarded so we never spawn duplicate pollers.
-if ! pgrep -f 'vs-lane-status.sh' >/dev/null 2>&1; then
+# it's running.
+#
+# Was `pgrep -f 'vs-lane-status.sh'` (Plan B Task 8): an unanchored argv
+# substring scan, satisfied by any process whose command line merely contains
+# that text -- including a week-old corpse that never got reaped, which let a
+# fresh poller silently never start. Replaced with a pidfile this launcher
+# itself wrote at spawn time, plus an output-freshness check: vs-daemon.status
+# is written unconditionally every ~1s tick regardless of daemon reachability,
+# so its age is a clean heartbeat that a merely-alive-but-hung poller fails.
+#
+# The pidfile alone was unsound in the OPPOSITE direction (Plan B Task 12,
+# measured live: pidfile named 75269, dead; the actual poller was 71022, alive
+# for 2h49m and writing every ~1s). A live poller this pidfile does not name was
+# invisible, so the block below spawned a second one and overwrote the pidfile
+# with the new PID -- orphaning the first beyond the reach of every future
+# `squad up` AND `squad stop`, once per cycle. So: a dead-or-wrong pidfile
+# alongside fresh output means the poller is UNTRACKED, not absent. Find it and
+# adopt it. Fresh output on its own is not proof (the last tick of a poller that
+# died two seconds ago is still fresh), which is why liveness is settled by
+# finding the real process, never by the mtime alone.
+VS_LANE_STATUS_STATUS_DIR="${VIBESQUAD_STATUS_DIR:-/tmp}"
+VS_LANE_STATUS_PIDFILE="${VS_LANE_STATUS_STATUS_DIR}/vs-lane-status.pid"
+# pid_is_vs_lane_status_poller(): the exact positional argv check, shared with
+# bin/squad-stop.sh's reaper so the launcher can never adopt a process the
+# stopper would then refuse to kill.
+#
+# Fail loudly. This script runs `set -uo pipefail` without -e on purpose, so a
+# failed `source` would otherwise just continue with the predicate undefined:
+# every identity call would return 127, every real poller would read as "not
+# ours", and the launcher would spawn a duplicate on every launch while
+# reporting nothing wrong.
+# shellcheck source=../shared/process-identity.sh disable=SC1091
+source "${VAULT_ROOT}/shared/process-identity.sh" || {
+    echo "FATAL: cannot load ${VAULT_ROOT}/shared/process-identity.sh; the status poller's identity check is unavailable and launch would leak a duplicate poller. Refusing to launch." >&2
+    exit 1
+}
+
+# find_live_vs_lane_status_pollers() moved to shared/process-identity.sh, which
+# this file already sources above: bin/doctor.sh now asks the same question
+# (is there exactly one poller?) and a second copy of a process-selection scan
+# is the last thing this system should own two of.
+
+# The ONE writer of this pidfile -- used both when adopting a poller we found
+# and when recording one we just spawned. Staged in the destination directory so
+# the move is a same-filesystem rename: a concurrent `squad stop` reading this
+# file sees the old PID or the new one, never a half-written line.
+#
+# A truncating `> "$pidfile"` redirect here would be a real leak, not a
+# theoretical one: `squad stop` reads this file between the truncate and the
+# write, fails its `^[0-9]+$` guard, removes the pidfile, and the poller it was
+# supposed to reap is orphaned -- exactly the state Task 12 exists to prevent.
+# The window is reachable because the poller guard is deliberately outside
+# LAUNCH_LOCK, so two near-simultaneous launches can both reach the spawn.
+write_vs_lane_status_pidfile() {
+    local pid="$1" staged
+    mkdir -p "$VS_LANE_STATUS_STATUS_DIR" || return 1
+    staged="$(mktemp "${VS_LANE_STATUS_PIDFILE}.XXXXXX")" || return 1
+    printf '%s\n' "$pid" > "$staged" || { rm -f "$staged"; return 1; }
+    mv -f "$staged" "$VS_LANE_STATUS_PIDFILE" || { rm -f "$staged"; return 1; }
+}
+
+# True only when the pidfile names a process that IS this root's live poller.
+# Identity, not bare liveness -- this pidfile can sit stale for days, so the PID
+# it names may since have been recycled onto something unrelated, which would
+# otherwise read as "poller running" while the real one runs untracked.
+vs_lane_status_pidfile_names_live_poller() {
+    local tracked_pid
+    pidfile_alive "$VS_LANE_STATUS_PIDFILE" || return 1
+    tracked_pid="$(cat "$VS_LANE_STATUS_PIDFILE" 2>/dev/null)"
+    pid_is_vs_lane_status_poller "$tracked_pid"
+}
+
+# Called on the paths that spawn a replacement anyway (no output yet, or stale
+# output from a wedged poller). The spawn takes the pidfile over, so EVERY live
+# poller of this root -- the one the pidfile currently names and any that were
+# already untracked -- is about to become an unnamed orphan. Diagnosing exactly
+# that state is what Task 12 cost by hand, so name them all, at the moment it
+# happens. Asking the finder rather than only the pidfile is what covers the
+# untracked ones; a tracked live poller is in its output too, so there is no
+# separate case. Reporting only: a launcher does not kill.
+vs_lane_status_warn_stranded_pollers() {
+    local reason="$1" p
+    local -a stranded=()
+    while read -r p; do
+        [[ -n "$p" ]] && stranded+=("$p")
+    done < <(find_live_vs_lane_status_pollers)
+    [[ "${#stranded[@]}" -gt 0 ]] || return 0
+    echo "WARNING: ${#stranded[@]} live status poller(s) (${stranded[*]}) are being replaced (${reason}); they stay running and UNTRACKED, so 'squad stop' will not reap them. Kill them by PID: kill ${stranded[*]}" >&2
+}
+
+vs_lane_status_poller_alive() {
+    local freshness_file mtime now age max_age p
+    local -a live_pollers=()
+    freshness_file="${VS_LANE_STATUS_STATUS_DIR}/vs-daemon.status"
+    if [[ ! -f "$freshness_file" ]]; then
+        vs_lane_status_warn_stranded_pollers "it has never written ${freshness_file}"
+        return 1
+    fi
+    if ! mtime="$(file_mtime_epoch "$freshness_file")"; then
+        echo "ERROR: cannot read a numeric mtime for ${freshness_file} with BSD or GNU stat; status-poller freshness is indeterminate." >&2
+        return 2
+    fi
+    now=$(date +%s)
+    age=$(( now - mtime ))
+    max_age="${VS_LANE_STATUS_FRESHNESS_MAX_AGE:-10}"
+    # A hung-but-alive poller freezes the status bar while every liveness check
+    # says "running", so stale output means not-alive no matter what any PID or
+    # pidfile says. Checked before the pidfile arms so adoption can never
+    # resurrect a wedged poller.
+    if [[ "$age" -gt "$max_age" ]]; then
+        vs_lane_status_warn_stranded_pollers "its output is ${age}s old, limit ${max_age}s"
+        return 1
+    fi
+
+    # The ordinary case: the pidfile names this root's live poller.
+    vs_lane_status_pidfile_names_live_poller && return 0
+
+    while read -r p; do
+        [[ -n "$p" ]] && live_pollers+=("$p")
+    done < <(find_live_vs_lane_status_pollers)
+    # Fresh output but no live poller: it died within the freshness window.
+    # Spawning is correct, and the spawn writes a pidfile that names it.
+    [[ "${#live_pollers[@]}" -gt 0 ]] || return 1
+
+    if [[ "${#live_pollers[@]}" -gt 1 ]]; then
+        echo "WARNING: ${#live_pollers[@]} live vs-lane-status.sh pollers found (${live_pollers[*]}); adopting ${live_pollers[0]}. The others predate this check and are untracked -- kill them by PID." >&2
+    fi
+    echo "Adopting untracked live status poller (PID ${live_pollers[0]}) instead of spawning a duplicate." >&2
+    if ! write_vs_lane_status_pidfile "${live_pollers[0]}"; then
+        # Could not record it, but it is provably alive, so a second one would
+        # still be a duplicate. Report alive and name the PID: an untrackable
+        # poller is the operator's to reap, not a reason to leak another.
+        echo "WARNING: could not write ${VS_LANE_STATUS_PIDFILE}; live poller ${live_pollers[0]} stays untracked and 'squad stop' will not reap it." >&2
+    fi
+    return 0
+}
+vs_lane_status_poller_rc=0
+vs_lane_status_poller_alive || vs_lane_status_poller_rc=$?
+if [[ "$vs_lane_status_poller_rc" -gt 1 ]]; then
+    echo "FATAL: refusing to replace or adopt a status poller without a trustworthy freshness timestamp." >&2
+    exit 1
+fi
+if [[ "$vs_lane_status_poller_rc" -eq 1 ]]; then
     # The poller needs one of two sources, and picking the wrong one is silent.
     # Its HTTP mode opens with `: "${VIBESQUAD_DAEMON_TOKEN:?...}"`, so with no
     # token it exits at that guard the instant it starts -- under `nohup
@@ -386,6 +610,17 @@ if ! pgrep -f 'vs-lane-status.sh' >/dev/null 2>&1; then
         # rather than hidden behind an empty status segment.
         VS_DAEMON_TASKS_FILE="${VAULT_ROOT}/_state/runtime/no-daemon-tasks.json" \
             nohup bash "${VAULT_ROOT}/bin/vs-lane-status.sh" >/dev/null 2>&1 &
+    fi
+    # nohup execs its target directly rather than forking a child, so $! here
+    # is the actual poller process's PID, not a nohup wrapper's.
+    #
+    # Through the same atomic writer the adoption path uses -- one file, one
+    # writer, one guarantee. This is the far more frequent write (every cold
+    # start and every respawn), so a truncating redirect here would reopen the
+    # orphan window on the common path while the rare path was safe.
+    VS_LANE_STATUS_SPAWNED_PID=$!
+    if ! write_vs_lane_status_pidfile "$VS_LANE_STATUS_SPAWNED_PID"; then
+        echo "WARNING: spawned status poller ${VS_LANE_STATUS_SPAWNED_PID} could not be recorded in ${VS_LANE_STATUS_PIDFILE}; it is running UNTRACKED and 'squad stop' will not reap it. Kill it by PID: kill ${VS_LANE_STATUS_SPAWNED_PID}" >&2
     fi
     disown 2>/dev/null || true
 fi
@@ -416,20 +651,118 @@ apply_squad_globals() {
     tmux bind-key -T copy-mode-vi Enter send-keys -X copy-pipe-and-cancel "pbcopy" 2>/dev/null || true
     tmux bind-key -T copy-mode-vi y send-keys -X copy-pipe-and-cancel "pbcopy" 2>/dev/null || true
 
+    # Key cheat-sheet, on demand rather than always-on.
+    #
+    # It used to be a permanent second status row (`status 2` plus a static
+    # `status-format[1]`): an entire terminal row spent, for the life of every
+    # session, on text that never changes. And the text was WRONG. It advertised
+    # `Tab / C-b <n>: lanes`, but this session has no lane windows -- lanes are
+    # PANES inside the chrono window (bin/sidebar.sh), and specialists are
+    # board-spawned CLIs with no window at all, which this script's own header
+    # has said since the Phase-3 cutover. `C-b 1` landed on a stray shell.
+    #
+    # `g` for guide: not a default tmux prefix binding, so nothing is shadowed.
+    # `?` is deliberately left alone -- that is tmux's own list-keys, which is
+    # the complete answer this is only a summary of.
+    #
+    # Each line is a separate single-quoted argument to one `printf '%s\n'`, so
+    # the popup command stays POSIX-shell-clean: no $'...' escapes, which
+    # display-popup would hand to whatever `default-shell` happens to be.
+    local keys_cmd
+    keys_cmd="printf '%s\n'"
+    keys_cmd+=" ' vibesquad — keys'"
+    keys_cmd+=" ''"
+    keys_cmd+=" '  C-b 0      chrono window: Chrono pane + swarm sidebar pane'"
+    keys_cmd+=" '  C-b 5      watchers/status window'"
+    keys_cmd+=" '  C-b o      next pane in this window'"
+    keys_cmd+=" '  C-b q      show pane numbers, then a digit to jump'"
+    keys_cmd+=" '  C-b z      zoom / unzoom the focused pane'"
+    keys_cmd+=" '  C-b Space  refresh the display, return to the Chrono pane'"
+    keys_cmd+=" '  C-b [      scrollback (q leaves)'"
+    keys_cmd+=" '  C-b d      detach; every pane keeps running'"
+    keys_cmd+=" '  C-b ?      every binding tmux knows'"
+    keys_cmd+=" '  C-b g      this list'"
+    keys_cmd+=" ''"
+    keys_cmd+=" '  Model lanes are PANES in the chrono window, not windows.'"
+    keys_cmd+=" '  Specialists are board-spawned CLIs with no window at all.'"
+    keys_cmd+=" ''"
+    keys_cmd+=" '  Enter closes.'"
+    keys_cmd+="; read -r _"
+    # display-popup needs tmux >= 3.2. bind-key parses its command at bind time,
+    # so an older server fails HERE rather than leaving `g` bound to something
+    # that errors on every press; the fallback keeps the information reachable.
+    tmux bind-key g display-popup -E -w 74 -h 20 "${keys_cmd}" 2>/dev/null \
+        || tmux bind-key g display-message "C-b 0 chrono · C-b 5 watchers · C-b o next pane · C-b z zoom · C-b Space reset · C-b [ scroll · C-b d detach · C-b ? all keys"
+
     # --- Claude-Code-grade status bar (locked palette, poller-fed) ---------
-    # Live data comes from /tmp/vs-*.status (poller), so tmux does ZERO network
-    # work per render even at status-interval 1. Palette: colour74 cyan accent,
-    # colour252 near-white, colour240 dim, colour214 amber, colour234/233 bg.
+    # Every `#()` here is a plain `cat` of a file the poller already wrote, so
+    # tmux does zero network work per render. That was true before too -- and
+    # beside the point, because the cost was never network, it was PROCESS
+    # CREATION. tmux forks a shell per `#()` per render: one for status-left,
+    # one for status-right (which additionally forked `jq` AND a `date`
+    # subshell), and one per pane border. At `status-interval 1` that is roughly
+    # seven processes every second for the life of the session, forever.
+    #
+    # So: the doctor summary is parsed once per second by the poller that was
+    # already running (bin/vs-lane-status.sh, in the Python it already spawns)
+    # instead of by a jq the status bar forks; and the interval drops to 5. The
+    # remaining `#()` calls are all `cat`, at a fifth of the rate.
+    #
+    # 5s is a display interval, not a data interval: the poller still refreshes
+    # its files every ~1s, so nothing shown here is more than 5s stale, and the
+    # things that actually move second-to-second -- the spinner and the elapsed
+    # clock -- were never readable at 1s anyway.
+    #
+    # Palette: colour74 cyan accent, colour252 near-white, colour240 dim,
+    # colour214 amber, colour234/233 bg.
     tmux set-option -g status on
     tmux set-option -g status-position bottom
-    tmux set-option -g status 2                       # two rows: live data + hints
-    tmux set-option -g status-interval 1
+    tmux set-option -g status 1                       # one row; the hints moved to C-b g
+    tmux set-option -g status-interval 5
     tmux set-option -g status-style      'fg=colour252,bg=colour234'
     tmux set-option -g status-left-length 60
     tmux set-option -g status-right-length 180
-    tmux set-option -g status-left "#[fg=colour74,bold] vibesquad #[fg=colour240]· #(cat /tmp/vs-daemon.status 2>/dev/null) "
-    tmux set-option -g status-right "#(cat /tmp/vs-swarm.status 2>/dev/null) #[fg=colour240]· #[fg=colour214]#(jq -r '\"pass:\"+((.healthy_count // 0)|tostring)+\" failure:\"+((.issue_count // 0)|tostring)+\" could-not-run:\"+((.unknown_count // 0)|tostring)+\" not-applicable:\"+((.skipped_count // 0)|tostring)+\" warnings:\"+((.warning_count // 0)|tostring)' ${CHRONO_DOCTOR_LOG_DIR_SHELL}/\$(date +%%Y-%%m-%%d)-summary.json 2>/dev/null || echo 'doctor:could-not-run') #[fg=colour240]· #[fg=colour252]%H:%M "
-    tmux set-option -g "status-format[1]" "#[bg=colour233,fg=colour240] Tab / C-b <n>: lanes · C-b 0: chrono · C-b z: zoom · C-b Space: reset · C-b [: scroll · C-b d: detach "
+    # Narrow clients degrade on purpose instead of being cut mid-token.
+    #
+    # The lengths above are ceilings, not targets: what actually fits is the
+    # CLIENT's width, and tmux resolves an overlong bar by squeezing out the
+    # window list first and then hard-cutting the right segment wherever it runs
+    # out -- mid-word, mid-escape, with no indication that anything was dropped.
+    # Below roughly 118 columns the window list disappeared; below roughly 101
+    # the right segment was cut in the middle of a token.
+    #
+    # So each segment names its own least-valuable part and drops it under 120
+    # columns: the brand word on the left, and the swarm capsule on the right
+    # (which is the long, variable one, and whose per-lane detail is already on
+    # the pane borders).
+    #
+    # NOT VERIFIED: whether tmux skips the `#()` in an untaken branch, which
+    # would make the narrow form cheaper as well as shorter. An earlier version
+    # of this comment asserted it as fact. `display-message -p` cannot settle it
+    # -- it returns `#()` empty because tmux populates those asynchronously and
+    # caches them, so both branches measure as "did not run" -- and confirming it
+    # needs an attached client at two widths, which nobody has run. The layout
+    # benefit above holds either way; only the spawn-count bonus is unproven.
+    #
+    # Two things about tmux formats that this comparison gets wrong if written
+    # the obvious way, both straight out of tmux(1):
+    #
+    #   - `#{>=:a,b}` is a STRING comparison. `#{>=:80,120}` is TRUE, because
+    #     "8" sorts after "1" -- so the plain form hands an 80-column terminal
+    #     the wide layout, which is precisely backwards. The numeric operators
+    #     live behind `e`: `#{e|>=:a,b}`.
+    #   - `#{?a,b,c}` splits on top-level commas and makes NO exception for the
+    #     comma inside a `#[fg=x,bold]` style; the manual's own example escapes
+    #     it as `#[fg=white#,bg=red]`. Rather than rely on that escape, every
+    #     branch below is comma-free and the styles stay outside them.
+    tmux set-option -g status-left "#[fg=colour74,bold]#{?#{e|>=:#{client_width},120}, vibesquad , vs }#[fg=colour240]· #(cat /tmp/vs-daemon.status 2>/dev/null) "
+    # No colour prefix on the doctor segment: the poller writes its own, and it
+    # is the ONLY thing on the bar allowed to use amber (see bin/doctor-state.sh).
+    tmux set-option -g status-right "#{?#{e|>=:#{client_width},120},#(cat /tmp/vs-swarm.status 2>/dev/null) #[fg=colour240]· ,}#(cat /tmp/vs-doctor.status 2>/dev/null) #[fg=colour240]· #[fg=colour252]%H:%M "
+    # Row 1 is gone, but a server configured by an OLDER launch still carries the
+    # value. This function is the thing that cures drift on reattach, so unset it
+    # explicitly instead of relying on `status 1` to merely stop rendering it.
+    tmux set-option -gu "status-format[1]" 2>/dev/null || true
 
     # Window tabs — accent the current lane, dim the rest.
     tmux set-option -g window-status-style         'bg=colour234,fg=colour240'
@@ -448,82 +781,167 @@ apply_squad_globals() {
 }
 
 WATCHERS_WIN="$(lead_window_name watchers)"
-WATCHER_FLEET_LOCK="${SESSION}-watcher-fleet-launch"
+# A filesystem lock directory, not a tmux wait-for channel name -- see
+# acquire_dir_lock below for why. Named the same as before for continuity.
+#
+# Anchored under VAULT_ROOT/_state, NOT ${TMPDIR:-/tmp} (fix round 1 on Plan
+# B Task 1/2). TMPDIR varies by invocation context -- a login/terminal shell
+# typically has it set to a per-user /var/folders/.../T/ path, while a
+# launchd-like or `env -i` context (ssh, a background job) has it unset and
+# falls to plain /tmp. Two launches from DIFFERENT contexts would each
+# compute a DIFFERENT lock directory and both proceed, silently degrading
+# mutual exclusion to none -- strictly weaker than the tmux wait-for channel
+# this replaced, which was scoped to one tmux SERVER regardless of caller
+# context. VAULT_ROOT is derived identically everywhere (repo-root.sh
+# resolves it from the script's own on-disk location), so anchoring here
+# closes that gap. It also avoids a second problem plain /tmp has on a
+# shared host: /tmp is world-writable, so a local user could pre-create this
+# exact directory name and permanently deny `squad up` (mkdir would never
+# succeed, and the "owner" would never look like a live PID we can wait
+# out). ${VAULT_ROOT}/_state is only writable by whoever owns the checkout.
+WATCHER_FLEET_LOCK="${VAULT_ROOT}/_state/runtime/vibesquad-watcher-fleet-${SESSION}.lockdir"
 WATCHER_FLEET_LOCK_HELD=0
+WATCHER_FLEET_LOCK_TIMEOUT="${SQUAD_WATCHER_FLEET_LOCK_TIMEOUT:-60}"
 
-watcher_script_count() {
-    local kind="$1" script="$2" namespace="$3" marker
-    marker="watcher-supervisor:${kind}:${namespace}"
-    ps -axo pid=,ppid=,command= | awk -v script="$script" -v namespace="$namespace" -v marker="$marker" '
-        {
-            pid=$1
-            parent[pid]=$2
-            $1=""; $2=""
-            sub(/^[[:space:]]+/, "", $0)
-            command[pid]=$0
-        }
-        END {
-            for (pid in command) {
-                executable=command[pid]
-                sub(/[[:space:]].*$/, "", executable)
-                sub(/^.*\//, "", executable)
-                arguments=command[pid]
-                sub(/^[^[:space:]]+[[:space:]]+/, "", arguments)
-                if (executable == "bash" && arguments == script " " namespace \
-                    && index(command[parent[pid]], marker) > 0) count++
-            }
-            print count + 0
-        }
-    '
+# --- Generic mkdir-based lock ------------------------------------------------
+# Same protocol as registry_reconciler.py's lockdir() and
+# bin/chrono-queue-backfill.sh's inline lock: atomic mkdir is the acquire, an
+# owner.pid file is written immediately after so a waiter can tell whether the
+# current holder is still alive. A confirmed-dead owner (kill -0 fails) breaks
+# the lock immediately; an owner.pid that cannot be read/parsed is treated as
+# abandoned once the lock directory's mtime is older than 300s. Neither of
+# those paths waits out the timeout below -- they are the "dead or absent
+# owner" case, and are safe to break right away.
+#
+# What is new here relative to those two: an overall wall-clock timeout. A
+# CONFIRMED-LIVE owner is never broken early no matter how long the wait --
+# on timeout this fails loudly instead, naming the owner PID and lock age, per
+# "never silently proceed, never silently break a live owner's lock."
+#
+# Args: $1 lock directory   $2 overall timeout in seconds   $3 label for messages
+#
+# Every path through the loop body reaches the timeout check below -- there is
+# deliberately no `continue` past it. Both lock-breaking branches used to
+# `continue` on the assumption that the break had worked, which jumped over
+# BOTH the timeout check and the sleep. When the break cannot succeed (parent
+# directory unwritable or read-only, lock directory owned by another user, a
+# leftover file inside it, a full disk) that was an unbounded busy spin at
+# 100% CPU with no timeout and no sleep: `squad up` hanging forever instead of
+# failing loudly, which is the precise outcome Plan B Task 2 exists to remove.
+# Newly reachable because this lock moved out of always-writable /tmp and
+# under ${VAULT_ROOT}/_state, which one `sudo squad up` leaves root-owned.
+# registry_reconciler.py's _lockdir_wait_or_timeout() already gets this right;
+# this is the same protocol, now bounded in both languages.
+acquire_dir_lock() {
+    local lock_dir="$1" timeout_s="$2" label="$3"
+    local start_ts now waited owner_pid mtime age broke_lock
+    start_ts=$(date +%s)
+    mkdir -p "$(dirname -- "$lock_dir")" 2>/dev/null || true
+    while ! mkdir "$lock_dir" 2>/dev/null; do
+        broke_lock=0
+        owner_pid="$(cat "${lock_dir}/owner.pid" 2>/dev/null || true)"
+        if [[ "$owner_pid" =~ ^[0-9]+$ ]]; then
+            if ! kill -0 "$owner_pid" 2>/dev/null; then
+                rm -f "${lock_dir}/owner.pid" 2>/dev/null || true
+                rmdir "$lock_dir" 2>/dev/null && broke_lock=1
+            fi
+        else
+            if mtime="$(file_mtime_epoch "$lock_dir")"; then
+                age=$(( $(date +%s) - mtime ))
+                if [[ "$age" -gt 300 ]]; then
+                    rm -f "${lock_dir}/owner.pid" 2>/dev/null || true
+                    rmdir "$lock_dir" 2>/dev/null && broke_lock=1
+                fi
+            elif [[ ! -d "$lock_dir" ]]; then
+                # The holder released between mkdir's failure and this probe.
+                # Retry immediately; there is no unreadable lock left to judge.
+                broke_lock=1
+            else
+                # Indeterminate is not stale. Keep the lock intact and stay in
+                # the existing bounded wait: its owner may still publish
+                # owner.pid, and on timeout the diagnostic below reports an
+                # unknown age instead of inventing epoch zero.
+                :
+            fi
+        fi
+        now=$(date +%s)
+        waited=$((now - start_ts))
+        if [[ "$waited" -ge "$timeout_s" ]]; then
+            # A lock directory that does not exist was never "held" -- mkdir
+            # itself is failing, and reporting a phantom owner and a 0s lock
+            # age would send the operator hunting a process that isn't there.
+            if [[ ! -d "$lock_dir" ]]; then
+                echo "ERROR: ${label} (${lock_dir}) could not be CREATED after ${waited}s: mkdir keeps failing and the directory does not exist." >&2
+                echo "This is not a held lock. Check that $(dirname -- "$lock_dir") is writable by this user (one 'sudo squad up' is enough to leave it root-owned) and that the disk is not full." >&2
+                return 1
+            fi
+            if mtime="$(file_mtime_epoch "$lock_dir")"; then
+                age="$(( now - mtime ))s"
+            else
+                age="unknown (mtime unreadable)"
+            fi
+            echo "ERROR: ${label} (${lock_dir}) still held after ${waited}s by PID ${owner_pid:-unknown} (lock age ${age}); refusing to wait longer." >&2
+            echo "Never broken automatically -- if PID ${owner_pid:-unknown} is confirmed gone, remove manually: rm -rf ${lock_dir}" >&2
+            return 1
+        fi
+        # A break that actually succeeded retries immediately (nothing to wait
+        # for); every other path backs off, so a break that keeps failing
+        # cannot burn a core while it waits out the timeout above.
+        [[ "$broke_lock" == 1 ]] || sleep 0.1
+    done
+    printf '%s\n' "$$" > "${lock_dir}/owner.pid"
+    return 0
 }
 
-watcher_supervisor_count() {
-    local marker="$1"
-    ps -axo command= | python3 -c '
-import os
-import shlex
-import sys
-
-marker = sys.argv[1]
-count = 0
-for raw in sys.stdin:
-    try:
-        argv = shlex.split(raw.strip())
-    except ValueError:
-        continue
-    if len(argv) >= 4 and os.path.basename(argv[0]) == "bash" \
-            and argv[1] == "-c" and marker in argv[2:]:
-        count += 1
-print(count)
-' "$marker"
+release_dir_lock() {
+    local lock_dir="$1"
+    rm -f "${lock_dir}/owner.pid" 2>/dev/null || true
+    rmdir "$lock_dir" 2>/dev/null || true
 }
 
+# --- Pidfile-based fleet accounting (Plan B Task 8) -------------------------
+# watcher_script_count()/watcher_supervisor_count() used to answer "how many
+# supervisors/root watchers are running" by scanning EVERY process on the
+# host (`ps -axo command=`) and shlex-parsing its full command line, then
+# substring/token-matching against a plain "watcher-supervisor:..." marker
+# with NO VAULT_ROOT or SQUAD_SESSION scoping. Two independent failure modes
+# followed from that: (1) `shlex.split()` on a 41KB specialist prompt (a
+# measured real argv size, containing plain-English apostrophes) can raise
+# ValueError; the row was silently `continue`d, undercounting supervisors --
+# watcher_fleet_healthy then read unhealthy on a HEALTHY fleet and triggered a
+# needless kill-and-respawn cycle, which is how six intended watchers leaked
+# to 43 running. (2) The marker match itself had no owner scoping at all, so
+# it could -- and once did -- match another checkout/session's real
+# watcher-supervisor processes and get them killed by this one's repair cycle.
+#
+# Replaced with pidfile_alive() (declared near the top of this file, by
+# WATCHER_FLEET_RUNTIME_DIR): the two supervisors write their own PID to a
+# VAULT_ROOT+SQUAD_SESSION-scoped file the instant they're spawned. No global
+# `ps` scan, no argv parsing of anything this launcher did not itself write.
 watcher_fleet_report() {
-    printf 'outbox[all]=%s/%s (root/supervisor)\n' \
-        "$(watcher_script_count outbox "${VAULT_ROOT}/bin/outbox-watcher.sh" all)" \
-        "$(watcher_supervisor_count "watcher-supervisor:outbox:all")"
-    printf 'reconcile-sweep=%s\n' \
-        "$(watcher_supervisor_count watcher-supervisor:reconcile-sweep)"
+    local outbox_pid reconcile_pid outbox_children
+    outbox_pid="$(cat "$OUTBOX_SUPERVISOR_PIDFILE" 2>/dev/null || echo none)"
+    reconcile_pid="$(cat "$RECONCILE_SUPERVISOR_PIDFILE" 2>/dev/null || echo none)"
+    outbox_children=0
+    if [[ "$outbox_pid" =~ ^[0-9]+$ ]]; then
+        outbox_children="$(pgrep -P "$outbox_pid" 2>/dev/null | wc -l | tr -d '[:space:]')"
+    fi
+    printf 'outbox[all]=supervisor-pid:%s live-children:%s\n' "$outbox_pid" "$outbox_children"
+    printf 'reconcile-sweep=supervisor-pid:%s\n' "$reconcile_pid"
 }
 
 watcher_fleet_healthy() {
-    local index5_name
+    local index5_name outbox_pid
     index5_name="$(tmux list-windows -t "$SESSION" -F '#{window_index}|#{window_name}' 2>/dev/null | awk -F'|' '$1 == 5 {print $2}')"
     [[ "$index5_name" == "$WATCHERS_WIN" ]] || return 1
-    # No aggregate "watcher-supervisor:" count here. watcher_supervisor_count
-    # matches the marker as an EXACT argv element (`marker in argv[2:]`), and the
-    # spawned markers are "watcher-supervisor:outbox:all" and
-    # "watcher-supervisor:reconcile-sweep" -- so a bare "watcher-supervisor:"
-    # prefix matches nothing and the aggregate clause could never be satisfied.
-    #
-    # That bug predates the consolidation (it compared against
-    # ${#COMPATIBILITY_NAMESPACES[@]} + 1, equally unreachable) and is why the
-    # fleet never converged: health returned 1, the deterministic repair killed
-    # and respawned, and each cycle leaked processes until 43 were running.
-    # The two exact-marker checks below fully determine fleet health on their own.
-    [[ "$(watcher_supervisor_count "watcher-supervisor:outbox:all")" == 1 ]] || return 1
-    [[ "$(watcher_script_count outbox "${VAULT_ROOT}/bin/outbox-watcher.sh" all)" == 1 ]] || return 1
-    [[ "$(watcher_supervisor_count watcher-supervisor:reconcile-sweep)" == 1 ]] || return 1
+    pidfile_alive "$OUTBOX_SUPERVISOR_PIDFILE" || return 1
+    pidfile_alive "$RECONCILE_SUPERVISOR_PIDFILE" || return 1
+    # A live supervisor with no live child is a hung or crash-looping wrapper,
+    # not a working watcher. `pgrep -P` is a kernel PPID lookup -- a process
+    # relationship, not a name or argv scan -- so it cannot be confused by an
+    # unrelated process's command line the way the old marker match was.
+    outbox_pid="$(cat "$OUTBOX_SUPERVISOR_PIDFILE" 2>/dev/null)"
+    [[ -n "$(pgrep -P "$outbox_pid" 2>/dev/null)" ]] || return 1
 }
 
 watcher_cleanup_pids() {
@@ -563,31 +981,135 @@ while cursor in processes and cursor > 1:
     protected.add(cursor)
     cursor = processes[cursor][0]
 
+# watcher_seed() finds ORPHANS from before pidfile tracking existed (Plan B
+# Task 8) -- the current supervisors are identified precisely via
+# OUTBOX_SUPERVISOR_PIDFILE/RECONCILE_SUPERVISOR_PIDFILE (pidfile_alive() in
+# the parent shell) and don't need this at all. This is the fallback for
+# whatever this launcher did NOT itself spawn and track: a stray
+# watcher-supervisor loop or fswatch process left over from a crash, an old
+# per-namespace fleet, etc.
+#
+# SCOPE OF THE SWEEP -- VAULT_ROOT-scoped, deliberately ROOT-WIDE across
+# sessions. This is NOT the same scoping as the pidfiles above (VAULT_ROOT AND
+# SQUAD_SESSION), and the difference is intentional, not an oversight:
+#
+#   1. An orphan has no recoverable session. It was spawned by a session that
+#      has since died, possibly under a name nothing on this host still uses.
+#      Scoping the sweep to the CURRENT session would make it structurally
+#      unable to clean the exact thing it exists for -- and cross-restart
+#      accumulation is what the "43 running" history in this file's header is
+#      made of.
+#   2. Only the two supervisor wrappers could take a session token for free.
+#      This launcher composes their argv itself, right here. The other three
+#      seed shapes -- `outbox-watcher.sh all`, `swarm_runtime.py
+#      reconcile-sweep`, `fswatch <mailbox leaves>` -- are settled CLI
+#      contracts, and each is an INDEPENDENT seed. Scoping the wrappers alone
+#      would leave every child unscoped while letting this comment claim the
+#      sweep is session-scoped: a partial guarantee stated as a complete one,
+#      which is the defect class this whole plan exists to remove.
+#
+#      Scoping all of them is possible but not free. Two of the three ARE ours
+#      to change -- bin/outbox-watcher.sh and scripts/python/swarm_runtime.py,
+#      invoked by the loop bodies at the spawn site above, which are ours too
+#      -- so it means new argument handling in two scripts plus three changed
+#      spawn shapes, bought to gain a guarantee item 1 says we do not want.
+#      Only `fswatch` is third-party and genuinely could not carry one.
+#
+# The residual, stated rather than papered over: two squad sessions running
+# concurrently on ONE checkout cross-kill each other's watchers (and, via the
+# shell-ancestor ascent below, each other's window-5 pane shell). Same family
+# as the 2026-08-16 incident, narrower blast radius -- it cannot cross a
+# VAULT_ROOT boundary, which is what that incident did. Two concurrent
+# sessions on one checkout is unsupported; use separate checkouts. Tests that
+# need a throwaway session on a live checkout set SQUAD_SKIP_WATCHER_FLEET=1,
+# which is why that seam still exists.
+#
+# Exact positional matching only -- never substring, never token-membership
+# ("is this string present ANYWHERE in the tokenized command"). A specialist's
+# entire compiled prompt is its argv (measured 41,008 bytes on a live
+# `codex exec`, containing the literal text "outbox-watcher.sh" as plain
+# prose): a predicate testing "does some token merely CONTAIN or EQUAL this
+# text" will eventually fire on prose that happens to reproduce it, and a
+# predicate with no VAULT_ROOT scoping will fire on a DIFFERENT checkout's
+# real, live, legitimate watcher processes too -- the exact defect that
+# killed the operator's live fleet from an isolated regression test.
 def watcher_seed(command: str) -> bool:
-    try:
-        tokens = shlex.split(command)
-    except ValueError:
+    # `ps -axo command=` prints the kernel's argv SPACE-JOINED WITH NO QUOTING
+    # RE-ADDED. It is not a shell command line and cannot be tokenized back
+    # into argv unambiguously, so every fixed shape below is matched against
+    # that raw text at a FIXED POSITION -- the head, or the tail -- never
+    # "does this text appear somewhere in it".
+    #
+    # This corrects the clause that shipped with Plan B Task 8, which required
+    # `len(shlex.split(command)) == 5` for the supervisor wrapper. A real
+    # supervisor can never satisfy that: the `bash -c` body is ONE argv
+    # element full of spaces, so `ps` renders the whole invocation as 17
+    # space-separated words. Measured against the live fleet, both supervisors
+    # came back tokens=17 / no match, and the two positive-control tests
+    # passed only because they hand-built a single-quoted string `ps` cannot
+    # emit -- they would have passed with the clause deleted. Matching the
+    # tail rather than a token COUNT also drops the hidden dependency on the
+    # loop body's own length, which is free to change.
+    command = command.strip()
+    if not command:
         return False
-    if not tokens:
-        return False
-    executable = os.path.basename(tokens[0])
+    executable, _sep, rest = command.partition(" ")
+    executable = os.path.basename(executable)
     outbox_script = f"{root}/bin/outbox-watcher.sh"
     runtime_script = f"{root}/scripts/python/swarm_runtime.py"
-    mailbox_leaf = any(
-        token.startswith(f"{root}/departments/")
-        and (token.endswith("/inbox") or token.endswith("/outbox"))
-        for token in tokens
-    )
-    return (
-        any(token.startswith("watcher-supervisor:") for token in tokens)
-        or (executable in {"bash", "sh", "zsh"} and outbox_script in tokens)
-        or (
-            executable.startswith("python")
-            and runtime_script in tokens
-            and "reconcile-sweep" in tokens
+
+    # A watcher-supervisor wrapper is spawned as EXACTLY
+    #   bash -c '<loop body>' '<marker>' '<vault-root-scoped script>'
+    # (see the spawn site near WATCHER_FLEET_CHILD above). argv[0] and argv[1]
+    # are pinned at the head, and the marker and script path are pinned as the
+    # LAST TWO argv elements. Both scoping properties of the previous clause
+    # survive intact: the marker is compared as an EXACT string (never a
+    # prefix/substring/"token starts with" test), and the script path is
+    # VAULT_ROOT-anchored, so this root's marker sitting next to a DIFFERENT
+    # root's script path -- the only way a real foreign supervisor could ever
+    # present here -- does not match. For 41KB of specialist prose to reach
+    # this it would have to BEGIN `bash -c ` and END with this exact
+    # marker-then-path pair.
+    if executable == "bash" and rest.startswith("-c "):
+        for marker, script in (
+            ("watcher-supervisor:outbox:all", outbox_script),
+            ("watcher-supervisor:reconcile-sweep", runtime_script),
+        ):
+            if rest.endswith(f" {marker} {script}"):
+                return True
+
+    # The root watchers those wrappers exec. Compared as the whole argv tail
+    # rather than token-by-token so that a VAULT_ROOT containing a space (an
+    # ordinary macOS clone location: "~/Google Drive/...", "~/Obsidian
+    # Vaults/...") still matches -- shlex would split such a path into two
+    # tokens and silently stop matching, the same class of false negative as
+    # the token-count bug above.
+    if executable == "bash" and rest == f"{outbox_script} all":
+        return True
+    # `.lower()` is load-bearing: macOS Homebrew's framework build execs
+    # .../Python.app/Contents/MacOS/Python, so argv[0]'s basename is `Python`
+    # and the case-sensitive `startswith("python")` this replaces never
+    # matched the live reconcile-sweep child at all.
+    if executable.lower().startswith("python") and rest == f"{runtime_script} reconcile-sweep":
+        return True
+
+    # fswatch is the one shape with no fixed argv length -- the watcher passes
+    # one mailbox path per directory it monitors -- so "some argv element is a
+    # VAULT_ROOT-scoped mailbox leaf" is the only available test and
+    # tokenizing is unavoidable. It is gated behind the `fswatch` executable
+    # name so a specialist's prose argv can never reach it, and every accepted
+    # token is still VAULT_ROOT-anchored.
+    if executable == "fswatch":
+        try:
+            tokens = shlex.split(command)
+        except ValueError:
+            return False
+        return any(
+            token.startswith(f"{root}/departments/")
+            and (token.endswith("/inbox") or token.endswith("/outbox"))
+            for token in tokens
         )
-        or (executable == "fswatch" and mailbox_leaf)
-    )
+    return False
 
 targets = watcher_roots | {
     pid for pid, (_ppid, command) in processes.items() if watcher_seed(command)
@@ -595,6 +1117,12 @@ targets = watcher_roots | {
 
 # A named seed owns all descendants. Ascend only through shell ancestors that
 # are not protected lane/coordinator roots; this catches bare historical loops.
+# (Previously also continued past a non-shell ancestor if its command
+# happened to contain "watcher-supervisor:" anywhere -- an unscoped substring
+# check that contradicted this comment's own "only through shell ancestors"
+# and is exactly the class of match this whole function exists to eliminate.
+# A genuine supervisor ancestor is already its own seed via watcher_seed()
+# above, so dropping that clause loses nothing.)
 queue = list(targets)
 while queue:
     pid = queue.pop()
@@ -607,7 +1135,7 @@ for seed in list(targets):
     while parent > 1 and parent in processes and parent not in protected:
         command = processes[parent][1]
         executable = os.path.basename(command.split(None, 1)[0])
-        if executable not in {"bash", "zsh", "sh"} and "watcher-supervisor:" not in command:
+        if executable not in {"bash", "zsh", "sh"}:
             break
         targets.add(parent)
         parent = processes[parent][0]
@@ -688,10 +1216,47 @@ start_watcher_fleet() {
 
 ensure_watcher_fleet() (
     local rc=0 index5_name
-    tmux wait-for -L "$WATCHER_FLEET_LOCK"
+    # Hermetic regression seam, same spirit as SQUAD_PREFLIGHT_ONLY /
+    # SQUAD_DAEMON_ENSURE_ONLY above: skips watcher-fleet management entirely.
+    # Production launches never set this.
+    #
+    # It was added when watcher_cleanup_pids()/watcher_seed() matched the
+    # "watcher-supervisor:" marker across ALL processes on the host with no
+    # VAULT_ROOT scoping whatsoever -- a throwaway session's
+    # `watcher_fleet_healthy()` is unconditionally false the first time (no
+    # window 5 yet), so it always reaches stop_watcher_fleet(), which then
+    # killed this HOST'S real live fleet for whatever OTHER checkout happened
+    # to be running. Confirmed the hard way while writing this file's own
+    # regression test.
+    #
+    # VAULT_ROOT scoping landed with Plan B Task 8, so that cross-CHECKOUT
+    # blast radius is closed: an isolated test with its own VAULT_ROOT can no
+    # longer select this checkout's processes. The seam remains necessary
+    # because the sweep is deliberately root-wide across SESSIONS -- see
+    # "SCOPE OF THE SWEEP" above watcher_cleanup_pids() for why, and for the
+    # residual it accepts. A test using a throwaway SQUAD_SESSION on the LIVE
+    # checkout is exactly that residual, so it must keep setting this.
+    if [[ "${SQUAD_SKIP_WATCHER_FLEET:-0}" == "1" ]]; then
+        echo "Watcher fleet management skipped (SQUAD_SKIP_WATCHER_FLEET=1)."
+        return 0
+    fi
+    # Was `tmux wait-for -L "$WATCHER_FLEET_LOCK"`, released only in the traps
+    # below. That lock has no owner introspection (no PID, no age) and no
+    # timeout: if the holder was SIGKILLed before reaching its own
+    # `wait-for -U`, tmux never releases it (a wait-for lock is not tied to
+    # the holding process's lifetime the way an flock/mkdir lock is), so every
+    # later `squad up` would block here silently forever. The mkdir-based
+    # acquire_dir_lock below is the same bounded, owner-tracked protocol used
+    # for LAUNCH_LOCK above and for chrono-queue.md's writers: a confirmed-dead
+    # owner breaks the lock immediately, a live owner is never broken early,
+    # and a wait that outlasts the timeout fails loudly with the owner PID and
+    # lock age instead of hanging.
+    if ! acquire_dir_lock "$WATCHER_FLEET_LOCK" "$WATCHER_FLEET_LOCK_TIMEOUT" "watcher-fleet lock"; then
+        return 79
+    fi
     WATCHER_FLEET_LOCK_HELD=1
-    trap 'if [[ "$WATCHER_FLEET_LOCK_HELD" == 1 ]]; then tmux wait-for -U "$WATCHER_FLEET_LOCK" 2>/dev/null || true; WATCHER_FLEET_LOCK_HELD=0; fi' EXIT
-    trap 'if [[ "$WATCHER_FLEET_LOCK_HELD" == 1 ]]; then tmux wait-for -U "$WATCHER_FLEET_LOCK" 2>/dev/null || true; WATCHER_FLEET_LOCK_HELD=0; fi; exit 130' HUP INT TERM
+    trap 'if [[ "$WATCHER_FLEET_LOCK_HELD" == 1 ]]; then release_dir_lock "$WATCHER_FLEET_LOCK"; WATCHER_FLEET_LOCK_HELD=0; fi' EXIT
+    trap 'if [[ "$WATCHER_FLEET_LOCK_HELD" == 1 ]]; then release_dir_lock "$WATCHER_FLEET_LOCK"; WATCHER_FLEET_LOCK_HELD=0; fi; exit 130' HUP INT TERM
     if [[ "${#COMPATIBILITY_NAMESPACES[@]}" -eq 0 ]]; then
         echo "ERROR: compatibility namespace inventory is empty; watcher cleanup refused" >&2
         rc=76
@@ -702,7 +1267,7 @@ ensure_watcher_fleet() (
         rc=77
     fi
     if [[ "$rc" -ne 0 ]]; then
-        tmux wait-for -U "$WATCHER_FLEET_LOCK"
+        release_dir_lock "$WATCHER_FLEET_LOCK"
         WATCHER_FLEET_LOCK_HELD=0
         trap - EXIT HUP INT TERM
         return "$rc"
@@ -725,11 +1290,174 @@ ensure_watcher_fleet() (
             stop_watcher_fleet || true
         fi
     fi
-    tmux wait-for -U "$WATCHER_FLEET_LOCK"
+    release_dir_lock "$WATCHER_FLEET_LOCK"
     WATCHER_FLEET_LOCK_HELD=0
     trap - EXIT HUP INT TERM
     return "$rc"
 )
+
+# --- LAUNCH_LOCK: serialize the has-session decision + session creation ----
+# This is the actual fix for the duplicate-Chrono race: without it, two
+# concurrent `squad up` runs both observe "no session yet" from `has-session`
+# below and both attempt to create one (the unchecked-`tmux new-session`
+# backstop above then only decides which one errors out). With the lock, the
+# loser blocks here until the winner has *finished* creating the session, then
+# re-reads has-session for itself and takes the reattach branch below instead.
+#
+# Lock ordering (written contract, checked by adversarial review as the
+# highest-risk item in this remediation): LAUNCH_LOCK is always acquired
+# BEFORE WATCHER_FLEET_LOCK (below, inside ensure_watcher_fleet) and is always
+# released before this process can block on anything interactive --
+# `tmux attach` or the "Attach now?" prompt at the very end of a fresh launch.
+# Holding it through an attached operator's whole terminal session would
+# strand every other concurrent `squad up` for as long as that terminal stays
+# open. Never acquire WATCHER_FLEET_LOCK first and then try for LAUNCH_LOCK --
+# that reverses this order and can deadlock against a concurrent launch's
+# forward-ordered acquisition.
+#
+# The `--watcher-fleet-child` re-invocation (see WATCHER_FLEET_CHILD near the
+# top of this script) NEVER reaches this line: it takes its own fast-path
+# `exit 0` long before LAUNCH_LOCK is even declared. That is what makes this
+# safe against the deadlock flagged in review: a *literally* launch-wide lock
+# that also caught the watcher-fleet child would let the parent (holding
+# LAUNCH_LOCK, polling the child's health inside ensure_watcher_fleet) and the
+# child (blocked forever acquiring the very lock its own parent holds) wait on
+# each other forever, and no fresh startup would ever converge again. The
+# `WATCHER_FLEET_CHILD != 1` guard below is a second, explicit line against
+# exactly that failure mode, in case this code is ever reordered.
+# Anchored under VAULT_ROOT/_state, NOT ${TMPDIR:-/tmp} -- see the identical
+# reasoning at WATCHER_FLEET_LOCK's declaration above (fix round 1 on Plan B
+# Task 1/2): TMPDIR varies by invocation context, so a plain-/tmp lock path
+# silently degrades mutual exclusion to none between two launches from
+# different contexts, and world-writable /tmp lets a local user pre-create
+# the directory and permanently deny `squad up`.
+LAUNCH_LOCK="${VAULT_ROOT}/_state/runtime/vibesquad-launch-${SESSION}.lockdir"
+LAUNCH_LOCK_HELD=0
+# Must exceed WATCHER_FLEET_LOCK_TIMEOUT with real margin, not just be
+# "different": LAUNCH_LOCK is held across the entire ensure_watcher_fleet()
+# call below (both branches), which itself first waits up to
+# WATCHER_FLEET_LOCK_TIMEOUT to acquire WATCHER_FLEET_LOCK, and can then
+# spend further real time inside stop_watcher_fleet()/start_watcher_fleet()
+# actually tearing down and respawning the fleet. Two EQUAL timeouts (both
+# defaulted to 60s until this fix) let a LAUNCH_LOCK waiter time out and
+# fail loudly while its own holder is still legitimately mid-repair -- not a
+# hung holder, just a slower one than the outer bound accounted for. The
+# margin below is deliberately generous (not "+1s"): stop_watcher_fleet's
+# own TERM-then-KILL wait loop alone can take up to ~4s, and a cold
+# watcher-fleet-child spawn can reasonably take several more.
+LAUNCH_LOCK_TIMEOUT="${SQUAD_LAUNCH_LOCK_TIMEOUT:-$((WATCHER_FLEET_LOCK_TIMEOUT + 60))}"
+if [[ "$LAUNCH_LOCK_TIMEOUT" -le "$WATCHER_FLEET_LOCK_TIMEOUT" ]]; then
+    echo "ERROR: SQUAD_LAUNCH_LOCK_TIMEOUT (${LAUNCH_LOCK_TIMEOUT}s) must exceed" >&2
+    echo "SQUAD_WATCHER_FLEET_LOCK_TIMEOUT (${WATCHER_FLEET_LOCK_TIMEOUT}s) -- LAUNCH_LOCK is held" >&2
+    echo "across ensure_watcher_fleet(), which itself waits up to the watcher-fleet" >&2
+    echo "timeout; an outer timeout that is not strictly longer can fire while its own" >&2
+    echo "holder is still legitimately working, not hung." >&2
+    exit 1
+fi
+
+release_launch_lock() {
+    if [[ "$LAUNCH_LOCK_HELD" == 1 ]]; then
+        release_dir_lock "$LAUNCH_LOCK"
+        LAUNCH_LOCK_HELD=0
+    fi
+}
+trap release_launch_lock EXIT
+trap 'release_launch_lock; exit 130' HUP INT TERM
+
+# Hermetic regression seam (fix round 1 on Plan B Task 1/2): when set, block
+# here until a second file appears, after first touching a marker file to
+# announce arrival. Lets a test force two concurrent launches to be
+# PROVABLY racing through the LAUNCH_LOCK/has-session decision at the exact
+# same instant, rather than merely started around the same time -- a test
+# with no such barrier cannot distinguish "the race is closed" from "the
+# race never actually happened" (e.g. one process finishing before the
+# other even reaches this point, which "passes" either way). Production
+# launches never set this.
+if [[ -n "${SQUAD_TEST_RACE_BARRIER:-}" ]]; then
+    touch "${SQUAD_TEST_RACE_BARRIER}.ready.$$"
+    while [[ ! -f "${SQUAD_TEST_RACE_BARRIER}.go" ]]; do
+        sleep 0.05
+    done
+fi
+
+if [[ "$WATCHER_FLEET_CHILD" != 1 ]]; then
+    if ! acquire_dir_lock "$LAUNCH_LOCK" "$LAUNCH_LOCK_TIMEOUT" "squad launch lock"; then
+        exit 1
+    fi
+    LAUNCH_LOCK_HELD=1
+fi
+
+# Reattach-path session health check (Plan B Task 7 addition). Before this,
+# the reattach branch verified nothing beyond the watcher window (via
+# ensure_watcher_fleet, which only looks at window 5) -- window 0 could be
+# missing, its coordinator pane could be dead, or unrelated stray windows
+# could accumulate, and `squad up` would attach anyway, silently. Measured:
+# the operator's live session sat for eight days with no watcher window at
+# all and a stray, un-managed "zsh" window at index 1 -- `squad up` attached
+# to it without repairing or complaining every time, and it took two manual
+# launcher runs to actually fix.
+#
+# Contract: repair what can be repaired (stray default-named windows are
+# reaped inline, matching "repair silently, never attach silently to a
+# malformed session" without stopping the launch over something harmless);
+# fail loudly (refuse to attach, non-zero exit) for anything that cannot be
+# repaired here -- a coordinator window that is missing, misnamed, or whose
+# pane process is actually gone. This does not attempt deep coordinator
+# liveness (no heartbeat exists for "is Claude still responsive" the way
+# Task 8 built one for the watcher fleet) -- it catches the concrete
+# failure this guards against: window/pane composition, not conversational
+# health.
+verify_session_windows() {
+    local index0_name chrono_pane_pids pane_pid pane_alive=0
+    local idx name auto_rename pane_count
+
+    index0_name="$(tmux list-windows -t "$SESSION" -F '#{window_index}|#{window_name}' 2>/dev/null | awk -F'|' '$1 == 0 {print $2}')"
+    if [[ "$index0_name" != "chrono" ]]; then
+        echo "ERROR: squad:0 is not the chrono coordinator window (found '${index0_name:-<absent>}'); refusing to attach to a malformed session." >&2
+        return 1
+    fi
+
+    chrono_pane_pids="$(tmux list-panes -t "${SESSION}:chrono" -F '#{pane_pid}' 2>/dev/null)"
+    if [[ -z "$chrono_pane_pids" ]]; then
+        echo "ERROR: squad:chrono has no panes; refusing to attach to a malformed session." >&2
+        return 1
+    fi
+    for pane_pid in $chrono_pane_pids; do
+        kill -0 "$pane_pid" 2>/dev/null && pane_alive=1
+    done
+    if [[ "$pane_alive" != 1 ]]; then
+        echo "ERROR: squad:chrono's pane process is gone (checked PID(s): ${chrono_pane_pids}); refusing to attach to a malformed session." >&2
+        return 1
+    fi
+
+    # Reap stray default-named windows: not the coordinator (0) or the
+    # watchers window, a single pane, and still on tmux's own
+    # automatic-rename for that window (queried via the #{automatic-rename}
+    # format variable, which resolves tmux's real session/global-default
+    # inheritance itself rather than this script trying to reimplement it).
+    # Both windows this launcher creates are given an explicit `-n` name at
+    # creation, which is what turns automatic-rename off for them -- a
+    # window still on automatic-rename was never named by this script, and
+    # tmux renames a window after whatever its active foreground command
+    # is, so "zsh"/"bash"/"sh" with automatic-rename still on means the
+    # bare shell itself -- not something the operator is running inside
+    # it -- is what's sitting in that pane.
+    while IFS='|' read -r idx name auto_rename pane_count; do
+        [[ -z "$idx" ]] && continue
+        [[ "$idx" == "0" ]] && continue
+        [[ "$name" == "$WATCHERS_WIN" ]] && continue
+        [[ "$auto_rename" == "1" ]] || continue
+        [[ "$pane_count" == "1" ]] || continue
+        case "$name" in
+            zsh|bash|sh) ;;
+            *) continue ;;
+        esac
+        echo "Reaping stray default-named window ${idx} ('${name}') -- not the coordinator or watcher window, still auto-renamed, single idle pane."
+        tmux kill-window -t "${SESSION}:${idx}" 2>/dev/null || true
+    done < <(tmux list-windows -t "$SESSION" -F '#{window_index}|#{window_name}|#{automatic-rename}|#{window_panes}' 2>/dev/null)
+
+    return 0
+}
 
 # If the session already exists, re-assert globals (the server is up) and attach.
 # Only attach when we actually have a terminal — otherwise `tmux attach` hangs
@@ -739,7 +1467,12 @@ if tmux has-session -t "${SESSION}" 2>/dev/null; then
         echo "ERROR: watcher fleet repair failed; coordinator and lane panes were left untouched" >&2
         exit 1
     fi
+    if ! verify_session_windows; then
+        release_launch_lock
+        exit 1
+    fi
     apply_squad_globals
+    release_launch_lock
     if [[ -t 0 && -t 1 ]]; then
         echo "Session '${SESSION}' already exists. Attaching..."
         tmux attach -t "${SESSION}"
@@ -761,7 +1494,20 @@ fi
 
 # Create the coordinator session FIRST so the tmux server exists, THEN style.
 # (The chrono pane is populated further below, once PATH/AUTH prefixes are set.)
-tmux new-session -d -s "${SESSION}" -n "chrono" -c "${VAULT_ROOT}/chrono"
+#
+# The exit status is load-bearing: `set -uo pipefail` has no `-e`, so an
+# unchecked failure here used to fall straight through to the pane setup
+# below, and `tmux send-keys ... vs-welcome.sh` (which execs claude) landed in
+# whatever session already held that name -- the duplicate-Chrono bug. Two
+# concurrent `squad up` runs both pass the `has-session` check above (neither
+# session exists yet), then both reach this line; only one `tmux new-session`
+# actually creates it, and the loser must abort here rather than silently
+# continue into a live session it does not own.
+if ! tmux new-session -d -s "${SESSION}" -n "chrono" -c "${VAULT_ROOT}/chrono"; then
+    echo "ERROR: failed to create tmux session '${SESSION}' -- it likely already exists (a concurrent launch may have won the race)." >&2
+    echo "Attach to the live session instead:  tmux attach -t ${SESSION}" >&2
+    exit 1
+fi
 apply_squad_globals
 
 # Per-pane log dir — pipe-pane writes pane stdout here for grep-able audit
@@ -882,6 +1628,12 @@ bash "${VAULT_ROOT}/bin/sidebar.sh" >/dev/null 2>&1 || true
 tmux select-window -t "${SESSION}:chrono"
 tmux select-pane -t "${SESSION}:chrono.0"
 
+# Session creation is fully converged -- release LAUNCH_LOCK now, before the
+# interactive "Attach now?" prompt / `tmux attach` below, so a waiting
+# concurrent `squad up` is freed as soon as it is safe to do so rather than
+# for the rest of this operator's terminal session.
+release_launch_lock
+
 echo "✓ Session '${SESSION}' created:"
 echo "  0: chrono     (Coordinator + live dashboard sidebar)"
 echo "  5: ${WATCHERS_WIN} (1 consolidated outbox watcher, all ${#COMPATIBILITY_NAMESPACES[@]} namespaces + reconciliation sweep)"
@@ -891,7 +1643,7 @@ echo "Board dispatch is the default: specialists spawn as fresh capability-scope
 echo "Chrono window has the live dashboard sidebar. Toggle off: bin/sidebar-off.sh"
 if [[ "${DAEMON_PRESENT}" == "0" ]]; then
     echo "Running WITHOUT the optional daemon: the status bar reads '● daemon offline' and the"
-    echo "weekly-review summary is unavailable. Everything above is unaffected."
+    echo "documented HTTP tool bridge is unavailable. Everything above is unaffected."
 fi
 echo ""
 echo "To attach now:           tmux attach -t ${SESSION}"

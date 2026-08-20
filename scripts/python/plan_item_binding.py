@@ -38,6 +38,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import stat
 import subprocess
 import sys
 
@@ -160,11 +161,24 @@ def _plan_header_status(text: str, *, path: Path) -> str | None:
 
 
 def active_plan_authorities(plans_dir: Path) -> list[Path]:
-    """Return direct plan files whose header status is exactly ``active``."""
+    """Return direct plan files whose header status is exactly ``active``.
+
+    The plans directory is an optional input. Its absence means the repository
+    currently has no active plan authorities; a path that exists but is not a
+    directory is still malformed and fails closed.
+    """
 
     plans_dir = Path(plans_dir)
-    if not plans_dir.is_dir():
-        raise PlanItemBindingError(f"plans directory is missing: {plans_dir}")
+    try:
+        mode = plans_dir.stat().st_mode
+    except FileNotFoundError:
+        return []
+    except OSError as exc:
+        raise PlanItemBindingError(
+            f"cannot inspect plans path {plans_dir}: {exc}"
+        ) from exc
+    if not stat.S_ISDIR(mode):
+        raise PlanItemBindingError(f"plans path is not a directory: {plans_dir}")
     active: list[Path] = []
     for path in sorted(plans_dir.glob("*.md")):
         if path.name == "README.md" or not path.is_file():

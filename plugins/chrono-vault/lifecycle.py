@@ -14,13 +14,20 @@ from clearance import (
     require_controller_lifecycle,
     require_memory_operation,
     require_note_visible,
+    require_note_within_clearance,
 )
+import curation_queue
 import index as vault_index
 import notes as vault_notes
-from vaultroot import resolve_vault_root
+from vaultroot import REPO_ROOT, resolve_vault_root
 
 
 OUTCOMES = frozenset({"used", "not_useful", "incorrect"})
+# Usage feedback demotes but never promotes (spec §8): "used" is the majority
+# outcome by a wide margin, and promoting on it would entrench whatever a weak
+# ranker already surfaced. Only these two outcomes flag a note to the curation
+# queue for a human to review; neither ever sets `invalidated` directly.
+DEMOTING_OUTCOMES = frozenset({"not_useful", "incorrect"})
 NOTE_ID_PATTERN = re.compile(r"mem-[0-9a-f]{12}")
 # A bound on the supersession walk: far above any real chain, it only exists so a
 # pre-existing corrupt cycle in the store can never spin the guard forever.
@@ -275,6 +282,13 @@ def _updated_notes(
     updated_at = vault_notes._utc_now()
     primary_update["revision"] += 1
     primary_update["updated_at"] = updated_at
+    if new_status == "verified":
+        # The promotion time, stamped here because this is the only path a
+        # note reaches `verified` by. Without it `promotion_throughput`
+        # measures nothing: it refuses file `mtime` as a proxy, so an
+        # unstamped promotion is indistinguishable from no promotion, and
+        # the doctor check that reads it would silently always pass.
+        primary_update["verified_at"] = updated_at
     vault_notes._refresh_content_ref(primary_update)
     for target_id in changed_targets:
         target = updates[target_id][1]
@@ -415,10 +429,26 @@ def record_usage(
     note_id: str,
     outcome: str,
     source_task: str | None = None,
+    repo_root: Path | None = None,
 ) -> dict[str, Any]:
-    """Persist one apply-feedback signal for a recalled note."""
-    context = require_memory_operation("recall")
-    require_memory_operation("record")
+    """Persist one apply-feedback signal for a recalled note.
+
+    `outcome` never changes the note's status here. `not_useful` and
+    `incorrect` flag the note to the curation queue (see
+    `curation_queue.flag_for_curation`) for a human to review; only that
+    review, not this call, may set `invalidated`. `repo_root` is the public
+    repo root the queue file lives under -- it defaults to this checkout
+    (`vaultroot.REPO_ROOT`) and exists as a parameter only so tests can point
+    it at a throwaway directory instead of writing into the real repo.
+    """
+    # A usage row is a write, and `record` is the permission that governs vault
+    # writes. This required `recall` as well until 2026-08-17, which made usage
+    # telemetry structurally unrecordable under `cold` -- 2,665 of 2,669
+    # dispatches. `record` stayed allowed under `cold`, so notes kept being
+    # written and nothing looked broken while the usage table sat empty for 23
+    # days. Decoupled by operator decision: reporting an outcome for a note the
+    # caller already holds discloses no memory it did not already have.
+    context = require_memory_operation("record")
     if not isinstance(recall_id, str):
         raise LifecycleError("recall_id must be a UUID string")
     try:
@@ -442,9 +472,15 @@ def record_usage(
     root = resolve_vault_root()
     _ensure_index_for_write(root)
     timestamp = vault_notes._utc_now()
+    is_new_signal = True
     with vault_index._locked(root) as index_dir:
         _, parsed_note = _find_note(root, validated_note_id)
-        require_note_visible(parsed_note)
+        # Clearance only. `require_note_visible` is the *read* gate and calls
+        # `require_memory_operation("get_note")`, which `cold` denies — the second
+        # half of the same coupling removed above. Nothing of the note is returned
+        # here, so its status/type/target/age admissibility is not this call's
+        # question; whether this server may handle its contents at all still is.
+        require_note_within_clearance(parsed_note)
         connection = vault_index._connect(index_dir / "kg.db", wal=True)
         try:
             connection.execute("BEGIN IMMEDIATE")
@@ -471,12 +507,24 @@ def record_usage(
                         "recall/note pair already has different feedback"
                     ) from exc
                 timestamp = existing[2]
+                # A retried, identical (recall_id, note_id) report is the same
+                # observation replayed, not a second one -- flagging it again
+                # would let a retry inflate the demotion signal's sample count.
+                is_new_signal = False
             connection.commit()
         except Exception:
             connection.rollback()
             raise
         finally:
             connection.close()
+
+    if is_new_signal and outcome in DEMOTING_OUTCOMES:
+        curation_queue.flag_for_curation(
+            validated_note_id,
+            outcome,
+            source_task,
+            repo_root if repo_root is not None else REPO_ROOT,
+        )
 
     return {
         "recall_id": parsed_recall_id,

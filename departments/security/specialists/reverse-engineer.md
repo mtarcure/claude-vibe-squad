@@ -1,5 +1,6 @@
 ---
 specialist: reverse-engineer
+blind_discovery: true
 version: 1.0
 department: security
 safety_level: high

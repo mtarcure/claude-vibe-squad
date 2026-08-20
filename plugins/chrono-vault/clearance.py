@@ -40,13 +40,18 @@ POLICY_FIELDS = (
     "project_write_floor",
     "bounty_write_floor",
 )
-_APERTURES = frozenset({"rich", "focused", "cold", "pool_blind", "none"})
+# `default` is the dispatch default from 2026-08-17 (memory-loop spec §4).
+# It exists because `focused` requires scope=exact plus an engagement_start,
+# which a general-purpose default cannot supply -- see
+# scripts/python/dispatch_context_builder.py, which rejects `focused`
+# without a memory_focus.
+_APERTURES = frozenset({"rich", "focused", "default", "cold", "pool_blind", "none"})
 _POLICY_TOKEN_RE = re.compile(r"^[a-z0-9_.|-]{1,128}$")
 _POLICY_STATUSES = frozenset(
     {"candidate", "verified", "superseded", "invalidated", "archived"}
 )
 _POLICY_NOTE_TYPES = frozenset({"attempt", "finding", "learning"})
-POLICY_SHA256 = "66bbdb45278fab0fe4729f3963211c8694e518e98a1500c741c7b075427e775a"
+POLICY_SHA256 = "7f08fcfa1d9773a8bb2bbb6d51c9a03fc7026bad8b9432f5288ce7ecf6720870"
 CONTEXT_FIELDS = frozenset(
     {
         "schema",
@@ -181,7 +186,7 @@ def _validate_policy_row(row: dict[str, str]) -> None:
 
 @lru_cache(maxsize=1)
 def memory_policies() -> dict[str, dict[str, str]]:
-    """Load the one canonical five-row aperture table."""
+    """Load the one canonical six-row aperture table."""
     try:
         raw = POLICY_PATH.read_bytes()
         if hashlib.sha256(raw).hexdigest() != POLICY_SHA256:
@@ -344,11 +349,19 @@ def apply_record_policy(note_type: str, fields: dict[str, Any]) -> dict[str, Any
 
 
 def recall_constraints() -> dict[str, Any] | None:
+    """What this engagement may retrieve, and which task is doing so.
+
+    `task_id` is carried here for the same reason `record_usage` reads it
+    off the context directly: what a recall HANDED a task is the key
+    promotion joins on, and a caller-declared key is a key nobody declares.
+    Every other field narrows the query; this one identifies the querier.
+    """
     context = require_memory_operation("recall")
     if context is None:
         return None
     policy = context["policy"]
     return {
+        "task_id": context["task_id"],
         "statuses": tuple(filter(None, policy["statuses"].split("|"))),
         "note_types": tuple(filter(None, policy["note_types"].split("|"))),
         "target": context["focus"],
@@ -360,10 +373,25 @@ def recall_constraints() -> dict[str, Any] | None:
     }
 
 
-def require_note_visible(note: dict[str, Any]) -> None:
-    context = require_memory_operation("get_note")
+def require_note_within_clearance(note: dict[str, Any]) -> None:
+    """Enforce the sensitivity clearance alone, without the read aperture.
+
+    The two checks answer different questions and `record_usage` needs only this
+    one. Clearance asks whether this server may ever handle the note's contents;
+    the aperture asks what this engagement may *retrieve*. Feedback on an already
+    recalled note discloses no note content — the caller supplies the id and gets
+    back only what it sent — so gating it on retrieval permission denied it under
+    `cold`, which is nearly every dispatch (2026-08-17). Clearance still applies:
+    a note above the lane's clearance is one the caller could never have been
+    shown, so feedback on it is a claim about a note it does not hold.
+    """
     if not can_read(str(note.get("sensitivity")), lane_clearance()):
         raise ClearanceError("memory note exceeds lane clearance")
+
+
+def require_note_visible(note: dict[str, Any]) -> None:
+    context = require_memory_operation("get_note")
+    require_note_within_clearance(note)
     if context is None:
         return
     policy = context["policy"]

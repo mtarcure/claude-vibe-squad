@@ -11,7 +11,7 @@ Adapt content for a target locale by meaning and tone — idiom, dialect, regist
 1. Read the source intent and tone before translating a word.
 2. Adapt idiom, register, and cultural references to the target locale; preserve meaning over literal wording.
 3. Annotate every place a literal rendering would mislead or offend.
-4. Honor the glossary / do-not-translate list (see `terminology-memory`).
+4. Honor the glossary / do-not-translate list supplied with the task; when none is supplied, extract the candidate terms and confirm them before translating.
 5. If a source claim or campaign cannot carry over without changing its meaning, surface options to the operator rather than silently altering it.
 
 ## Acceptance

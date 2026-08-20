@@ -2,19 +2,22 @@
 # Claude-Vibe-Squad nightly routine — invoked by launchd LaunchAgent.
 # Runs while operator is asleep / away.
 #
-# Phases:
-#   0. Vault snapshot (FIRST — the only copy of squad memory; must predate any cleanup)
-#   1. Doctor (CLI/MCP/browser/disk/usage health + bleed detection)
-#   2. Registry reconciler (close landed responses and log drift)
-#   3. Browser session keep-alive (refresh the persistent CDP browser session)
-#   4. System cleanup (light)
-#   5. Brain cleanup (KG contradiction sweep)
-#   6. Feed sweep with cadence audit (vendor/practitioner/research/podcasts)
-#   7. Content triage (score new items into depth / skim / drop)
-#   8. Content processing (summarize depth items, headline-skim the rest)
-#   9. Content synthesis (cluster depth summaries)
-#   10. Daily morning brief generator (synthesizes everything)
-#   11. Cross-day context (continuity for downstream)
+# Phases, in the order they are invoked below. Keep this list matching the
+# run_phase calls; it named four content phases that were deleted 2026-08-16 and
+# omitted four that do run, which is how a stale header stops being a summary.
+#    1. Vault snapshot (FIRST — the only copy of squad memory; must predate any cleanup)
+#    2. Doctor (CLI/MCP/browser/disk/usage health + bleed detection)
+#    3. Registry reconciler (close landed responses and log drift)
+#    4. Product hygiene
+#    5. Memory audit
+#    6. Sweep active
+#    7. Browser session keep-alive (refresh the persistent CDP browser session)
+#    8. Prune board scratch and settled worktrees
+#    9. Log rotation (daemon stdout/stderr + tmux pane captures; AFTER doctor)
+#   10. System cleanup (light)
+#   11. Brain cleanup (KG contradiction sweep)
+#   12. Daily morning brief generator (synthesizes everything)
+#   Sunday only: the weekly deep run (bin/run-weekly.sh).
 #   Email brief is retained as a manual fallback, no longer invoked by default.
 #   DEPRECATED: dream-light, improvement-extractor, newsletter-format, podcast-script, newsletter-tts, telegram-deliver.
 #
@@ -36,9 +39,12 @@ DATE="$(date -u +%Y-%m-%d)"
 LOG_DIR="${STATE_DIR}/nightly-failures"
 DAILY_LOG="${LOG_DIR}/${DATE}.log"
 
+# blog-summaries and podcast-briefs are deliberately absent: their producer went
+# with the feed pipeline on 2026-08-16, and re-creating them every night would
+# turn bin/doctor.sh's honest "artifact volume was NOT measured" into a silent
+# measurement of zero.
 mkdir -p "${LOG_DIR}" "${STATE_DIR}/morning-briefs" "${CHRONO_DOCTOR_LOG_DIR}" \
-         "${STATE_DIR}/cleanup-logs" "${STATE_DIR}/dream-logs" \
-         "${STATE_DIR}/blog-summaries" "${STATE_DIR}/podcast-briefs"
+         "${STATE_DIR}/cleanup-logs" "${STATE_DIR}/dream-logs"
 
 # Source operator secrets
 if [[ -f "${HOME}/.config/shell/secrets.zsh" ]]; then
@@ -97,7 +103,12 @@ if [[ -d "${snapshot_dir}" ]]; then
     fi
 fi
 
-run_phase "doctor"               "${VAULT_ROOT}/bin/doctor.sh"
+# --deep, because this is the run that can afford it. bin/launch-squad.sh gates
+# on doctor under SQUAD_DOCTOR_TIMEOUT (45s) and therefore runs the fast path,
+# which declines the ~127s public-export hygiene gate and says so. Nightly is
+# unattended and untimed, so it is where that check keeps running daily instead
+# of becoming a flag nobody passes. run_phase already forwards extra arguments.
+run_phase "doctor"               "${VAULT_ROOT}/bin/doctor.sh" --deep
 run_phase "registry-reconciler"  "${VAULT_ROOT}/bin/registry-reconciler.sh"
 run_phase "product-hygiene"      "${VAULT_ROOT}/bin/product-hygiene.sh"
 run_phase "memory-audit"         "${VAULT_ROOT}/bin/memory-audit.sh"
@@ -110,6 +121,16 @@ run_phase "browser-keep-alive"   "${VAULT_ROOT}/bin/browser-keep-alive.sh"
 # attempts leak). Its own guard keeps live attempts and rescues unpromoted
 # artifacts, so it is safe to run unattended alongside in-flight lanes.
 run_phase "prune-board-scratch"  "${VAULT_ROOT}/bin/prune-board-worktrees.sh" --apply
+# Append-only logs with no other bound: the daemon's launchd stdout/stderr and
+# the tmux pane captures. Measured 2026-08-17 at 34 MB, 31 MB and 81 MB, all
+# still growing; _state/monitor/monitor-err.log already records "No space left
+# on device" from 2026-07-31.
+#
+# Deliberately AFTER doctor, not before. doctor.sh's retry-storm scan reads the
+# last hour of each tmux log; rotating first would hand it a freshly emptied
+# file carrying a fresh mtime, and it would count zero failures and call that a
+# clean hour. Rotation is also report-only without --apply.
+run_phase "rotate-logs"          "${VAULT_ROOT}/bin/rotate-logs.sh" --apply
 run_phase "system-cleanup"       "${VAULT_ROOT}/bin/system-cleanup.sh"
 run_phase "brain-cleanup"        "${VAULT_ROOT}/bin/brain-cleanup.sh"
 # The feed/triage/processing/synthesis pipeline was removed 2026-08-16. It was

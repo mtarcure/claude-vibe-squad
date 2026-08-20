@@ -14,7 +14,12 @@ import sys
 import tempfile
 import unittest
 
-RECONCILER = Path(__file__).resolve().parents[1] / "registry_reconciler.py"
+PYTHON_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PYTHON_ROOT))
+
+import dispatch_context_builder as dcb  # noqa: E402
+
+RECONCILER = PYTHON_ROOT / "registry_reconciler.py"
 
 # Minimal runtime map: only column 1 (specialist) and column 7 (primary_lane)
 # are read by _specialist_primary_lane. Lanes use the map spelling ("codex").
@@ -172,6 +177,7 @@ class ReviewEnforcementTest(unittest.TestCase):
             "compatibility_namespace": "coding", "specialist": "claude-spec",
             "to_model": "claude", "source_namespace": "coding",
             "review_model": "gpt-codex", "mandatory_review": "true", "status": "in-flight",
+            "review_triggers": ["adversarial_claim"],
             # A mandatory-review entry always carries the class its packet
             # declared; registration refuses one that does not, and settlement
             # refuses to guess. `standard` is the class under test here.
@@ -309,22 +315,57 @@ class ReviewEnforcementTest(unittest.TestCase):
         self.assertEqual(entry["status"], "review-required")
         self.assertIn("REVIEW-REQUIRED", queue)
 
-    def test_c3_in_lane_needs_review_hold_settles_with_cross_family_review(self):
-        t = "TASK-2026-07-19-in-lane-settle-deadlock"
-        review_ref = "departments/coding/outbox/TASK-DEADLOCK-REVIEW-response.md"
+    def test_c3_board_stamps_review_subject_before_explicit_settlement(self):
+        t = "TASK-2026-07-19-0001-in-lane-settle-deadlock"
+        review_task = "TASK-2026-07-19-0002-deadlock-review"
+        review_ref = f"departments/coding/outbox/{review_task}-response.md"
         responses = self._own_response(t, "gpt-codex", "needs_review")
-        responses[review_ref] = envelope({
-            "id": "TASK-DEADLOCK-REVIEW-response",
-            "in_response_to": "TASK-DEADLOCK-REVIEW",
-            "reviews": t,
-            "from": "claude", "to": "chrono", "type": "RESULT",
-            "status": "complete", "reviewer_family": "anthropic",
-            "verdict": "APPROVE",
-        }, body="APPROVE — independent review complete.")
         task = self._entry(
             specialist="codex-spec", to_model="gpt-codex", review_model="claude"
         )
-        _root, state, env = self.fixture({t: task}, responses)
+        root, state, env = self.fixture({t: task}, responses)
+
+        # The worker authors its own review-task identity and substantive
+        # verdict, but deliberately does NOT hand-add `reviews:`. The trusted
+        # bridge must derive that linkage from the controller-authored packet.
+        worktree = root / "review-worktree"
+        raw_response = worktree / review_ref
+        raw_response.parent.mkdir(parents=True)
+        raw_text = envelope(
+            {
+                "id": f"{review_task}-response",
+                "in_response_to": review_task,
+                "from": "claude",
+                "to": "chrono",
+                "type": "RESULT",
+                "status": "complete",
+                "verdict": "APPROVE",
+                "return_artifact": review_ref,
+            },
+            body="APPROVE — independent review complete.",
+        )
+        self.assertNotIn("\nreviews:", raw_text)
+        raw_response.write_text(raw_text, encoding="utf-8")
+        prepared = dcb.prepare_worktree_outputs(
+            root,
+            worktree,
+            {
+                "task_id": review_task,
+                "lane": "claude",
+                "write_paths": [review_ref],
+                "expected_result_path": review_ref,
+                "expected_outbox_path": review_ref,
+                "reconciliation_echo": dcb.packet_reconciliation_echo(
+                    {"reviews": t}
+                ),
+            },
+        )
+        dcb.publish_prepared_worktree_outputs(root, prepared)
+        published_review = (root / review_ref).read_text(encoding="utf-8")
+        self.assertIn(f"in_response_to: {review_task}\n", published_review)
+        self.assertIn(f"reviews: {t}\n", published_review)
+        self.assertIn("verdict: APPROVE\n", published_review)
+
         self.run_reconcile(env, t)
         held, _queue = self.result(state, t)
         self.assertEqual(held["status"], "review-required")
@@ -356,12 +397,29 @@ class ReviewEnforcementTest(unittest.TestCase):
         held, _queue = self.result(state, t)
         self.assertEqual(held["status"], "review-required")
 
-    def test_d_non_mandatory_unaffected(self):
+    def test_d_no_trigger_self_written_response_auto_settles(self):
         t = "TASK-2026-07-15-0006-ffff"
         entry, queue = self.reconcile(
-            {t: self._entry(mandatory_review="false", review_model="none")},
+            {t: self._entry(
+                mandatory_review="false", review_model="none", review_triggers=[]
+            )},
             self._own_response(t, "claude", "complete"), t)
         self.assertEqual(entry["status"], "complete")
+        self.assertEqual(entry["review_disposition"], "not-required")
+        self.assertIn("auto_reconciled_at", entry)
+        self.assertNotIn("REVIEW-REQUIRED", queue)
+
+    def test_d2_no_trigger_needs_human_never_auto_closes(self):
+        t = "TASK-2026-07-15-0006-needs-human"
+        entry, queue = self.reconcile(
+            {t: self._entry(
+                mandatory_review="false", review_model="none", review_triggers=[]
+            )},
+            self._own_response(t, "claude", "needs_human"),
+            t,
+        )
+        self.assertEqual(entry["status"], "needs_human")
+        self.assertNotIn("review_disposition", entry)
         self.assertNotIn("REVIEW-REQUIRED", queue)
 
     def test_e_unrelated_reviewer_response_stays_open(self):

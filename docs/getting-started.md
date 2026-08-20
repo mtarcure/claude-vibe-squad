@@ -116,6 +116,13 @@ carries on.
 configuration alone are not proof that a capability works. Resolve any reported
 errors before relying on the affected capability.
 
+`doctor` has two modes. The default is the fast pre-flight, and it is what
+`bin/squad up` gates on under `SQUAD_DOCTOR_TIMEOUT` (45 seconds). A handful of
+checks — currently the public-export hygiene gate, which takes minutes on a
+large working tree — cost more than that budget, so the fast run declines them
+and lists them under **NOT MEASURED IN FAST MODE**. Those are not passes; run
+`bin/squad doctor --deep` to measure them. The nightly routine already does.
+
 ## 6. Optional: the launchd routines
 
 `launchd/` holds templates, not installable plists, and none of them is a
@@ -131,8 +138,6 @@ What `com.vibesquad.daemon` adds, and nothing else does:
 
 - the live `● daemon` indicator and the per-lane task capsules in the tmux
   status bar — its `/tasks` endpoint is where `bin/vs-lane-status.sh` reads them
-- the `/summarize` endpoint `scripts/python/weekly_review_runner.py` posts to,
-  so the weekly review can write its narrative
 - the `POST /mcp/<server>/<tool>` HTTP bridge documented in
   `plugins/chrono-recon/README.md`
 
@@ -141,8 +146,8 @@ outbox watcher, the reconciliation sweep, the Chrono coordinator, `bin/squad
 doctor`, and private memory. None of them opens a connection to it.
 
 What visibly degrades without it: the status bar reads `● daemon offline`
-instead of live lane state, and the weekly-review routine cannot produce a
-summary. Both are stated at launch, not discovered later.
+instead of live lane state, and the documented `curl` bridge to the MCP servers
+is unavailable. Both are stated at launch, not discovered later.
 
 The installer renders both `__VAULT_ROOT__` and `__HOME__`, refuses a plist with
 any unresolved token, validates it with `plutil`, installs it atomically, and

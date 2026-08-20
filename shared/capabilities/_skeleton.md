@@ -57,7 +57,7 @@ attach at a named step of any protocol whenever their trigger condition holds:
 
 | Overlay | Attaches at | Trigger | Owners |
 |---|---|---|---|
-| **Review** | S5 | `safety_level: high` or `heightened_risk` (mandatory); **cross-family** (author-family excluded; `anti_affinity: author_family` for code review). Machine-enforced settle via `registry_reconciler`. | `code-reviewer`, `skeptic` |
+| **Review** | S5 | One or more packet `review_triggers` (`blast_radius`, `adversarial_claim`, `deciding_measurement`, `architecture`); **cross-family** (author-family excluded; `anti_affinity: author_family` for code review). `safety_level` remains an execution-quality floor, never the change-level trigger. Machine-enforced settle via `registry_reconciler`. | `code-reviewer`, `skeptic` |
 | **Truth / Rights** | S4→S5 | content / any publish | `content-verifier` (Rule-8 truth) + `asset-provenance-and-rights-auditor` (Rule-6 rights) — each emits a machine-readable gate record; non-PASS/stale-hash blocks |
 | **Impact (G1–G4)** | S4→S5 | bounty submission | `impact-validator` (G1–G4) + cross-family PoC-reproduction gate; final Submit = per-report operator "go" |
 | **Accessibility** | S4 | UI / media deliverable | `accessibility-engineer` (conformance) |

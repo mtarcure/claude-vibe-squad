@@ -56,7 +56,7 @@ if ! VAULT_ROOT="$(cd "${VAULT_ROOT}" 2>/dev/null && pwd -P)"; then
 fi
 DATE="$(date -u +%Y-%m-%d)"
 POLICY_PATH="${POLICY_PATH:-${VAULT_ROOT}/tools/export/policy/path-policy.json}"
-IDENTIFIER_DENYLIST="${IDENTIFIER_DENYLIST:-${VAULT_ROOT}/_state/repo-split-2026-07-16/identifier-denylist.txt}"
+IDENTIFIER_DENYLIST="${IDENTIFIER_DENYLIST:-${VAULT_ROOT}/tools/export/identifier-denylist.txt}"
 echo "Canonical root scanned: ${VAULT_ROOT}"
 
 runtime_patterns=(

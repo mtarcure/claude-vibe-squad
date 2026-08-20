@@ -27,7 +27,7 @@ is migration input, never a live recall path.
 |---|---|---|---|---|
 | **S0** Intake/Admit | `Chrono`, `triage` | `chrono-vault` | — | memory overlay (recall) |
 | **S1** Frame (hygiene scope) | `knowledge-librarian` | `chrono-vault` | — | privacy overlay (PII in notes) |
-| **S3** Produce (dedup / link-fix / contradiction / lifecycle) | `memory-curator`, `knowledge-librarian` | `chrono-vault`, `chrono-obsidian` | `terminology-memory` | `delete` only for separately approved physical removal; privacy overlay |
+| **S3** Produce (dedup / link-fix / contradiction / lifecycle) | `memory-curator`, `knowledge-librarian` | `chrono-vault`, `chrono-obsidian` | — | `delete` only for separately approved physical removal; privacy overlay |
 | **S4** Verify (integrity + capacity) | `knowledge-librarian`, `skeptic` | `chrono-vault` | — | 10k-note / 250 MiB capacity gate; privacy |
 | **S5** Review/Gate | `skeptic`, `cross-family-reviewer` | — | — | review overlay; `delete` |
 | **S7** Capture | `Chrono`, `memory-curator` | `chrono-vault` | — | memory overlay (record) |
@@ -39,3 +39,6 @@ removed until migration, restore, stability, and separate approval pass. Wrong o
 `invalidated`, `superseded`, or `archived`; they are not silently erased. The vault has a **10k-note / 250 MiB
 capacity threshold**: approaching it triggers an operator-reviewed archival/compaction proposal. PII in notes
 fires the privacy overlay (`privacy-steward`) and public/private-boundary checks (`memory-curator`).
+Terminology-specific glossary curation remains a declared `capability_gap`: no live skill defines a
+canonical glossary representation or authoritative `chrono-vault` lookup. A task requiring that capability
+cannot pass S3; ordinary deduplication, link repair, contradiction review, and lifecycle work remain intact.

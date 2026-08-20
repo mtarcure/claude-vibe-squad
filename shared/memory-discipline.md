@@ -148,7 +148,7 @@ All curation runs write proposals to `_state/cleanup-logs/<date>-brain.md`. **Au
 ## Audit hooks
 
 - `bin/doctor.sh` should validate every memory.md has the discipline cite at the top (added in Phase 4).
-- `vibecoding_check.py` should fail mode-end if any new memory entry was written without timestamp+source (added in Phase 3 wire-in).
+- **Not wired:** `vibecoding_check.py` has no timestamp+source check on new memory entries. Verified 2026-08-17 against `scripts/python/vibecoding_check.py` — no such `check_*` function exists, and the "added in Phase 3 wire-in" note this bullet used to carry was never true. Treat timestamp+source as a discipline the author owes, not a gate that catches them. What the gate does enforce is stated once, in `shared/lifecycle.md` rule 14.
 - Memory-curator's nightly proposals include a "no-citation" category for retroactive cleanup.
 
 ---

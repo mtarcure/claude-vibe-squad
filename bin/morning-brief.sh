@@ -25,12 +25,18 @@ DOCTOR_REPORT="${CHRONO_DOCTOR_LOG_DIR}/${DATE}.md"
 # extension -- so the brief silently showed no dream insight from the day the
 # dream system moved. The stale in-repo _state/dream-logs/ stops at 2026-06-26,
 # which dates the break. Fall back to the old path so an older vault still renders.
-DREAM_LOG="${VAULT_ROOT}/chrono/dreams/${DATE}.md"
+#
+# 2026-08-16: the path segment was fixed above but the ROOT was not. "the vault"
+# is CHRONO_VAULT_ROOT (~/Obsidian-Chrono), not VAULT_ROOT (this repo). Measured:
+# ${CHRONO_VAULT_ROOT}/chrono/dreams holds 182 entries incl. today's, while
+# ${VAULT_ROOT}/chrono/dreams holds 0 -- so every brief since the move printed
+# "(no dream pass yet)" while the pass was running nightly and being discarded.
+# run-nightly.sh:55 exports CHRONO_VAULT_ROOT with a default, so this is safe
+# under launchd, which passes only PATH.
+DREAM_LOG="${CHRONO_VAULT_ROOT}/chrono/dreams/${DATE}.md"
 if [[ ! -f "${DREAM_LOG}" && -f "${VAULT_ROOT}/_state/dream-logs/${DATE}.md" ]]; then
     DREAM_LOG="${VAULT_ROOT}/_state/dream-logs/${DATE}.md"
 fi
-TRIAGE_MANIFEST="${VAULT_ROOT}/_state/content-triage-${DATE}.json"
-CONTENT_SYNTHESIS="${VAULT_ROOT}/_state/content-synthesis-${DATE}.md"
 
 # Compute simple stats
 ISSUES_COUNT=0
@@ -97,114 +103,6 @@ if [[ "${ISSUES_COUNT}" -gt 0 ]] || [[ "${WARNINGS_COUNT}" -gt 0 ]] \
 fi
 echo "" >> "${BRIEF}"
 
-# New since yesterday — surface today's content briefs
-echo "## New since yesterday" >> "${BRIEF}"
-
-if [[ -f "${TRIAGE_MANIFEST}" ]] && command -v jq >/dev/null 2>&1; then
-    echo "" >> "${BRIEF}"
-    echo "### Top N worth reading" >> "${BRIEF}"
-    depth_count=$(jq '[.items[]? | select(.tier=="depth")] | length' "${TRIAGE_MANIFEST}" 2>/dev/null || echo 0)
-    if [[ "${depth_count}" -gt 0 ]]; then
-        jq -r '.items[]? | select(.tier=="depth") | "- **[" + .source_lane + "] " + .source_name + "** — [" + .feed_metadata.title + "](" + .feed_metadata.url + ")  \n  " + .reason' "${TRIAGE_MANIFEST}" 2>/dev/null | head -40 >> "${BRIEF}"
-    else
-        echo "*(no depth-tier items selected)*" >> "${BRIEF}"
-    fi
-    if [[ -f "${CONTENT_SYNTHESIS}" ]]; then
-        echo "" >> "${BRIEF}"
-        echo "### Depth synthesis" >> "${BRIEF}"
-        awk 'NR > 2 {print}' "${CONTENT_SYNTHESIS}" | head -40 >> "${BRIEF}"
-    fi
-
-    echo "" >> "${BRIEF}"
-    echo "### Lane-grouped skim queue" >> "${BRIEF}"
-    skim_count=$(jq '[.items[]? | select(.tier=="skim")] | length' "${TRIAGE_MANIFEST}" 2>/dev/null || echo 0)
-    if [[ "${skim_count}" -gt 0 ]]; then
-        for lane in vendor-pr practitioner research podcast; do
-            lane_count=$(jq --arg lane "$lane" '[.items[]? | select(.tier=="skim" and .source_lane==$lane)] | length' "${TRIAGE_MANIFEST}" 2>/dev/null || echo 0)
-            [[ "${lane_count}" -gt 0 ]] || continue
-            echo "" >> "${BRIEF}"
-            echo "#### ${lane} (${lane_count})" >> "${BRIEF}"
-            jq -r --arg lane "$lane" '.items[]? | select(.tier=="skim" and .source_lane==$lane) | "- **" + .source_name + "** — [" + .feed_metadata.title + "](" + .feed_metadata.url + ") (" + (.relevance_score|tostring) + ")"' "${TRIAGE_MANIFEST}" 2>/dev/null | head -12 >> "${BRIEF}"
-        done
-    else
-        echo "*(no skim-tier items)*" >> "${BRIEF}"
-    fi
-
-    drop_count=$(jq '[.items[]? | select(.tier=="drop")] | length' "${TRIAGE_MANIFEST}" 2>/dev/null || echo 0)
-    if [[ "${drop_count}" -gt 0 ]]; then
-        echo "" >> "${BRIEF}"
-        echo "### Muted/noise notes" >> "${BRIEF}"
-        echo "- ${drop_count} low-signal item(s) dropped from processing; see \`_state/content-triage-${DATE}.json\`." >> "${BRIEF}"
-    fi
-fi
-
-BLOG_BRIEFS=("${VAULT_ROOT}/_state/blog-summaries/${DATE}-"*.md)
-PODCAST_BRIEFS=("${VAULT_ROOT}/_state/podcast-briefs/${DATE}-"*.md)
-
-# Test if any actual files matched (bash globs leave the literal pattern if no match)
-blog_count=0
-for f in "${BLOG_BRIEFS[@]}"; do
-    [[ -f "$f" ]] && blog_count=$((blog_count + 1))
-done
-podcast_count=0
-for f in "${PODCAST_BRIEFS[@]}"; do
-    [[ -f "$f" ]] && podcast_count=$((podcast_count + 1))
-done
-
-if [[ ${blog_count} -gt 0 ]]; then
-    echo "" >> "${BRIEF}"
-    echo "### Processed blog artifacts (${blog_count})" >> "${BRIEF}"
-    for f in "${BLOG_BRIEFS[@]}"; do
-        [[ -f "$f" ]] || continue
-        title=$(awk -F'"' '/^title: / {print $2; exit}' "$f")
-        feed=$(awk -F': ' '/^feed: / {print $2; exit}' "$f" | tr -d '\r')
-        rel="${f#"${VAULT_ROOT}/"}"
-        echo "- **${feed}** — [${title}](../../${rel#_state/})" >> "${BRIEF}"
-    done
-fi
-
-if [[ ${podcast_count} -gt 0 ]]; then
-    echo "" >> "${BRIEF}"
-    echo "### Podcast headline artifacts (${podcast_count})" >> "${BRIEF}"
-    for f in "${PODCAST_BRIEFS[@]}"; do
-        [[ -f "$f" ]] || continue
-        title=$(awk -F'"' '/^title: / {print $2; exit}' "$f")
-        feed=$(awk -F': ' '/^feed: / {print $2; exit}' "$f" | tr -d '\r')
-        rel="${f#"${VAULT_ROOT}/"}"
-        echo "- **${feed}** — [${title}](../../${rel#_state/})" >> "${BRIEF}"
-    done
-fi
-
-if [[ ${blog_count} -eq 0 && ${podcast_count} -eq 0 ]]; then
-    echo "*(no new content processed today)*" >> "${BRIEF}"
-fi
-echo "" >> "${BRIEF}"
-
-# Pending content action cards
-CONTENT_ACTIONS_DIR="${VAULT_ROOT}/_state/content-actions"
-PENDING_CONTENT_ACTIONS=()
-if [[ -d "${CONTENT_ACTIONS_DIR}" ]]; then
-    while IFS= read -r p; do
-        [[ -z "$p" ]] && continue
-        if grep -q '^status: pending' "$p" 2>/dev/null; then
-            PENDING_CONTENT_ACTIONS+=("$p")
-        fi
-    done < <(find "${CONTENT_ACTIONS_DIR}" -name '*.md' -type f 2>/dev/null)
-fi
-echo "## Cards for your decision" >> "${BRIEF}"
-if [[ ${#PENDING_CONTENT_ACTIONS[@]} -gt 0 ]]; then
-    for p in "${PENDING_CONTENT_ACTIONS[@]}"; do
-        title=$(awk '/^# / {sub(/^# /, ""); print; exit}' "$p" 2>/dev/null)
-        rel="${p#"${VAULT_ROOT}/"}"
-        echo "- **${title}** — [\`${rel}\`](../../${rel#_state/})" >> "${BRIEF}"
-    done
-    echo "" >> "${BRIEF}"
-    echo "*To act: edit each file and change \`status: pending\` to \`APPROVE\` or \`REJECT\`.*" >> "${BRIEF}"
-else
-    echo "*(none pending)*" >> "${BRIEF}"
-fi
-echo "" >> "${BRIEF}"
-
 # Dream insights — surface gemini's notable patterns + reviewer verdict
 echo "## 💭 Dream insights" >> "${BRIEF}"
 if [[ -f "${DREAM_LOG}" ]]; then
@@ -224,33 +122,6 @@ else
     echo "*(no dream pass yet)*" >> "${BRIEF}"
 fi
 echo "" >> "${BRIEF}"
-
-# Pending dream proposals (only fire if any)
-PROPOSALS_DIR="${VAULT_ROOT}/_state/dream-proposals"
-PENDING_PROPOSALS=()
-if [[ -d "${PROPOSALS_DIR}" ]]; then
-    while IFS= read -r p; do
-        [[ -z "$p" ]] && continue
-        if grep -q '^status: pending' "$p" 2>/dev/null; then
-            PENDING_PROPOSALS+=("$p")
-        fi
-    done < <(find "${PROPOSALS_DIR}" -name '*.md' -type f 2>/dev/null)
-fi
-if [[ ${#PENDING_PROPOSALS[@]} -gt 0 ]]; then
-    echo "## ✋ Pending dream proposals (${#PENDING_PROPOSALS[@]})" >> "${BRIEF}"
-    echo "" >> "${BRIEF}"
-    for p in "${PENDING_PROPOSALS[@]}"; do
-        title=$(awk '/^# / {sub(/^# /, ""); print; exit}' "$p" 2>/dev/null)
-        kind=$(awk -F': ' '/^kind:/ {print $2; exit}' "$p" 2>/dev/null)
-        risk=$(awk -F': ' '/^risk:/ {print $2; exit}' "$p" 2>/dev/null)
-        rel="${p#"${VAULT_ROOT}/"}"
-        echo "- *${kind}* (risk: ${risk}) — **${title}**" >> "${BRIEF}"
-        echo "    - [\`${rel}\`](../../${rel#_state/})" >> "${BRIEF}"
-    done
-    echo "" >> "${BRIEF}"
-    echo "*To act: edit each file and change \`status: pending\` to \`APPROVE\` or \`REJECT\`.*" >> "${BRIEF}"
-    echo "" >> "${BRIEF}"
-fi
 
 # Active modes section (read from chrono/current.md or each namespace current.md)
 echo "## 🔵 Active modes" >> "${BRIEF}"

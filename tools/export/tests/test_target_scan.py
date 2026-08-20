@@ -504,6 +504,138 @@ class ExemptionTests(unittest.TestCase):
         self.assertEqual(missing, [])
 
 
+#: How a target name may join two words. Matched as literal pattern text, so
+#: the fixtures below are derived from the configured rule rather than typed.
+SEPARATOR_CLASSES = (r"[\s_-]?", r"\s?")
+
+
+def _configured_separator_targets() -> list[tuple[str, list[str]]]:
+    """Derive the separator spellings of each two-word target name.
+
+    Nothing here types an engagement identifier. `path-policy.json` classifies
+    this file `public`, and it is NOT exempt from the target-name check, so a
+    literal fixture would be the very disclosure the rule exists to catch --
+    the first draft of this test did exactly that. Same discipline as
+    `_configured_literal_target`, extended to two-word patterns.
+    """
+    derived: list[tuple[str, list[str]]] = []
+    for pattern in target_scan.TARGET_NAMES:
+        if not (pattern.startswith(r"\b") and pattern.endswith(r"\b")):
+            continue
+        inner = pattern[2:-2]
+        for separator in SEPARATOR_CLASSES:
+            head, found, tail = inner.partition(separator)
+            if not found or not head.isalnum() or not tail.isalnum():
+                continue
+            derived.append(
+                (pattern, [f"{head}-{tail}", f"{head} {tail}", f"{head}_{tail}", head + tail])
+            )
+            break
+    return derived
+
+
+class SeparatorSpellingTests(unittest.TestCase):
+    """An engagement name respelled with a separator is the same disclosure.
+
+    The pattern here was `\\bpush\\s?chain\\b` -- written for the engagement it
+    names, and blind to the hyphenated spelling the tree actually carried. It
+    read as coverage because the unhyphenated forms DID match, so any file
+    containing one of those was flagged and the hyphen-only lines in it were
+    not. Measured 2026-08-18 on the real candidate: six findings became eight
+    once the separator class was widened, and the two recovered lines each
+    named the engagement outright.
+
+    Pinned as a property of every configured name rather than as one fixture,
+    so the next engagement's identifier inherits it and a name added back in
+    the single-whitespace shape fails here.
+    """
+
+    def test_there_is_a_separator_pattern_to_test(self) -> None:
+        """Positive control. Without it this whole class passes vacuously the
+        day the derivation stops recognising the pattern shape."""
+        self.assertNotEqual(_configured_separator_targets(), [])
+
+    def test_no_configured_target_name_is_blind_to_a_separator(self) -> None:
+        blind = [
+            (pattern, form)
+            for pattern, forms in _configured_separator_targets()
+            for form in forms
+            if not re.search(pattern, form, re.I)
+        ]
+        self.assertEqual(blind, [], "a separator respelling is the same identifier")
+
+    def test_the_separator_spelling_is_reported_by_a_real_scan(self) -> None:
+        """End to end, not just the regex: the hyphenated form on its own line,
+        with no other spelling anywhere in the tree to carry the finding."""
+        for pattern, forms in _configured_separator_targets():
+            hyphenated = forms[0]
+            with self.subTest(pattern=pattern):
+                with tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    (root / "note.md").write_text(
+                        f"reviewed the {hyphenated}-node build\n", encoding="utf-8"
+                    )
+                    result = scan(root)
+                self.assertEqual(
+                    [finding.split()[0] for finding in result.findings], ["target-name"]
+                )
+                self.assertEqual(result.files_scanned, 1)
+
+
+class UnreadFileReceiptTests(unittest.TestCase):
+    """A file the scan could not decode must not vanish from the receipt.
+
+    `except (UnicodeDecodeError, OSError): continue` dropped undecodable files
+    with no trace. `files_scanned` stays healthy on the strength of every other
+    file, and `paths_skipped` listed only exemptions, so the ledger recorded a
+    scan of 1305 files over a 1310-file candidate and nothing said the other
+    five had gone unread. That is the same shape of hole the basename
+    self-exemption was: a check that did not run, reported as one that did.
+    """
+
+    def _tree(self, root: Path) -> None:
+        (root / "readable.md").write_text("# ordinary\n", encoding="utf-8")
+        # Invalid UTF-8, which is what every binary media asset in the public
+        # candidate looks like to this scanner.
+        (root / "media.gif").write_bytes(b"GIF89a\xff\xfe\x00\x80payload")
+
+    def test_an_undecodable_file_is_named_in_the_receipt(self) -> None:
+        for scanner in (target_scan, target_scan_public):
+            with self.subTest(scanner=scanner.__name__):
+                with tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    self._tree(root)
+                    result = scanner.scan(root)
+
+                self.assertEqual(result.files_scanned, 1)
+                self.assertEqual(len(result.paths_skipped), 1)
+                entry = result.paths_skipped[0]
+                self.assertTrue(entry.startswith("media.gif "), entry)
+                self.assertIn("unread", entry)
+                self.assertIn("UnicodeDecodeError", entry)
+
+    def test_the_receipt_accounts_for_every_file_walked(self) -> None:
+        """The arithmetic is the point: scanned + skipped == walked. Without it
+        a caller has no way to tell a complete scan from a partial one."""
+        for scanner in (target_scan, target_scan_public):
+            with self.subTest(scanner=scanner.__name__):
+                with tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    self._tree(root)
+                    exempt = root / "tools/export/target_scan.py"
+                    exempt.parent.mkdir(parents=True)
+                    exempt.write_text("# placeholder\n", encoding="utf-8")
+                    walked = sum(1 for path in root.rglob("*") if path.is_file())
+                    result = scanner.scan(root)
+
+                self.assertEqual(
+                    result.files_scanned + len(result.paths_skipped),
+                    walked,
+                    f"receipt does not reconcile: {result.files_scanned} scanned + "
+                    f"{len(result.paths_skipped)} skipped != {walked} walked",
+                )
+
+
 class FlaggedMaterialRegressionTests(unittest.TestCase):
     def test_the_flagged_engagement_directory_is_caught_while_it_exists(self) -> None:
         """Pins the actual incident. Whether this material may be disclosed at

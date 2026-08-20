@@ -6,6 +6,12 @@
       "path": "moat/fixtures/purity/deny/credential.mjs",
       "sha256": "c936e88efa6abe9cb2926537ddd31ad5f1c75775a650c20bf2c8d003f862cbcf",
       "reason": "Synthetic Stripe-shaped credential used by the moat denial fixture."
+    },
+    {
+      "kind": "high-entropy-token",
+      "path": "scripts/python/tests/test_doctor_auth_probes.py",
+      "sha256": "097ef218903a4aae7ef6402d613ab705eda7b2b48c973e3ff8e34158a1535bc9",
+      "reason": "Synthetic Google-shaped API key used by the doctor secret-handling test. The test asserts this exact value appears in NOTHING doctor writes or prints; the AIzaSy prefix makes the fixture realistic. Not a credential."
     }
   ]
 }

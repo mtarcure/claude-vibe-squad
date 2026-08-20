@@ -78,7 +78,6 @@ durable-nonce-exploitation	skill	hunting	source-review	svm
 erc1271-revert-data-check	skill	hunting	source-review	evm
 error-based-ssti	skill	hunting	source-review	web
 layered-analysis-loop	skill	hunting	source-review	any
-mcp-schema-poisoning	skill	hunting	source-review	any
 pre-audit-threat-model	skill	hunting	source-review	any
 read-only-reentrancy-check	skill	hunting	source-review	evm
 security-ownership-map	skill	hunting	source-review	any

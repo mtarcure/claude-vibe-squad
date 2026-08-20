@@ -161,11 +161,52 @@ class PrivateVaultDoctorCheckTests(unittest.TestCase):
                 self.assertNotIn(str(REPO_ROOT), output)
 
     def test_check_mode_precedes_doctor_log_creation(self) -> None:
-        text = DOCTOR_SCRIPT.read_text(encoding="utf-8")
-        mode = text.index('"${1:-}" == "--check-private-vault-root"')
-        mkdir = text.index('mkdir -p "$(dirname "${DOCTOR_LOG}")"')
-        self.assertLess(mode, mkdir)
-        self.assertIn("python3 -B", text[:mkdir])
+        """--check-private-vault-root must exit before doctor creates any
+        log file, so a caller can probe vault clearance without side
+        effects.
+
+        Asserted behaviorally -- no log directory ever materializes -- not
+        by the position of a string in the source. A source-text assertion
+        is what broke this test in commit 4a5fc08f, which rewrote the
+        argument parser from a chained `if` into a `while`/`case` loop
+        without moving any behavior: the ordering guarantee still held, but
+        the literal it searched for was gone. This version survives any
+        future reshaping of the argument-parsing style because it exercises
+        the real ordering effect (no log-directory side effect) rather than
+        one particular way of writing it.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            valid_root = base / "valid-root"
+            valid_root.mkdir()
+            (valid_root / ".chrono-vault").write_text(
+                json.dumps({"vault_id": "p4-log-order", "schema_version": 1}),
+                encoding="utf-8",
+            )
+
+            # Exercise both branches check_private_vault_root can take
+            # (accept and reject): the ordering guarantee must hold on exit
+            # 0 and on a nonzero exit alike.
+            cases = (
+                ("accepted", str(valid_root)),
+                ("rejected", None),  # CHRONO_VAULT_ROOT left unset
+            )
+            for label, vault_root in cases:
+                with self.subTest(case=label):
+                    log_dir = base / f"doctor-logs-{label}"
+                    environment = dict(os.environ)
+                    environment["CHRONO_DOCTOR_LOG_DIR"] = str(log_dir)
+                    if vault_root is None:
+                        environment.pop("CHRONO_VAULT_ROOT", None)
+                    else:
+                        environment["CHRONO_VAULT_ROOT"] = vault_root
+                    self.run_check(environment)
+                    self.assertFalse(
+                        log_dir.exists(),
+                        "doctor.sh created its log directory while handling "
+                        "--check-private-vault-root, meaning the check no "
+                        "longer precedes doctor's log-creation step",
+                    )
 
 
 if __name__ == "__main__":

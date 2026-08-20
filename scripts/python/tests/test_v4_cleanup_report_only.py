@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import hashlib
-import io
 import os
 from pathlib import Path
 import stat
@@ -12,7 +11,6 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
 from datetime import datetime, timezone
 from unittest import mock
 
@@ -23,11 +21,9 @@ if str(PYTHON_DIR) not in sys.path:
     sys.path.insert(0, str(PYTHON_DIR))
 
 import run_weekly  # noqa: E402
-import transcription_cache_ttl  # noqa: E402
 
 
 SYSTEM_CLEANUP = ROOT / "bin" / "system-cleanup.sh"
-TTL_WRAPPER = ROOT / "bin" / "transcription-cache-ttl.sh"
 
 
 def _census(root: Path) -> dict[str, tuple[int, int, int, str | None]]:
@@ -245,124 +241,24 @@ class CleanupReportOnlyTest(unittest.TestCase):
             self.assertIs(candidate["cleanup_eligible"], False)
             self.assertIn("non-authoritative", report["age_basis"])
 
-    def test_transcription_ttl_only_reports_and_retains_old_cache_bytes(self):
-        now = datetime(2026, 8, 7, tzinfo=timezone.utc)
-        with tempfile.TemporaryDirectory() as tmp:
-            cache = Path(tmp) / "transcription-cache"
-            cache.mkdir()
-            old_file = cache / "target"
-            old_file.write_bytes(b"undeclared audio bytes")
-            _mark_old(cache, now)
-            before = _census(cache)
-
-            flags = {"APPLY": "1", "CLEANUP_APPLY": "1", "SQUAD_CLEAN_CONFIRM": "1"}
-            with (
-                mock.patch.dict(os.environ, flags, clear=False),
-                mock.patch.object(
-                    Path,
-                    "unlink",
-                    side_effect=AssertionError("report-only code invoked Path.unlink"),
-                ),
-            ):
-                report = transcription_cache_ttl.audit_cache(
-                    cache_dir=cache,
-                    ttl_days=15,
-                    now=now.timestamp(),
-                )
-                output = io.StringIO()
-                with (
-                    mock.patch.object(transcription_cache_ttl, "CACHE_DIR", cache),
-                    mock.patch.object(
-                        transcription_cache_ttl.time,
-                        "time",
-                        return_value=now.timestamp(),
-                    ),
-                    redirect_stdout(output),
-                ):
-                    self.assertEqual(transcription_cache_ttl.main(), 0)
-
-            self.assertEqual(_census(cache), before)
-            self.assertTrue(old_file.is_file())
-            self.assertEqual(old_file.read_bytes(), b"undeclared audio bytes")
-            self.assertEqual(report["mode"], "report-only")
-            self.assertIs(report["scan_complete"], True)
-            self.assertEqual(report["candidate_count"], 1)
-            self.assertEqual(report["removed_count"], 0)
-            self.assertEqual(report["bytes_freed"], 0)
-            candidate = report["candidates"][0]
-            self.assertEqual(Path(candidate["path"]), old_file)
-            self.assertEqual(candidate["storage_class"], "unknown")
-            self.assertEqual(candidate["effective_storage_class"], "DURABLE")
-            self.assertIs(candidate["cleanup_eligible"], False)
-            self.assertIn("non-authoritative", report["age_basis"])
-            self.assertIn("report-only", output.getvalue())
-            self.assertIn("effective_storage_class=DURABLE", output.getvalue())
-
-    def test_transcription_ttl_real_wrapper_runs_with_launchd_python(self):
-        now = datetime.now(timezone.utc)
-        with tempfile.TemporaryDirectory() as tmp:
-            vault = Path(tmp) / "vault"
-            cache = vault / "_state" / "transcription-cache"
-            cache.mkdir(parents=True)
-            target = cache / "target"
-            target.write_bytes(b"launchd compatibility sentinel")
-            _mark_old(cache, now)
-            before = _census(cache)
-            env = {
-                "PATH": "/usr/bin:/bin",
-                "VAULT_ROOT": str(vault),
-                "TTL_DAYS": "15",
-                "HOME": str(Path(tmp) / "home"),
-                "APPLY": "1",
-                "CLEANUP_APPLY": "1",
-            }
-            Path(env["HOME"]).mkdir()
-            before_tree = _census(Path(tmp))
-
-            completed = subprocess.run(
-                [str(TTL_WRAPPER)],
-                cwd=tmp,
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-
-            self.assertEqual(completed.returncode, 0, completed.stderr)
-            self.assertIn("report-only", completed.stdout)
-            self.assertIn("effective_storage_class=DURABLE", completed.stdout)
-            self.assertEqual(_census(cache), before)
-            self.assertEqual(_census(Path(tmp)), before_tree)
-
     def test_python_cleanup_reports_bound_samples_without_losing_counts(self):
         now = datetime(2026, 8, 7, tzinfo=timezone.utc)
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             runs = root / "runs"
-            cache = root / "cache"
             for index in range(25):
                 run = runs / f"run-{index:02d}"
                 run.mkdir(parents=True)
-                cached = cache / f"item-{index:02d}"
-                cached.parent.mkdir(parents=True, exist_ok=True)
-                cached.write_bytes(b"x")
             _mark_old(runs, now)
-            _mark_old(cache, now)
             before = _census(root)
 
             archival = run_weekly.mode_archival(runs_dir=runs, now=now, sample_limit=25)
-            ttl = transcription_cache_ttl.audit_cache(
-                cache_dir=cache,
-                now=now.timestamp(),
-                sample_limit=25,
-            )
 
             self.assertEqual(_census(root), before)
-            for report in (archival, ttl):
-                self.assertEqual(report["candidate_count"], 25)
-                self.assertEqual(report["sample_limit"], 20)
-                self.assertEqual(len(report["candidates"]), 20)
-                self.assertEqual(report["omitted_candidate_count"], 5)
+            self.assertEqual(archival["candidate_count"], 25)
+            self.assertEqual(archival["sample_limit"], 20)
+            self.assertEqual(len(archival["candidates"]), 20)
+            self.assertEqual(archival["omitted_candidate_count"], 5)
 
     def test_incomplete_scans_fail_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -389,16 +285,6 @@ class CleanupReportOnlyTest(unittest.TestCase):
             with mock.patch.object(Path, "iterdir", side_effect=PermissionError):
                 weekly = run_weekly.mode_archival(runs_dir=base, sample_limit=25)
             self.assertIs(weekly["scan_complete"], False)
-
-            def broken_walk(*args, **kwargs):
-                kwargs["onerror"](PermissionError("denied"))
-                return iter(())
-
-            with mock.patch.object(
-                transcription_cache_ttl.os, "walk", side_effect=broken_walk
-            ):
-                ttl = transcription_cache_ttl.audit_cache(cache_dir=base)
-            self.assertIs(ttl["scan_complete"], False)
 
 
 if __name__ == "__main__":

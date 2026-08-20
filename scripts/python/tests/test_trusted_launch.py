@@ -35,13 +35,38 @@ if str(PYTHON_DIR) not in sys.path:
 from held_action_gate import HELD_CATEGORIES  # noqa: E402
 
 SCRIPT = ROOT / "bin" / "board-supervisor.sh"
-BASE_BRANCH = subprocess.run(
-    ["/usr/bin/git", "-C", str(ROOT), "symbolic-ref", "--quiet", "--short", "HEAD"],
-    capture_output=True,
-    text=True,
-    check=True,
-    env={"LC_ALL": "C", "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"},
-).stdout.strip()
+
+
+def _fixture_base_branch(repo_root: Path = ROOT) -> str:
+    """Choose a branch name for disposable test repos, including detached CI."""
+
+    branch = subprocess.run(
+        [
+            "/usr/bin/git",
+            "-C",
+            str(repo_root),
+            "symbolic-ref",
+            "--quiet",
+            "--short",
+            "HEAD",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={"LC_ALL": "C", "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"},
+    )
+    resolved = branch.stdout.strip()
+    if branch.returncode == 0 and resolved:
+        return resolved
+    if branch.returncode == 1 and not resolved:
+        return os.environ.get("SQUAD_BASE_BRANCH") or "v2"
+    raise RuntimeError(
+        "cannot determine fixture base branch: "
+        f"rc={branch.returncode} stderr={branch.stderr.strip()!r}"
+    )
+
+
+BASE_BRANCH = _fixture_base_branch()
 SETTLED_T1P1_BUNDLE_SHA256 = (
     "95438e2cc6b06ab3f12622ad0a0f3e0a6654e6cf3a7b35f3908b3487f883f376"
 )

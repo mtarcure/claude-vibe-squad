@@ -608,12 +608,18 @@
       "skills": [
         {
           "id": "consent-and-likeness-check",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
+          "requirement": "preferred",
+          "availability": "superseded",
+          "evidence": "superseded"
         },
         {
           "id": "rights-and-provenance-gate",
+          "requirement": "preferred",
+          "availability": "superseded",
+          "evidence": "superseded"
+        },
+        {
+          "id": "rule6-rights-gate",
           "requirement": "required",
           "availability": "available",
           "evidence": "shared-registry:authored"
@@ -653,12 +659,18 @@
       "skills": [
         {
           "id": "consent-and-likeness-check",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
+          "requirement": "preferred",
+          "availability": "superseded",
+          "evidence": "superseded"
         },
         {
           "id": "rights-and-provenance-gate",
+          "requirement": "preferred",
+          "availability": "superseded",
+          "evidence": "superseded"
+        },
+        {
+          "id": "rule6-rights-gate",
           "requirement": "required",
           "availability": "available",
           "evidence": "shared-registry:authored"
@@ -1699,9 +1711,9 @@
       "skills": [
         {
           "id": "attack-coverage-map",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
+          "requirement": "preferred",
+          "availability": "superseded",
+          "evidence": "superseded"
         },
         {
           "id": "detection-as-code",
@@ -1711,9 +1723,9 @@
         },
         {
           "id": "detection-tuning",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
+          "requirement": "preferred",
+          "availability": "superseded",
+          "evidence": "superseded"
         }
       ],
       "tools": [
@@ -5679,15 +5691,15 @@
         },
         {
           "id": "regional-compliance-check",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
+          "requirement": "preferred",
+          "availability": "superseded",
+          "evidence": "superseded"
         },
         {
           "id": "terminology-memory",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
+          "requirement": "preferred",
+          "availability": "superseded",
+          "evidence": "superseded"
         }
       ],
       "tools": [
@@ -5730,15 +5742,15 @@
         },
         {
           "id": "regional-compliance-check",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
+          "requirement": "preferred",
+          "availability": "superseded",
+          "evidence": "superseded"
         },
         {
           "id": "terminology-memory",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
+          "requirement": "preferred",
+          "availability": "superseded",
+          "evidence": "superseded"
         }
       ],
       "tools": [
@@ -6202,14 +6214,14 @@
         {
           "id": "audio-production-basics",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
+          "availability": "superseded",
+          "evidence": "superseded"
         },
         {
           "id": "music-production-basics",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
+          "requirement": "preferred",
+          "availability": "superseded",
+          "evidence": "superseded"
         },
         {
           "id": "sonic-branding",
@@ -6252,14 +6264,14 @@
         {
           "id": "audio-production-basics",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
+          "availability": "superseded",
+          "evidence": "superseded"
         },
         {
           "id": "music-production-basics",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
+          "requirement": "preferred",
+          "availability": "superseded",
+          "evidence": "superseded"
         },
         {
           "id": "sonic-branding",
@@ -9472,9 +9484,9 @@
         },
         {
           "id": "audio-production-basics",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
+          "requirement": "preferred",
+          "availability": "superseded",
+          "evidence": "superseded"
         },
         {
           "id": "sound-design-principles",
@@ -9522,9 +9534,9 @@
         },
         {
           "id": "audio-production-basics",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
+          "requirement": "preferred",
+          "availability": "superseded",
+          "evidence": "superseded"
         },
         {
           "id": "sound-design-principles",
@@ -10285,12 +10297,6 @@
         {
           "id": "systematic-bug-hunting",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        },
-        {
-          "id": "threat-model-loop",
-          "requirement": "required",
           "availability": "available",
           "evidence": "shared-registry:authored"
         }
@@ -11113,8 +11119,8 @@
         {
           "id": "audio-production-basics",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
+          "availability": "superseded",
+          "evidence": "superseded"
         },
         {
           "id": "voice-performance-direction",
@@ -11157,8 +11163,8 @@
         {
           "id": "audio-production-basics",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
+          "availability": "superseded",
+          "evidence": "superseded"
         },
         {
           "id": "voice-performance-direction",

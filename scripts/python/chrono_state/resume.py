@@ -1,7 +1,8 @@
 """Bounded, source-tagged Chrono resume capsule.
 
 Regenerated from the decision-authority record + the live board registry (never a
-summary-of-a-summary). Every line carries a source ID ([DEC-...] / [TASK-...]) so the
+summary-of-a-summary). Every projected item carries a source ID
+([DEC-...] / [TASK-...] / [THREAD-...]) so the
 capsule is a cache pointing at authority, never authority itself. This becomes the new
 content of `current.md`: a thin derived cursor, not a narrative log.
 
@@ -14,19 +15,32 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+from datetime import datetime
 from pathlib import Path
 
-from chrono_state.registry import registry_view
 from chrono_state.decisions import active_decisions
+from chrono_state.registry import registry_view
+from chrono_state.thread_charters import (
+    CHARTERS_REL,
+    ThreadCharter,
+    clip,
+    load_active_charters,
+)
 
 CAPSULE_PATH = (
     Path(os.environ.get("VAULT_ROOT", ".")) / "_state" / "chrono" / "resume.md"
 )
+QUEUE_PATH = Path(os.environ.get("VAULT_ROOT", ".")) / "_state" / "chrono-queue.md"
 TASKS_HEADING = "## Live tasks (dispatched / in-flight / review-required)"
 DEFERRED_HEADING = "## Deferred owed work (awaiting a Chrono/operator action)"
+QUEUE_HEADING = "## Pending completions (specialist returns awaiting a decision)"
 CONTRA_HEADING = "## Memory contradictions (unreconciled)"
 TURN_HEADING = "## Latest operator instruction"
+THREAD_HEADING = "## Active thread / Owed attention"
 NO_TURN_PLACEHOLDER = "(none recorded since the last snapshot)"
+MAX_PROJECTED_CHARTERS = 8
+MAX_PROJECTED_QUEUES = 4
+MAX_PROJECTED_DONE_WHEN = 6
 
 
 def unreconciled_contradiction_count():
@@ -75,24 +89,222 @@ def _contradiction_line(unreconciled):
     )
 
 
+def pending_completions(path=None):
+    """Group `_state/chrono-queue.md` lines by `(namespace, status)`, counted.
+
+    chrono/CLAUDE.md step 7 tells Chrono to read this file directly, but nothing
+    ever did — 3,722 lines, zero handled (`shared/protocol.md:339`: "with no
+    later reader it is durable storage, not a notification"). The capsule is the
+    only path Chrono actually reads at session start, so this makes the queue
+    reachable from there.
+
+    Individual lines are never emitted here: the live queue can hold hundreds of
+    open entries, which would blow the capsule's `max_tokens` budget outright.
+    Grouped counts are the bounded projection; `_render` still subjects this
+    section to the token-bound cascade, since even the grouped form can grow
+    past budget on a long-uncleared queue.
+
+    Each line is `timestamp | status | namespace/task-id | summary`; only the
+    status and the namespace (text before the first `/`) are used. `#`-prefixed
+    and blank lines are skipped. A malformed line (fewer than 3 `|`-fields) is
+    skipped rather than raising — one bad line must not blank the whole section.
+    Returns `[]`, never raises, when the file is absent, unreadable, or not
+    valid UTF-8 (`read_text` raises `UnicodeDecodeError`, a `ValueError`
+    subclass, on invalid bytes — caught alongside `OSError` here because a
+    corrupt queue must never break capsule generation any more than a missing
+    one does; fix round 2, controller ruling: the watcher that writes these
+    summaries has separately produced verbatim error captures containing raw
+    ANSI escapes, so invalid-UTF-8 input is a real risk, not a hypothetical
+    one). Sorted by count descending, then by `(namespace, status)` for a
+    stable order.
+    """
+    dest = Path(path) if path else QUEUE_PATH
+    try:
+        text = dest.read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        return []
+    counts = {}
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        fields = line.split("|", 3)
+        if len(fields) < 3:
+            continue
+        status = fields[1].strip()
+        namespace = fields[2].strip().split("/", 1)[0]
+        key = (namespace, status)
+        counts[key] = counts.get(key, 0) + 1
+    return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+
+
+def active_thread_charters(path=None, now: datetime | None = None):
+    """Load open charters from the active-path status rail, fail-soft.
+
+    Deriving the default from ``CAPSULE_PATH`` keeps throwaway/test capsules
+    isolated from the host's real charters when callers rebind that path.
+    """
+    source = (
+        Path(path)
+        if path
+        else CAPSULE_PATH.parent / CHARTERS_REL.relative_to("_state/chrono")
+    )
+    try:
+        return load_active_charters(source, now=now)
+    except Exception as exc:  # noqa: BLE001 — resume must never blank the capsule
+        # A read failure must be loud, not indistinguishable from "no active
+        # threads". Represent it as one invalid projected charter so the
+        # capsule still renders and points Chrono at the failed source.
+        return [
+            ThreadCharter(
+                path=source / "unreadable-charter-rail.md",
+                ask="",
+                open_loops=(),
+                done_when=(),
+                done_when_met=False,
+                unresolved_queues=(),
+                stale_claims=(),
+                issues=(f"active charter rail unreadable ({exc})",),
+            )
+        ]
+
+
+def _thread_lines(
+    charters: list[ThreadCharter],
+    mode: int,
+    needs_human: list[dict] | None = None,
+) -> list[str]:
+    """Render the bounded charter and urgent operator-attention projection.
+
+    ``mode`` 2 is the useful projection, 1 is one line per thread, and 0 is a
+    loud count-only fallback.  The global capsule bound can therefore compress
+    charter detail without making active or queued work look absent. A
+    ``needs_human`` task is stronger than ordinary deferred work, so its ID is
+    pinned to this rail at every mode and cannot be crowded out by queue depth.
+    """
+    urgent = list(needs_human or ())
+    queue_total = sum(len(charter.unresolved_queues) for charter in charters)
+    lines = [
+        f"- NEEDS HUMAN: {task.get('next_action', 'operator decision')} [{task['id']}]"
+        for task in urgent
+    ]
+    if mode <= 0:
+        if charters:
+            lines.append(
+                f"- active={len(charters)}; open_QUEUE={queue_total} "
+                "[THREAD-RAIL:bound]"
+            )
+        return lines
+
+    shown = charters[:MAX_PROJECTED_CHARTERS]
+    if mode == 1:
+        for charter in shown:
+            checked = sum(line.lower().startswith("- [x]") for line in charter.done_when)
+            flags = [f"DONE-WHEN {checked}/{len(charter.done_when)}"]
+            if charter.unresolved_queues:
+                flags.append(f"{len(charter.unresolved_queues)} unresolved QUEUE")
+            if charter.stale_claims:
+                flags.append(f"{len(charter.stale_claims)} stale current claim(s)")
+            if charter.issues:
+                flags.append("INVALID FORMAT")
+            suffix = f"; {'; '.join(flags)}" if flags else ""
+            lines.append(
+                f"- THE ASK: {clip(charter.ask or '(unreadable)', 150)}{suffix} "
+                f"[THREAD-{charter.thread_id}]"
+            )
+    else:
+        for charter in shown:
+            source = f"[THREAD-{charter.thread_id}]"
+            lines.append(f"- THE ASK: {clip(charter.ask or '(unreadable)', 240)} {source}")
+            if charter.done_when:
+                for criterion in charter.done_when[:MAX_PROJECTED_DONE_WHEN]:
+                    lines.append(f"  - DONE-WHEN: {clip(criterion, 240)} {source}")
+                dropped_done = len(charter.done_when) - MAX_PROJECTED_DONE_WHEN
+                if dropped_done > 0:
+                    lines.append(
+                        f"  - +{dropped_done} DONE-WHEN criterion/criteria omitted "
+                        f"from this bounded block {source}"
+                    )
+            else:
+                lines.append(f"  - DONE-WHEN: (missing) {source}")
+            for loop in charter.unresolved_queues[:MAX_PROJECTED_QUEUES]:
+                lines.append(f"  - {clip(loop.raw[2:], 500)} {source}")
+            dropped_queues = len(charter.unresolved_queues) - MAX_PROJECTED_QUEUES
+            if dropped_queues > 0:
+                lines.append(
+                    f"  - +{dropped_queues} unresolved QUEUE item(s) omitted from "
+                    f"this bounded block {source}"
+                )
+            if charter.stale_claims:
+                oldest = charter.stale_claims[0].observed_at
+                lines.append(
+                    f"  - WARNING: {len(charter.stale_claims)} current claim(s) are "
+                    f"stale; oldest observed_at={oldest} (>24h) — refresh before "
+                    f"presenting as current {source}"
+                )
+            if charter.issues:
+                lines.append(
+                    f"  - WARNING: invalid charter format — "
+                    f"{clip('; '.join(charter.issues), 240)} {source}"
+                )
+
+    dropped_charters = len(charters) - len(shown)
+    if dropped_charters:
+        lines.append(
+            f"- +{dropped_charters} active charter(s) omitted from this bounded "
+            f"block — read {CHARTERS_REL}/"
+        )
+    return lines
+
+
 def _render(latest_operator_turn, view, max_tokens=3000, unreconciled=None):
     """Build a token-bounded capsule from an already-classified registry view.
 
-    Under pressure the contradiction count drops first, then live task lines,
-    then deferred lines — the count is re-derivable from the audit trail at any
-    time and is the least precious to the resume moment, while live work
-    re-surfaces through board sweeps and deferred work surfaces nowhere but here
-    (so it bites last). At the real budget nothing drops and all three show.
-    Active decisions, the omission/unclassified declarations, and the latest
-    operator instruction are never dropped.
+    Under pressure the contradiction count drops first, then live task lines
+    are trimmed, then the pending-completions section collapses to a one-line
+    declared omission, then deferred lines are trimmed, and only then does the
+    active-thread block compress from full to summary to a loud count. The
+    charter rail therefore outlives every other droppable section. Contradiction count
+    is the least precious (re-derivable from the audit trail at any time) and
+    live work is next (it re-surfaces through board sweeps), but
+    pending-completions groups outrank both of those: nothing else in the
+    capsule surfaces `_state/chrono-queue.md` at all, so a handful of
+    live-task lines are traded away before the section collapses (controller
+    ruling, fix round 1: measured on the real capsule, live tasks alone were
+    ~75% of the 3000-token budget while the grouped pending section needed
+    only ~116 tokens — dropping pending first made it permanently invisible in
+    practice, which is worse than trimming a few recoverable live lines).
+    Collapsing pending never goes silent (fix round 2): like live and
+    deferred, it always declares what it dropped, because a missing heading
+    is indistinguishable from "the queue is empty" — the exact ambiguity this
+    section exists to kill. Deferred work still bites last: it surfaces
+    nowhere but here. At the real budget nothing drops and every section shows.
+    Active decisions, the omission/unclassified declarations, the active-thread
+    heading/count, and the latest operator instruction are never dropped.
     """
     decs = active_decisions()
     tasks = view["live"]
-    deferred = view["deferred"]
+    needs_human = [
+        task for task in view["deferred"] if task.get("state") == "needs_human"
+    ]
+    deferred = [
+        task for task in view["deferred"] if task.get("state") != "needs_human"
+    ]
+    pending = pending_completions()
+    charters = active_thread_charters()
 
-    def build(shown_live, shown_deferred, show_contra):
+    def build(
+        shown_live,
+        shown_deferred,
+        show_contra,
+        show_pending,
+        thread_mode,
+    ):
         lines = ["# Chrono resume capsule", "", "## Active decisions"]
         lines += [f"- {d['statement']} [{d['decision_id']}]" for d in decs] or ["- (none)"]
+        if charters or needs_human:
+            lines += ["", THREAD_HEADING]
+            lines += _thread_lines(charters, thread_mode, needs_human)
         lines += ["", TASKS_HEADING]
         lines += [
             f"- {t['state']}: {t.get('next_action', '?')} [{t['id']}]"
@@ -118,6 +330,23 @@ def _render(latest_operator_turn, view, max_tokens=3000, unreconciled=None):
                     f"- (+{dropped_deferred} more deferred, omitted for the token "
                     "bound — query _state/active-tasks.json by status)"
                 ]
+        if pending:
+            # Silent when dropped is the exact ambiguity this section exists to
+            # kill (fix round 2): a missing heading must never be mistaken for
+            # "the queue is empty" the way an omitted live/deferred task must
+            # never read as "closed". Always declare, even when trimmed away.
+            lines += ["", QUEUE_HEADING]
+            if show_pending:
+                lines += [
+                    f"- {count} x {namespace} | {status}"
+                    for (namespace, status), count in pending
+                ]
+            else:
+                lines += [
+                    f"- ({len(pending)} group(s) omitted for the token bound "
+                    "— regenerate at a higher budget or read "
+                    "_state/chrono-queue.md)"
+                ]
         for status, n in sorted(view["unclassified"].items()):
             lines += [
                 f"- UNCLASSIFIED STATUS {status!r}: {n} task(s) invisible to this "
@@ -130,17 +359,46 @@ def _render(latest_operator_turn, view, max_tokens=3000, unreconciled=None):
 
     shown_live, shown_deferred = list(tasks), list(deferred)
     show_contra = True
-    cap = build(shown_live, shown_deferred, show_contra)
-    # hard token bound (~4 chars/token): drop the contradiction line first, then
-    # live, then deferred; rebuild and re-check.
-    while len(cap) // 4 > max_tokens and (show_contra or shown_live or shown_deferred):
+    show_pending = True
+    thread_mode = 2
+    cap = build(
+        shown_live,
+        shown_deferred,
+        show_contra,
+        show_pending,
+        thread_mode,
+    )
+    # hard token bound (~4 chars/token): drop the contradiction line, then trim
+    # live task lines, then collapse the pending-completions section to a
+    # declared omission, then trim deferred, then compress active-thread detail;
+    # rebuild and re-check. Live is
+    # trimmed BEFORE pending collapses — see the priority note above — so
+    # pending only collapses once trimming live has failed to free enough
+    # room on its own.
+    while len(cap) // 4 > max_tokens and (
+        show_contra
+        or shown_live
+        or show_pending
+        or shown_deferred
+        or (charters and thread_mode > 0)
+    ):
         if show_contra:
             show_contra = False
         elif shown_live:
             shown_live = shown_live[:-1]
-        else:
+        elif show_pending:
+            show_pending = False
+        elif shown_deferred:
             shown_deferred = shown_deferred[:-1]
-        cap = build(shown_live, shown_deferred, show_contra)
+        else:
+            thread_mode -= 1
+        cap = build(
+            shown_live,
+            shown_deferred,
+            show_contra,
+            show_pending,
+            thread_mode,
+        )
     return cap
 
 

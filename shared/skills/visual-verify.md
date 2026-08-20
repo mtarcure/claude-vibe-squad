@@ -87,26 +87,17 @@ This skill names tools it needs; it does **not** assert they are live for you.
   `claude|codex|gemini`. **Kimi is absent from that lane list** — this gate cannot be run unaided on
   every lane, and a lane without browser tools must report a capability gap rather than approximate the
   pass.
-- **Browser contract — SETTLED 2026-08-03 by operator decision. `shared/lifecycle.md` §11 governs.**
+- **Browser contract — `shared/lifecycle.md` rule 11 governs, and is the only place it is written.**
+  Settled 2026-08-03 by operator decision. Read rule 11 before any browser step of this gate: it
+  carries the attach procedure, the persistent-profile path, the never-spawn prohibitions, and the
+  one permitted exception (hermetic, unauthenticated acceptance testing may use a fresh isolated
+  profile with its own `user-data-dir`, labelled as such in the report).
 
-  The operator's running Chrome holds their signed-in tabs and is **state to be preserved, not a
-  resource to be replaced**. Therefore:
-
-  - **Attach to the persistent CDP Chrome on port 9222.** Raw CDP is the primary path
-    (`httpx http://localhost:9222/json/list`, then connect to a tab's websocket). Read existing tabs;
-    do not open new ones in the operator's browser.
-  - **Never let an MCP launch its own Chrome, and never point `--user-data-dir` at the operator's
-    profile.** `playwright` and `chrome-devtools` observably spawn a fresh, isolated Chrome — the
-    registry and `shared/api-catalog.md` describe that behaviour accurately. That description is a
-    **hazard to route around, not a sanctioned mode**: a fresh profile has none of the operator's
-    session, and pointing one at their profile directory risks the very state we are protecting.
-  - If port 9222 is unreachable, **stop and report it**. Do not auto-spawn a replacement.
-
-  **The one permitted exception**, and only for this gate: hermetic acceptance testing of a target
-  requiring **no** authentication may use a fresh isolated profile with its **own** `user-data-dir`,
-  never the operator's. It must be labelled as such in the report. It is not a substitute for an
-  authenticated flow — if the journey needs a logged-in state, the fresh path cannot produce it and
-  saying otherwise is a fabricated pass.
+  Local to this gate, and stated nowhere else: `playwright` and `chrome-devtools` observably spawn a
+  fresh, isolated Chrome. The registry and `shared/api-catalog.md` describe that behaviour
+  accurately — treat the description as a **hazard to route around, not a sanctioned mode**. A fresh
+  profile has none of the operator's session, so a "pass" produced through one is a pass for a
+  logged-out stranger, not for the operator's journey.
 - The Lighthouse audit is a tool *inside* the `chrome-devtools` MCP, not a registry row of its own.
   Confirm it appears in your runtime's tool list before planning around it.
 - No `computer-use` capture path is wired here. If the browser MCPs are unavailable, the honest outcome

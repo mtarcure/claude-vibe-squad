@@ -43,8 +43,12 @@ fi
 source "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")/.." && pwd -P)/shared/repo-root.sh"
 SESSION="${SQUAD_SESSION:-squad}"
 TMUX_BIN="${TMUX_BIN:-tmux}"
+source "${VAULT_ROOT}/shared/chrono-pane.sh"
 CHRONO_TMUX_TARGET="${SESSION}:chrono.0"
-EXPECTED_CHRONO_PANE_COMMAND="claude"
+# Kept only for the skip message. It is NOT the test any more: the live pane
+# reports the versioned executable ("2.1.233"), so comparing to this literal
+# skipped every nudge while Chrono was running. See shared/chrono-pane.sh.
+EXPECTED_CHRONO_PANE_COMMAND="the coordinator CLI"
 RESPONSE_MIN_AGE_SECONDS="${RESPONSE_MIN_AGE_SECONDS:-5}"
 if [[ ! "$RESPONSE_MIN_AGE_SECONDS" =~ ^[0-9]+$ ]]; then
     echo "RESPONSE_MIN_AGE_SECONDS must be a non-negative integer" >&2
@@ -143,8 +147,8 @@ send_chrono_notification_once() {
         release_chrono_notify_lock || return 1
         return 2
     fi
-    if ! pane_current_command="$("$TMUX_BIN" display-message -p -t "$CHRONO_TMUX_TARGET" '#{pane_current_command}' 2>/dev/null)" \
-        || [[ "$pane_current_command" != "$EXPECTED_CHRONO_PANE_COMMAND" ]]; then
+    pane_current_command="$(chrono_pane_observed_command "$CHRONO_TMUX_TARGET")"
+    if ! chrono_pane_has_coordinator "$CHRONO_TMUX_TARGET"; then
         printf "[%s] chrono pane nudge skipped: target=%s expected_command=%q actual_command=%q; no notification lost: registry/outbox records persist and bin/board-notify.sh serves headless registry readers\n" \
             "$(date '+%H:%M:%S')" "$CHRONO_TMUX_TARGET" "$EXPECTED_CHRONO_PANE_COMMAND" "${pane_current_command:-unavailable}" >&2
         release_chrono_notify_lock || return 1
@@ -399,12 +403,80 @@ autocapture_response_best_effort() {
         >/dev/null 2>&1; then
         return 0
     fi
-    if ! PYTHONPATH="${VAULT_ROOT}/plugins/chrono-vault" python3 \
-        "${VAULT_ROOT}/plugins/chrono-vault/autocapture.py" "$path" \
-        >/dev/null 2>&1; then
-        echo "[$(date '+%H:%M:%S')] warning: response auto-capture failed: $(basename "$path")" >&2
-    fi
+    # stderr is KEPT, not discarded. It used to go to /dev/null, so the only
+    # thing that reached the log was "auto-capture failed: <file>" -- never
+    # WHY. A distillation failure writes no semantic note at all, and its
+    # cause (an unauthenticated `gemini`, a timeout, an unparseable reply) is
+    # the entire content of the alert. Bounded to one line so a runaway
+    # traceback cannot flood the watcher log; the full reason is also counted
+    # in _state/autocapture-failures.jsonl, which outlives the log.
+    local capture_error
+    capture_error="$(
+        PYTHONPATH="${VAULT_ROOT}/plugins/chrono-vault" python3 \
+            "${VAULT_ROOT}/plugins/chrono-vault/autocapture.py" "$path" \
+            2>&1 >/dev/null
+    )" || echo "[$(date '+%H:%M:%S')] warning: response auto-capture failed: $(basename "$path"): ${capture_error%%$'\n'*}" >&2
     return 0
+}
+
+# Bound the auto-capture fan-out. `scan_existing_responses` below replays
+# every response file in every outbox on every watcher start -- 1,571 of them
+# when this bound was added -- and each one forks two python3 processes. A
+# replayed response now returns `duplicate` before any model call
+# (`autocapture.capture_response`), but 1,571 CONCURRENT forks is still a
+# thundering herd on the operator's live machine, and the fresh-response path
+# genuinely does spawn a model subprocess per capture.
+#
+# Oldest-first: launch, then block on the oldest outstanding job once the
+# window is full. `wait -n` would express this directly and does not exist in
+# bash 3.2, which is what `#!/bin/bash` resolves to on macOS. A plain `wait`
+# is wrong here too: this shell also backgrounds the long-lived legacy
+# response pollers, and waiting on those would stall the watcher.
+#
+# The knob is VALIDATED, because two ordinary values used to hang the whole
+# watcher. `[[ "$#" -ge 0 ]]` is always true and `shift` on an empty list
+# cannot advance, so a bound of 0 spun the loop below forever; a non-numeric
+# value hit the same spin, since `[[ -ge ]]` evaluates an unparseable operand
+# as 0. `0` is exactly what an operator reaches for to turn auto-capture off,
+# so this was a live hang waiting for an ordinary config edit -- verified
+# under /bin/bash 3.2, where both `0` and `bogus` ran until a 5s timeout
+# killed them. The two cases resolve differently on purpose:
+#
+#   0            OFF. Nothing is dispatched and no model subprocess is
+#                forked. This is the reading the value invites, and turning
+#                auto-capture off is a thing an operator may legitimately
+#                want -- silently reinterpreting it as "unbounded" would fork
+#                a process per response on a machine asking for none.
+#   not a count  The DEFAULT, loudly. A typo must never be able to switch
+#                memory capture off by accident: the failure direction for a
+#                malformed throttle is "keep capturing, keep the bound",
+#                announced on stderr so the operator can see the value did
+#                not take.
+AUTOCAPTURE_MAX_INFLIGHT_DEFAULT=8
+AUTOCAPTURE_MAX_INFLIGHT="${CHRONO_AUTOCAPTURE_MAX_INFLIGHT:-${AUTOCAPTURE_MAX_INFLIGHT_DEFAULT}}"
+if [[ ! "${AUTOCAPTURE_MAX_INFLIGHT}" =~ ^[0-9]+$ ]]; then
+    echo "[$(date '+%H:%M:%S')] warning: CHRONO_AUTOCAPTURE_MAX_INFLIGHT='${AUTOCAPTURE_MAX_INFLIGHT}' is not a whole number; using ${AUTOCAPTURE_MAX_INFLIGHT_DEFAULT}. Set it to 0 to disable response auto-capture." >&2
+    AUTOCAPTURE_MAX_INFLIGHT="${AUTOCAPTURE_MAX_INFLIGHT_DEFAULT}"
+fi
+AUTOCAPTURE_PIDS=""
+
+autocapture_dispatch() {
+    local path="$1" pid
+    if [[ "${AUTOCAPTURE_MAX_INFLIGHT}" -eq 0 ]]; then
+        return 0
+    fi
+    autocapture_response_best_effort "$path" &
+    AUTOCAPTURE_PIDS="${AUTOCAPTURE_PIDS}$! "
+    # shellcheck disable=SC2086  # deliberate word-splitting of the pid list
+    set -- ${AUTOCAPTURE_PIDS}
+    while [[ "$#" -ge "${AUTOCAPTURE_MAX_INFLIGHT}" ]]; do
+        wait "$1" 2>/dev/null || true
+        shift
+    done
+    AUTOCAPTURE_PIDS=""
+    for pid in "$@"; do
+        AUTOCAPTURE_PIDS="${AUTOCAPTURE_PIDS}${pid} "
+    done
 }
 
 release_chrono_queue_lock() {
@@ -414,6 +486,27 @@ release_chrono_queue_lock() {
         rm -f "$lockdir/owner.pid"
         rmdir "$lockdir" 2>/dev/null || true
     fi
+}
+
+# scan_existing_responses() replays every response file on each watcher start
+# so no delivery that landed while the watcher was down is stranded. But
+# chrono-queue-backfill.sh separately archives settled entries out of
+# chrono-queue.md into chrono-queue-handled.md, and by the time a task's
+# response is replayed the registry entry that would make
+# registry-reconciler.sh report "already-settled" may itself have been
+# pruned -- so the replay falls into the reconciler_handled==0 fallback below
+# and would silently undo the backfill's archival on every restart. Both
+# writers use the identical " ${ts} | ${status} | ${task_ref} | ${summary}"
+# line shape (registry_reconciler.py:244, append_chrono_queue below), so a
+# literal `-F` match on " | ${task_ref} | " is exact -- task_ref is a bare
+# namespace/task-id with no pipe characters. Reading chrono-queue-handled.md
+# here is lock-free by design: its only writer (chrono-queue-backfill.sh)
+# replaces it via tempfile+os.replace, an atomic rename, so a concurrent
+# reader always sees a fully-old or fully-new file, never a torn one.
+task_already_handled() {
+    local task_ref="$1" handled="${STATE_DIR}/chrono-queue-handled.md"
+    [[ -f "$handled" ]] || return 1
+    grep -Fq " | ${task_ref} | " "$handled" 2>/dev/null
 }
 
 append_chrono_queue() {
@@ -567,7 +660,7 @@ handle_response_path() {
     fi
     PROCESSED_PATHS="${PROCESSED_PATHS}${path}|"
     if [[ "$fname" == TASK-*-response.md ]]; then
-        autocapture_response_best_effort "$path" &
+        autocapture_dispatch "$path"
     fi
     can_nudge=1
     if ! "$TMUX_BIN" has-session -t "$SESSION" 2>/dev/null; then
@@ -579,11 +672,15 @@ handle_response_path() {
 
     if [[ "$fname" == TASK-*-response.md ]]; then
         if [[ "$reconciler_handled" == 0 ]]; then
-            echo "[$(date '+%H:%M:%S')] shared reconciler found no settled registry entry; using notification fallback: ${task_id}"
-            if append_chrono_queue "$task_id" "$status" "$path"; then
-                echo "[$(date '+%H:%M:%S')] fallback queued chrono status entry: ${status} ${NAMESPACE}/${task_id}"
+            if task_already_handled "${NAMESPACE}/${task_id}"; then
+                echo "[$(date '+%H:%M:%S')] skipping fallback queue: ${NAMESPACE}/${task_id} already archived in chrono-queue-handled.md"
             else
-                echo "[$(date '+%H:%M:%S')] warning: failed to queue chrono status entry: ${status} ${NAMESPACE}/${task_id}" >&2
+                echo "[$(date '+%H:%M:%S')] shared reconciler found no settled registry entry; using notification fallback: ${task_id}"
+                if append_chrono_queue "$task_id" "$status" "$path"; then
+                    echo "[$(date '+%H:%M:%S')] fallback queued chrono status entry: ${status} ${NAMESPACE}/${task_id}"
+                else
+                    echo "[$(date '+%H:%M:%S')] warning: failed to queue chrono status entry: ${status} ${NAMESPACE}/${task_id}" >&2
+                fi
             fi
         fi
         # Archive after the shared reconciler confirms either final settlement OR a

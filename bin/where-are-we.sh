@@ -180,10 +180,6 @@ echo ""
 # Today's content
 hr
 color '1;33' '## NEW SINCE YESTERDAY'
-blogs=$(ls "${VAULT_ROOT}/_state/blog-summaries/${DATE}-"*.md 2>/dev/null | wc -l | tr -d ' ')
-pods=$(ls "${VAULT_ROOT}/_state/podcast-briefs/${DATE}-"*.md 2>/dev/null | wc -l | tr -d ' ')
-echo "  blog summaries: ${blogs}"
-echo "  podcast briefs: ${pods}"
 brief="${VAULT_ROOT}/_state/morning-briefs/${DATE}.md"
 [[ -f "${brief}" ]] && echo "  morning brief:  ${brief}" || echo "  morning brief:  (not yet generated)"
 echo ""

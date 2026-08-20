@@ -23,7 +23,7 @@ _state/**
 # Per-Lead mailbox state — operator-local, regenerated at runtime.
 departments/*/inbox/*.md
 departments/*/active/*.md
-departments/*/outbox/*.md
+departments/*/outbox/*
 departments/*/archive/
 departments/*/archive/*.md
 !departments/*/archive/

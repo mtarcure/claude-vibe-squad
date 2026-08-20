@@ -218,7 +218,11 @@ class Block1SymlinkedInbox(unittest.TestCase):
                 "return_artifact": f"{dept}/outbox/{task_id}-response.md",
             }, "body"), encoding="utf-8")
 
+            # vault is a plain tempdir, not a git checkout, so send-task.sh
+            # cannot derive a branch and now refuses to guess one; supply
+            # it explicitly.
             env = {**os.environ, "VAULT_ROOT": str(vault), "SKIP_NUDGE": "1",
+                   "SQUAD_BASE_BRANCH": "v2",
                    }
             r = subprocess.run([str(SEND_TASK), str(pkt)], env=env,
                                capture_output=True, text=True, timeout=120)
@@ -331,8 +335,11 @@ class Block1SymlinkedInbox(unittest.TestCase):
                 "model_override_reason": "hermetic physical inbox fixture",
                 "write_scope": f"[{artifact}]", "return_artifact": artifact,
             }, "body"), encoding="utf-8")
+            # vault is a plain tempdir, not a git checkout; see the sibling
+            # env dicts above in this class for why this is required now.
             env = {**os.environ, "VAULT_ROOT": str(vault), "SKIP_NUDGE": "1",
                    "SQUAD_DISPATCH_MODE": "board",
+                   "SQUAD_BASE_BRANCH": "v2",
                    "WAVE2_BOARD_LAUNCH_MARKER": str(launch_marker)}
             r = subprocess.run([str(SEND_TASK), str(pkt)], env=env,
                                capture_output=True, text=True, timeout=120)
@@ -375,7 +382,11 @@ class Block1SymlinkedInbox(unittest.TestCase):
                 "write_scope": "[]",
             }, "body"), encoding="utf-8")
 
+            # vault is a plain tempdir, not a git checkout, so send-task.sh
+            # cannot derive a branch and now refuses to guess one; supply
+            # it explicitly.
             env = {**os.environ, "VAULT_ROOT": str(vault), "SKIP_NUDGE": "1",
+                   "SQUAD_BASE_BRANCH": "v2",
                    }
             r = subprocess.run([str(SEND_TASK), str(pkt)], env=env,
                                capture_output=True, text=True, timeout=60)
@@ -413,7 +424,11 @@ class Block1SymlinkedInbox(unittest.TestCase):
                         "parallel_safe": "true", "direct_lane_work_allowed": "true",
                         "write_scope": "[]",
                     }, "body"), encoding="utf-8")
+                    # vault is a plain tempdir, not a git checkout; see the
+                    # sibling env dicts above in this class for why this is
+                    # required now.
                     env = {**os.environ, "VAULT_ROOT": str(vault), "SKIP_NUDGE": "1",
+                           "SQUAD_BASE_BRANCH": "v2",
                            }
 
                     r = subprocess.run([str(SEND_TASK), str(pkt)], env=env,

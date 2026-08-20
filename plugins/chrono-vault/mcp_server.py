@@ -214,6 +214,11 @@ def recall(
     Each returned note carries `disputed` (bool): True when a later write flagged
     it as contradicting an active note on the same subject and never reconciled
     it. Treat a disputed note's claim as contested, not settled.
+
+    Citation is automatic: the vault records which notes this call handed you
+    against this engagement's task, derived from the bound context rather than
+    from anything you pass. Nothing needs to be declared for a later passing
+    review to promote what you used.
     """
     return recall_notes(query=query, filters=filters, limit=limit)
 
@@ -676,8 +681,48 @@ def _run_mcp_server(server: FastMCP) -> None:
     server.run()
 
 
+def _fail_loud_if_vault_root_invalid() -> None:
+    """Refuse to start rather than serve a server with no memory.
+
+    Fail loud at startup -- no silent memory bypass, same posture as
+    daemon/auth.py's BearerTokenAuth. Before this check, an unset or
+    unexpanded CHRONO_VAULT_ROOT (e.g. a bare-terminal Chrono, Claude Remote,
+    or the Claude app, none of which run through bin/launch-squad.sh's
+    exporting shell) surfaced only on the first `recall` call, as the opaque
+    "CHRONO_VAULT_ROOT contains an unresolved expression" -- deep inside a
+    tool error instead of at process start. Measured 2026-08-16 from a bare
+    terminal: `health` silently reported root_valid:false/recall_ready:false
+    and only `recall` raised.
+    """
+    raw = os.environ.get("CHRONO_VAULT_ROOT")
+    fix = (
+        'export CHRONO_VAULT_ROOT="$HOME/Obsidian-Chrono" (already added to '
+        "~/.zprofile -- open a fresh login shell, or export it in this "
+        "shell/session before launching the chrono-vault MCP server)"
+    )
+    if not raw:
+        raise SystemExit(
+            "chrono-vault MCP server refuses to start: CHRONO_VAULT_ROOT is "
+            f"not set. Fix: {fix}."
+        )
+    if "${" in raw:
+        raise SystemExit(
+            "chrono-vault MCP server refuses to start: CHRONO_VAULT_ROOT="
+            f"{raw!r} still contains an unexpanded ${{...}} placeholder -- "
+            "the parent process passed the plugin.json pass-through value "
+            f"through without expanding it. Fix: {fix}."
+        )
+    try:
+        resolve_vault_root()
+    except VaultRootError as exc:
+        raise SystemExit(
+            f"chrono-vault MCP server refuses to start: {exc}. Fix: {fix}."
+        ) from exc
+
+
 if __name__ == "__main__":
     import sys
+    _fail_loud_if_vault_root_invalid()
     if len(sys.argv) > 2 and sys.argv[1] == "--namespace":
         ns = sys.argv[2]
         if ns == "kg":

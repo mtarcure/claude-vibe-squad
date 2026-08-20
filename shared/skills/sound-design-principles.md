@@ -12,7 +12,7 @@ Design sound that communicates — source, function, and emotion — for UI, fil
 2. Choose source material and synthesis/processing to fit that function; shape the envelope (attack/decay) to the event's timing.
 3. Design a consistent sonic language across a set (families of sounds that feel related and distinguishable).
 4. Ensure sounds read against the target playback context (small speakers, noisy rooms, spatial mix) and never rely on volume alone.
-5. Respect likeness/rights: never self-clear a recognizable voice or copyrighted sample; flag for `rights-and-provenance-gate`.
+5. Respect likeness/rights: never self-clear a recognizable voice or copyrighted sample; flag for `rule6-rights-gate`.
 
 ## Acceptance
 - Every sound has a stated function and an envelope that fits the event.

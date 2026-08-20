@@ -83,6 +83,30 @@ if ! env -u SQUAD_CI_HOST_INDEPENDENT \
     exit 1
 fi
 
+# ── skill body identity ───────────────────────────────────────────────────────
+# A skill lives in up to three places: the flat authored source shared/skills/<n>.md,
+# the canonical .claude/skills/<n>/SKILL.md, and the .agents mirror. Nothing kept them
+# in agreement at commit time, so on 2026-08-19 a lane repaired three flat sources
+# while their canonical twins kept pointing at a retired skill — the divergence was
+# only caught by a later manual run. Gate it where the edit lands.
+
+SKILL_CHANGED=false
+while IFS= read -r f; do
+    case "$f" in
+        shared/skills/*.md|.claude/skills/*/SKILL.md|.agents/skills/*/SKILL.md)
+            SKILL_CHANGED=true; break ;;
+    esac
+done <<< "$CHANGED_FILES"
+
+if $SKILL_CHANGED; then
+    echo "[pre-commit] Skill files changed — running validate_skill_wiring.py"
+    if ! python3 "${VAULT_ROOT}/scripts/python/validate_skill_wiring.py" >/dev/null 2>&1; then
+        echo "[pre-commit] BLOCKED: skill wiring validation failed."
+        echo "  Run 'python3 scripts/python/validate_skill_wiring.py' for details."
+        exit 1
+    fi
+fi
+
 # ── format checks ─────────────────────────────────────────────────────────────
 # Fast, deterministic, no network. Warnings only (do not block dev flow).
 

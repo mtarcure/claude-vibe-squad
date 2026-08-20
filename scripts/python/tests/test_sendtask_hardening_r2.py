@@ -263,6 +263,13 @@ class SendTaskFixture(unittest.TestCase):
                 **os.environ,
                 "VAULT_ROOT": str(vault),
                 "SKIP_NUDGE": "1",
+                # `vault` is a plain directory, not a git checkout (this fixture
+                # borrows the repo's code but not its state), so send-task.sh
+                # cannot derive a branch and now refuses to guess one. That
+                # refusal is correct for a real checkout in detached HEAD; here
+                # it is irrelevant to what these tests exercise, so supply the
+                # value explicitly rather than weakening the production guard.
+                "SQUAD_BASE_BRANCH": "v2",
                 **(extra_env or {}),
             },
             capture_output=True,

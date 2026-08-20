@@ -65,8 +65,12 @@ the query — closes both a *security* finding and a *correctness* finding.
 
 ## Reproduce the shape yourself
 
-The mechanism is [`shared/modes/panel.md`](../../shared/modes/panel.md); a panel
-is dispatched with:
+Panel is a dispatch *shape*, not a mode — see
+[`shared/routing.md`](../../shared/routing.md) § Dispatch shapes. The coordinator
+protocol (member validation, parallel spawn, the bounded collection loop, and the
+evidence-synthesis aggregation rule) is injected into the task packet by
+[`bin/send-task.sh`](../../bin/send-task.sh) at dispatch time. A panel is dispatched
+with:
 
 ```bash
 bin/send-task.sh <task-file> \

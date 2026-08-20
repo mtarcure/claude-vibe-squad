@@ -17,10 +17,10 @@ class ChronoStatusSegmentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             fixture_root = Path(directory)
             (fixture_root / "bin").mkdir()
-            shutil.copy2(
-                ROOT / "bin" / "doctor-log-home.sh",
-                fixture_root / "bin" / "doctor-log-home.sh",
-            )
+            # The badge sources both of its sibling libraries out of the vault's
+            # bin/, so the fixture vault needs both.
+            for library in ("doctor-log-home.sh", "doctor-state.sh"):
+                shutil.copy2(ROOT / "bin" / library, fixture_root / "bin" / library)
             package = fixture_root / "scripts" / "python" / "chrono_state"
             package.mkdir(parents=True)
             shutil.copy2(

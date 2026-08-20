@@ -229,10 +229,14 @@ field as-is and validate the artifact it already demands, by adding one method t
 +        self.validate_primitive_ledgers()
 ```
 
-Placement is Chrono's call. The two sane homes are `scripts/python/primitive_ledger.py` with the
-vocabulary at `shared/bounty/predicates.tsv`, or leaving the rig standalone and calling it from the
-bounty prevalidation path. **Note the diff is written against `validate_specialists.py` as it exists on
-a separate in-progress worktree, not on this branch — see Limitations.**
+Placement is Chrono's call, and **neither destination path exists yet** — `scripts/python/primitive_ledger.py`
+and `shared/bounty/predicates.tsv` name where this rig *would* live if the proposal is accepted, not
+files you can open today. The vocabulary currently ships as `predicates.tsv` beside this README; the
+validator as `validate_primitive_ledger.py`. The two sane homes are `scripts/python/primitive_ledger.py`
+with the vocabulary at `shared/bounty/predicates.tsv`, or leaving the rig standalone and calling it from
+the bounty prevalidation path. **Note the diff above is written against `validate_specialists.py`
+(the real file is `scripts/python/validate_specialists.py`) as it existed on a separate in-progress
+worktree, not on this branch — see Limitations.** Do not read the `+` lines as landed code.
 
 ---
 

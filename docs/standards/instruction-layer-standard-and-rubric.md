@@ -203,8 +203,9 @@ check, the decision test, and a calibration hit proving the pass catches a known
     scan (in `_state/dream-config.yaml`)."* — a pointer at a config with zero live readers: the file
     did not exist, and nothing read it as a dream-scan allowlist. Commit `8c83b1fe` removed both the
     brief's line and the export-allowlist entry; today the brief has zero `dream-config` hits, and
-    the only `dream-config` mentions left under `tools/export/` are regression tests
-    (`tests/test_projector.py`, `tests/test_product_hygiene.py`) pinning its removal.
+    the only `dream-config` mentions left are regression tests pinning its removal —
+    `tools/export/tests/test_projector.py` and `tools/export/tests/test_product_hygiene.py`
+    (repo-relative; both re-verified 2026-08-17).
   - The packet's L2 description, "`departments/*/CLAUDE.md` (… 14 of them)" — zero such files exist;
     the count and the path are both stale.
 

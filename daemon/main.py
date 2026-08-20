@@ -1,13 +1,29 @@
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from daemon.routes import catalog, events, health, mcp, summarize, task
 from daemon.watcher import WATCHER
 from daemon.auth import BearerTokenAuth
 
+log = logging.getLogger(__name__)
+
+def _log_watcher_result(t: asyncio.Task) -> None:
+    # Without this, an exception from awatch() (e.g. the outbox dir vanishing)
+    # is pinned by the live watcher_task local and never garbage-collected, so
+    # asyncio's "exception was never retrieved" logging never fires either --
+    # nothing is ever logged. /health surfaces WATCHER.last_error too.
+    if t.cancelled():
+        return
+    exc = t.exception()
+    if exc is not None:
+        WATCHER.last_error = f"{type(exc).__name__}: {exc}"
+        log.error("outbox watcher task failed", exc_info=exc)
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     watcher_task = asyncio.create_task(WATCHER.run())
+    watcher_task.add_done_callback(_log_watcher_result)
     try:
         yield
     finally:

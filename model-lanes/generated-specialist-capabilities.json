@@ -498,7 +498,20 @@
       "coverage": "full",
       "known_unavailable": {
         "mcps": [],
-        "skills": [],
+        "skills": [
+          {
+            "availability": "superseded",
+            "evidence": "superseded",
+            "id": "consent-and-likeness-check",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "superseded",
+            "evidence": "superseded",
+            "id": "rights-and-provenance-gate",
+            "requirement": "preferred"
+          }
+        ],
         "tools": [
           {
             "availability": "harness-only",
@@ -535,11 +548,10 @@
         }
       ],
       "skills": [
-        "consent-and-likeness-check",
-        "rights-and-provenance-gate"
+        "rule6-rights-gate"
       ],
       "specialist": "asset-provenance-and-rights-auditor",
-      "surface_sha256": "ee38b2ff04476255760fe1f8f41b341eb2b870e29cf12f410d7dda3ffa5636b2",
+      "surface_sha256": "0c8c91d0dd453c8b7599ddcee099f0923b1e5245fa602fb9b0e350999525f5ed",
       "tools": []
     },
     {
@@ -547,7 +559,20 @@
       "coverage": "partial",
       "known_unavailable": {
         "mcps": [],
-        "skills": [],
+        "skills": [
+          {
+            "availability": "superseded",
+            "evidence": "superseded",
+            "id": "consent-and-likeness-check",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "superseded",
+            "evidence": "superseded",
+            "id": "rights-and-provenance-gate",
+            "requirement": "preferred"
+          }
+        ],
         "tools": [
           {
             "availability": "harness-only",
@@ -568,11 +593,10 @@
       ],
       "primary_plan": [],
       "skills": [
-        "consent-and-likeness-check",
-        "rights-and-provenance-gate"
+        "rule6-rights-gate"
       ],
       "specialist": "asset-provenance-and-rights-auditor",
-      "surface_sha256": "0e4a82880302bb23e4a5f3b16455a4cf8e21d7c1070861388c04e40f185f9864",
+      "surface_sha256": "795f10bf41aaad377eee3d79cc027ba745583bd8a379fd71d6da80f6e5fd5b10",
       "tools": []
     },
     {
@@ -1406,7 +1430,20 @@
       "coverage": "full",
       "known_unavailable": {
         "mcps": [],
-        "skills": [],
+        "skills": [
+          {
+            "availability": "superseded",
+            "evidence": "superseded",
+            "id": "attack-coverage-map",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "superseded",
+            "evidence": "superseded",
+            "id": "detection-tuning",
+            "requirement": "preferred"
+          }
+        ],
         "tools": [
           {
             "availability": "harness-only",
@@ -1443,12 +1480,10 @@
         }
       ],
       "skills": [
-        "attack-coverage-map",
-        "detection-as-code",
-        "detection-tuning"
+        "detection-as-code"
       ],
       "specialist": "detection-engineer",
-      "surface_sha256": "919b528d6c4e86d1340866fdf110f73aa58a7823f5c37587a251364452d392db",
+      "surface_sha256": "9292e7aca46a84961bb96a15ef5c8fab8af272a9179595f277a4064138aa75eb",
       "tools": []
     },
     {
@@ -3886,7 +3921,20 @@
       "coverage": "full",
       "known_unavailable": {
         "mcps": [],
-        "skills": [],
+        "skills": [
+          {
+            "availability": "superseded",
+            "evidence": "superseded",
+            "id": "regional-compliance-check",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "superseded",
+            "evidence": "superseded",
+            "id": "terminology-memory",
+            "requirement": "preferred"
+          }
+        ],
         "tools": [
           {
             "availability": "harness-only",
@@ -3923,12 +3971,10 @@
         }
       ],
       "skills": [
-        "locale-adaptation",
-        "regional-compliance-check",
-        "terminology-memory"
+        "locale-adaptation"
       ],
       "specialist": "localization-specialist",
-      "surface_sha256": "9109f48b35fa392b637aa6b8750d80903b3e4d1e981f28188aeb4532aa7cb645",
+      "surface_sha256": "7e98b879e5d87a3eaba2d1e8eb92edddbba1f78d4edc156e6d555f8cb51416d7",
       "tools": []
     },
     {
@@ -3936,7 +3982,20 @@
       "coverage": "partial",
       "known_unavailable": {
         "mcps": [],
-        "skills": [],
+        "skills": [
+          {
+            "availability": "superseded",
+            "evidence": "superseded",
+            "id": "regional-compliance-check",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "superseded",
+            "evidence": "superseded",
+            "id": "terminology-memory",
+            "requirement": "preferred"
+          }
+        ],
         "tools": [
           {
             "availability": "harness-only",
@@ -3957,12 +4016,10 @@
       ],
       "primary_plan": [],
       "skills": [
-        "locale-adaptation",
-        "regional-compliance-check",
-        "terminology-memory"
+        "locale-adaptation"
       ],
       "specialist": "localization-specialist",
-      "surface_sha256": "547b41edb43801820528a5f3d25a130b86d303daa2a2486ff43805fed375948c",
+      "surface_sha256": "6744b0e76550b093202aa513caece03c4e24b53c88fb315ed02b87ba70203355",
       "tools": []
     },
     {
@@ -4321,7 +4378,20 @@
       "coverage": "full",
       "known_unavailable": {
         "mcps": [],
-        "skills": [],
+        "skills": [
+          {
+            "availability": "superseded",
+            "evidence": "superseded",
+            "id": "audio-production-basics",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "superseded",
+            "evidence": "superseded",
+            "id": "music-production-basics",
+            "requirement": "preferred"
+          }
+        ],
         "tools": []
       },
       "lane": "gemini",
@@ -4361,12 +4431,10 @@
         }
       ],
       "skills": [
-        "audio-production-basics",
-        "music-production-basics",
         "sonic-branding"
       ],
       "specialist": "music-composer",
-      "surface_sha256": "8cacc02b231bcbcc22852869a51716a73d7267d98ea45c3a883436ac91ecad5e",
+      "surface_sha256": "1a95c49dbc7e83f8b0f4fba0f0313177d40dd161410f8d5e25785714abc1a16c",
       "tools": []
     },
     {
@@ -4374,7 +4442,20 @@
       "coverage": "partial",
       "known_unavailable": {
         "mcps": [],
-        "skills": [],
+        "skills": [
+          {
+            "availability": "superseded",
+            "evidence": "superseded",
+            "id": "audio-production-basics",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "superseded",
+            "evidence": "superseded",
+            "id": "music-production-basics",
+            "requirement": "preferred"
+          }
+        ],
         "tools": []
       },
       "lane": "gpt-codex",
@@ -4389,12 +4470,10 @@
       ],
       "primary_plan": [],
       "skills": [
-        "audio-production-basics",
-        "music-production-basics",
         "sonic-branding"
       ],
       "specialist": "music-composer",
-      "surface_sha256": "78dd0b8917e6223030ba89d758be018b060be68bd5165082cf3ff2d9c10c390e",
+      "surface_sha256": "a6a2a218bd106282a0c7c50612a9b2b518493333419769f5a1543d688fe275bd",
       "tools": []
     },
     {
@@ -6805,7 +6884,14 @@
       "coverage": "full",
       "known_unavailable": {
         "mcps": [],
-        "skills": [],
+        "skills": [
+          {
+            "availability": "superseded",
+            "evidence": "superseded",
+            "id": "audio-production-basics",
+            "requirement": "preferred"
+          }
+        ],
         "tools": []
       },
       "lane": "gemini",
@@ -6846,11 +6932,10 @@
       ],
       "skills": [
         "audio-layering-techniques",
-        "audio-production-basics",
         "sound-design-principles"
       ],
       "specialist": "sound-designer",
-      "surface_sha256": "4e138e1cd233408161dbd2c8aa272c877d7f7742cd14a24395a229c05bf7c21d",
+      "surface_sha256": "45e617603af1112b61fe54c37638abdec44780d368b16f3d5667ba6e9d18d632",
       "tools": []
     },
     {
@@ -6858,7 +6943,14 @@
       "coverage": "partial",
       "known_unavailable": {
         "mcps": [],
-        "skills": [],
+        "skills": [
+          {
+            "availability": "superseded",
+            "evidence": "superseded",
+            "id": "audio-production-basics",
+            "requirement": "preferred"
+          }
+        ],
         "tools": []
       },
       "lane": "gpt-codex",
@@ -6874,11 +6966,10 @@
       "primary_plan": [],
       "skills": [
         "audio-layering-techniques",
-        "audio-production-basics",
         "sound-design-principles"
       ],
       "specialist": "sound-designer",
-      "surface_sha256": "7969fd673f5f50fbcf5a91d4c66d75419c8ae6006c133b7e25fa7e626c977923",
+      "surface_sha256": "cb640651fa9eedb36a4de5b25faf4feff5881aaabf0942337b9907b6c994a40f",
       "tools": []
     },
     {
@@ -7597,11 +7688,10 @@
         "security-ownership-map",
         "security-threat-model",
         "systematic-attacking",
-        "systematic-bug-hunting",
-        "threat-model-loop"
+        "systematic-bug-hunting"
       ],
       "specialist": "threat-modeler",
-      "surface_sha256": "fa8d4c0d84c388fd3ebea1566f7b866c5760cfc48ce534f43151505e67610679",
+      "surface_sha256": "53c308f994c795ede571f1c5727d03c37cd6155e2ae17a854f2b7471e9ba481b",
       "tools": []
     },
     {
@@ -8264,7 +8354,14 @@
       "coverage": "full",
       "known_unavailable": {
         "mcps": [],
-        "skills": [],
+        "skills": [
+          {
+            "availability": "superseded",
+            "evidence": "superseded",
+            "id": "audio-production-basics",
+            "requirement": "preferred"
+          }
+        ],
         "tools": []
       },
       "lane": "gemini",
@@ -8304,11 +8401,10 @@
         }
       ],
       "skills": [
-        "audio-production-basics",
         "voice-performance-direction"
       ],
       "specialist": "voice-narrator",
-      "surface_sha256": "ca43c8d802fe8a833d57cd0858e60a67d3ac2eb871eadf892174b30497ff337b",
+      "surface_sha256": "b38d478d4326e61a7802d491956a6bdcab1a262f94b21d2d3da79cc5639d12c8",
       "tools": []
     },
     {
@@ -8316,7 +8412,14 @@
       "coverage": "partial",
       "known_unavailable": {
         "mcps": [],
-        "skills": [],
+        "skills": [
+          {
+            "availability": "superseded",
+            "evidence": "superseded",
+            "id": "audio-production-basics",
+            "requirement": "preferred"
+          }
+        ],
         "tools": []
       },
       "lane": "gpt-codex",
@@ -8331,18 +8434,17 @@
       ],
       "primary_plan": [],
       "skills": [
-        "audio-production-basics",
         "voice-performance-direction"
       ],
       "specialist": "voice-narrator",
-      "surface_sha256": "41d2947db5136694866ecf9445c4a10c7ceb75b9c41c654c873e59cb379c590a",
+      "surface_sha256": "3b28f8727e4ba2e71a73f3f172f805cddbc6fbbfd10cbf085c2ecada866c4f98",
       "tools": []
     }
   ],
   "generated": true,
-  "policy_sha256": "c28582eb0a4090e7071df94fb7c4b1532492a8eca3803ccfd4e9791a3856bd8a",
+  "policy_sha256": "f17eac36e60fc01fbe4a029b4e1d829515c23a6ecb138aaf576ff2bd530c6da8",
   "schema": "specialist-adapter-capability-index/v2",
   "source": "model-lanes/specialist-lane-capabilities.v1.json",
-  "source_sha256": "2625a4a8cd5209f66bd691251e4891453aa495033240724479a69f13965d104a",
+  "source_sha256": "8896231493565c6530a07ba6ef536050aaa08b67ca03851ce6b8bde8feed4ca6",
   "surface_count": 111
 }

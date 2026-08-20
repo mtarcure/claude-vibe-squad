@@ -16,6 +16,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from dispatch_checkout import normal_checkout_root  # noqa: E402
+import doctor_fixture  # noqa: E402
 
 # See dispatch_checkout: send-task.sh refuses to dispatch from a linked
 # worktree, and that refusal runs before the guards this suite tests -- so
@@ -23,23 +24,7 @@ from dispatch_checkout import normal_checkout_root  # noqa: E402
 # The helper returns the root unchanged in a main checkout.
 ROOT = normal_checkout_root(Path(__file__).resolve().parents[3])
 
-_DOCTOR_HELPERS = (
-    Path("bin") / "doctor-log-home.sh",
-    Path("shared") / "repo-root.sh",
-)
-
-_EMPTY_PS = """#!/bin/bash
-# Pass doctor's liveness canary, then return a genuinely empty process table.
-previous=""
-for argument in "$@"; do
-    if [[ "$previous" == "-p" ]]; then
-        printf '%s\\n' "$argument"
-        exit 0
-    fi
-    previous="$argument"
-done
-exit 0
-"""
+_EMPTY_PS = doctor_fixture.EMPTY_PS
 
 _DENY_ARTIFACT_FIND = """#!/bin/bash
 # The artifact target exists, but its enumerator cannot read it. Other doctor
@@ -246,13 +231,7 @@ class DoctorTargetContractTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="doctor-target-contract-") as temp:
             fixture = Path(temp)
             root = fixture / "root"
-            (root / "bin").mkdir(parents=True)
-            (root / "shared").mkdir(parents=True)
-
-            shutil.copy2(ROOT / "bin" / "doctor.sh", root / "bin" / "doctor.sh")
-            (root / "bin" / "doctor.sh").chmod(0o755)
-            for helper in _DOCTOR_HELPERS:
-                shutil.copy2(ROOT / helper, root / helper)
+            doctor_fixture.install_doctor_helpers(ROOT, root)
 
             subprocess.run(
                 ["git", "init", "-q"], cwd=root, check=True, capture_output=True
@@ -260,10 +239,11 @@ class DoctorTargetContractTest(unittest.TestCase):
 
             home = fixture / "home"
             local_bin = home / ".local" / "bin"
-            local_bin.mkdir(parents=True)
-            ps_stub = local_bin / "ps"
-            ps_stub.write_text(_EMPTY_PS, encoding="utf-8")
-            ps_stub.chmod(0o755)
+            doctor_fixture.write_stub(local_bin, "ps", _EMPTY_PS)
+            # Doctor now gates on the launcher's required-command list, so the
+            # fixture supplies it rather than inheriting the maintainer host's
+            # answer to "is kimi installed".
+            doctor_fixture.stub_launch_dependencies(local_bin, ROOT)
 
             environment = {
                 **os.environ,

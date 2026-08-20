@@ -1,33 +1,16 @@
 #!/usr/bin/env python3
-"""The high-safety gate must not demand a review OF a review.
+"""Review is packet-triggered and must not demand a review OF a review.
 
-Two linked defects made cross-family review packets undispatchable:
-
-* ``bin/send-task.sh`` dies when a ``safety_level: high`` specialist carries
-  ``mandatory_review: false``.  Every verdict-producing role was high-safety, so
-  dispatching a REVIEW required the review itself to be reviewed -- an infinite
-  regress.  ``registry_reconciler._is_read_only_review_task`` already encoded
-  the correct exemption (verdict role + explicitly empty write scope); the
-  dispatcher simply never honoured it.
-* ``REVIEW_VERDICT_SPECIALISTS`` held only ``code-reviewer`` and
-  ``security-analyst``, both mapped to the gpt-codex lane.  A codex-authored
-  task needs an anti-affinity (non-openai) reviewer, so it had NO eligible
-  read-only verdict role at all.  ``skeptic`` -- the canonical claude-lane
-  judgment role -- closes that hole.
-
-Safety level and verdict-role membership are INDEPENDENT axes, and this file
-must keep them apart.  The operator-ratified safety audit (514ff18) then
-downgraded ``skeptic`` high -> medium -- attacking the same regress from the
-other side, since a medium role never meets the gate at all.  ``skeptic``
-remains a verdict role and remains exempt in the reconciler, because
-``_is_read_only_review_task`` keys on the ROLE SET and an empty write scope,
-never on ``safety_level``.  So the gate assertions below iterate
-``HIGH_SAFETY_VERDICT_ROLES`` (the roles that actually reach the branch) while
-the role-set assertions iterate the full ``REVIEW_VERDICT_SPECIALISTS``.
+``safety_level`` is a role quality floor, while ``review_triggers`` describes
+the change.  These tests keep those axes independent: high-safety roles with an
+empty trigger list are admitted, a declared trigger requires an anti-affinity
+reviewer, and read-only verdict roles retain their narrow reconciler settlement
+exemption.  The verdict set still spans both author families so a genuine
+cross-family review has an eligible landing role.
 
 The dispatch tests drive the real ``bin/send-task.sh`` with ``--dry-run``:
-admission and the high-safety gate both run long before any mailbox, registry,
-or model-CLI side effect, so these assert on behaviour without touching state.
+trigger validation and anti-affinity run long before any mailbox, registry, or
+model-CLI side effect, so these assert on behaviour without touching state.
 """
 
 from __future__ import annotations
@@ -59,7 +42,7 @@ from registry_reconciler import (  # noqa: E402
     _is_read_only_review_task,
 )
 
-HIGH_SAFETY_GATE = "requires mandatory_review:true"
+REMOVED_SAFETY_GATE = "requires mandatory_review:true"
 # `--dry-run` deliberately exits 2 once a packet clears every gate, so a caller
 # chaining `--dry-run && <real dispatch>` can never mistake a rehearsal for a
 # dispatch. `die` exits 1. Both codes are load-bearing assertions here.
@@ -68,7 +51,7 @@ DIE = 1
 
 # specialist -> (mapped primary lane, a source_namespace send-task accepts for
 # it).  Using each role's MAPPED lane keeps the packets free of a
-# model_override_reason, so the only gate under test is the high-safety one.
+# model_override_reason, so trigger handling is isolated from routing checks.
 VERDICT_ROLES = {
     "code-reviewer": ("gpt-codex", "coding"),
     "security-analyst": ("gpt-codex", "security"),
@@ -76,22 +59,17 @@ VERDICT_ROLES = {
     # send-task lets a shared-mapped specialist route through any real mailbox.
     "skeptic": ("claude", "security"),
 }
-# Both the exemption and the `die` live INSIDE send-task.sh's
-# `MAP_SAFETY == high` branch, so only the high-safety verdict roles reach
-# either one.  A medium verdict role is admitted by the ordinary path without
-# the branch ever running -- it can neither be gated nor exempted.  Gate
-# assertions therefore iterate this subset; `test_the_verdict_partition_matches
-# _the_runtime_map` is what fails loudly if a safety_level edit moves a role
-# across the line again.
+# Keep both high- and medium-safety verdict roles in the fixture. Their dispatch
+# behavior must now be identical when the packet carries no trigger.
 HIGH_SAFETY_VERDICT_ROLES = frozenset({"code-reviewer", "security-analyst"})
 MEDIUM_SAFETY_VERDICT_ROLES = frozenset({"skeptic"})
-# A high-safety role that is NOT a verdict producer: the control for every
-# "still gated" assertion.
+# A high-safety role that is NOT a verdict producer: the control proving role
+# safety alone no longer creates review work.
 HIGH_SAFETY_IMPLEMENTER = ("content-verifier", "claude", "content")
 
 
 def gated_verdict_roles() -> list[tuple[str, tuple[str, str]]]:
-    """The verdict roles whose dispatch actually exercises the high-safety gate."""
+    """The formerly gated verdict roles used as safety-level controls."""
     return [(name, VERDICT_ROLES[name]) for name in sorted(HIGH_SAFETY_VERDICT_ROLES)]
 
 
@@ -110,6 +88,9 @@ def packet(
     to_model: str,
     source_namespace: str,
     write_scope: str,
+    review_triggers: str = "[]",
+    mandatory_review: str = "false",
+    review_model: str = "none",
 ) -> str:
     fields = {
         "id": task_id,
@@ -123,8 +104,9 @@ def packet(
         "read_scope": "[]",
         "parallel_safe": "true",
         "direct_lane_work_allowed": "false",
-        "mandatory_review": "false",
-        "review_model": "none",
+        "mandatory_review": mandatory_review,
+        "review_triggers": review_triggers,
+        "review_model": review_model,
         "return_artifact": "_state/reviewer-recursion/out.md",
         "success_criteria": "[]",
         "out_of_scope": "[]",
@@ -156,13 +138,7 @@ class VerdictRoleSetTests(unittest.TestCase):
         self.assertEqual(fields[6], "claude", msg="primary_lane")
 
     def test_the_verdict_partition_matches_the_runtime_map(self) -> None:
-        """The gate fixtures must track the TSV, not a snapshot of it.
-
-        A safety_level edit landing without a matching fixture edit is exactly
-        what stranded three assertions here before: they iterated every verdict
-        role and asserted gate behaviour a downgraded role can no longer show.
-        Fail on the partition itself so the next such edit names its cause.
-        """
+        """The safety controls must track the TSV rather than a stale snapshot."""
         self.assertEqual(
             HIGH_SAFETY_VERDICT_ROLES | MEDIUM_SAFETY_VERDICT_ROLES,
             set(REVIEW_VERDICT_SPECIALISTS),
@@ -212,8 +188,8 @@ class VerdictRoleSetTests(unittest.TestCase):
         )
 
 
-class HighSafetyGateExemptionTests(unittest.TestCase):
-    """``bin/send-task.sh`` honours the reconciler's read-only exemption."""
+class TriggerReviewGateTests(unittest.TestCase):
+    """``bin/send-task.sh`` derives review from the packet, not role safety."""
 
     def dispatch(
         self,
@@ -222,6 +198,9 @@ class HighSafetyGateExemptionTests(unittest.TestCase):
         to_model: str,
         source_namespace: str,
         write_scope: str,
+        review_triggers: str = "[]",
+        mandatory_review: str = "false",
+        review_model: str = "none",
         vault: Path | None = None,
     ) -> subprocess.CompletedProcess:
         directory = Path(tempfile.mkdtemp(prefix="reviewer-recursion-"))
@@ -234,12 +213,22 @@ class HighSafetyGateExemptionTests(unittest.TestCase):
                 to_model=to_model,
                 source_namespace=source_namespace,
                 write_scope=write_scope,
+                review_triggers=review_triggers,
+                mandatory_review=mandatory_review,
+                review_model=review_model,
             ),
             encoding="utf-8",
         )
+        env = {**os.environ, "VAULT_ROOT": str(vault or REPO), "SKIP_NUDGE": "1"}
+        if vault is not None:
+            # A fixture vault is a plain tempdir, not a git checkout, so
+            # send-task.sh cannot derive a branch and now refuses to guess
+            # one; supply it explicitly. `REPO` (the `or` fallback above) is
+            # the real checkout and derives its actual branch unaided.
+            env["SQUAD_BASE_BRANCH"] = "v2"
         return subprocess.run(
             [str(SEND_TASK), str(task_file), "--dry-run"],
-            env={**os.environ, "VAULT_ROOT": str(vault or REPO), "SKIP_NUDGE": "1"},
+            env=env,
             capture_output=True,
             text=True,
             timeout=180,
@@ -248,7 +237,7 @@ class HighSafetyGateExemptionTests(unittest.TestCase):
     def output(self, completed: subprocess.CompletedProcess) -> str:
         return completed.stdout + completed.stderr
 
-    # ---- (a) a read-only verdict packet dispatches without the die ---------
+    # ---- no-trigger controls across role safety levels ---------------------
     def test_read_only_verdict_roles_dispatch_without_mandatory_review(self) -> None:
         for specialist, (lane, namespace) in gated_verdict_roles():
             with self.subTest(specialist=specialist):
@@ -260,21 +249,12 @@ class HighSafetyGateExemptionTests(unittest.TestCase):
                 )
                 output = self.output(completed)
                 self.assertEqual(completed.returncode, DRY_RUN_ADMITTED, msg=output)
-                self.assertNotIn(HIGH_SAFETY_GATE, output)
-                self.assertIn("read-only review packet", output)
+                self.assertNotIn(REMOVED_SAFETY_GATE, output)
+                self.assertNotIn("read-only review packet", output)
                 self.assertIn("[DRY RUN] write_scope=[]", output)
 
-    # ---- (a') a MEDIUM verdict role never meets the gate at all ------------
     def test_medium_safety_verdict_roles_dispatch_without_mandatory_review(self) -> None:
-        """Read-only review dispatch stays open for a downgraded verdict role.
-
-        The exemption is not what admits these -- the whole gate is nested
-        under ``safety_level: high``, so a medium role is admitted by the
-        ordinary path and reaches NEITHER branch.  Asserting the absence of
-        both messages is what distinguishes "admitted below the gate" from
-        "admitted by the exemption"; asserting only the exit code would pass
-        either way and would not notice a re-upgrade.
-        """
+        """Medium roles follow the same empty-trigger contract as high roles."""
         for specialist in sorted(MEDIUM_SAFETY_VERDICT_ROLES):
             lane, namespace = VERDICT_ROLES[specialist]
             with self.subTest(specialist=specialist):
@@ -286,17 +266,16 @@ class HighSafetyGateExemptionTests(unittest.TestCase):
                 )
                 output = self.output(completed)
                 self.assertEqual(completed.returncode, DRY_RUN_ADMITTED, msg=output)
-                self.assertNotIn(HIGH_SAFETY_GATE, output)
+                self.assertNotIn(REMOVED_SAFETY_GATE, output)
                 self.assertNotIn("read-only review packet", output)
                 self.assertIn("[DRY RUN] write_scope=[]", output)
 
-    # ---- (b) a high-safety IMPLEMENTER is untouched ------------------------
-    def test_high_safety_implementer_still_requires_mandatory_review(self) -> None:
+    # ---- a high-safety implementer is still ordinary without a trigger -----
+    def test_high_safety_implementer_without_a_trigger_is_trivial(self) -> None:
         specialist, lane, namespace = HIGH_SAFETY_IMPLEMENTER
         for label, write_scope in (
             ("with-scope", "[_state/reviewer-recursion/]"),
-            # The exemption keys on the ROLE too: an empty scope alone must not
-            # buy a non-verdict specialist a pass.
+            # Empty scope does not itself create a review trigger.
             ("empty-scope", "[]"),
         ):
             with self.subTest(label=label):
@@ -307,13 +286,11 @@ class HighSafetyGateExemptionTests(unittest.TestCase):
                     write_scope=write_scope,
                 )
                 output = self.output(completed)
-                self.assertEqual(completed.returncode, DIE, msg=output)
-                self.assertIn(
-                    f"high-safety specialist '{specialist}' {HIGH_SAFETY_GATE}", output
-                )
+                self.assertEqual(completed.returncode, DRY_RUN_ADMITTED, msg=output)
+                self.assertNotIn(REMOVED_SAFETY_GATE, output)
+                self.assertIn("[DRY RUN]", output)
 
-    # ---- (c) a verdict role that WRITES is not exempt ----------------------
-    def test_verdict_role_with_a_write_scope_is_still_gated(self) -> None:
+    def test_verdict_role_with_a_write_scope_does_not_infer_review(self) -> None:
         for specialist, (lane, namespace) in gated_verdict_roles():
             with self.subTest(specialist=specialist):
                 completed = self.dispatch(
@@ -323,19 +300,47 @@ class HighSafetyGateExemptionTests(unittest.TestCase):
                     write_scope="[_state/reviewer-recursion/]",
                 )
                 output = self.output(completed)
-                self.assertEqual(completed.returncode, DIE, msg=output)
-                self.assertIn(
-                    f"high-safety specialist '{specialist}' {HIGH_SAFETY_GATE}", output
-                )
+                self.assertEqual(completed.returncode, DRY_RUN_ADMITTED, msg=output)
+                self.assertNotIn(REMOVED_SAFETY_GATE, output)
                 self.assertNotIn("read-only review packet", output)
 
-    # ---- the exemption fails CLOSED ---------------------------------------
-    def test_unreadable_verdict_set_denies_the_exemption(self) -> None:
-        """No reconciler module -> no exemption, not a silently open gate.
+    def test_adversarial_trigger_fires_and_keeps_cross_family_review(self) -> None:
+        specialist, lane, namespace = HIGH_SAFETY_IMPLEMENTER
+        completed = self.dispatch(
+            specialist=specialist,
+            to_model=lane,
+            source_namespace=namespace,
+            write_scope="[]",
+            review_triggers="[adversarial_claim]",
+            mandatory_review="true",
+            review_model="gpt-codex",
+        )
+        output = self.output(completed)
+        self.assertEqual(completed.returncode, DRY_RUN_ADMITTED, msg=output)
+        self.assertIn("cross-family review required by", output)
+        self.assertIn("adversarial_claim", output)
 
-        The dispatcher reads the role set out of ``registry_reconciler`` so the
-        two can never drift.  That import is also the failure mode worth
-        pinning: if it cannot be resolved the gate must keep firing.
+    def test_adversarial_trigger_rejects_same_family_reviewer(self) -> None:
+        specialist, lane, namespace = HIGH_SAFETY_IMPLEMENTER
+        completed = self.dispatch(
+            specialist=specialist,
+            to_model=lane,
+            source_namespace=namespace,
+            write_scope="[]",
+            review_triggers="[adversarial_claim]",
+            mandatory_review="true",
+            review_model=lane,
+        )
+        output = self.output(completed)
+        self.assertEqual(completed.returncode, DIE, msg=output)
+        self.assertIn("review_model to differ from to_model", output)
+
+    def test_unreadable_verdict_set_does_not_recreate_a_safety_default(self) -> None:
+        """A missing reconciler module cannot turn role safety into review policy.
+
+        Dispatch no longer imports the reconciler merely to decide whether a
+        high-safety role gets a review. Removing that module from a fixture
+        therefore cannot resurrect the retired specialist-wide default.
         """
         root = Path(tempfile.mkdtemp(prefix="reviewer-recursion-vault-"))
         self.addCleanup(shutil.rmtree, root, ignore_errors=True)
@@ -370,10 +375,8 @@ class HighSafetyGateExemptionTests(unittest.TestCase):
             vault=vault,
         )
         output = self.output(completed)
-        self.assertEqual(completed.returncode, DIE, msg=output)
-        self.assertIn(
-            f"high-safety specialist 'code-reviewer' {HIGH_SAFETY_GATE}", output
-        )
+        self.assertEqual(completed.returncode, DRY_RUN_ADMITTED, msg=output)
+        self.assertNotIn(REMOVED_SAFETY_GATE, output)
 
 
 if __name__ == "__main__":

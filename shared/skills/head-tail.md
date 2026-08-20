@@ -1,7 +1,7 @@
 ---
 name: head-tail
 status: authored
-description: Use when a file is too large to read whole — logs, build output, generated artifacts, dumps — and you need its shape from the first and last N lines instead of loading it into context. Not for source files, which should be read in one operation.
+description: Use when a log, build transcript, generated artifact, or dump is too large to read whole and its middle is repetitive—sample bounded first/last slices, report the unread gap, and capture producer status separately. Not for source, briefs, packets, or configuration; their whole-file rule comes from the injected task contract.
 ---
 
 # Head-Tail
@@ -10,16 +10,22 @@ Sample a file that is too large to read whole by taking a bounded slice from eac
 output are usually structured this way on purpose: the beginning carries the invocation, configuration,
 and version banner, and the end carries the outcome, the error, and the exit status.
 
+## Canonical efficiency contract
+
+The task packet's injected **Execution efficiency — the cost unit is ROUND-TRIPS** section is the sole
+source for whole-file reads, batching independent operations, avoiding re-reads, and excluding generated
+content with tool-level globs. This skill does not redefine those rules. It adds only the log-specific
+decision test, bounded-sample evidence contract, long-line defense, middle-search rule, and producer-status
+trap that the packet section does not specify.
+
 ## When this is the right tool — and when it is the wrong one
 This technique is **narrow**, and applying it to the wrong file is a measured, expensive mistake.
 
 - **Right:** log files, CI/build output, test-runner transcripts, generated artifacts, data dumps, and
   anything whose middle is repetitive by construction.
-- **Wrong: source files, briefs, packets, and configuration.** Read those **whole, in one operation**.
-  Paging a source file in small windows costs roughly eight times the round-trips on a large file, and
-  because chunked shell output scrolls out of context, it is precisely the lanes that chunked a file that
-  end up re-reading it three and four times. If a file is small enough to read whole, reading it whole is
-  both cheaper and better.
+- **Wrong: source files, briefs, packets, and configuration.** Follow the injected whole-file contract;
+  do not use this skill as an exception to it. A large dense file is not a sampling candidate merely
+  because its full read is inconvenient.
 
 The deciding question is not "is this file long?" but **"is this file's middle repetitive?"** A 3,000-line
 source file is long and dense; a 3,000-line test log is long and repetitive. Only the second is a
@@ -31,8 +37,8 @@ head-tail candidate.
 2. **Choose the slice deliberately.** Twenty lines from each end is a reasonable default for a log. Take
    more from the tail when you are chasing a failure, more from the head when you are checking how a run
    was invoked or configured.
-3. **Read both ends in one round-trip.** Combine the head and tail reads into a single command rather than
-   two calls; independent operations belong in the same round-trip.
+3. **Label both slices.** Follow the packet's batching rule, and make the output itself distinguish the
+   head from the tail so lines from opposite ends cannot be mistaken for contiguous evidence.
 4. **Bound the line length.** A single line in a log can be megabytes — a serialized payload, a base64
    blob, a minified bundle. Truncate over-long lines and mark them truncated, so one pathological line
    cannot displace everything else you read.
@@ -42,9 +48,9 @@ head-tail candidate.
 6. **Search the middle rather than paging it.** When the ends do not answer the question, do **not** walk
    the file in windows. Search it — grep for the error, the failing test name, the exception class — and
    read the matches with a little surrounding context. One targeted search beats twenty sequential pages.
-7. **Exclude generated content at the tool level.** When sampling across many files, filter with globs
-   rather than by intention. A prose instruction to ignore generated code does not filter a search; a
-   glob does.
+7. **Capture producer status separately.** Save the build/test process's direct exit status before any
+   sampling pipeline. A successful `head`, `tail`, formatter, or filter says only that the sampler ran;
+   it cannot establish that the producer succeeded.
 
 ## Failure modes
 - **Sampling a source file.** The middle of a source file is the part that matters. Read it whole.

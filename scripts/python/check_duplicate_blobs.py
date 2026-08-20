@@ -17,7 +17,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Sequence
+from typing import Collection, Sequence
 
 
 REGISTRY_COLUMNS = (
@@ -31,6 +31,12 @@ REGISTRY_COLUMNS = (
 VALID_DISPOSITIONS = frozenset({"intentional", "known_defect"})
 GROUP_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 IDENTITY_ENFORCER = "scripts/python/check_duplicate_blobs.py"
+SKILL_MIRROR_ENFORCER = "scripts/python/validate_skill_wiring.py"
+SKILL_MIRROR_POLICY = "model-lanes/SKILL-HOMES.md"
+SKILL_MIRROR_CONTRACT = frozenset(
+    {IDENTITY_ENFORCER, SKILL_MIRROR_ENFORCER, SKILL_MIRROR_POLICY}
+)
+REGULAR_FILE_MODES = frozenset({"100644", "100755"})
 
 
 class DuplicateCheckError(RuntimeError):
@@ -55,8 +61,10 @@ class RegistryEntry:
 @dataclass(frozen=True)
 class IndexCensus:
     tracked_paths: frozenset[str]
+    index_modes: dict[str, str]
     index_objects: dict[str, str]
     duplicate_groups: dict[str, tuple[str, ...]]
+    duplicate_blob_contents: dict[str, bytes]
 
 
 def _repo_path(value: object, *, field: str, line_number: int) -> str:
@@ -214,6 +222,118 @@ def git_environment() -> dict[str, str]:
     return environment
 
 
+def _skill_mirror_name(paths: Collection[str]) -> str | None:
+    """Return the name of one exact canonical/shared ``SKILL.md`` mirror pair.
+
+    Hard Rule 10's winner and validator live in ``SKILL_MIRROR_POLICY`` and
+    ``SKILL_MIRROR_ENFORCER``.  This matcher deliberately recognizes only the
+    direct two-file shape they own.  Assets, references, Gemini materializations,
+    cross-named skills, and any group with a third copy remain registry-required.
+    """
+    if len(paths) != 2:
+        return None
+    names_by_home: dict[str, str] = {}
+    for path in paths:
+        parts = PurePosixPath(path).parts
+        if (
+            len(parts) != 4
+            or parts[0] not in {".agents", ".claude"}
+            or parts[1] != "skills"
+            or parts[3] != "SKILL.md"
+        ):
+            return None
+        name = parts[2]
+        if not GROUP_ID.fullmatch(name) or name == "probe-canary":
+            return None
+        if parts[0] in names_by_home:
+            return None
+        names_by_home[parts[0]] = name
+    if set(names_by_home) != {".agents", ".claude"}:
+        return None
+    shared_name = names_by_home[".agents"]
+    return shared_name if names_by_home[".claude"] == shared_name else None
+
+
+def _skill_identity(blob: bytes) -> tuple[str, str] | None:
+    """Read the strict ``name``/``audience`` identity from staged frontmatter."""
+    try:
+        text = blob.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    if not text.startswith("---\n"):
+        return None
+    end = text.find("\n---", 4)
+    if end == -1:
+        return None
+    values: dict[str, str] = {}
+    for line in text[4:end].splitlines():
+        match = re.fullmatch(r"(name|audience):\s*(.*?)\s*", line)
+        if match is None:
+            continue
+        key, value = match.groups()
+        if key in values or not value:
+            return None
+        values[key] = value
+    if set(values) != {"name", "audience"}:
+        return None
+    return values["name"], values["audience"]
+
+
+def _read_blob_contents(repo: Path, object_ids: Collection[str]) -> dict[str, bytes]:
+    """Read selected staged blobs with one ``git cat-file --batch`` snapshot call."""
+    requested = tuple(sorted(set(object_ids)))
+    if not requested:
+        return {}
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo), "cat-file", "--batch"],
+            input=b"".join(object_id.encode("ascii") + b"\n" for object_id in requested),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            env=git_environment(),
+        )
+    except OSError as error:
+        raise DuplicateCheckError(f"cannot execute git cat-file --batch: {error}") from error
+    if result.returncode != 0:
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        raise DuplicateCheckError(
+            f"git cat-file --batch failed with exit {result.returncode}: "
+            f"{detail or 'no stderr'}"
+        )
+
+    contents: dict[str, bytes] = {}
+    cursor = 0
+    for expected in requested:
+        header_end = result.stdout.find(b"\n", cursor)
+        if header_end == -1:
+            raise DuplicateCheckError("git cat-file --batch returned a truncated header")
+        fields = result.stdout[cursor:header_end].split()
+        if len(fields) != 3 or fields[1] != b"blob":
+            raise DuplicateCheckError("git cat-file --batch returned malformed blob metadata")
+        try:
+            actual = fields[0].decode("ascii")
+            size = int(fields[2])
+        except (UnicodeDecodeError, ValueError) as error:
+            raise DuplicateCheckError(
+                "git cat-file --batch returned invalid blob metadata"
+            ) from error
+        if actual != expected or size < 0:
+            raise DuplicateCheckError("git cat-file --batch returned an unexpected blob")
+        content_start = header_end + 1
+        content_end = content_start + size
+        if (
+            content_end >= len(result.stdout)
+            or result.stdout[content_end:content_end + 1] != b"\n"
+        ):
+            raise DuplicateCheckError("git cat-file --batch returned truncated blob content")
+        contents[expected] = result.stdout[content_start:content_end]
+        cursor = content_end + 1
+    if cursor != len(result.stdout):
+        raise DuplicateCheckError("git cat-file --batch returned unexpected trailing data")
+    return contents
+
+
 def census_index(repo: Path) -> IndexCensus:
     if not repo.is_dir():
         raise DuplicateCheckError(f"repository directory does not exist: {repo}")
@@ -234,6 +354,7 @@ def census_index(repo: Path) -> IndexCensus:
         )
 
     tracked_paths: set[str] = set()
+    index_modes: dict[str, str] = {}
     index_objects: dict[str, str] = {}
     paths_by_blob: dict[str, set[str]] = {}
     unmerged_paths: set[str] = set()
@@ -255,6 +376,7 @@ def census_index(repo: Path) -> IndexCensus:
         if stage != "0":
             unmerged_paths.add(path)
             continue
+        index_modes[path] = mode
         index_objects[path] = blob
         # A gitlink records a commit object, not file bytes. Counting two equal
         # gitlink object IDs as duplicate files would be a false positive.
@@ -271,10 +393,17 @@ def census_index(repo: Path) -> IndexCensus:
         for blob, paths in paths_by_blob.items()
         if len(paths) >= 2
     }
+    skill_mirror_blobs = {
+        blob
+        for blob, paths in duplicate_groups.items()
+        if _skill_mirror_name(paths) is not None
+    }
     return IndexCensus(
         tracked_paths=frozenset(tracked_paths),
+        index_modes=index_modes,
         index_objects=index_objects,
         duplicate_groups=duplicate_groups,
+        duplicate_blob_contents=_read_blob_contents(repo, skill_mirror_blobs),
     )
 
 
@@ -310,6 +439,25 @@ def read_registry_snapshot(
     return result.stdout
 
 
+def _is_validator_backed_skill_mirror(
+    census: IndexCensus,
+    blob: str,
+    members: Collection[str],
+) -> bool:
+    name = _skill_mirror_name(members)
+    if name is None:
+        return False
+    return (
+        all(census.index_modes.get(path) in REGULAR_FILE_MODES for path in members)
+        and all(
+            census.index_modes.get(path) in REGULAR_FILE_MODES
+            for path in SKILL_MIRROR_CONTRACT
+        )
+        and _skill_identity(census.duplicate_blob_contents.get(blob, b""))
+        == (name, "specialist")
+    )
+
+
 def policy_violations(
     census: IndexCensus,
     entries: Sequence[RegistryEntry],
@@ -322,6 +470,8 @@ def policy_violations(
 
     for members, blob in sorted(actual.items(), key=lambda item: sorted(item[0])):
         if members in declared:
+            continue
+        if _is_validator_backed_skill_mirror(census, blob, members):
             continue
         violations.append(f"undeclared identical-blob group {blob}:")
         violations.extend(f"  {path!r}" for path in sorted(members))
@@ -391,6 +541,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
 
     path_count = sum(len(paths) for paths in census.duplicate_groups.values())
+    skill_mirrors = sum(
+        1
+        for blob, paths in census.duplicate_groups.items()
+        if _is_validator_backed_skill_mirror(census, blob, paths)
+    )
     intentional = sum(entry.disposition == "intentional" for entry in entries)
     known_defects = sum(entry.disposition == "known_defect" for entry in entries)
     for entry in entries:
@@ -403,7 +558,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         "ONE-FACT-ONE-HOME PASS: "
         f"checked {len(census.duplicate_groups)} identical-blob groups across "
         f"{path_count} tracked paths; registry entries={len(entries)} "
-        f"(intentional={intentional}, known_defect={known_defects})"
+        f"(intentional={intentional}, known_defect={known_defects}); "
+        f"validator-backed skill mirrors={skill_mirrors}"
     )
     return 0
 

@@ -51,7 +51,16 @@ cli_available() { command -v "$1" >/dev/null 2>&1; }
 # Format per MCP:  name|args|env_vars (space-separated KEY=VAR_NAME pairs to forward)
 MCPS=(
     "chrono-vault|${CHRONO_PLUGINS}/chrono-vault/mcp_server.py|CHRONO_VAULT_ROOT OBSIDIAN_REST_API_KEY OBSIDIAN_VAULT_ROOT"
-    "chrono-obsidian|${CHRONO_PLUGINS}/chrono-vault/mcp_server.py --namespace obsidian|OBSIDIAN_REST_API_KEY OBSIDIAN_VAULT_ROOT"
+    # CHRONO_VAULT_ROOT is required even in the obsidian namespace: this is the
+    # SAME mcp_server.py, and its startup guard plus vaultroot.resolve_vault_root()
+    # both read CHRONO_VAULT_ROOT only -- they do NOT honour the OBSIDIAN_VAULT_ROOT
+    # alias that broker.py (ROOT_ALIASES) and clearance.py (VAULT_PATH_ENV) declare.
+    # MCP clients pass this env dict INSTEAD of the inherited environment, so a
+    # shell export cannot cover the gap. Omitting it made the server exit before
+    # the handshake, which every client reported only as "Connection closed"
+    # (kimi refused to start at all). Verified 2026-08-17 by spawning the server
+    # under `env -i` with just the two names below.
+    "chrono-obsidian|${CHRONO_PLUGINS}/chrono-vault/mcp_server.py --namespace obsidian|CHRONO_VAULT_ROOT OBSIDIAN_REST_API_KEY OBSIDIAN_VAULT_ROOT"
     "chrono-research-arsenal|${CHRONO_PLUGINS}/chrono-research-arsenal/mcp_server.py|APIFY_TOKEN BRAVE_API_KEY FIRECRAWL_API_KEY PERPLEXITY_API_KEY SERPER_API_KEY XAI_API_KEY"
     "chrono-media-studio|${CHRONO_PLUGINS}/chrono-media-studio/mcp_server.py|GEMINI_API_KEY OPENAI_API_KEY XAI_API_KEY"
 )

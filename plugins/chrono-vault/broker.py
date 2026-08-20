@@ -38,6 +38,16 @@ AUTH_RESULT_SCHEMA = "chrono-vault-broker-auth-result/v1"
 TOKEN_RE = re.compile(r"^[0-9a-f]{64}$")
 IDENTITY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$")
 MAX_AUTH_LINE = 2048
+# The broker validates the *shape* of the authenticated context; policy stays
+# owned by clearance.py, which is why this set is duplicated rather than
+# imported (the broker runs supervisor-side and must not depend on loading the
+# policy TSV). `clearance._APERTURES` is the authority, and
+# `scripts/python/tests/test_dispatch_memory_default.py` pins the two together
+# -- an aperture missing here is rejected outright at decode, whatever the
+# policy says.
+CONTEXT_APERTURES = frozenset(
+    {"rich", "focused", "default", "cold", "pool_blind", "none"}
+)
 STARTUP_GRACE_SECONDS = 0.15
 READY_TIMEOUT_SECONDS = 2.0
 AUTH_TIMEOUT_SECONDS = 3.0
@@ -111,8 +121,7 @@ def _decode_context(environment: Mapping[str, str]) -> dict[str, object]:
     if (
         not isinstance(value, dict)
         or value.get("schema") != "chrono-vault-context/v1"
-        or value.get("aperture")
-        not in {"rich", "focused", "cold", "pool_blind", "none"}
+        or value.get("aperture") not in CONTEXT_APERTURES
     ):
         raise BrokerError("broker memory context has an invalid schema or aperture")
     return value

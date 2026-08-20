@@ -1,5 +1,6 @@
 ---
 specialist: scout
+blind_discovery: true
 version: 2.0
 department: security
 safety_level: high

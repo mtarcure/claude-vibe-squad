@@ -8,8 +8,21 @@ import yaml
 router = APIRouter()
 
 def _state_dir() -> Path:
-    vault_root = Path(os.environ.get("VAULT_ROOT", str(Path.home() / "Obsidian-Claude-Vibe-Squad")))
-    return Path(os.environ.get("VIBESQUAD_STATE_DIR", str(vault_root / "daemon" / "state")))
+    override = os.environ.get("VIBESQUAD_STATE_DIR")
+    if override:
+        return Path(override)
+    vault_root = os.environ.get("VAULT_ROOT")
+    if not vault_root:
+        # Fail loud -- no silent default. A guessed maintainer path here meant a
+        # public clone at e.g. ~/src/vibe-squad got a phantom root: /tasks always
+        # empty, indistinguishable from an idle squad. Start via
+        # bin/daemon-launcher.sh, which sources shared/repo-root.sh and exports
+        # VAULT_ROOT before this runs.
+        raise RuntimeError(
+            "VAULT_ROOT not set. Start via bin/daemon-launcher.sh, or set "
+            "VAULT_ROOT / VIBESQUAD_STATE_DIR explicitly."
+        )
+    return Path(vault_root) / "daemon" / "state"
 
 def _read_task_meta(task_file: Path) -> dict:
     """Best-effort read of task packet or outbox manifest — returns fields UX needs."""

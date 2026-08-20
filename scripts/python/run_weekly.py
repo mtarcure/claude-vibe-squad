@@ -11,8 +11,13 @@ Phases:
   1. Deep KG cleanup (longer-threshold orphan scan, dupe consolidation candidates)
   2. CLI authentication audit
   3. Mode archival census (report-only age observations; no moves)
-  4. Cross-source synthesis (kimi summarizes the week's blog summaries + podcast briefs)
-  5. Weekly brief generator
+  4. Weekly brief generator
+
+A cross-source synthesis phase sat between 3 and 4 until 2026-08-17. It read
+`_state/blog-summaries` and `_state/podcast-briefs`, whose producer -- the feed
+and content pipeline -- was deleted 2026-08-16. Neither directory exists, so the
+phase collected nothing, returned None every week, and printed
+"(no briefs to synthesize)" into the log.
 
 Output: `_state/cleanup-logs/<date>-weekly.md` + `_state/weekly-briefs/<date>-week.md`
 """
@@ -34,8 +39,6 @@ STATE_DIR = VAULT_ROOT / "_state"
 DATE = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 LOG_PATH = STATE_DIR / "cleanup-logs" / f"{DATE}-weekly.md"
 WEEKLY_BRIEF_PATH = STATE_DIR / "weekly-briefs" / f"{DATE}-week.md"
-
-KIMI_BIN = os.environ.get("KIMI_BIN", "kimi")
 
 
 def oauth_env() -> dict:
@@ -164,57 +167,9 @@ def mode_archival(
     }
 
 
-# ─── Phase 4: Cross-source synthesis (week in AI) ─────────────────
-
-def cross_source_synthesis(days: int = 7) -> str | None:
-    """Concatenate the past week's blog summaries + podcast briefs and ask kimi
-    for cross-source themes."""
-    cutoff = datetime.now().timestamp() - days * 86400
-    parts: list[str] = ["## Past-week briefs:"]
-    for sub in ("blog-summaries", "podcast-briefs"):
-        d = STATE_DIR / sub
-        if not d.is_dir():
-            continue
-        files = sorted([f for f in d.glob("*.md")
-                        if f.stat().st_mtime >= cutoff],
-                       key=lambda f: f.stat().st_mtime, reverse=True)[:30]
-        for f in files:
-            try:
-                content = f.read_text(errors="replace")[:2500]
-            except OSError:
-                continue
-            parts.append(f"\n### {sub}/{f.name}\n{content}\n")
-    if len(parts) <= 1:
-        return None
-    bundle = "\n".join(parts)[:50000]
-    prompt = (
-        "Synthesize the week-in-AI from these briefs (blogs + podcasts). Output:\n\n"
-        "## Themes\n(3-5 bullets — recurring narratives across multiple sources)\n\n"
-        "## What changed\n(2-4 bullets — concrete shifts: launches, prices, policy)\n\n"
-        "## Worth re-reading\n(2-3 specific brief paths if any)\n\n"
-        "Cite source filenames. Under 250 words. No preface.\n\n"
-        f"{bundle}"
-    )
-    if not shutil.which(KIMI_BIN):
-        return None
-    try:
-        r = subprocess.run(
-            [KIMI_BIN, "--quiet", "--no-thinking", "-p", prompt,
-             "--max-steps-per-turn", "5"],
-            capture_output=True, text=True, timeout=300, env=oauth_env(),
-        )
-    except subprocess.TimeoutExpired:
-        return None
-    if r.returncode != 0:
-        return None
-    out = r.stdout.split("To resume this session:")[0].strip()
-    return out or None
-
-
-# ─── Phase 5: Weekly brief ────────────────────────────────────────
+# ─── Phase 4: Weekly brief ────────────────────────────────────────
 
 def render_weekly_brief(
-    synthesis: str | None,
     sub_audit: dict,
     archived: int,
     kg_summary: str,
@@ -223,9 +178,6 @@ def render_weekly_brief(
 ) -> str:
     week_end = (datetime.now() + timedelta(days=(5 - datetime.now().weekday()) % 7)).strftime("%Y-%m-%d")
     lines = [f"# Weekly Brief — week ending {week_end}", ""]
-    lines.append("## The Week in AI\n")
-    lines.append(synthesis or "*(no briefs found this week)*")
-    lines.append("")
     lines.append("## Authentication health\n")
     for cli, status in sub_audit.items():
         lines.append(f"- **{cli}**: {status}")
@@ -262,21 +214,17 @@ def render_log(phases: dict) -> str:
 
 def main() -> int:
     phases: dict = {}
-    print("Phase 1/5: deep KG cleanup")
+    print("Phase 1/4: deep KG cleanup")
     phases["Deep KG Cleanup"] = deep_kg_cleanup()
-    print("Phase 2/5: subscription audit")
+    print("Phase 2/4: subscription audit")
     phases["Subscription Audit"] = subscription_audit()
-    print("Phase 3/5: mode archival")
+    print("Phase 3/4: mode archival")
     phases["Mode Archival"] = mode_archival()
-    print("Phase 4/5: cross-source synthesis")
-    synth = cross_source_synthesis()
-    phases["Cross-Source Synthesis"] = synth or "(no briefs to synthesize)"
 
     atomic_write(LOG_PATH, render_log(phases))
 
-    print("Phase 5/5: weekly brief")
+    print("Phase 4/4: weekly brief")
     brief = render_weekly_brief(
-        synthesis=synth,
         sub_audit=phases["Subscription Audit"] if isinstance(phases["Subscription Audit"], dict) else {},
         archived=phases["Mode Archival"].get("archived_count", 0) if isinstance(phases["Mode Archival"], dict) else 0,
         kg_summary=phases["Deep KG Cleanup"].get("summary", "") if isinstance(phases["Deep KG Cleanup"], dict) else "",
