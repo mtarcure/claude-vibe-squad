@@ -30,6 +30,7 @@ from lane_capability_enforcement import (  # noqa: E402
 from specialist_capability_source import load_source, role_surface_sha256  # noqa: E402
 from validate_capability_homes import routed_lanes, runtime_rows  # noqa: E402
 from dispatch_context_builder import (  # noqa: E402
+    assemble_trusted_launch_prompt,
     build_board_fanout_members,
     prepare_worktree_outputs,
     publish_prepared_worktree_outputs,
@@ -139,6 +140,13 @@ Dry-run dispatch test only.
                 "namespace_default_model() { printf 'claude\\n'; }\n",
                 encoding="utf-8",
             )
+            # A high safety level is deliberately present: review is now a
+            # property of this packet's explicit triggers, not this role row.
+            runtime_fields = ["sol", "shared", "judgment", "high"]
+            runtime_fields.extend(["x", "x", "claude", "x", "x", "x", "x", "x", "x", "gpt-codex"])
+            (vault / "shared" / "specialist-runtime-map.tsv").write_text(
+                "\t".join(runtime_fields) + "\n", encoding="utf-8"
+            )
             hardened = vault / "bin" / "send-task.sh"
             hardened.write_text(
                 "#!/bin/bash\n"
@@ -188,8 +196,35 @@ Dry-run dispatch test only.
             )
             packet = packet_capture.read_text(encoding="utf-8")
             self.assertIn("mode: project\n", packet)
+            self.assertIn("review_triggers: []\n", packet)
+            self.assertIn("mandatory_review: false\n", packet)
+            self.assertIn("review_model: none\n", packet)
             self.assertNotIn("mode: advisory", packet)
             self.assertFalse(tmux_marker.exists(), "compatibility wrapper invoked tmux")
+
+            triggered = subprocess.run(
+                [
+                    "bash", str(COMPAT_SEND_TASK), "coding", str(body), "sol", "claude"
+                ],
+                env={
+                    **os.environ,
+                    "ARGV_CAPTURE": str(argv_capture),
+                    "PACKET_CAPTURE": str(packet_capture),
+                    "PATH": f"{tools}:/usr/bin:/bin",
+                    "REVIEW_TRIGGERS": "[architecture]",
+                    "TMUX_MARKER": str(tmux_marker),
+                    "VAULT_ROOT": str(vault),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=10,
+            )
+            self.assertEqual(triggered.returncode, 0, triggered.stderr)
+            triggered_packet = packet_capture.read_text(encoding="utf-8")
+            self.assertIn("review_triggers: [architecture]\n", triggered_packet)
+            self.assertIn("mandatory_review: true\n", triggered_packet)
+            self.assertIn("review_model: gpt-codex\n", triggered_packet)
 
     def test_public_launch_command_is_unchanged_without_retired_inbox_workers(
         self,
@@ -204,7 +239,9 @@ Dry-run dispatch test only.
         self.assertNotIn('"scan-consumer"', text)
 
     def test_board_batch_scheduler_admits_only_disjoint_scopes(self) -> None:
-        with tempfile.TemporaryDirectory(dir=ROOT / "_state") as directory:
+        state_root = ROOT / "_state"
+        state_root.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=state_root) as directory:
             root = Path(directory)
             packets = []
             for index, scope in enumerate(
@@ -288,15 +325,27 @@ Dry-run dispatch test only.
         ).read_text(encoding="utf-8")
         # Schema-complete, one-attempt memory (Sol context-diag fix): give the exact
         # valid record shape up front so the model doesn't burn extra turns on invalid
-        # filters / repo schema-searches / retries. Memory is now BEST-EFFORT and never a
-        # gate; record_usage is removed (its undeclared enum hard-blocked whole tasks — 2026-07-24).
+        # filters / repo schema-searches / retries. Memory is BEST-EFFORT and never a gate.
         self.assertIn('record(note_type="learning", fields=', builder)
         self.assertIn("server binds source_task", builder)
         self.assertIn("never search the repo for schemas", builder)
         self.assertIn("Recall prior context ONCE", builder)
         self.assertIn("BEST-EFFORT", builder)
-        self.assertIn("Do not call record_usage or set_status", builder)
         self.assertNotIn("record one concise durable outcome in chrono-vault", builder)
+        # RECORD_USAGE (2026-08-17): this assertion is the inverse of what it was.
+        # `c3aeb5d5` forbade record_usage on 2026-07-25 because the server did not
+        # publish the `outcome` enum, so a rejected call hard-blocked whole tasks;
+        # `6ebe6802` published it two days later and the prohibition was never lifted.
+        # It cost 23 days and every usage row in them. The prohibition is now asserted
+        # ABSENT so it cannot return silently — if a future edit reintroduces it, this
+        # fails rather than going unnoticed for another three weeks.
+        self.assertNotIn("Do not call record_usage", builder)
+        self.assertIn("record_usage(recall_id=", builder)
+        # `set_status` is a different question and stays forbidden: it is
+        # controller-only (`plugins/chrono-vault/clearance.py`
+        # require_controller_lifecycle), and nothing about the enum defect applied
+        # to it. Only the record_usage half was diagnosed stale.
+        self.assertIn("Do not call set_status", builder)
         # ORDERING (2026-08-04): "best-effort" was true of the wording and false of the
         # POSITION. `record` used to sit between the artifact and the completion envelope
         # ("Just before the completion envelope, record the outcome ONCE"), and the envelope
@@ -325,6 +374,53 @@ Dry-run dispatch test only.
         self.assertIn('"learning_status": globals().get("learning_status"', supervisor)
         self.assertIn('"memory_id": globals().get("completion_memory_id")', supervisor)
         self.assertIn('tool == "record" or tool.endswith("__record")', supervisor)
+
+    def test_dispatch_prompt_expects_usage_only_where_recall_can_return_notes(
+        self,
+    ) -> None:
+        """The prompt text is what a worker obeys, so assert the assembled bytes.
+
+        The source-text assertions above catch a reintroduced prohibition; this
+        catches the subtler failure of asking for a usage outcome from an aperture
+        that can never produce a recall_id to report one against.
+        """
+
+        def prompt(aperture: str) -> str:
+            return assemble_trusted_launch_prompt(
+                "packet body",
+                task_id="TASK-2026-08-17-0001-usage",
+                attempt_id="d-" + "0" * 32,
+                generation=1,
+                memory_aperture=aperture,
+            )
+
+        for aperture in ("rich", "focused"):
+            with self.subTest(aperture=aperture):
+                text = prompt(aperture)
+                self.assertIn("record_usage(recall_id=", text)
+                self.assertNotIn("Do not call record_usage", text)
+                self.assertIn("Do not call set_status", text)
+        for aperture in ("cold", "pool_blind"):
+            with self.subTest(aperture=aperture):
+                text = prompt(aperture)
+                self.assertNotIn("record_usage(", text)
+                self.assertIn("no usage outcome to record", text)
+                self.assertIn("Do not call set_status", text)
+        # Aperture `none` takes the separate branch that forbids every memory tool.
+        none_text = prompt("none")
+        self.assertNotIn("record_usage", none_text)
+        self.assertIn("Do not call recall, record", none_text)
+        # The `record` example the prompt hands every worker must itself be a
+        # well-formed call. It rendered with an unbalanced brace until 2026-08-17
+        # (`fields={...}})`), which only the assembled bytes reveal — the source
+        # reads `{{` and looks correct. An example that cannot parse is the same
+        # defect class that caused the 2026-07-25 emergency in the first place.
+        example = [
+            line for line in prompt("rich").splitlines() if "record(note_type=" in line
+        ][0]
+        call = example[example.index("`record(") + 1 : example.index(")`") + 1]
+        self.assertEqual(call.count("{"), call.count("}"), call)
+        self.assertEqual(call.count("("), call.count(")"), call)
 
     def test_dispatch_toolkit_is_mode_aware(self) -> None:
         """Mode-blind injection sent bounty doctrine to every task and mode

@@ -33,9 +33,9 @@ CONVERTED: dict[str, str] = {
     # removed 2026-08-16 with the feed pipeline; they had no module left to check.
     "registry_reconciler": "VAULT_ROOT",
     "run_weekly": "VAULT_ROOT",
-    "transcription_cache_ttl": "REPO",
     "vibecoding_check": "VAULT_ROOT",
-    "weekly_review_runner": "REPO",
+    # transcription_cache_ttl and weekly_review_runner were removed 2026-08-17
+    # with the two launchd jobs they belonged to.
 }
 
 # validate_specialists.py carries its root as an argparse default inside main(),
@@ -173,23 +173,9 @@ class NotifyGuardIndependenceTest(unittest.TestCase):
             self.assertEqual(Path(proc.stdout.strip()), Path(tmp))
 
 
-class LegacyAliasTest(unittest.TestCase):
-    """transcription_cache_ttl keeps VIBESQUAD_ROOT as a lower-precedence alias."""
-
-    CODE = "import transcription_cache_ttl as m\nprint(m.REPO)\n"
-
-    def test_legacy_alias_is_used_when_vault_root_is_unset(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            proc = _probe(self.CODE, {"VIBESQUAD_ROOT": tmp})
-            self.assertEqual(Path(proc.stdout.strip()), Path(tmp))
-
-    def test_vault_root_still_outranks_the_legacy_alias(self):
-        with tempfile.TemporaryDirectory() as win:
-            with tempfile.TemporaryDirectory() as lose:
-                proc = _probe(
-                    self.CODE, {"VAULT_ROOT": win, "VIBESQUAD_ROOT": lose}
-                )
-                self.assertEqual(Path(proc.stdout.strip()), Path(win))
+# LegacyAliasTest covered the VIBESQUAD_ROOT fallback, which only
+# transcription_cache_ttl implemented. Both went 2026-08-17; no module under
+# scripts/python reads VIBESQUAD_ROOT any more, so there is nothing left to pin.
 
 
 if __name__ == "__main__":

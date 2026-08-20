@@ -4,7 +4,7 @@ description: "Memory, vault, brain-map hygiene, and public-private boundary chec
 model: inherit
 # BEGIN SPECIALIST CAPABILITY PROJECTION
 capability_source: model-lanes/specialist-lane-capabilities.v1.json
-capability_source_sha256: 2625a4a8cd5209f66bd691251e4891453aa495033240724479a69f13965d104a
+capability_source_sha256: 8896231493565c6530a07ba6ef536050aaa08b67ca03851ce6b8bde8feed4ca6
 skills: ["brain-trio-amendment-authoring","instinct-prune-loop","kg-vault-health-check","stale-knowledge-purge"]
 mcps: ["chrono-research-arsenal","chrono-vault","sequential-thinking"]
 # END SPECIALIST CAPABILITY PROJECTION

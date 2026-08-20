@@ -40,15 +40,35 @@ class AutoCaptureTests(unittest.TestCase):
         self.mailbox_root = Path(
             os.path.realpath(tempfile.mkdtemp(prefix="chrono-autocapture-mailbox-"))
         )
+        self.episodic_root = Path(
+            os.path.realpath(tempfile.mkdtemp(prefix="chrono-autocapture-episodic-"))
+        )
         self.addCleanup(shutil.rmtree, self.vault_root, ignore_errors=True)
         self.addCleanup(shutil.rmtree, self.mailbox_root, ignore_errors=True)
+        self.addCleanup(shutil.rmtree, self.episodic_root, ignore_errors=True)
         (self.vault_root / ".chrono-vault").write_text(
             json.dumps({"vault_id": "autocapture-test", "schema_version": 1}),
             encoding="utf-8",
         )
+        # The episodic spool lives at REPO_ROOT/_state/episodic, never in the
+        # vault -- redirect it into this test's own tempdir so the suite
+        # never writes into the real repo's _state/ tree.
+        self.episodic_patch = mock.patch.object(
+            autocapture, "_episodic_root", lambda: self.episodic_root
+        )
+        self.episodic_patch.start()
+        self.addCleanup(self.episodic_patch.stop)
         self.env = mock.patch.dict(
             os.environ,
-            {"CHRONO_VAULT_ROOT": str(self.vault_root)},
+            {
+                "CHRONO_VAULT_ROOT": str(self.vault_root),
+                # This file pins the capture *plumbing* -- routing, sensitivity,
+                # dedupe. Stage 2 distillation is a live lane call, so it is off
+                # here and exercised with an injected distiller in
+                # test_autocapture_quality.py; a unit suite must not depend on a
+                # model being reachable.
+                "CHRONO_AUTOCAPTURE_DISTILL": "off",
+            },
         )
         self.env.start()
         self.addCleanup(self.env.stop)
@@ -148,7 +168,9 @@ class AutoCaptureTests(unittest.TestCase):
                 "status: needs_review\n"
                 "return_artifact: /tmp/report.md\n"
                 "---\n\n"
-                "Implemented atomic inbox publication in bin/send-task.sh.\n"
+                "Implemented atomic inbox publication in bin/send-task.sh: the "
+                "publish now writes a temp file and renames it, so a reader "
+                "never observes a half-written packet.\n"
             ).encode("utf-8")
         )
         archive = self.mailbox_root / "departments" / namespace / "archive"
@@ -198,7 +220,14 @@ class AutoCaptureTests(unittest.TestCase):
         self.assertFalse(result["captured"])
         self.assertEqual(result["reason"], "task_mismatch")
 
-    def test_envelope_without_specialist_or_packet_defaults(self) -> None:
+    def test_envelope_without_specialist_or_packet_is_refused(self) -> None:
+        # Changed by spec 12 (Task 11). This previously asserted that a
+        # capture nobody could be attributed to was written anyway, under the
+        # placeholder role `unknown-specialist` -- which 32.7% of the live
+        # vault ended up carrying. A note whose author is unknown cannot be
+        # trusted, corrected, or asked about, so semantic memory now refuses
+        # it. The raw material is still spooled to the episodic tier; see
+        # test_autocapture_quality.py.
         namespace = "coding"
         task_id = "TASK-2026-07-15-1900-abcdef01"
         outbox = self.mailbox_root / "departments" / namespace / "outbox"
@@ -215,10 +244,9 @@ class AutoCaptureTests(unittest.TestCase):
 
         result = autocapture.capture_response(str(path))
 
-        self.assertTrue(result["captured"])
-        note_path = next((self.vault_root / "notes" / "learning").glob("*.md"))
-        frontmatter, _ = parse_note(note_path)
-        self.assertIn("specialist-unknown-specialist", frontmatter["keywords"])
+        self.assertFalse(result["captured"])
+        self.assertEqual(result["reason"], "refused:unattributed")
+        self.assertFalse((self.vault_root / "notes" / "learning").exists())
 
     def test_general_response_is_internal_and_exact_reprocessing_is_idempotent(self) -> None:
         path, _ = self._response(

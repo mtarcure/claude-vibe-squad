@@ -17,8 +17,10 @@
 #
 # Optional frontmatter:
 #   write_scope: [path1, path2]     — conflict-checked against active tasks
+#   review_triggers: [blast_radius, adversarial_claim, deciding_measurement, architecture]
+#                                    — explicit reasons this change needs review
 #   per_task_versioning: true       — rewrites return_artifact to include TASK-ID subdir
-#   memory_aperture: rich | focused | cold | pool_blind | none (default: cold)
+#   memory_aperture: rich|focused|default|cold|pool_blind|none (default: default since 2026-08-17 — an omitted field is no longer blind; say cold/pool_blind/none for that)
 #   memory_focus: <exact note target> — required only for focused
 #
 # Exit codes:
@@ -80,9 +82,22 @@ BOARD_SUPERVISOR="${VAULT_ROOT}/bin/board-supervisor.sh"
 SQUAD_DISPATCH_MODE="${SQUAD_DISPATCH_MODE:-board}"
 BOARD_PRE_REGISTERED=0 BOARD_BATCH_ADMITTED=0 BOARD_PACKET_FINAL=0 BOARD_PREPARE_TARGET="" BOARD_ADMITTED_INDEX=0
 BOARD_ADMITTED_PATHS=() BOARD_ADMITTED_TASK_IDS=() BOARD_ADMITTED_HASHES=()
-# on any branch (consolidation, etc.), not just a hardcoded v2. Falls back to v2.
-SQUAD_BASE_BRANCH="${SQUAD_BASE_BRANCH:-$(git -C "$VAULT_ROOT" branch --show-current 2>/dev/null || true)}"
-[[ -n "$SQUAD_BASE_BRANCH" ]] || SQUAD_BASE_BRANCH="v2"
+# SQUAD_BASE_BRANCH derives from the checkout's current branch (on any
+# branch, e.g. consolidation, not just a hardcoded v2). A caller-set override
+# always wins; only derive when unset. `git branch --show-current` prints
+# empty and exits 0 on detached HEAD, and the non-repo case lands here too --
+# there is no second signal to fall back on, git already gave its
+# authoritative answer. Die rather than guess v2: board-supervisor.sh's own
+# detached-HEAD refusal (see its comment below) never fires when reached
+# through this script, because this export already leaves it non-empty --
+# this is the one place the refusal must actually happen.
+if [[ -z "${SQUAD_BASE_BRANCH:-}" ]]; then
+    SQUAD_BASE_BRANCH="$(git -C "$VAULT_ROOT" branch --show-current 2>/dev/null || true)"
+    if [[ -z "$SQUAD_BASE_BRANCH" ]]; then
+        echo "ERROR: SQUAD_BASE_BRANCH is unset and could not be derived from the checkout (detached HEAD or non-repo); refusing to guess a base branch." >&2
+        exit 1
+    fi
+fi
 export SQUAD_BASE_BRANCH
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -408,6 +423,46 @@ print(json.dumps(items, ensure_ascii=False, separators=(",", ":")))
 PYEOF
 }
 
+parse_review_triggers() {
+    local raw="$1" parsed
+    parsed="$(parse_inline_path_list "$raw" review_triggers)" || return 1
+    REVIEW_TRIGGERS_JSON_VALUE="$parsed" python3 - <<'PYEOF'
+import json
+import os
+
+allowed = {
+    "blast_radius",
+    "adversarial_claim",
+    "deciding_measurement",
+    "architecture",
+}
+items = json.loads(os.environ["REVIEW_TRIGGERS_JSON_VALUE"])
+unknown = sorted(set(items) - allowed)
+if unknown:
+    raise SystemExit(
+        "review_triggers contains unknown value(s): " + ", ".join(unknown)
+    )
+if len(items) != len(set(items)):
+    raise SystemExit("review_triggers contains duplicate values")
+print(json.dumps(items, separators=(",", ":")))
+PYEOF
+}
+
+add_review_trigger() {
+    local trigger="$1"
+    REVIEW_TRIGGERS_JSON_VALUE="$REVIEW_TRIGGERS_JSON" REVIEW_TRIGGER_VALUE="$trigger" \
+        python3 - <<'PYEOF'
+import json
+import os
+
+items = json.loads(os.environ["REVIEW_TRIGGERS_JSON_VALUE"])
+trigger = os.environ["REVIEW_TRIGGER_VALUE"]
+if trigger not in items:
+    items.append(trigger)
+print(json.dumps(items, separators=(",", ":")))
+PYEOF
+}
+
 derive_verification_contract_snapshot() {
     [[ -f "$VERIFICATION_CONTRACT_HELPER" ]] \
         || die "missing verification contract helper: ${VERIFICATION_CONTRACT_HELPER}"
@@ -513,26 +568,6 @@ map_field() {
     local specialist="$1" field_index="$2"
     [[ -f "$RUNTIME_MAP" ]] || return 1
     awk -F '\t' -v s="$specialist" -v idx="$field_index" '$1 == s {print $idx; exit}' "$RUNTIME_MAP"
-}
-
-# Mirror the reconciler's exact read-only verdict exemption; errors fail closed.
-is_read_only_verdict_task() {
-    local specialist="$1" scope_json="$2"
-    VAULT_ROOT="$VAULT_ROOT" VERDICT_SPECIALIST="$specialist" VERDICT_WRITE_SCOPE_JSON="$scope_json" \
-        python3 - <<'PYEOF' 2>/dev/null
-import json
-import os
-import sys
-
-sys.path.insert(0, os.path.join(os.environ["VAULT_ROOT"], "scripts", "python"))
-from registry_reconciler import REVIEW_VERDICT_SPECIALISTS
-
-scope = json.loads(os.environ["VERDICT_WRITE_SCOPE_JSON"])
-specialist = os.environ.get("VERDICT_SPECIALIST", "")
-raise SystemExit(
-    0 if specialist in REVIEW_VERDICT_SPECIALISTS and scope == [] else 1
-)
-PYEOF
 }
 
 compat_namespace_for_model() {
@@ -780,6 +815,9 @@ TO_MODEL=$(task_frontmatter_field "to_model")
 SOURCE_NAMESPACE=$(task_frontmatter_field "source_namespace")
 REVIEW_MODEL=$(task_frontmatter_field "review_model")
 MANDATORY_REVIEW=$(task_frontmatter_field "mandatory_review")
+REVIEW_TRIGGERS_RAW=$(task_frontmatter_field "review_triggers")
+REVIEW_TRIGGERS_PRESENT=false
+task_frontmatter_has_field "review_triggers" && REVIEW_TRIGGERS_PRESENT=true
 REVIEW_CLASS=$(task_frontmatter_field "review_class")
 MODEL_OVERRIDE_REASON=$(task_frontmatter_field "model_override_reason")
 DIRECT_LANE_WORK_ALLOWED=$(task_frontmatter_field "direct_lane_work_allowed")
@@ -896,6 +934,11 @@ fi
 if [[ -z "$MANDATORY_REVIEW" ]]; then
     MANDATORY_REVIEW="false"
 fi
+if $REVIEW_TRIGGERS_PRESENT && [[ -z "$REVIEW_TRIGGERS_RAW" ]]; then
+    die "review_triggers must be an explicit inline list; use [] for none"
+elif [[ -z "$REVIEW_TRIGGERS_RAW" ]]; then
+    REVIEW_TRIGGERS_RAW="[]"
+fi
 if [[ -z "$REVIEW_CLASS" ]]; then
     REVIEW_CLASS="standard"
 fi
@@ -938,9 +981,9 @@ case "$MODE" in
     "") printf 'WARNING: task packet has no mode; expected bounty|project. No verification contract will be derived and the launch will fail.\n' >&2 ;;
     *) printf 'WARNING: mode %s is not bounty|project. If no verification contract is derived, the launch fails with a misleading "missing verification_contract" error.\n' "$MODE" >&2 ;;
 esac
-[[ -n "$MEMORY_APERTURE" ]] || MEMORY_APERTURE="cold"
+[[ -n "$MEMORY_APERTURE" ]] || MEMORY_APERTURE="default" # validation-only mirror of resolve_memory_aperture() in scripts/python/dispatch_context_builder.py; pinned by scripts/python/tests/test_dispatch_memory_default.py
 case "$MEMORY_APERTURE" in
-    rich|focused|cold|pool_blind|none) ;;
+    rich|focused|default|cold|pool_blind|none) ;;
     *) die "invalid memory_aperture '${MEMORY_APERTURE}'" ;;
 esac
 if [[ "$MEMORY_APERTURE" == "focused" ]]; then
@@ -964,16 +1007,40 @@ case "$MANDATORY_REVIEW" in
     true|false) ;;
     *) die "mandatory_review must be true or false, got '${MANDATORY_REVIEW}'." ;;
 esac
+case "$REVIEW_CLASS" in
+    standard|factual|security-finding) ;;
+    *) die "review_class must be standard, factual, or security-finding, got '${REVIEW_CLASS}'." ;;
+esac
+if ! REVIEW_TRIGGERS_JSON="$(parse_review_triggers "$REVIEW_TRIGGERS_RAW" 2>&1)"; then
+    die "invalid review_triggers: ${REVIEW_TRIGGERS_JSON}"
+fi
+# Typed review classes already state why review is required, so preserve their
+# stronger existing gates while recording them in the four-trigger vocabulary.
+if [[ "$REVIEW_CLASS" == "security-finding" ]]; then
+    REVIEW_TRIGGERS_JSON="$(add_review_trigger adversarial_claim)"
+elif [[ "$REVIEW_CLASS" == "factual" ]]; then
+    REVIEW_TRIGGERS_JSON="$(add_review_trigger deciding_measurement)"
+elif ! $REVIEW_TRIGGERS_PRESENT && [[ "$MANDATORY_REVIEW" == "true" ]]; then
+    # Compatibility for old prepared packets is loud and conservative. New
+    # wrapper-authored packets always carry the explicit field.
+    printf 'WARNING: legacy mandatory_review:true packet lacks review_triggers; treating it as adversarial_claim. Add the explicit field.\n' >&2
+    REVIEW_TRIGGERS_JSON="$(add_review_trigger adversarial_claim)"
+elif ! $REVIEW_TRIGGERS_PRESENT; then
+    printf 'WARNING: legacy packet lacks review_triggers; treating it as an explicit empty list.\n' >&2
+fi
+REVIEW_TRIGGER_COUNT="$(REVIEW_TRIGGERS_JSON_VALUE="$REVIEW_TRIGGERS_JSON" python3 -c 'import json,os; print(len(json.loads(os.environ["REVIEW_TRIGGERS_JSON_VALUE"])))')"
+if [[ "$REVIEW_TRIGGER_COUNT" != "0" && "$MANDATORY_REVIEW" != "true" ]]; then
+    die "review_triggers requires mandatory_review:true"
+fi
+if [[ "$REVIEW_TRIGGER_COUNT" == "0" && "$MANDATORY_REVIEW" == "true" && "$SWARM_ENABLED" == "false" ]]; then
+    die "mandatory_review:true requires at least one review_triggers value"
+fi
 if [[ "$MANDATORY_REVIEW" == "true" ]]; then
     [[ "$REVIEW_MODEL" != "none" ]] \
         || die "mandatory_review:true requires a distinct-family review_model"
     [[ "$REVIEW_MODEL" != "$TO_MODEL" ]] \
         || die "mandatory_review:true requires review_model to differ from to_model"
 fi
-case "$REVIEW_CLASS" in
-    standard|factual|security-finding) ;;
-    *) die "review_class must be standard, factual, or security-finding, got '${REVIEW_CLASS}'." ;;
-esac
 if [[ "$REVIEW_CLASS" == "security-finding" ]]; then
     [[ "$MANDATORY_REVIEW" == "true" ]] \
         || die "review_class: security-finding requires mandatory_review:true"
@@ -1104,6 +1171,7 @@ if $SWARM_ENABLED; then
         validate_native_adapter "$lane" "$member_role"
     done
     MANDATORY_REVIEW="true"
+    REVIEW_TRIGGERS_JSON='["adversarial_claim"]'
     SWARM_LANES_CSV="$(IFS=,; echo "${SWARM_LANES[*]}")"
     SWARM_CHILD_IDS_CSV="$(IFS=,; echo "${SWARM_CHILD_IDS[*]}")"
     SWARM_MEMBER_ROLES_CSV="$(IFS=,; echo "${SWARM_MEMBER_ROLES[*]}")"
@@ -1125,6 +1193,7 @@ print(json.dumps({
     "write_scope": [],
     "task_packet_sha256": os.environ["TASK_SHA"],
     "mandatory_review": True,
+    "review_triggers": ["adversarial_claim"],
 }, sort_keys=True, separators=(",", ":")))
 PYEOF
     )"
@@ -1235,11 +1304,12 @@ if [[ "$SPECIALIST" != "none" ]]; then
     [[ "$MAP_BACKUP" == "codex" ]] && MAP_BACKUP="gpt-codex"
     [[ -n "$MAP_BACKUP" ]] || MAP_BACKUP="none"
     MAP_OPERATOR_GATE="$(map_field "$SPECIALIST" 21 || true)"
-    [[ -n "$MAP_OPERATOR_GATE" ]] || MAP_OPERATOR_GATE="[]"
+    [[ -n "$MAP_OPERATOR_GATE" ]] || die "specialist '${SPECIALIST}' has no operator_gate in shared/specialist-runtime-map.tsv"
     MAP_NAMESPACE="$(map_field "$SPECIALIST" 2 || true)"
     MAP_SAFETY="$(map_field "$SPECIALIST" 4 || true)"
 
     [[ -z "$MAP_MODEL" ]] && die "specialist '${SPECIALIST}' is missing from shared/specialist-runtime-map.tsv"
+    [[ -z "$MAP_SAFETY" ]] && die "specialist '${SPECIALIST}' has no safety_level in shared/specialist-runtime-map.tsv"
 
     if $SWARM_ENABLED; then
         declare -a SWARM_RANKED_LANES=("$MAP_MODEL")
@@ -1268,19 +1338,8 @@ if [[ "$SPECIALIST" != "none" ]]; then
     if [[ "$SOURCE_NAMESPACE" != "$MAP_NAMESPACE" && "$MAP_NAMESPACE" != "shared" ]]; then
         die "source_namespace '${SOURCE_NAMESPACE}' does not match model map (${MAP_NAMESPACE})"
     fi
-    if [[ "$MAP_SAFETY" == "high" && "$MANDATORY_REVIEW" != "true" ]]; then
-        # A read-only verdict-role packet is the ONE exemption: requiring its
-        # own review is an infinite regress (see is_read_only_verdict_task).
-        # The check is deliberately last so it only costs a python3 spawn on
-        # the packets that would otherwise die here.
-        if is_read_only_verdict_task "$SPECIALIST" "$WRITE_SCOPE_JSON"; then
-            info "read-only review packet: ${SPECIALIST} (write_scope: []) is exempt from the high-safety mandatory_review requirement."
-        else
-            die "high-safety specialist '${SPECIALIST}' requires mandatory_review:true"
-        fi
-    fi
     if [[ "$MANDATORY_REVIEW" == "true" ]]; then
-        info "cross-family review required: ${SPECIALIST} (${TO_MODEL}) will stay review-required until a ${REVIEW_MODEL} review response lands."
+        info "cross-family review required by ${REVIEW_TRIGGERS_JSON}: ${SPECIALIST} (${TO_MODEL}) will stay review-required until a ${REVIEW_MODEL} review response lands."
     fi
 fi
 
@@ -1322,8 +1381,10 @@ else
 fi
 
 # Warn when declared writes other than the return artifact will not be promoted.
+# stderr not discarded (was 2>/dev/null): this is the warner about silent
+# write-scope omissions, and a swallowed crash here would BE that outcome.
 warn_unpromoted_write_scope() {
-    python3 - "$TASK_FILE" "$VAULT_ROOT" <<'PYWARN' 2>/dev/null || true
+    python3 - "$TASK_FILE" "$VAULT_ROOT" <<'PYWARN' || true
 import re, subprocess, sys
 from pathlib import Path
 task, root = Path(sys.argv[1]), sys.argv[2]
@@ -1682,7 +1743,7 @@ if runtime_gates in (None, "none"):
 
 replace_fields = {
     "id", "to_model", "specialist", "return_artifact", "write_scope",
-    "mandatory_review", "review_model", "model_override_reason", "compatibility_namespace",
+    "mandatory_review", "review_triggers", "review_model", "model_override_reason", "compatibility_namespace",
 }
 base_lines = [line for line in frontmatter_lines if line.split(":", 1)[0] not in replace_fields]
 now = datetime.now(timezone.utc)
@@ -1724,6 +1785,7 @@ for lane, role in zip(lanes, roles):
             f"write_scope: [{artifact.rsplit('/', 1)[0]}/]",
             f"return_artifact: {artifact}",
             "mandatory_review: true",
+            "review_triggers: [adversarial_claim]",
             f"review_model: {'claude' if lane == 'gpt-codex' else 'gpt-codex'}",
             "model_override_reason: swarm-v1 lane member",
             "dispatch_kind: swarm",
@@ -1765,6 +1827,7 @@ This is the independent `{lane}` child of `{parent_id}`. Work from the shared ob
         "source_namespace": source_namespace,
         "review_model": "claude" if lane == "gpt-codex" else "gpt-codex",
         "mandatory_review": "true",
+        "review_triggers": ["adversarial_claim"],
         "review_class": os.environ["REVIEW_CLASS_VALUE"],
         "parallel_safe": parallel_safe,
         "direct_lane_work_allowed": direct_allowed,
@@ -1821,6 +1884,7 @@ parent = {
     "swarm_taxonomy_path": "shared/finding-taxonomy.md",
     "swarm_deadline_at": (now + timedelta(seconds=int(spec["timeout_seconds"]))).isoformat(),
     "mandatory_review": "true",
+    "review_triggers": ["adversarial_claim"],
     "review_class": os.environ["REVIEW_CLASS_VALUE"],
     "return_artifact": field("return_artifact"),
     "expected_response_path": f"departments/{namespace}/outbox/{parent_id}-response.md",
@@ -2027,14 +2091,14 @@ if $PANEL_ENABLED; then
 
 ## Panel-v1 coordinator instructions
 
-This is an opt-in panel dispatch governed by `shared/modes/panel.md`.
+This is an opt-in panel dispatch. Panel is a dispatch shape, not a mode (`shared/routing.md` § Dispatch shapes); its coordinator protocol is these instructions, in full. Follow them as written — do not go looking for a separate panel mode file.
 
 1. Validate every named member and create `_state/runtime/lane-activity/<task-id>.json` with `bin/panel-activity.sh create` before spawning; add `--fanout` when `panel_mode: fanout`. Review-panel member IDs are specialist names; fan-out member IDs are the injected `member-N` values and MUST be used for activity updates and result attribution.
 2. Spawn all members in parallel, never serially. Reserve the coordinator as the fourth thread.
 3. Members may use only the packet's read/write scope and MUST NEVER write `departments/*/outbox/`.
 4. Claude requires coordinator-pull plus deterministic `_state/scratch/<task-id>/<member-id>.md` file return. Codex uses native parent-message return primarily; a scratch file is optional for oversized results.
 5. Normalize only returns already available to the coordinator; never make a blocking receive. Update activity state on spawn, return, failure, refusal, and timeout.
-6. Run the mandatory bounded collection loop from `shared/modes/panel.md`: drain immediately available returns, then call `timeout 5 bin/panel-activity.sh poll --task-id <id> --quorum <panel_quorum> --timeout <panel_timeout_seconds>` exactly once per iteration. For `outcome: waiting`, use only a bounded short sleep (`timeout 2 sleep 1`) before repeating. Stop immediately on `quorum_met` or `timed_out`. The first poll persists a monotonic deadline; deadline expiry atomically marks every queued/running member `timed_out`. Numeric quorum closure also atomically marks any remaining queued/running members `timed_out` as explicit gaps. Guard the complete shell-side collection phase with `timeout` no greater than `panel_timeout_seconds + 15`, and guard every potentially blocking step with at most two minutes. A late, failed, refused, or timed-out member is a coverage gap and never blocks the outbox.
+6. Run the mandatory bounded collection loop exactly as specified in this step: drain immediately available returns, then call `timeout 5 bin/panel-activity.sh poll --task-id <id> --quorum <panel_quorum> --timeout <panel_timeout_seconds>` exactly once per iteration. For `outcome: waiting`, use only a bounded short sleep (`timeout 2 sleep 1`) before repeating. Stop immediately on `quorum_met` or `timed_out`. The first poll persists a monotonic deadline; deadline expiry atomically marks every queued/running member `timed_out`. Numeric quorum closure also atomically marks any remaining queued/running members `timed_out` as explicit gaps. Guard the complete shell-side collection phase with `timeout` no greater than `panel_timeout_seconds + 15`, and guard every potentially blocking step with at most two minutes. A late, failed, refused, or timed-out member is a coverage gap and never blocks the outbox.
 7. Aggregate by deterministic collation followed by evidence synthesis. Preserve attribution, unique findings, contradictions, refusals, failures, and limitations. Never majority-vote or fake unanimity.
 8. The coordinator alone writes exactly one canonical outbox. Close/archive the activity record in a finally path. One parent task remains one delivery attempt and one artifact.
 
@@ -2287,6 +2351,7 @@ elif REGISTRY_ENTRY_JSON="$(
     COMPAT_NAMESPACE_VALUE="$COMPAT_NAMESPACE" SPECIALIST_VALUE="$SPECIALIST" \
     TO_MODEL_VALUE="$TO_MODEL" SOURCE_NAMESPACE_VALUE="$SOURCE_NAMESPACE" \
     REVIEW_MODEL_VALUE="$REVIEW_MODEL" MANDATORY_REVIEW_VALUE="$MANDATORY_REVIEW" \
+    REVIEW_TRIGGERS_VALUE="$REVIEW_TRIGGERS_JSON" \
     REVIEW_CLASS_VALUE="$REVIEW_CLASS" PARALLEL_SAFE_VALUE="$PARALLEL_SAFE" \
     DIRECT_LANE_WORK_ALLOWED_VALUE="$DIRECT_LANE_WORK_ALLOWED" \
     RETURN_ARTIFACT_VALUE="$RETURN_ARTIFACT" \
@@ -2312,6 +2377,7 @@ entry = {
     "source_namespace": os.environ["SOURCE_NAMESPACE_VALUE"],
     "review_model": os.environ["REVIEW_MODEL_VALUE"],
     "mandatory_review": os.environ["MANDATORY_REVIEW_VALUE"],
+    "review_triggers": json.loads(os.environ["REVIEW_TRIGGERS_VALUE"]),
     "review_class": os.environ["REVIEW_CLASS_VALUE"],
     "parallel_safe": os.environ["PARALLEL_SAFE_VALUE"],
     "direct_lane_work_allowed": os.environ["DIRECT_LANE_WORK_ALLOWED_VALUE"],
@@ -2615,10 +2681,14 @@ cat <<WATCHER
     OUT=${VAULT_ROOT}/departments/${COMPAT_NAMESPACE}/outbox/${TASK_ID}-response.md
     for i in \$(seq 1 200); do
       [ -f "\$OUT" ] && { echo LANDED; exit 0; }
-      s=\$(python3 -c "import json;print(json.load(open('${VAULT_ROOT}/_state/active-tasks.json')).get('${TASK_ID}',{}).get('status','gone'))" 2>/dev/null)
-      [ "\$s" != "in-flight" ] && { echo "TERMINAL status=\$s"; exit 0; }
+      s=\$(python3 -c "import json;print(json.load(open('${VAULT_ROOT}/_state/active-tasks.json')).get('${TASK_ID}',{}).get('status','READ_FAILED'))" 2>/dev/null || echo READ_FAILED)
+      case "\$s" in
+        READ_FAILED|"") : ;;            # unreadable registry is NOT a verdict — keep waiting
+        in-flight)      : ;;
+        *)              echo "TERMINAL status=\$s"; exit 0 ;;
+      esac
       sleep 20
-    done; echo TIMEOUT
+    done; echo TIMEOUT; exit 3
   Run it BACKGROUNDED so its exit re-invokes the session. One watcher per batch is enough.
 WATCHER
 }

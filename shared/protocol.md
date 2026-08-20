@@ -16,8 +16,9 @@ compatibility_namespace: coding | security | content | sysmgmt | research
 review_model: gpt-codex | claude | gemini | kimi | none
 mandatory_review: true | false
 mode: bounty | project
-memory_aperture: rich | focused | cold | pool_blind | none
+memory_aperture: rich | focused | default | cold | pool_blind | none
 memory_focus: <exact canonical note target; required only with focused> | none
+target: <free text; the blindness floor reads dossier slugs out of it> | none
 capability: <card slug valid for the mode, e.g. web-app> | none
 capability_degradation_ack: <exact validator-derived needs_tool[:reason] | degraded-blueprint> | none
 phase: <phase or none>
@@ -46,9 +47,68 @@ The dispatcher contains a temporary compatibility bridge for older local packets
 The Markdown packet remains the live board wire format. The controller projects its identity, lane, declared
 scope, workspace, and memory aperture into authenticated launch authority; the worker cannot rewrite those
 authenticated fields. That is an integrity guarantee over the declaration, not an action-time filesystem
-boundary. `memory_aperture` is optional for compatibility and defaults fail-closed to `cold`. `focused`
-requires one `memory_focus`, which is matched exactly against canonical note `target`. Other apertures reject a
-focus field. Chrono authors these fields; the operator does not manage an orchestration DSL.
+boundary. `memory_aperture` is optional and defaults to `default` (`memory.default.v1`), which permits
+recall, get_note, browse and record across `candidate|verified` notes of any type, with no focus constraint.
+It defaulted fail-closed to `cold` until 2026-08-17; that default meant 2,665 of 2,669 measured dispatches ran
+with memory switched off, which made recursive learning structurally impossible. **Blindness is no longer
+protected by an omitted field.** A packet that must not read prior work states `cold`, `pool_blind`, or `none`
+explicitly.
+
+`rich` and `default` currently declare byte-identical policy in `shared/registries/memory-apertures.tsv`,
+differing only in `policy_id` and `aperture`. **`default` is the one that wins**: it is what an omitted field
+resolves to, what every dispatch gets, and what the rest of this document means by the open aperture. `rich`
+is retained as the name a packet author can write to say "open memory, deliberately" rather than by omission,
+and `test_dispatch_memory_default.py` fails if the two rows ever diverge without that being an explicit
+decision. Retiring `rich` outright is an operator call, not a cleanup: live packets declare it.
+
+### The blindness floor
+
+Blind-rediscovery work does not depend on a packet author remembering. `dispatch_context_builder.
+enforce_blind_floor()` forces `cold` when all of the following hold, and `build_context` applies it to
+the resolved aperture at admission — once, where the aperture is decided, so it reaches both the
+authenticated envelope and the launch prompt rather than becoming another consumer-side check:
+
+- the packet declares a `target`, and `$CHRONO_VAULT_ROOT/Chrono/dossiers/<target>/_blind/` **is a
+  directory**. The floor keys on the dossier layout, not on a packet field, because a path cannot drift
+  from the evidence the way a field drifts from author intent;
+- the packet's `specialist` is a role whose **specialist brief declares `blind_discovery: true`**
+  in its frontmatter. Which roles must rediscover blind is a judgment about the work, so it lives
+  with the role definition and is read from there on each dispatch; marking a brief floors that
+  role with no code change. The read **fails closed**: a role whose brief is missing, unreadable,
+  or unparseable is treated as blind, never as permitted, because a contaminated rediscovery
+  worker destroys the work it was dispatched to do while a needlessly blinded one merely does that
+  work with less context;
+- the requested aperture still permits reads. `cold`, `pool_blind`, and `none` are left alone: `none`
+  denies strictly more than `cold`, so rewriting it would *widen* the packet.
+
+Blind means no memory at all, not "no memory about this target" — recall is not target-scoped, and
+technique learned elsewhere still biases rediscovery here. **Blindness is a property of stage, not of
+mode**: later-stage roles on the same target legitimately need prior art (a `skeptic`,
+`impact-validator`, or `technical-writer` cannot do its job blind), so they are absent from the floored
+set by design and Chrono opens their aperture deliberately, with the reason recorded in the packet.
+
+Two boundaries are deliberate rather than oversights. A packet that declares no `target` cannot be
+floored — the floor is target-scoped, and flooring every discovery dispatch everywhere would make
+`scout` permanently memory-blind on unrelated engagements. An unset `$CHRONO_VAULT_ROOT` likewise
+leaves the aperture alone, and is not a bypass: the controller then projects no vault path to the
+worker at all, so recall has nothing to open.
+
+`target` is **read for dossier slugs, not matched as one**. It is a pre-existing free-text field —
+live packets carry `examplechain/example-gateway-contracts@0000aaaa…`, `shared/specialists/ (8 files)`,
+`contracts/svm-gateway @ 5a23518e…` — so the floor derives every slug the value could name (the value
+itself, the value normalized to one slug, and each slug-shaped run inside it) and fires if any of them
+has a `_blind/` dossier. Derivation is over-inclusive on purpose, and never refuses: a wrong floor
+costs one dispatch its memory, a missed floor costs the rediscovery, and a *refusal* — which is what
+this did until 2026-08-17 — kills every dispatch whose `target` follows the existing convention, which
+is all of them. Candidates are slug-shaped by construction, so a `target` of `../../etc` yields `etc`
+and cannot address anything outside the dossiers directory.
+`scripts/python/tests/test_blind_floor.py` is the enforcement, including a pin of every declared
+role name against `shared/specialist-runtime-map.tsv` and proof that marking a brief floors that
+role with no Python change. `bin/validate-specialists.sh` rejects a misspelled `blind_discovery`
+key, which is the one way the declaration could fail *open*.
+
+`focused` requires one `memory_focus`, which is matched exactly against canonical note
+`target`. Other apertures reject a focus field. Chrono authors these fields; the operator does not manage an orchestration DSL.
 The guarantee is scoped to the controller-launched lane and existing vault APIs; it does not claim containment against a hostile same-UID process reading private Markdown directly.
 
 Continuation is manual on the live rail: Chrono authors another ordinary board packet and includes a bounded
@@ -442,7 +502,18 @@ and the `## needs_tool` entry.
 
 ## Memory Apply Citations
 
-When recalled memory materially informs a task, cite each consumed note by its stable `mem-…` ID in the response (for example, `Memory applied: mem-a1b2c3d4e5f6`) and retain the associated `recall_id`. Apply-feedback is optional best-effort telemetry, never a settlement gate: the loop-closing signal is captured passively by `plugins/chrono-vault/autocapture.py` (invoked by `bin/outbox-watcher.sh` when a response lands), not by a mandated per-task call, and a failed or skipped memory call must never affect task status. `record_usage(recall_id, note_id, outcome, source_task)` remains available as an opt-in tool — reserve explicit calls for high-value events: a note materially changed a decision (`used`), was clearly irrelevant (`not_useful`), or appears incorrect (`incorrect`). Never copy private note text or sensitive evidence into public packets.
+**This section is the home of the apply-feedback rule.** `chrono/CLAUDE.md` and
+`plugins/chrono-vault/README.md` point here rather than restating it.
+
+When recalled memory materially informs a task, cite each consumed note by its stable `mem-…` ID in the response (for example, `Memory applied: mem-a1b2c3d4e5f6`) and retain the associated `recall_id`.
+
+**That prose citation is for the reader, not for the machine.** Promotion reads the `usage` table — specifically the rows where a worker reported `outcome="used"` — keyed on a `source_task` **derived from the bound engagement context**, never on anything the caller passes. Both halves matter. The derived key is what makes the join possible at all: a field a worker must remember to send is a field that arrives empty, and for the branch that introduced this loop the dispatch prompt told workers to pass no filters while promotion joined on the caller's value, so the citation table held 0 rows and no note was ever promoted. The `used` requirement is what makes the promotion mean something: promotion once joined `recall_returned`, which `recall()` writes for **every** note it hands back, so a passing review promoted the whole returned set — read or not, useful or not. Operator decision 2026-08-17: promotion requires a positive per-note signal. An unbound controller/maintenance recall has no engagement to derive from and records nothing attributable, which promotes nothing: the right direction for a recall no review will ever settle.
+
+**Recording a usage outcome is expected when recalled memory informed the work** — one `record_usage(recall_id, note_id, outcome, source_task)` call per note actually consulted, with `outcome` one of `used`, `not_useful`, or `incorrect`. The unhelpful outcomes matter most: nothing else in the system reports that recall returned something worthless, so without them the store cannot tell a good note from one nobody could use. `used` is also the only thing that can ever promote a note (above), so a note that helps and is never reported stays `candidate` — the failure direction is a slower loop, never a wrong one. The dispatch prompt asks for this by name wherever the engagement's aperture permits reads; apertures that deny reads return no `recall_id` and so have no outcome to report.
+
+Expected is not the same as gating. Apply-feedback remains best-effort telemetry and never a settlement gate: routine loop closure is still captured passively by `plugins/chrono-vault/autocapture.py` (invoked by `bin/outbox-watcher.sh` when a response lands), and a failed or skipped memory call must never affect task status. Never copy private note text or sensitive evidence into public packets.
+
+> Between 2026-07-25 and 2026-08-17 this section said "opt-in tool" while the prompt every worker received said *"Do not call record_usage"*, and `record_usage` additionally required `recall` permission, which the near-universal `cold` aperture denies. Zero usage rows were written in those 23 days. Both blockers are removed; if this paragraph and the enforced prompt ever disagree again, the prompt is what ran.
 
 ## Async Rule
 
@@ -471,6 +542,14 @@ Set `mandatory_review: true` **only when one of these holds:**
 Otherwise Chrono verifies and closes, recording gates-green, diff-within-scope, and any number
 reproduced with one command.
 
+Packets make that judgment explicit with `review_triggers`, a single-line inline list whose only
+values are `blast_radius`, `adversarial_claim`, `deciding_measurement`, and `architecture`.
+`mandatory_review` is true exactly when that list is non-empty. `security-finding` and `factual`
+review classes are already typed evidence, so the dispatcher records their automatic mappings to
+`adversarial_claim` and `deciding_measurement`; swarm comparison remains independently review-held.
+The compatibility wrapper always emits the field. A legacy prepared packet without it is handled
+conservatively and with a warning, never by a silent safety-level default.
+
 **Why it is a gate and not a default.** The flag is free to set and costs a full lane to discharge,
 so an unscoped habit of setting it forms a backlog. Calibration on 2026-08-11: of seven reviews, six
 changed something material (two REJECTs, a severity flip, a paper-enforcer hole, a 675-line
@@ -485,20 +564,21 @@ comment is unclear or technically questionable) before any change is made. This 
 replaces**, the independent cross-family reviewer, and a claude-only skill is never a card's sole review
 mechanism.
 
-- **At dispatch:** `bin/send-task.sh` requires a `review_model` from a different provider family whenever `mandatory_review: true`; equal execution/review lanes are rejected for every review class, including `standard`. It also rejects high-safety specialists (per `shared/specialist-runtime-map.tsv`) that lack mandatory review.
+- **At dispatch:** `bin/send-task.sh` validates the trigger list and its agreement with `mandatory_review`, then requires a `review_model` from a different provider family whenever review is required. Equal execution/review lanes are rejected for every review class, including `standard`. `safety_level` continues to choose the quality floor and throughput policy; it no longer manufactures a change-level review requirement.
 - **Distinct-family review only:** Chrono routes a separate reviewer packet after the specialist's response lands. Same-lane self-review may improve the work, but it never satisfies `mandatory_review`. There is no auto-fire from the watcher; Chrono manually authors the reviewer packet.
 
 Operators / specialists writing packets should:
 
 1. Always pair `mandatory_review: true` with a `review_model` from a different provider family and expect a separate reviewer dispatch.
 2. Treat `mandatory_review: true` as "Chrono guarantees a reviewer will see this before operator-facing surfacing happens" — not as automation.
-3. If a high-safety specialist's response lands without the required review, Chrono is expected to dispatch a reviewer follow-up before treating the response as final.
+3. If a triggered response lands without the required review, Chrono is expected to dispatch a reviewer follow-up before treating the response as final. A packet with an explicit empty trigger list follows ordinary verified-response settlement.
 
 ### Machine-enforced block-settle (implemented)
 
 `scripts/python/registry_reconciler.py` (invoked directly after detached board finalization, and also by
 `bin/outbox-watcher.sh` when it observes a response) **enforces** the cross-family case so it cannot be silently
-skipped. A task is *cross-family-review-pending* when its registry entry has `mandatory_review: true`. Its actual
+skipped. A task is *cross-family-review-pending* when its registry entry carries a review trigger (or a legacy
+`mandatory_review: true` hold). Its actual
 execution lane comes from `to_model` (falling back to the mapped primary lane), and its review lane comes from
 `review_model`. Every valid distinct-lane pair, including **gpt-codex → claude**, is held for explicit
 settlement. Missing, unknown, or equal execution/review lanes fail closed as an invalid mandatory-review
@@ -521,3 +601,9 @@ For a pending task, automatic behavior is deliberately limited to **flag, hold, 
 To prevent infinite review-of-review regress, a task may skip a second review only after its mandatory-review binding has already passed distinct-family anti-affinity and `write_scope` is the explicit empty list with specialist `code-reviewer`, `security-analyst`, or `skeptic`. Reviewer-role tasks with an equal/missing review lane or malformed/non-empty scope remain gated. Existing lock-serialized registration is unchanged. The `work-done-no-envelope` backstop remains available only when no response candidate exists; a candidate still inside its quiescence window suppresses the backstop, and a candidate arriving after provisional settlement reopens the task until its status can be classified.
 
 Reviewer dispatch is deliberately controller-authored: the reconciler only blocks settlement and surfaces `REVIEW-REQUIRED`; Chrono manually writes the ordinary board review packet.
+
+When `review_triggers: []` and the worker returns a contract-valid `status: complete`, the ordinary
+reconcile sweep accepts that task's own response and records `review_disposition: not-required`.
+That is the no-review settlement path; `--settle-review` remains intentionally unable to treat an
+author's response as an independent review. `needs_human` never takes this path: it remains owed
+operator work and is pinned into the resume capsule's Active thread / Owed attention rail.

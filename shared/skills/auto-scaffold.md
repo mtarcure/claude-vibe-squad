@@ -1,14 +1,15 @@
 ---
 name: auto-scaffold
 status: authored
-description: Use when a project is being delivered and its repo still lacks the standard files — README, CHANGELOG, LICENSE, and the agent-context file. Generates them from what the work actually produced, never overwriting anything that already exists.
+description: Use during Project Phase 6 “Local deliver” when the verified repo still lacks one or more standard handoff files — README, CHANGELOG, LICENSE, or the agent-context file. Generate only approved missing files from what the work actually produced; never overwrite an existing file.
 ---
 
 # Auto-Scaffold
 
 Generate the standard repository files at delivery so a project arrives usable rather than as a bare tree
-of source. This runs at the **S6 Ship/Deliver** step of the S0–S7 project lifecycle
-(`shared/modes/project.md`), after the work is verified and before it is handed over.
+of source. This runs during **Phase 6 “Local deliver”** of the S0–S7 project lifecycle, after verification
+and before local handoff. The reciprocal missing-standard-files trigger lives in `shared/modes/project.md`;
+that mode contract decides when this skill is loaded.
 
 This skill **writes files**. That makes it a gated action, and the gate is not a formality — see
 Approval below.

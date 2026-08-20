@@ -8,24 +8,10 @@ source "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null 
 
 # shellcheck source=doctor-log-home.sh disable=SC1091
 source "${VAULT_ROOT}/bin/doctor-log-home.sh" || exit $?
-
-doctor_state() {
-    local today summary issues warnings
-    today="$(date -u +%Y-%m-%d)"
-    summary="${CHRONO_DOCTOR_LOG_DIR}/${today}-summary.json"
-    [[ -f "$summary" ]] || return 0
-    issues="$(jq -r '.issue_count // 0' "$summary" 2>/dev/null || echo 0)"
-    warnings="$(jq -r '.warning_count // 0' "$summary" 2>/dev/null || echo 0)"
-    if [[ "$issues" =~ ^[0-9]+$ ]] && [[ "$issues" -gt 0 ]]; then
-        echo "issues:${issues}"
-        return 0
-    fi
-    if [[ "$warnings" =~ ^[0-9]+$ ]] && [[ "$warnings" -gt 0 ]]; then
-        echo "warn:${warnings}"
-        return 0
-    fi
-    echo "healthy"
-}
+# doctor_state(): the tmux status bar renders the same token from the same
+# summary, so the vocabulary lives in one file rather than in each renderer.
+# shellcheck source=doctor-state.sh disable=SC1091
+source "${VAULT_ROOT}/bin/doctor-state.sh" || exit $?
 
 # Every task count in this badge comes from ONE live source: the registry
 # partition in scripts/python/chrono_state/registry.py.

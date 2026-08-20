@@ -733,8 +733,9 @@ of the work being judged. Both roles are routable on either family and hold adap
 opposite one is always available — pick it explicitly with `to_model` rather than accepting the map's
 default, and state the author's family in the packet so the reviewer can confirm it is anti-affine.
 
-Do **not** stack reviews on top of that. Per-task `mandatory_review` on a high-safety specialist is
-**settlement bookkeeping**, not adjudication — it exists so a task can close, and it does not license
+Do **not** stack reviews on top of that. Per-task `mandatory_review` now comes only from a declared
+change-level trigger; `safety_level` alone never creates it. The flag is **settlement bookkeeping**,
+not adjudication — it exists so genuinely triggered work can close, and it does not license
 a second opinion pass, a review of the adjudication, or a third family "to be sure". A campaign that
 reviews its hunt lanes, then reviews the chainers, then reviews the adjudicator has not become more
 rigorous; it has spent its budget on process and taught every lane that its output will be overturned.

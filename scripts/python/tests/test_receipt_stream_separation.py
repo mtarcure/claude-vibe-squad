@@ -43,6 +43,7 @@ ANONYMOUS = "invalid launch receipt"
 # in the shell and never start Python at all.
 REJECTED_CONTEXT = {"schema": "not-a-launch-context"}
 REJECTED_REASON = "go-live-trusted-context/v1"
+TEST_BASE_BRANCH = "receipt-channel-fixture"
 
 
 def _live_attempt(vault, task, attempt, pid):
@@ -81,7 +82,14 @@ class ReceiptChannelPurityTests(unittest.TestCase):
 
     def _run_trusted_launch(self, **extra_env):
         """Invoke the production trusted-launch entry point, streams separate."""
-        environment = {**os.environ, **extra_env}
+        environment = {
+            **os.environ,
+            # The trusted launcher intentionally refuses a detached checkout
+            # without an admitted base branch. Actions uses detached PR merge
+            # commits, so this hermetic fixture must supply its own contract.
+            "SQUAD_BASE_BRANCH": TEST_BASE_BRANCH,
+            **extra_env,
+        }
         environment.pop("BOARD_TRANSCRIPT_FD", None)
         return subprocess.run(
             ["bash", str(SUPERVISOR), "trusted-launch", str(self.context)],
@@ -238,6 +246,12 @@ class DetachedLaunchTests(unittest.TestCase):
             env={
                 **os.environ,
                 "BOARD_DISPATCH_DESCRIPTOR_PATH": str(dispatch),
+                # GitHub checks out pull-request merge commits in detached HEAD.
+                # The production supervisor correctly refuses to guess a base
+                # branch there, so this fixture supplies its explicit branch
+                # just like a real admitted dispatch does. The rejected context
+                # exits before the branch is otherwise consumed.
+                "SQUAD_BASE_BRANCH": TEST_BASE_BRANCH,
                 **extra_env,
             },
             stdout=subprocess.PIPE,
@@ -270,7 +284,14 @@ class DetachedLaunchTests(unittest.TestCase):
                 exclusive=True,
             )
         )
-        process.communicate(timeout=timeout)
+        child_stdout, child_stderr = process.communicate(timeout=timeout)
+        if not receipt.is_file():
+            transcript = log.read_text(encoding="utf-8", errors="replace")
+            self.fail(
+                "detached launch published no receipt: "
+                f"rc={process.returncode} stdout={child_stdout!r} "
+                f"stderr={child_stderr!r} transcript={transcript!r}"
+            )
         return json.loads(receipt.read_text(encoding="utf-8")), log.read_text(
             encoding="utf-8", errors="replace"
         )

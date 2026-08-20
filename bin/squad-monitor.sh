@@ -25,6 +25,7 @@ export PATH="${HOME}/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:${PATH}"
 # shellcheck source-path=SCRIPTDIR source=../shared/repo-root.sh disable=SC1091
 source "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")/.." && pwd -P)/shared/repo-root.sh"
 source "${VAULT_ROOT}/shared/lead-windows.sh"
+source "${VAULT_ROOT}/shared/chrono-pane.sh"
 STATE_DIR="${VAULT_ROOT}/_state/monitor"
 DISPATCH_LOG="${VAULT_ROOT}/_state/dispatch-log.jsonl"
 SESSION="squad"
@@ -67,8 +68,8 @@ send_alert() {
     # bin/outbox-watcher.sh already guards its own send this way. This is the
     # same check, spelled the same, because the two notifiers had drifted and
     # only one of them was safe.
-    pane_cmd="$(tmux display-message -p -t "${CHRONO_PANE}" '#{pane_current_command}' 2>/dev/null || true)"
-    if [[ "$pane_cmd" == "claude" ]]; then
+    pane_cmd="$(chrono_pane_observed_command "${CHRONO_PANE}")"
+    if chrono_pane_has_coordinator "${CHRONO_PANE}"; then
         # -l (literal) so special characters are not interpreted by tmux.
         tmux send-keys -l -t "${CHRONO_PANE}" "MONITOR: ${msg}" 2>/dev/null
         tmux send-keys    -t "${CHRONO_PANE}" "" Enter           2>/dev/null
@@ -281,11 +282,51 @@ archive_completed_inbox() {
 # Hash last 50 lines of each model-lane pane. If hash is unchanged since last
 # check AND its source namespace has unread inbox tasks, alert once per stuck episode.
 
+# Identity, not bare liveness. Args: $1 a *.dispatch.json path. True only when
+# the process at the descriptor's PID is still the SAME process the dispatcher
+# recorded there.
+#
+# Was `kill -0 "$pid"` on a PID read straight out of the descriptor. Those
+# files outlive their process by days, and this predicate is only ever reached
+# for dispatches with NO terminal receipt -- i.e. exactly the stalled ones. A
+# recycled PID therefore read as "the board is supervising this", detect_stuck
+# returned early forever, and the task never alerted: a guard satisfied by an
+# unrelated process, suppressing the alarm that exists to notice it. Same
+# defect class as the two liveness checks rewritten below it.
+#
+# The board spawn has no fixed argv shape -- it is whatever specialist CLI the
+# packet routed to -- so shared/process-identity.sh's exact-argv approach does
+# not apply. board_process_truth.process_truth() is the established mechanism
+# for this exact question and its home: the descriptor already carries
+# `process_start_token` (the kernel start-time fingerprint) and `argv_sha256`,
+# written by observe_process() at spawn, and process_truth() re-observes and
+# compares them plus session leadership. Reusing it rather than restating the
+# comparison here keeps one answer to "is this dispatch's process alive".
+#
+# A descriptor too old to carry that identity (schema v1) reads as NOT live,
+# which is the safe direction: the monitor alerts on a task it cannot vouch
+# for rather than silently suppressing it.
+board_dispatch_process_is_live() {
+    python3 - "${VAULT_ROOT}" "$1" <<'PY' 2>/dev/null
+import sys
+from pathlib import Path
+
+vault, dispatch = sys.argv[1], sys.argv[2]
+sys.path.insert(0, str(Path(vault) / "scripts" / "python"))
+from board_process_truth import load_json, process_truth  # noqa: E402
+
+descriptor = load_json(dispatch)
+if not isinstance(descriptor, dict):
+    raise SystemExit(1)
+raise SystemExit(0 if process_truth(dispatch, descriptor)["state"] == "live" else 1)
+PY
+}
+
 # Board-native liveness: a task that is running as a DETACHED board spawn (a live
 # supervisor pid with no terminal receipt) is NOT stuck in a pane inbox — the board
 # supervises it. Returns 0 when a live board spawn exists for the task id.
 board_spawn_live() {
-    local tid="$1" d base pid status
+    local tid="$1" d base status
     for d in "${VAULT_ROOT}/_state/board-dispatch/${tid}."*.dispatch.json; do
         [[ -f "$d" ]] || continue
         base="${d%.dispatch.json}"
@@ -293,8 +334,7 @@ board_spawn_live() {
             status=$(python3 -c "import json;print(json.load(open('${base}.receipt.json')).get('status',''))" 2>/dev/null)
             case "$status" in complete|completed|blocked|needs_review|launched|failed) continue ;; esac
         fi
-        pid=$(python3 -c "import json;print(json.load(open('$d')).get('pid',''))" 2>/dev/null)
-        [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null && return 0
+        board_dispatch_process_is_live "$d" && return 0
     done
     return 1
 }
@@ -338,9 +378,12 @@ detect_stuck() {
             continue
         fi
 
-        # Liveness guard 1: a subagent is writing artifacts to /tmp/cdp_dumps (<90s ago).
+        # Liveness guard 1: a subagent working THIS task is writing artifacts to
+        # /tmp/cdp_dumps (<90s ago). Scoped to this task's id in the dump path --
+        # unscoped, any unrelated subagent's browser dumps suppressed the stall
+        # alert for every task in every namespace, and /tmp is world-writable.
         if find /tmp/cdp_dumps -mindepth 2 -maxdepth 4 -type f -newermt '90 seconds ago' 2>/dev/null \
-            | head -1 | grep -q .; then
+            | grep -qF -- "${task_id}"; then
             continue
         fi
         # Liveness guard 2: the executing pane shows an active-subagent indicator.
@@ -389,7 +432,11 @@ detect_stale_active() {
         task_name=$(basename "$task_file")
         task_id="${task_name%.md}"
         local mtime
-        mtime=$(stat -f '%m' "$task_file" 2>/dev/null || echo "$now")
+        # Portable idiom (same as bin/outbox-watcher.sh): -f is BSD-only, so on
+        # Linux this always fell through to the fallback -- and echo "$now" made
+        # a failed stat read as "just touched", never stale. echo 0 fails toward
+        # alerting instead.
+        mtime=$(stat -c '%Y' "$task_file" 2>/dev/null || stat -f '%m' "$task_file" 2>/dev/null || echo 0)
         local age=$(( now - mtime ))
 
         [[ $age -lt $STALE_THRESHOLD ]] && continue
@@ -486,9 +533,10 @@ auto_archive_completed() {
         task_name=$(basename "$task_file")
         local task_id="${task_name%.md}"
 
-        # Check mtime
+        # Check mtime. Portable idiom (same as bin/outbox-watcher.sh); echo 0
+        # fails toward archiving, not away from it, on a failed stat.
         local mtime
-        mtime=$(stat -f '%m' "$task_file" 2>/dev/null || echo "$now")
+        mtime=$(stat -c '%Y' "$task_file" 2>/dev/null || stat -f '%m' "$task_file" 2>/dev/null || echo 0)
         local age=$(( now - mtime ))
         [[ $age -lt $COMPLETED_ACTIVE_THRESHOLD ]] && continue
 

@@ -29,6 +29,7 @@ try:
     from held_action_gate import HELD_CATEGORIES
     from lane_capability_enforcement import adapter_path_for
     from launch_hygiene import SETTLED_T1P1_BUNDLE_SHA256
+    from repo_root import resolve_vault_root
     from seatbelt_profile import DEFAULT_LANE_PATH, LANE_CLI_PATHS
     import specialist_capability_source as scs
     from verification_contract import (
@@ -42,6 +43,7 @@ except ImportError:  # pragma: no cover - package-context fallback
     from .held_action_gate import HELD_CATEGORIES  # type: ignore[no-redef]
     from .lane_capability_enforcement import adapter_path_for  # type: ignore[no-redef]
     from .launch_hygiene import SETTLED_T1P1_BUNDLE_SHA256  # type: ignore[no-redef]
+    from .repo_root import resolve_vault_root  # type: ignore[no-redef]
     from .seatbelt_profile import DEFAULT_LANE_PATH, LANE_CLI_PATHS  # type: ignore[no-redef]
     from . import specialist_capability_source as scs  # type: ignore[no-redef]
     from .verification_contract import (  # type: ignore[no-redef]
@@ -84,7 +86,21 @@ NAMESPACES = frozenset(
 )
 MAILBOX_NAMESPACES = frozenset(NAMESPACES - {"shared"})
 CLI_TRANSPORT_FAILURE_CLASSES = frozenset({"cli_missing", "cli_nonzero", "cli_timeout"})
-MEMORY_APERTURES = frozenset({"rich", "focused", "cold", "pool_blind", "none"})
+# One fact with four homes: `clearance._APERTURES` owns the vocabulary,
+# `broker.CONTEXT_APERTURES` and the `case` arm in `bin/send-task.sh` are the
+# other copies, and `scripts/python/tests/test_dispatch_memory_default.py`
+# pins all four together. An aperture added here but not there is a dispatch
+# the broker rejects outright.
+MEMORY_APERTURES = frozenset(
+    {"rich", "focused", "default", "cold", "pool_blind", "none"}
+)
+# The apertures whose policy actually returns notes, mirroring the `recall`
+# and `get_note` columns of `shared/registries/memory-apertures.tsv`. This
+# used to be an inline literal inside `assemble_trusted_launch_prompt`; the
+# blind floor needs the same fact, and a second literal would be a copy that
+# ages independently (CLAUDE.md rule 10).
+# `scripts/python/tests/test_blind_floor.py` pins it against the registry.
+READ_PERMITTING_APERTURES = frozenset({"rich", "focused", "default"})
 # One bound for the creation-time selector and the promotion-time validator, so
 # a packet can never declare evidence that promotion would later refuse to read.
 MAXIMUM_EVIDENCE_OUTPUTS = 16
@@ -988,10 +1004,273 @@ def packet_evidence_outputs(
     return tuple(outputs)
 
 
+def resolve_memory_aperture(fields: Mapping[str, str]) -> str:
+    """Resolve a packet's memory aperture.
+
+    Changed 2026-08-17 from `cold` to `default` (memory-loop spec §4).
+    The old fail-closed default meant 2,665 of 2,669 dispatches ran with
+    memory switched off, which made recursive learning structurally
+    impossible.
+
+    Blindness is NOT protected by this default any more. It is protected
+    by `enforce_blind_floor` below, which `build_context` applies to this
+    function's result: a role whose specialist brief declares
+    `blind_discovery: true`, dispatched at a target that has a `_blind/`
+    dossier path, is forced to `cold` whatever the packet asked for. A
+    packet that must not read prior work for some *other* reason still says
+    `cold`, `pool_blind`, or `none` itself.
+    """
+
+    return _unquote(fields.get("memory_aperture", "")) or "default"
+
+
+# Which roles must rediscover blind is a judgment about the work, not a
+# property of this module, and CLAUDE.md opens by declaring this system
+# markdown-first. The fact therefore lives in the specialist brief that
+# defines the role -- `blind_discovery: true` in its frontmatter -- and is
+# read from there on each dispatch. Marking a new brief floors that role with
+# no change here; that is the whole point.
+#
+# Roles whose job IS rediscovery are marked. Later-stage roles on the SAME
+# target legitimately need prior art -- a skeptic, impact-validator, or
+# technical-writer cannot do its job blind -- so their briefs stay unmarked by
+# design, and Chrono opens their aperture with a reason recorded in the packet
+# (memory-loop spec §5).
+#
+# The read is deliberately UNCACHED, so there is nothing to invalidate. The
+# floor runs once per dispatch, immediately before the controller spawns a
+# lane CLI, and only after the cheap target/vault/aperture tests below have
+# already passed; the 68 briefs total ~330 KB. A cache would buy microseconds
+# in exchange for a window in which an operator has marked a brief blind and a
+# running controller still floors it open, which is the exact failure this
+# floor exists to prevent.
+BLIND_DISCOVERY_KEY = "blind_discovery"
+_SPECIALIST_BRIEF_GLOBS = (
+    "shared/specialists/*.md",
+    "departments/*/specialists/*.md",
+)
+
+
+def _brief_blind_declaration(path: Path) -> bool | None:
+    """Return a brief's `blind_discovery` value, or None when it cannot say.
+
+    None is not False. It means the frontmatter did not answer the question --
+    unreadable, absent, unterminated, duplicated, or holding something that is
+    not a boolean -- and every caller turns that into "blind", never into
+    "permitted". A brief that parses cleanly and simply omits the key HAS
+    answered: no, this is not a rediscovery role. That distinction is why this
+    is a tri-state rather than a bool.
+
+    The frontmatter reader is the one this module already imports. A second
+    parser here would be a second answer to "what does this brief say", and
+    the two would age apart (CLAUDE.md rule 10).
+    """
+
+    try:
+        frontmatter = read_yaml_frontmatter(path)
+    except (VerificationContractError, OSError, ValueError):
+        return None
+    if BLIND_DISCOVERY_KEY not in frontmatter:
+        return False
+    declared = frontmatter[BLIND_DISCOVERY_KEY]
+    return declared if isinstance(declared, bool) else None
+
+
+def blind_discovery_declarations(
+    repo_root: Path | str | None = None,
+) -> dict[str, bool]:
+    """Map each specialist role to the blindness its own brief declares.
+
+    A role whose brief is missing, unreadable, or unparseable is ABSENT from
+    the result rather than present as False, so that the fail-closed default
+    in `role_requires_blind_discovery` applies to it. An unreadable brief
+    poisons its role even if a same-named brief elsewhere parsed.
+
+    `repo_root` defaults to `resolve_vault_root()` rather than to
+    `build_context`'s argument on purpose: the floor's other input, the vault
+    path, is likewise taken from the environment at the call site. Both are
+    properties of the installed system, not of the packet, and `send-task.sh`
+    passes the same exported `VAULT_ROOT` as `--repo-root`, so the two agree
+    in production.
+    """
+
+    try:
+        root = Path(repo_root) if repo_root is not None else resolve_vault_root()
+    except (OSError, ValueError):
+        return {}
+    declarations: dict[str, bool] = {}
+    unreadable: set[str] = set()
+    for pattern in _SPECIALIST_BRIEF_GLOBS:
+        try:
+            paths = sorted(root.glob(pattern))
+        except OSError:
+            return {}
+        for path in paths:
+            declared = _brief_blind_declaration(path)
+            if declared is None:
+                unreadable.add(path.stem)
+            else:
+                declarations[path.stem] = declared
+    for stem in unreadable:
+        declarations.pop(stem, None)
+    return declarations
+
+
+def blind_discovery_roles(repo_root: Path | str | None = None) -> frozenset[str]:
+    """The roles whose briefs declare `blind_discovery: true`.
+
+    For introspection and validation. The dispatch path asks
+    `role_requires_blind_discovery` instead, because a set cannot express the
+    difference between "this brief says no" and "this brief could not be
+    read", and only the second of those has to fail closed.
+    """
+
+    return frozenset(
+        role
+        for role, declared in blind_discovery_declarations(repo_root).items()
+        if declared
+    )
+
+
+def role_requires_blind_discovery(
+    role: str, repo_root: Path | str | None = None
+) -> bool:
+    """Whether `role` must run memory-blind on a target under blind work.
+
+    Fail closed. An unknown role, or one whose brief cannot be read or parsed,
+    is treated as blind. Blindness is the entire value of a rediscovery lane:
+    a contaminated scout destroys the work it was dispatched to do, while a
+    needlessly blinded later-stage role merely does that work with less
+    context. Only one of those two mistakes is recoverable, so a missing brief
+    has to mean a worker that reads nothing, never one that reads everything.
+    """
+
+    return blind_discovery_declarations(repo_root).get(role, True)
+
+
+def packet_blind_target(fields: Mapping[str, str]) -> str:
+    """Return the packet's `target` verbatim, or "" when it declares none.
+
+    Returned unvalidated, deliberately. `target` is not this floor's field:
+    it predates the floor and already carries a different vocabulary --
+    `examplechain/example-gateway-contracts@0000aaaa...`,
+    `shared/specialists/ (8 files)`, `contracts/svm-gateway @ 5a23518e...`.
+    An earlier version of this function refused anything that was not a bare
+    slug, and since `build_context` calls it on the single path every
+    dispatch takes, that turned a naming mismatch into a dead board: the
+    live convention raises on the first packet.
+
+    Refusing is not what "never silently drop the floor" requires anyway.
+    `_dossier_slug_candidates` below does the honest thing instead -- it
+    reads the slugs OUT of whatever the field contains, so a blind target
+    still floors when it arrives inside a live-shaped value.
+    """
+
+    return _unquote(fields.get("target", ""))
+
+
+# One `is_dir()` per candidate, so a pathological free-text target cannot
+# turn one dispatch into an unbounded stat sweep. Twelve is far more than
+# any live `target` produces (the longest observed yields five).
+MAX_BLIND_TARGET_CANDIDATES = 12
+_SLUG_SEPARATOR_RE = re.compile(r"[^A-Za-z0-9-]+")
+
+
+def _dossier_slug_candidates(target: str) -> tuple[str, ...]:
+    """Every dossier slug `target` could plausibly name, most specific first.
+
+    `target` is free text in practice. A dossier slug is not, so rather than
+    demand the field change vocabulary, derive: the value itself, the value
+    normalized to one slug, then each slug-shaped run inside it. The floor
+    fires if ANY of them has a `_blind/` directory.
+
+    Over-inclusive on purpose. A wrong floor costs a worker its memory for
+    one dispatch; a missed floor costs the rediscovery the dispatch exists
+    to perform, and only one of those is recoverable -- the same asymmetry
+    `role_requires_blind_discovery` fails closed on.
+
+    Every candidate matches `IDENTIFIER_RE` by construction, so no candidate
+    can contain `/` or `.` and none can escape the dossiers directory: a
+    `target` of `../../etc` yields `etc`, not a traversal.
+    """
+
+    if not target:
+        return ()
+    seen: dict[str, None] = {}
+    normalized_whole = "-".join(
+        part for part in _SLUG_SEPARATOR_RE.split(target) if part
+    ).strip("-").lower()
+    for raw in (target, normalized_whole, *_SLUG_SEPARATOR_RE.split(target)):
+        candidate = raw.strip("-").lower()
+        if candidate and IDENTIFIER_RE.fullmatch(candidate):
+            seen.setdefault(candidate, None)
+        if len(seen) >= MAX_BLIND_TARGET_CANDIDATES:
+            break
+    return tuple(seen)
+
+
+def enforce_blind_floor(
+    aperture: str,
+    target: str,
+    role: str,
+    vault_root: Path | str | None,
+    *,
+    repo_root: Path | str | None = None,
+) -> str:
+    """Force a read-denying aperture for discovery roles on a blind target.
+
+    Which roles those are is read from the specialist briefs, not decided
+    here; see `role_requires_blind_discovery`, which fails closed so an
+    unreadable brief blinds its role rather than permitting it.
+
+    Blind means NO memory, not "no memory about this target": recall is not
+    target-scoped, and technique learned on another target is still
+    contamination for rediscovery here.
+
+    The floor is keyed on the `_blind/` directory the dossier layout already
+    uses, so it cannot drift from the evidence layout the way a packet field
+    would. It is applied once, where the aperture is *resolved*, so it reaches
+    both the authenticated envelope and the launch prompt without becoming
+    another site that encodes aperture policy.
+
+    `target` is read for slugs, not matched as one: it is a pre-existing
+    free-text field (`_dossier_slug_candidates`), so a value that names a
+    blind dossier still floors even when it arrives as
+    `example-chain-audit / example-chain-node @ 1111bbbb`, and a value that names
+    no dossier at all leaves an ordinary dispatch alone instead of killing
+    it.
+
+    Two apertures are deliberately left alone. `pool_blind` and `none` already
+    deny reads, and `none` denies strictly more than `cold` does -- it forbids
+    `record` too -- so rewriting either to `cold` would *widen* a packet that
+    was already blinder than the floor requires.
+
+    An absent `vault_root` is not a bypass. With no `CHRONO_VAULT_ROOT` the
+    controller projects no vault path to the worker at all, so recall has
+    nothing to open and there is no prior work to be contaminated by.
+    """
+
+    # The brief read is last on purpose: the three cheap tests above settle
+    # every dispatch that is not already a candidate for the floor, so the
+    # common path never touches the filesystem for a roster it will not use.
+    if (
+        not target
+        or not vault_root
+        or aperture not in READ_PERMITTING_APERTURES
+        or not role_requires_blind_discovery(role, repo_root)
+    ):
+        return aperture
+    dossiers = Path(vault_root) / "Chrono" / "dossiers"
+    for slug in _dossier_slug_candidates(target):
+        if (dossiers / slug / "_blind").is_dir():
+            return "cold"
+    return aperture
+
+
 def packet_memory_contract(fields: Mapping[str, str]) -> tuple[str, str | None]:
     """Validate and return the packet's trusted-launch memory aperture."""
 
-    memory_aperture = _unquote(fields.get("memory_aperture", "")) or "cold"
+    memory_aperture = resolve_memory_aperture(fields)
     if memory_aperture not in MEMORY_APERTURES:
         raise DispatchContextError("memory_aperture is invalid")
     memory_focus = _unquote(fields.get("memory_focus", "")) or None
@@ -1081,15 +1360,42 @@ def assemble_trusted_launch_prompt(
             "get_note, lifecycle, or vault browse tools. Memory is not a task gate."
         )
     else:
+        # Read permission per aperture, mirroring the `recall`/`get_note`
+        # columns of shared/registries/memory-apertures.tsv. `default` joined
+        # this set on 2026-08-17 with the dispatch default: the policy the
+        # broker enforces lets a `default` worker recall, and a prompt that
+        # told it otherwise would switch memory back off in the only place
+        # that actually runs -- the same prose-vs-prompt split that cost 23
+        # days of `record_usage` rows (see shared/protocol.md).
+        reads_allowed = memory_aperture in READ_PERMITTING_APERTURES
         recall_instruction = (
             '- Recall prior context ONCE: `recall(query="<task-specific terms>", limit=5)`. '
             "Pass no filters; the vault enforces this engagement's aperture."
-            if memory_aperture in {"rich", "focused"}
+            if reads_allowed
             else f"- Do not call recall or get_note: aperture `{memory_aperture}` forbids reads."
         )
+        # This line used to forbid `record_usage`. That was an emergency fix on
+        # 2026-07-25 (`c3aeb5d5`) for an `outcome` enum the server did not publish,
+        # which turned a failed call into a whole-task block. `6ebe6802` fixed the
+        # enum two days later; the prohibition outlived its cause by 23 days and not
+        # one usage row was written in that window. Recording the outcome is the
+        # only signal that says whether what recall returned was worth returning,
+        # so it is now expected -- and only where the aperture returned notes at
+        # all, because an aperture that denies reads yields no recall_id to report.
+        usage_instruction = (
+            "- Then, for each recalled note that informed the work, record the outcome "
+            'with `record_usage(recall_id="<the recall_id recall returned>", '
+            'note_id="mem-…", outcome="used"|"not_useful"|"incorrect")`. This is '
+            "expected, not optional, for notes you actually consulted -- the unhelpful "
+            "ones especially, since nothing else reports them. It is still telemetry: "
+            "a failure is noted in the artifact and never gates the task."
+            if reads_allowed
+            else "- There is no usage outcome to record: this aperture returns no notes."
+        )
         memory_instructions = (
-            "Durable memory is BEST-EFFORT telemetry. Make each permitted call at most "
-            "once, never search the repo for schemas, and never retry. A memory error is "
+            "Durable memory is BEST-EFFORT telemetry. Call each permitted tool once -- "
+            "one recall, one record, one usage outcome per note you consulted. Then stop: "
+            "never search the repo for schemas, and never retry. A memory error is "
             "never a task gate: note it briefly in the artifact and continue. The server "
             "aperture overrides any generic memory-policy wording in the packet.\n"
             f"{recall_instruction}\n"
@@ -1097,9 +1403,14 @@ def assemble_trusted_launch_prompt(
             "record the outcome once with: "
             f'`record(note_type="learning", fields={{"title":"<one-line outcome>",'
             f'"body":"<two or three short sentences referencing {task_id}>",'
-            '"target":"<component or target>","attack_class":"none"}})`. '
+            # One `}` closes `fields=`, the other closed nothing: the rendered example
+            # read `...,"attack_class":"none"}})` and taught every worker a call with an
+            # unbalanced brace. Found 2026-08-17 while replacing the record_usage
+            # prohibition in this same string.
+            '"target":"<component or target>","attack_class":"none"})`. '
             "The server binds source_task, candidate status, sensitivity floor, and focused "
-            "target; do not add or override them. Do not call record_usage or set_status."
+            "target; do not add or override them. Do not call set_status.\n"
+            f"{usage_instruction}"
         )
     return (
         "Execute the exact task packet below as a fresh isolated specialist CLI. "
@@ -1252,6 +1563,24 @@ def build_context(
         raise DispatchContextError("nonce must be a nonzero 64-hex value")
 
     memory_aperture, memory_focus = packet_memory_contract(fields)
+    # The blindness floor, applied once where the aperture is resolved rather
+    # than at each consumer, so no dispatch path can bypass it: everything
+    # downstream -- the authenticated envelope the broker enforces and the
+    # launch prompt the worker obeys -- reads the floored value below.
+    memory_aperture = enforce_blind_floor(
+        memory_aperture,
+        packet_blind_target(fields),
+        specialist,
+        os.environ.get("CHRONO_VAULT_ROOT", "").strip() or None,
+    )
+    # `focused` is the only aperture permitted to carry a focus, and the
+    # supervisor refuses the mismatch outright (`clearance.
+    # validate_memory_context`). A floored `focused` packet that kept its focus
+    # would therefore not be blinded -- it would be a dead dispatch. This is a
+    # no-op on every path except that one, because `packet_memory_contract`
+    # already rejects a focus on any other aperture.
+    if memory_aperture != "focused":
+        memory_focus = None
     memory_context = {
         "schema": "chrono-vault-context/v1",
         "task_id": task_id,
@@ -1555,12 +1884,16 @@ def _coerce_status(raw: str) -> str:
 # Output promotion rebuilds the envelope from the trusted launch authority, and
 # it used to emit only the seven identity rows -- silently discarding every one
 # of those echoes, so capability/swarm/worker completions could never settle
-# (audit CC-03). These are reconstructed from the AUTHORITY, never from worker
-# metadata: a worker must not be able to author the value that proves its own
-# response is current.
+# (audit CC-03). A separately dispatched review has the same structural need:
+# its own task id belongs in ``in_response_to``, while the controller-authored
+# packet's ``reviews`` field names the held subject. These are reconstructed
+# from the AUTHORITY, never from worker metadata: a worker must not be able to
+# author the value that proves its own response is current or choose which task
+# its review settles.
 RECONCILIATION_ECHO_KEYS: dict[str, re.Pattern[str]] = {
     "capability_card_sha256": SHA256_RE,
     "swarm_spec_sha256": SHA256_RE,
+    "reviews": TASK_RE,
     "delivery_attempt_id": re.compile(r"d-[0-9a-f]{32}"),
     "delivery_generation": re.compile(r"[0-9]{1,9}"),
     "delivery_worker_id": re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,63}"),
@@ -1600,14 +1933,17 @@ def validate_reconciliation_echo(raw: object) -> dict[str, str]:
 
 
 def packet_reconciliation_echo(fields: Mapping[str, str]) -> dict[str, str]:
-    """Derive the capability/swarm pin echoes from the dispatched packet.
+    """Derive packet-owned pins and review linkage for the response envelope.
 
-    `bin/send-task.sh` injects both pins into the packet frontmatter at dispatch
-    time, so the packet -- whose SHA-256 is itself bound into the authority -- is
-    a trusted launch-time source for them.
+    The packet -- whose SHA-256 is itself bound into the authority -- is a
+    trusted launch-time source. In particular, ``reviews`` is a dispatch fact,
+    not a field a reviewer should have to remember or be allowed to retarget.
     """
 
     echo: dict[str, str] = {}
+    review_target = _unquote(fields.get("reviews", ""))
+    if review_target:
+        echo["reviews"] = review_target
     capability_pin = _unquote(fields.get("capability_card_sha256", ""))
     if capability_pin:
         echo["capability_card_sha256"] = capability_pin
@@ -1687,19 +2023,30 @@ def _render_response_envelope(
     summary: str,
     reconciliation_echo: Mapping[str, str] | None = None,
     failure_class: str | None = None,
+    verdict: str = "",
 ) -> bytes:
     """Reconstruct a canonical response envelope from the trusted authority.
 
     Every identity field is fully determined by the launch authority, so the
     only worker-authored signals carried across are the (already coerced)
-    ``status`` intent and the summary prose. Reconciliation pin/fence rows are
-    appended from the authority in sorted key order. Rendering is deterministic,
-    which keeps re-publication idempotent.
+    ``status`` intent, a review's substantive ``verdict``, and the summary
+    prose. The review target remains controller-owned in ``reconciliation_echo``.
+    Pin/fence/linkage rows are appended from the authority in sorted key order.
+    Rendering is deterministic, which keeps re-publication idempotent.
     """
 
     echo = validate_reconciliation_echo(reconciliation_echo)
     echo_rows = "".join(f"{key}: {echo[key]}\n" for key in sorted(echo))
     failure_row = f"failure_class: {failure_class}\n" if failure_class else ""
+    review_verdict = verdict.strip() if isinstance(verdict, str) else ""
+    if (
+        "\x00" in review_verdict
+        or "\n" in review_verdict
+        or "\r" in review_verdict
+        or len(review_verdict) > 2048
+    ):
+        raise DispatchContextError("response verdict is malformed")
+    verdict_row = f"verdict: {review_verdict}\n" if review_verdict else ""
     body = summary.strip("\n")
     return (
         "---\n"
@@ -1710,6 +2057,7 @@ def _render_response_envelope(
         "type: RESULT\n"
         f"status: {status}\n"
         f"{failure_row}"
+        f"{verdict_row}"
         f"return_artifact: {result_relative}\n"
         f"{echo_rows}"
         "---\n\n"
@@ -1722,8 +2070,9 @@ def _render_response_envelope(
 # one accepts and the other rejects is an inconsistency, not a safety margin --
 # and this side is the destructive one (a rejection here strands the finished
 # artifact, where the watcher merely holds the envelope in place). Nothing
-# downstream reads a worker-authored key other than `status`: the published
-# envelope is re-rendered from the launch authority by _render_response_envelope.
+# downstream reads a worker-authored identity key: the published envelope is
+# re-rendered from the launch authority by _render_response_envelope. ``status``
+# and ``verdict`` remain worker-authored outcome signals, not identity.
 FLAT_FRONTMATTER_KEY_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
 
 
@@ -1860,6 +2209,29 @@ def _is_board_blocked_stub(data: bytes, task_id: str) -> bool:
     )
 
 
+def _is_reclaimable_destination(
+    existing: bytes,
+    *,
+    reclaim_board_blocked_stub_for: str | None,
+    reclaim_exact_bytes: bytes | None,
+) -> bool:
+    """True when overwriting ``existing`` is reconciliation, not clobbering.
+
+    Exactly two provably-same-task shapes qualify: the controller-authored
+    blocked stub for this task id, and a byte-exact copy of this same
+    completion's validated worktree bytes -- the state left behind when a
+    promotion was interrupted between its artifact and envelope writes.
+    Anything else (another task's file, edited content, an unknown writer)
+    stays refused.
+    """
+
+    if reclaim_board_blocked_stub_for and _is_board_blocked_stub(
+        existing, reclaim_board_blocked_stub_for
+    ):
+        return True
+    return reclaim_exact_bytes is not None and existing == reclaim_exact_bytes
+
+
 def _validate_destination(
     repo_root: Path,
     relative: str,
@@ -1867,6 +2239,7 @@ def _validate_destination(
     *,
     label: str,
     reclaim_board_blocked_stub_for: str | None = None,
+    reclaim_exact_bytes: bytes | None = None,
 ) -> Path:
     root = repo_root.resolve(strict=True)
     safe_relative = _safe_relative(relative, field=label)
@@ -1886,12 +2259,10 @@ def _validate_destination(
         if not destination.is_file():
             raise DispatchContextError(f"{label} destination already differs")
         existing = destination.read_bytes()
-        if existing != data and not (
-            reclaim_board_blocked_stub_for
-            and _is_board_blocked_stub(
-                existing,
-                reclaim_board_blocked_stub_for,
-            )
+        if existing != data and not _is_reclaimable_destination(
+            existing,
+            reclaim_board_blocked_stub_for=reclaim_board_blocked_stub_for,
+            reclaim_exact_bytes=reclaim_exact_bytes,
         ):
             raise DispatchContextError(f"{label} destination already differs")
     return destination
@@ -1904,6 +2275,7 @@ def _safe_destination(
     *,
     label: str,
     reclaim_board_blocked_stub_for: str | None = None,
+    reclaim_exact_bytes: bytes | None = None,
 ) -> Path:
     destination = _validate_destination(
         repo_root,
@@ -1911,6 +2283,7 @@ def _safe_destination(
         data,
         label=label,
         reclaim_board_blocked_stub_for=reclaim_board_blocked_stub_for,
+        reclaim_exact_bytes=reclaim_exact_bytes,
     )
     root = repo_root.resolve(strict=True)
     current = root
@@ -1927,6 +2300,7 @@ def _atomic_publish(
     *,
     label: str,
     reclaim_board_blocked_stub_for: str | None = None,
+    reclaim_exact_bytes: bytes | None = None,
 ) -> tuple[Path, bool]:
     destination = _safe_destination(
         repo_root,
@@ -1934,22 +2308,21 @@ def _atomic_publish(
         data,
         label=label,
         reclaim_board_blocked_stub_for=reclaim_board_blocked_stub_for,
+        reclaim_exact_bytes=reclaim_exact_bytes,
     )
-    reclaim_blocked_stub = False
+    reclaim_existing = False
     if destination.exists():
         if not destination.is_file():
             raise DispatchContextError(f"{label} destination already differs")
         existing = destination.read_bytes()
         if existing == data:
             return destination, True
-        reclaim_blocked_stub = bool(
-            reclaim_board_blocked_stub_for
-            and _is_board_blocked_stub(
-                existing,
-                reclaim_board_blocked_stub_for,
-            )
+        reclaim_existing = _is_reclaimable_destination(
+            existing,
+            reclaim_board_blocked_stub_for=reclaim_board_blocked_stub_for,
+            reclaim_exact_bytes=reclaim_exact_bytes,
         )
-        if not reclaim_blocked_stub:
+        if not reclaim_existing:
             raise DispatchContextError(f"{label} destination already differs")
     fd, temporary_name = tempfile.mkstemp(
         prefix=f".{destination.name}.bridge.",
@@ -1963,17 +2336,18 @@ def _atomic_publish(
             os.fsync(stream.fileno())
         directory_fd = os.open(destination.parent, os.O_RDONLY)
         try:
-            if reclaim_blocked_stub:
+            if reclaim_existing:
                 if (
                     destination.is_symlink()
                     or not destination.is_file()
-                    or not _is_board_blocked_stub(
+                    or not _is_reclaimable_destination(
                         destination.read_bytes(),
-                        str(reclaim_board_blocked_stub_for),
+                        reclaim_board_blocked_stub_for=reclaim_board_blocked_stub_for,
+                        reclaim_exact_bytes=reclaim_exact_bytes,
                     )
                 ):
                     raise DispatchContextError(
-                        f"{label} destination changed during blocked-stub reclaim"
+                        f"{label} destination changed during reclaim"
                     )
                 os.replace(temporary_name, destination)
             else:
@@ -2113,10 +2487,11 @@ def prepare_worktree_outputs(
     # above) and committed residue (integrated by the supervisor) must not be
     # exit-75 stranded on a metadata nit -- a non-canonical status, a missing
     # required field, or an unexpected extra. Reconstruct a canonical envelope
-    # from the authority, carrying only the worker's coerced status intent and
-    # summary prose across. Genuinely-missing work still blocks: an empty/absent
-    # artifact fails _read_contained_regular, an empty summary fails the parser,
-    # and uncommitted residue fails integration upstream. See
+    # from the authority, carrying only the worker's coerced status intent,
+    # substantive review verdict, and summary prose across. Genuinely-missing
+    # work still blocks: an empty/absent artifact fails _read_contained_regular,
+    # an empty summary fails the parser, and uncommitted residue fails
+    # integration upstream. See
     # _state/consults/envelope-prevalidation-fix.md.
     canonical_status = _coerce_status(envelope.get("status", ""))
     # CC-03: carry every reconciliation pin/fence across the bridge, taken from
@@ -2130,6 +2505,7 @@ def prepare_worktree_outputs(
         reconciliation_echo=validate_reconciliation_echo(
             authority.get("reconciliation_echo")
         ),
+        verdict=envelope.get("verdict", ""),
     )
     prepared_evidence: list[PreparedEvidenceOutput] = []
     evidence_paths: set[str] = set()
@@ -2193,19 +2569,40 @@ def prepare_worktree_outputs(
         raise DispatchContextError(
             "evidence promotion producer provenance is invalid"
         )
-    _validate_destination(
-        Path(repo_root),
-        result_relative,
-        result_bytes,
-        label="return artifact",
-        reclaim_board_blocked_stub_for=task_id,
-    )
-    _validate_destination(
-        Path(repo_root),
-        outbox_relative,
-        normalized_bytes,
-        label="response envelope",
-    )
+    if result_relative == outbox_relative:
+        # The standard packet shape declares the outbox response path as its
+        # own return_artifact, so the artifact and the envelope are ONE file.
+        # Validating (and later publishing) two different payloads against that
+        # one path is the self-collision that blocked every aliased completion:
+        # the bridge's own artifact write made the envelope write refuse with
+        # "destination already differs" over finished, correct work. The
+        # canonical envelope alone is validated here -- it carries the worker's
+        # entire summary body plus the trusted pins, so nothing is lost -- and
+        # the worker's raw bytes stay reclaimable so a promotion interrupted
+        # between the two historic writes reconciles instead of refusing.
+        # Mirrors publish_blocked_completion's aliased branch.
+        _validate_destination(
+            Path(repo_root),
+            outbox_relative,
+            normalized_bytes,
+            label="response envelope",
+            reclaim_board_blocked_stub_for=task_id,
+            reclaim_exact_bytes=result_bytes,
+        )
+    else:
+        _validate_destination(
+            Path(repo_root),
+            result_relative,
+            result_bytes,
+            label="return artifact",
+            reclaim_board_blocked_stub_for=task_id,
+        )
+        _validate_destination(
+            Path(repo_root),
+            outbox_relative,
+            normalized_bytes,
+            label="response envelope",
+        )
     for output in prepared_evidence:
         _validate_destination(
             Path(repo_root),
@@ -2236,10 +2633,13 @@ def validate_worktree_outputs(
     """Validate completion sources and destinations without publishing either."""
 
     prepared = prepare_worktree_outputs(repo_root, worktree_root, authority)
+    aliased = prepared.result_relative == prepared.outbox_relative
     return {
         "status": prepared.status,
         "artifact_path": str(Path(repo_root) / prepared.result_relative),
-        "artifact_sha256": _sha256_bytes(prepared.result_bytes),
+        "artifact_sha256": _sha256_bytes(
+            prepared.envelope_bytes if aliased else prepared.result_bytes
+        ),
         "envelope_path": str(Path(repo_root) / prepared.outbox_relative),
         "envelope_sha256": _sha256_bytes(prepared.envelope_bytes),
     }
@@ -2419,25 +2819,45 @@ def publish_prepared_worktree_outputs(
             }
         )
     mode_exit = _invoke_project_mode_exit_verifier(Path(repo_root), prepared)
-    result_path, result_idempotent = _atomic_publish(
-        Path(repo_root),
-        prepared.result_relative,
-        prepared.result_bytes,
-        label="return artifact",
-        reclaim_board_blocked_stub_for=prepared.task_id,
-    )
-    envelope_path, envelope_idempotent = _atomic_publish(
-        Path(repo_root),
-        prepared.outbox_relative,
-        prepared.envelope_bytes,
-        label="response envelope",
-    )
+    if prepared.result_relative == prepared.outbox_relative:
+        # Aliased standard shape: the envelope IS the artifact. Publish the
+        # canonical envelope once instead of aiming two payloads at one file
+        # (the second write always refused with "destination already differs"
+        # once the CC-03 pins made the rendered envelope differ from the raw
+        # worker file). The worker's raw bytes remain reclaimable so the state
+        # a pre-fix interrupted promotion left behind -- raw response landed,
+        # envelope refused -- reconciles on retry instead of stranding again.
+        envelope_path, envelope_idempotent = _atomic_publish(
+            Path(repo_root),
+            prepared.outbox_relative,
+            prepared.envelope_bytes,
+            label="response envelope",
+            reclaim_board_blocked_stub_for=prepared.task_id,
+            reclaim_exact_bytes=prepared.result_bytes,
+        )
+        result_path, result_idempotent = envelope_path, envelope_idempotent
+        published_artifact_bytes = prepared.envelope_bytes
+    else:
+        result_path, result_idempotent = _atomic_publish(
+            Path(repo_root),
+            prepared.result_relative,
+            prepared.result_bytes,
+            label="return artifact",
+            reclaim_board_blocked_stub_for=prepared.task_id,
+        )
+        envelope_path, envelope_idempotent = _atomic_publish(
+            Path(repo_root),
+            prepared.outbox_relative,
+            prepared.envelope_bytes,
+            label="response envelope",
+        )
+        published_artifact_bytes = prepared.result_bytes
     return {
         "status": prepared.status,
         "artifact_published": True,
         "artifact_idempotent": result_idempotent,
         "artifact_path": str(result_path),
-        "artifact_sha256": _sha256_bytes(prepared.result_bytes),
+        "artifact_sha256": _sha256_bytes(published_artifact_bytes),
         "artifact_promotions": promotions,
         "mode_exit_verification": mode_exit,
         "envelope_published": True,

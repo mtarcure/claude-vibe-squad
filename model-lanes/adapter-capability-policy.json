@@ -98,7 +98,6 @@
       "self-inflicted-detector",
       "semgrep-rule-author",
       "supply-chain-audit",
-      "threat-model-loop",
       "variant-analysis",
       "xbow-benchmark-runner"
     ],
@@ -165,7 +164,6 @@
       "self-inflicted-detector",
       "semgrep-rule-author",
       "supply-chain-audit",
-      "threat-model-loop",
       "variant-analysis",
       "xbow-benchmark-runner"
     ],

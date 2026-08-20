@@ -22,6 +22,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -31,6 +32,39 @@ import plan_item_binding as pib  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SEND_TASK = REPO_ROOT / "bin" / "send-task.sh"
+
+# Frozen from the two ledger files immediately before commit 38bbec09 deleted
+# the optional plans directory. Keeping the real compatibility corpus in this
+# test fixture preserves the original ID-shape coverage without making the test
+# depend on repository content that is not part of the feature's runtime input.
+HISTORICAL_LEDGER_IDS = {
+    "v1.1.1-release-plan": tuple(
+        """
+        P13.50 P13.51 P13.52 P13.56 P13.57 P13.58 P13.53 P13.70 P13.54
+        P13.55 P13.62 P13.66 P13.67 P13.69 P13.68 P13.64 P13.65 P14.1
+        P13.71 P13.72 P14.3 P14.2 P13.60 P13.61 P10B.2g
+        """.split()
+    ),
+    "v1.1.1-completed-archive": tuple(
+        """
+        P0.1 P0.2 P0.3 P0.4 P0.5 P0.6 P0.7
+        P1.1 P1.2 P1.3 P1.4 P1.5 P1.6 P1.7
+        P2.1 P2.2 P2.3 P2.4 P2.5 P2.6 P2.7 P2.8
+        P3.1 P3.2 P3.3 P3.4a P3.5 P3.6 P3.7a P3.7b
+        P4.1 P4.2 P4.3 P4.4 P4.5 P4.6 P4.7 P4.8 P4.9 P4.9a P4.10
+        P5.1 P5.5 P5.7 P5.8
+        P6.1 P6.2 P6.3 P6.7
+        P7.1 P7.2 P7.3 P7.4 P7.5 P7.6 P7.7
+        P8.1 P8.2 P8.3 P8.4 P8.5
+        P9.1 P9.2 P9.3 P9.4 P9.5 P9.6
+        P10B.5 P11.2 P11.3 P11.5 P11.6 P12.2 P12.3a
+        P5.4 P6.4 P6.8 P6.10 P6.11
+        P10A.1 P10A.2 P10A.3 P10A.4 P10A.5 P10A.7 P10A.8
+        P10B.1 P10B.3 P10B.4 P10B.6 P10B.7 P11.7 P12.3b
+        """.split()
+    ),
+}
+HISTORICAL_LEDGER_ITEM_COUNT = 118
 
 
 def _write_json(path: Path, value: dict) -> None:
@@ -83,40 +117,57 @@ class DeclarationTests(unittest.TestCase):
             ["P4.4", "P3.7b", "P12", "P10A.1", "P10B.7"],
         )
 
-    def test_id_shape_covers_every_real_ledger_item(self):
-        """The shape is derived from the ledger, so it must still cover it.
+    def test_id_shape_covers_historical_ledger_fixture(self):
+        """The shape is derived from the deleted ledger, so preserve its corpus.
 
         A first draft of PLAN_ITEM_RE omitted the uppercase phase suffix and
         silently made all fourteen P10A/P10B items impossible to declare. The
-        failure was invisible -- those items simply never matched. This test is
-        the guard: the shape and the data cannot drift apart again.
+        failure was invisible -- those items simply never matched. The fixture
+        carries all 118 real P-item IDs from the two files as they existed
+        immediately before commit 38bbec09, including P10B.2g.
         """
-        plans = REPO_ROOT / "docs" / "superpowers" / "plans"
-        checked = 0
-        for name in ("v1.1.1-release-plan", "v1.1.1-completed-archive"):
-            path = plans / f"{name}.md"
-            for line in path.read_text(encoding="utf-8").splitlines():
-                match = pib.CHECKBOX_RE.match(line)
-                if not match:
-                    continue
-                # Strip Markdown emphasis. The 2026-08-15 consolidation bolded
-                # every item id, so the raw token became "**P13.52" and stopped
-                # matching -- the ids had not drifted, the reader had.
-                token = match.group(1).strip("*`")
-                if token == "Defer":  # the one un-numbered carry-forward action
-                    continue
-                # The release plan carries a SECOND namespace the archive does
-                # not: release-checklist entries (G1-G7, R1-R10, MERGE) and
-                # prose bullets. Those are not declarable plan items and never
-                # were -- the archive is the ledger (93 P items, zero non-P).
-                # So guard the P namespace only, and guard it STRICTLY: anything
-                # shaped like a P id must be a well-formed one, so a malformed
-                # id cannot slip through by being mistaken for prose.
-                if not (token[:1] == "P" and token[1:2].isdigit()):
-                    continue
-                checked += 1
-                self.assertRegex(token, pib.PLAN_ITEM_RE, f"unmatched item id in {name}")
-        self.assertGreaterEqual(checked, 110, "ledger shrank; re-derive the ID shape")
+        with tempfile.TemporaryDirectory() as directory:
+            plans = Path(directory)
+            for name, item_ids in HISTORICAL_LEDGER_IDS.items():
+                fixture_lines = [
+                    f"- [ ] **{item_id}** Fixture item." for item_id in item_ids
+                ]
+                fixture_lines.extend(
+                    (
+                        "- [ ] G1 Release-checklist entry outside the P namespace.",
+                        "- [ ] Defer The unnumbered carry-forward action.",
+                    )
+                )
+                (plans / f"{name}.md").write_text(
+                    "\n".join(fixture_lines) + "\n", encoding="utf-8"
+                )
+
+            checked = 0
+            for name in HISTORICAL_LEDGER_IDS:
+                path = plans / f"{name}.md"
+                for line in path.read_text(encoding="utf-8").splitlines():
+                    match = pib.CHECKBOX_RE.match(line)
+                    if not match:
+                        continue
+                    # Strip Markdown emphasis. The 2026-08-15 consolidation
+                    # bolded every item id, so the raw token became
+                    # "**P13.52" and stopped matching -- the ids had not
+                    # drifted, the reader had.
+                    token = match.group(1).strip("*`")
+                    if token == "Defer":
+                        continue
+                    # Release-checklist entries (G1-G7, R1-R10, MERGE) are not
+                    # declarable plan items. Guard the P namespace strictly.
+                    if not (token[:1] == "P" and token[1:2].isdigit()):
+                        continue
+                    checked += 1
+                    self.assertRegex(
+                        token, pib.PLAN_ITEM_RE, f"unmatched item id in {name}"
+                    )
+            self.assertEqual(checked, HISTORICAL_LEDGER_ITEM_COUNT)
+            self.assertGreaterEqual(
+                checked, 110, "historical fixture shrank; re-derive the ID shape"
+            )
 
     def test_malformed_declarations_fail_closed(self):
         for value in (
@@ -234,7 +285,7 @@ class PacketPhaseBindingTests(unittest.TestCase):
 
 
 class ActivePlanAuthorityTests(unittest.TestCase):
-    """The plans directory has exactly one structural active-status claim."""
+    """Optional discovery and strict cardinality retain separate contracts."""
 
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -267,6 +318,7 @@ class ActivePlanAuthorityTests(unittest.TestCase):
         self.assertEqual(
             pib.require_single_active_plan_authority(self.plans), active
         )
+        self.assertTrue(active.is_file())
 
     def test_two_active_authorities_fail_and_name_both_claimants(self):
         first = self._plan("implementation.md", "**Status:** active")
@@ -284,11 +336,30 @@ class ActivePlanAuthorityTests(unittest.TestCase):
         ):
             pib.require_single_active_plan_authority(self.plans)
 
-    def test_real_repository_has_exactly_one_active_authority(self):
-        active = pib.require_single_active_plan_authority(
-            REPO_ROOT / "docs" / "superpowers" / "plans"
-        )
-        self.assertTrue(active.is_file())
+    def test_missing_optional_directory_means_no_active_authorities(self):
+        missing = self.plans / "not-created"
+        self.assertFalse(missing.exists())
+        self.assertEqual(pib.active_plan_authorities(missing), [])
+        with self.assertRaisesRegex(
+            pib.PlanItemBindingError, "exactly one active plan authority; found 0"
+        ):
+            pib.require_single_active_plan_authority(missing)
+
+    def test_existing_non_directory_path_fails_closed(self):
+        not_a_directory = self.plans / "plan.md"
+        not_a_directory.write_text("# Not a directory\n", encoding="utf-8")
+        with self.assertRaisesRegex(
+            pib.PlanItemBindingError, "plans path is not a directory"
+        ):
+            pib.active_plan_authorities(not_a_directory)
+
+    def test_unreadable_plans_path_fails_closed(self):
+        denied = self.plans / "denied"
+        with mock.patch.object(Path, "stat", side_effect=PermissionError("denied")):
+            with self.assertRaisesRegex(
+                pib.PlanItemBindingError, "cannot inspect plans path"
+            ):
+                pib.active_plan_authorities(denied)
 
 
 class ReceiptEchoTests(unittest.TestCase):

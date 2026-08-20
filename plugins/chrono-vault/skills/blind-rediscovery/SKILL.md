@@ -24,10 +24,13 @@ This skill operationalizes the `_blind/` vs `_curated/` split codified in `CLAUD
 
 ## Directory layout
 
-For a target with the slug `<target>`:
+For a target with the slug `<target>`. The casing is load-bearing: `dispatch_context_builder.
+enforce_blind_floor()` keys the dispatch-level floor on exactly this path, and the maintainer's
+volume is case-insensitive, so a lowercase `chrono/` here would resolve locally and fail on a
+case-sensitive filesystem.
 
 ```
-~/Obsidian-Chrono/chrono/dossiers/<target>/
+$CHRONO_VAULT_ROOT/Chrono/dossiers/<target>/
 ├── _blind/                          # fan-out voices CAN read this
 │   ├── stage-1-scope-<date>.md
 │   ├── stage-2-codebase-map-<date>.md   # NO prior-finding refs
@@ -40,9 +43,32 @@ For a target with the slug `<target>`:
 └── _resume.md                       # session-resume index, brain-readable
 ```
 
+## What the dispatcher already guarantees
+
+Since 2026-08-17 the `_blind/` directory is not only a convention — it is enforced. When a packet
+declares `target: <target>` and that dossier has a `_blind/` directory, `build_context` forces
+`memory_aperture: cold` for every role whose specialist brief declares `blind_discovery: true`,
+regardless of what the packet asked for. The briefs under `departments/*/specialists/` and
+`shared/specialists/` are the roster; grep them for the key rather than trusting a list copied
+into prose. See `shared/protocol.md` § The
+blindness floor.
+
+`target:` is free text and stays free text — the floor reads dossier slugs *out of* whatever the
+field contains (`examplechain/<target>@0000aaaa`, `<target> / example-chain-node @ 1111bbbb`, `Target`),
+so it fires on the live packet convention without the packet having to change vocabulary. A
+`target:` that names no blinded dossier leaves the aperture alone; it is never a dispatch error.
+Naming the dossier slug plainly is still the clearest thing to write.
+
+That covers vault recall. It does **not** cover the two contamination paths below — dossier prose
+that names prior findings, and web search for prior art. Those remain the author's job, which is
+what the rest of this checklist is for. Set `target:` on every blind-rediscovery packet; the floor
+is target-scoped and has nothing to key on without it.
+
 ## Pre-fan-out checklist
 
 Before assembling the fan-out brief, verify ALL of:
+
+- [ ] Every packet in the blind stage declares `target: <target>` so the dispatch-level floor applies
 
 - [ ] `_blind/` exists; voice-readable dossiers live there
 - [ ] `_curated/` exists; prior-findings + comparison docs live there

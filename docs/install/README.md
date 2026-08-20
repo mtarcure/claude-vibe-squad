@@ -83,9 +83,9 @@ prerequisite for one.
 ## 6. The launchd routines (optional)
 
 `com.vibesquad.daemon` adds the live `● daemon` and per-lane segments in the
-tmux status bar, and the `/summarize` endpoint the weekly review posts to.
-Without it the status bar reads `● daemon offline` and the weekly review writes
-no summary; dispatch, review, memory, and the coordinator never call it.
+tmux status bar, and the documented `POST /mcp/<server>/<tool>` HTTP bridge.
+Without it the status bar reads `● daemon offline` and that `curl` path is
+unavailable; dispatch, review, memory, and the coordinator never call it.
 
 ```bash
 bash bin/install-routines.sh --daemon-only   # just the daemon
@@ -141,8 +141,8 @@ Concretely:
   reports its registration state as `UNKNOWN (not measured)`, rather than
   listing every server as missing and implying a measurement it never took.
 - No `com.vibesquad.daemon` → `bin/squad up` says so once at launch, the status
-  bar reads `● daemon offline` rather than going blank, and the weekly-review
-  routine writes no summary. Dispatch, review, memory, and the coordinator are
+  bar reads `● daemon offline` rather than going blank, and the documented HTTP
+  tool bridge is unavailable. Dispatch, review, memory, and the coordinator are
   unaffected. An *installed but broken* daemon is a different case and still
   blocks the launch — see [daemon.md](daemon.md).
 

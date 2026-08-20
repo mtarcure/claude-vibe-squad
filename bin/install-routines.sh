@@ -22,7 +22,7 @@ source "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null 
 # Agents `bin/squad up` blocks on. Keep this list in sync with DAEMON_LABEL in bin/launch-squad.sh.
 REQUIRED_AGENTS=("com.vibesquad.daemon")
 # Installed by default for parity with previous behavior, but not required to launch.
-OPTIONAL_AGENTS=("com.claudevibesquad.nightly" "com.vibesquad.weekly-review" "com.vibesquad.dream")
+OPTIONAL_AGENTS=("com.claudevibesquad.nightly" "com.vibesquad.dream")
 
 # Test seams. Both default to real behavior; they exist so the install path can be
 # exercised without mutating the operator's live launchd session.
@@ -326,9 +326,9 @@ if [[ ${DRY_RUN} -eq 0 ]]; then
     else
         echo "Pre-warming uv cache..."
         if UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}" uv run --quiet --no-project \
-            --with pyyaml --with httpx --with feedparser --with trafilatura \
-            python -c "import yaml, httpx, feedparser, trafilatura" 2>/dev/null; then
-            echo "  ✓ pyyaml, httpx, feedparser, trafilatura cached"
+            --with pyyaml --with httpx \
+            python -c "import yaml, httpx" 2>/dev/null; then
+            echo "  ✓ pyyaml, httpx cached"
         else
             echo "  ⚠ uv cache pre-warm failed (offline?) — first script run will fetch"
             DEGRADED=$((DEGRADED + 1))

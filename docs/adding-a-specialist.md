@@ -62,6 +62,7 @@ tags: []
 - `department` must equal the row's `source_namespace`. Runtime assignment comes from `primary_lane`; do not infer it from the brief's folder.
 - The brief carries **no** model or lane field. The effective model is resolved per specialist from the TSV row's `*_profile` keys through `shared/registries/profiles.tsv` (model + effort + flags), and the board spawns that CLI for the task. There is no `config/models.yaml`, and no launch-time per-lane model pin.
 - `required_tools` / `preferred_tools` are commonly left `[]`. Actual tool availability is declared in the brief body (below) and validated against `shared/api-catalog.md`; it is not enforced by a pre-flight.
+- `blind_discovery: true` is optional and omitted by all but a handful of roles. Add it only when the role's job **is** rediscovery, so that prior findings would bias it: the dispatch blind floor (`shared/protocol.md` § The blindness floor) reads this key and forces `memory_aperture: cold` for the role whenever the packet's `target` has a `_blind/` dossier. Later-stage roles on the same target — `skeptic`, `impact-validator`, `technical-writer` — legitimately need prior art and must **not** carry it. The key is the roster: there is no list of blinded roles in code, so marking a brief is the whole change. `bin/validate-specialists.sh` rejects a misspelled key or a non-boolean value, because a brief that merely *looks* marked would leave the role reading freely.
 
 ### Required sections
 

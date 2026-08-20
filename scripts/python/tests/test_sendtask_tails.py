@@ -177,6 +177,10 @@ class SendTaskTailsTests(unittest.TestCase):
                 "VAULT_ROOT": str(self.vault),
                 "SKIP_NUDGE": "1",
                 "UV_CACHE_DIR": str(self.root / "uv-cache"),
+                # self.vault is a plain directory, not a git checkout, so
+                # send-task.sh cannot derive a branch and now refuses to
+                # guess one; supply it explicitly.
+                "SQUAD_BASE_BRANCH": "v2",
             },
             capture_output=True,
             text=True,

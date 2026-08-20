@@ -17,7 +17,12 @@ import re
 import sys
 from pathlib import Path
 
-VAULT = Path(os.environ.get("VAULT_ROOT", str(Path.home() / "Obsidian-Claude-Vibe-Squad")))
+_VAULT_ROOT_ENV = os.environ.get("VAULT_ROOT")
+if not _VAULT_ROOT_ENV:
+    # Fail loud -- no maintainer-path default. Run via bin/vs-dashboard-loop.sh
+    # (or another caller that sources shared/repo-root.sh) rather than directly.
+    sys.exit("VAULT_ROOT not set. Run via a caller that exports VAULT_ROOT.")
+VAULT = Path(_VAULT_ROOT_ENV)
 BOARD = VAULT / "_state" / "board-dispatch"
 HISTORY_LIMIT = int(os.environ.get("VS_BOARD_HISTORY", "20"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "python"))

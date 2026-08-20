@@ -24,8 +24,8 @@ factual claims must be grounded (truth-rights / Rule-8); a model cutoff is never
 | Step | Specialists | Tools `` | Skills `(type)` | Gate / Overlay |
 |---|---|---|---|---|
 | **S0** Intake/Admit | `Chrono`, `triage` | `chrono-vault` | — | memory overlay (recall); brief |
-| **S1** Frame (outline + audience) | `editor`, `technical-writer`, `brand-voice` | — | `brainstorming`, `terminology-memory`, `scope-decomposition` | — |
-| **S3** Produce (draft) | `technical-writer`, `editor` | `chrono-research-arsenal`, `chrono-obsidian`, `codex --search` | `terminology-memory`, `structured-data-authoring` | — |
+| **S1** Frame (outline + audience) | `editor`, `technical-writer`, `brand-voice` | — | `brainstorming`, `locale-adaptation`, `scope-decomposition` | — |
+| **S3** Produce (draft) | `technical-writer`, `editor` | `chrono-research-arsenal`, `chrono-obsidian`, `codex --search` | `copy-refinement`, `structured-data-authoring` | — |
 | **S4** Verify (truth + edit) | `editor`, `skeptic`, `content-verifier` | `chrono-research-arsenal`, `Google Search grounding` | `claim-verification`, `citation-audit` | truth-rights overlay — Rule-8 truth gate (factual claims grounded; unverifiable ⇒ `needs_tool`, not PASS) |
 | **S5** Review/Gate | `skeptic`, `cross-family-reviewer`, `operator` | — | — | review overlay; `public_release` |
 | **S6** Ship/Deliver (publish) | `technical-writer` | `chrono-obsidian` | `citation-audit` | `public_release` |
@@ -35,6 +35,9 @@ factual claims must be grounded (truth-rights / Rule-8); a model cutoff is never
 without a grounding-tool evidence bundle is `needs_tool`/unverifiable — the primary must NOT PASS and hope the
 reviewer supplies evidence later (`content-verifier` owns the Rule-8 gate). No media generation here (that is
 `content/image`/`video`/`audio-assets`). Localization and accessibility are overlays/handoffs, not this card.
+The terminology gate remains mandatory: S1 applies supplied glossary/do-not-translate constraints through
+`locale-adaptation`, and S3 checks approved terminology through `copy-refinement`; neither assumes a
+durable glossary exists, and missing authority stops the terminology-specific work.
 
 **Optional Enhancement Profiles (prose-only `needs_tool`):**
 1. **Perplexity Sonar Alternative:** For structured + recency search checks on the Codex lane, `Perplexity Sonar structured+recency` is available (`partial` state, metered). When activated via a `needs_tool` profile, it enforces strict truth-gate filters (`claim_to_citation=true`, `date_window=7d`, `reject_unsupported=true`) ensuring all claims map to returned citation sources.

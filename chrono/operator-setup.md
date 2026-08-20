@@ -22,10 +22,11 @@ Launch rails unset API-key env vars for paid CLIs so subscription auth is prefer
 
 ## Bounty Browser
 
-Run a CDP-accessible Chrome (Chrome's standard remote-debugging port is 9222) so all model lanes
-can attach for Playwright/browser work. Browser-touching work attaches to that existing CDP
-session; do not spawn a fresh browser profile. Keep the session signed-in so attached tools reuse
-your working browser session.
+Run a CDP-accessible Chrome on the standard remote-debugging port 9222 so all model lanes can attach
+for browser work, and keep that session signed in — attached tools reuse your working browser
+session. This is the operator-side setup step only. What workers must then *do* with that Chrome
+(attach, never spawn; the profile path; the one permitted exception) is stated once, in
+`shared/lifecycle.md` rule 11 — read it there rather than inferring the rule from this paragraph.
 
 The toolkit supports bug-bounty / security-research platforms generally; the shipped setup does not name a
 platform set. The persistent-browser keep-alive (`scripts/python/browser_keep_alive.py`) monitors a tab list
@@ -45,7 +46,8 @@ gitignored `chrono/operator-setup.local.md`.
 - Launch: `bash bin/launch-squad.sh`
 - Stop: `bash bin/squad-stop.sh`
 - Status: `bash bin/where-are-we.sh`
-- Health: `bash bin/doctor.sh`
+- Health (fast pre-flight, what the launcher gates on): `bash bin/doctor.sh`
+- Health (also runs the checks costlier than the 45s launch budget): `bash bin/doctor.sh --deep`
 - Roster generation: `bash bin/gen-roster.sh`
 - Roster drift check: `bash bin/gen-roster.sh --check`
 - Specialist validation: `bash bin/validate-specialists.sh`

@@ -24,14 +24,14 @@ A zero-key checkout gets this protocol and its validation metadata as documentat
 | Step | Specialists | Tools `` | Skills `(type)` | Gate / Overlay |
 |---|---|---|---|---|
 | **S0** Intake/Admit | `Chrono` | `chrono-vault` | — | memory overlay (recall); brief |
-| **S1** Frame (concept) | `image-designer`, `brand-voice` | — | `terminology-memory` | — |
+| **S1** Frame (concept) | `image-designer`, `brand-voice` | — | `locale-adaptation` | — |
 | **S3** Produce (generate) | `image-designer` | `generate_image` | — | paid_media |
-| **S4** Verify (+ rights) | `skeptic`, `brand-voice`, `asset-provenance-and-rights-auditor` | `view_image`, `claude native vision` | `rights-and-provenance-gate`, `consent-and-likeness-check` | truth-rights overlay — Rule-6 rights gate (machine record; non-PASS/stale subject-hash blocks); privacy overlay if a real person's likeness |
+| **S4** Verify (+ rights) | `skeptic`, `brand-voice`, `asset-provenance-and-rights-auditor` | `view_image`, `claude native vision` | `rule6-rights-gate` | truth-rights overlay — Rule-6 rights gate (machine record; non-PASS/stale subject-hash blocks); privacy overlay if a real person's likeness |
 | **S5** Review/Gate | `skeptic`, `operator` | — | — | review overlay; `paid_media`, `public_release` |
 | **S6** Ship/Deliver (package) | `image-designer` | — | — | — |
 | **S7** Capture | `Chrono`, `memory-curator` | `chrono-vault` | — | memory overlay (record) |
 
-**Notes.** `generate_image` is the governed, live route. Raw `higgsfield__generate_image` remains `verified: no` and must never be used; pure image generation is restricted to the wrapper. A backup lane without the wrapper produces a TBASF blueprint and terminates `capability_gap` — never a false success. Real-person resemblance routes to `asset-provenance-and-rights-auditor` (never self-cleared).
+**Notes.** `generate_image` is the governed, live route. Raw `higgsfield__generate_image` remains `verified: no` and must never be used; pure image generation is restricted to the wrapper. A backup lane without the wrapper produces a TBASF blueprint and terminates `capability_gap` — never a false success. Real-person resemblance routes to `asset-provenance-and-rights-auditor` (never self-cleared). S1's terminology gate remains mandatory: `locale-adaptation` enforces the operator-supplied glossary and do-not-translate list, and does not invent a durable glossary store.
 
 **Optional Enhancement Profiles (prose-only `needs_tool`):**
 1. **Design Systems & Text-to-Design (Stitch):** If layout generation or visual system updates are required, the `Stitch` extension on the Gemini lane is available (`partial` state, subscription-tier, backend may meter). Since its design write capabilities remain un-smoked, any automated design writes route through the `needs_tool` pre-approval profile.

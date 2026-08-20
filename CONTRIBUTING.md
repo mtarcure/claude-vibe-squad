@@ -25,6 +25,18 @@ No patch should introduce silent live sends, silent deletes, credential changes,
 
 ## Development Checks
 
+**First, in every fresh clone, opt in to the tracked pre-commit hook:**
+
+```bash
+git config core.hooksPath .githooks
+```
+
+Git runs hooks only from `.git/hooks/`, which a clone never receives, so `.githooks/pre-commit` does
+nothing until you point git at it. It is per-clone local config, never set for you and never
+committed. With it enabled, each commit runs the private-memory leak guard first (blocking), then
+the specialist, format, capability, and moat checks. Without it, none of those run until CI sees
+your push. Undo with `git config --unset core.hooksPath`; details in [docs/git-hooks.md](docs/git-hooks.md).
+
 Run the relevant checks before opening a PR. These work in any clone, including the public one:
 
 ```bash

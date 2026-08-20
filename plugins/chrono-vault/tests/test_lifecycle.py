@@ -37,6 +37,13 @@ class LifecycleTests(unittest.TestCase):
         )
         self.env.start()
         self.addCleanup(self.env.stop)
+        # A throwaway repo root, separate from the vault, so tests that flag a
+        # note to the curation queue never write into this checkout's real
+        # `_state/curation-queue.jsonl`.
+        self.repo_root = Path(
+            os.path.realpath(tempfile.mkdtemp(prefix="chrono-lifecycle-repo-"))
+        )
+        self.addCleanup(shutil.rmtree, self.repo_root, ignore_errors=True)
 
     def _record(self, token: str, *, status: str = "candidate") -> dict:
         return notes.record(
@@ -235,12 +242,27 @@ class LifecycleTests(unittest.TestCase):
         recorded = self._record("UsageRetryToken")
         recall_id = vault_recall.recall("UsageRetryToken")["recall_id"]
 
-        first = lifecycle.record_usage(recall_id, recorded["id"], "not_useful")
-        repeated = lifecycle.record_usage(recall_id, recorded["id"], "not_useful")
+        first = lifecycle.record_usage(
+            recall_id, recorded["id"], "not_useful", repo_root=self.repo_root
+        )
+        repeated = lifecycle.record_usage(
+            recall_id, recorded["id"], "not_useful", repo_root=self.repo_root
+        )
 
         self.assertEqual(repeated, first)
         with self.assertRaises(lifecycle.UsageConflict):
-            lifecycle.record_usage(recall_id, recorded["id"], "incorrect")
+            lifecycle.record_usage(
+                recall_id, recorded["id"], "incorrect", repo_root=self.repo_root
+            )
+
+        # The identical retry above is a replay of the same observation, not a
+        # second one -- it must not double-count in the curation queue.
+        queue_path = self.repo_root / "_state" / "curation-queue.jsonl"
+        rows = queue_path.read_text(encoding="utf-8").strip().splitlines()
+        self.assertEqual(len(rows), 1)
+        flagged = json.loads(rows[0])
+        self.assertEqual(flagged["note_id"], recorded["id"])
+        self.assertEqual(flagged["reason"], "not_useful")
 
     def test_record_usage_rejects_bad_outcome_and_missing_note(self) -> None:
         recorded = self._record("UsageValidationToken")
@@ -250,6 +272,38 @@ class LifecycleTests(unittest.TestCase):
             lifecycle.record_usage(recall_id, recorded["id"], "maybe")
         with self.assertRaises(lifecycle.NoteNotFound):
             lifecycle.record_usage(recall_id, "mem-000000000000", "incorrect")
+
+    def test_record_usage_used_does_not_flag_curation_queue(self) -> None:
+        recorded = self._record("UsageNoFlagToken")
+        recall_id = vault_recall.recall("UsageNoFlagToken")["recall_id"]
+
+        lifecycle.record_usage(
+            recall_id, recorded["id"], "used", repo_root=self.repo_root
+        )
+
+        self.assertFalse((self.repo_root / "_state" / "curation-queue.jsonl").exists())
+
+    def test_record_usage_incorrect_flags_but_never_invalidates(self) -> None:
+        recorded = self._record("UsageIncorrectToken", status="verified")
+        recall_id = vault_recall.recall("UsageIncorrectToken")["recall_id"]
+
+        lifecycle.record_usage(
+            recall_id,
+            recorded["id"],
+            "incorrect",
+            source_task="TASK-demotion",
+            repo_root=self.repo_root,
+        )
+
+        # Status is untouched -- only a human review of the curation queue may
+        # set `invalidated`.
+        self.assertEqual(lifecycle.get_note(recorded["id"])["status"], "verified")
+        queue_path = self.repo_root / "_state" / "curation-queue.jsonl"
+        flagged = json.loads(queue_path.read_text(encoding="utf-8").strip())
+        self.assertEqual(flagged["note_id"], recorded["id"])
+        self.assertEqual(flagged["reason"], "incorrect")
+        self.assertEqual(flagged["source_task"], "TASK-demotion")
+        self.assertNotIn("status", flagged)
 
 
 if __name__ == "__main__":

@@ -20,6 +20,12 @@ source "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null 
 # VAULT_ROOT is runtime-configurable.
 # shellcheck disable=SC1091
 source "${VAULT_ROOT}/shared/namespaces.sh"
+# bin/launch-squad.sh honours SQUAD_SESSION for the session it creates; this
+# script used to hardcode the literal "squad" at every tmux call site, so
+# under a custom session name it silently reported "No squad session
+# running" and exited 0 -- a no-op that left the whole custom-named session
+# (and everything it owns) running. Plan B Task 7.
+SESSION="${SQUAD_SESSION:-squad}"
 SUMMARY_DIR="${VAULT_ROOT}/_state/shutdown-summaries"
 DATESTAMP="$(date -u +%Y-%m-%d-%H%M)"
 SUMMARY_FILE="${SUMMARY_DIR}/${DATESTAMP}-session-end.md"
@@ -27,20 +33,20 @@ SUMMARY_FILE="${SUMMARY_DIR}/${DATESTAMP}-session-end.md"
 mkdir -p "${SUMMARY_DIR}"
 
 # If no squad session, nothing to do
-if ! tmux has-session -t squad 2>/dev/null; then
-    echo "No squad session running. Nothing to stop."
+if ! tmux has-session -t "${SESSION}" 2>/dev/null; then
+    echo "No squad session '${SESSION}' running. Nothing to stop."
     exit 0
 fi
 
-echo "Squad close initiated. Requesting live-state update from Chrono..."
+echo "Squad close initiated (session: ${SESSION}). Requesting live-state update from Chrono..."
 
 # Phase 1 — ask Chrono to update canonical live state and optionally write an
 # ignored shutdown summary.
 NUDGE_MSG="Operator is closing the squad session. Update chrono/current.md and any affected departments/*/current.md so live state is accurate. Do not write docs/handoffs. If useful, write a transient shutdown summary to ${SUMMARY_FILE} with in-flight task IDs, queued work, and anything next launch should see after reading current.md. Confirm by appending 'SHUTDOWN SUMMARY DONE' to that file. After confirming, the operator will close the session."
 
-tmux send-keys -l -t "squad:chrono" "${NUDGE_MSG}"
+tmux send-keys -l -t "${SESSION}:chrono" "${NUDGE_MSG}"
 sleep 0.3
-tmux send-keys -t "squad:chrono" Enter
+tmux send-keys -t "${SESSION}:chrono" Enter
 
 # Poll for summary file with marker — up to 60s
 echo "Waiting up to 60s for Chrono to update state..."
@@ -114,25 +120,489 @@ echo "Shutdown summary: ${SUMMARY_FILE}"
 # Phase 3 — clean up mode-spawned external resources before kill
 # Per shared/lifecycle.md rule 13 (mode-close cleanup), kill orphan Chrome
 # profiles spawned by Playwright MCP / chrome-devtools-mcp during this session.
-# NEVER kill the operator's main Chrome at port 9222.
+# NEVER kill the operator's main Chrome at port 9222 -- that invariant is
+# stated once, just below this phase, and enforced by BOTH this phase and
+# Phase 5's process-group reap.
+#
+# Was `pgrep -f "user-data-dir=${profile}"` (Plan B Task 8): an unanchored
+# argv substring scan feeding `xargs kill` directly -- ANY process on the
+# host whose command line happens to contain this text anywhere (a
+# specialist's compiled prompt discussing Playwright/chrome-devtools-mcp
+# setup is plain-text argv too, measured at tens of KB) would be killed.
+# These profiles are spawned by third-party MCP tooling, not by this repo, so
+# there is no pidfile of our own to check -- argv matching is genuinely
+# unavoidable here. Replaced with an executable-name gate (must look like an
+# actual Chrome/Chromium binary; a specialist process never is one) plus an
+# exact-token match on the real `--user-data-dir=<profile>` flag as its own
+# shlex token, never "does this text appear somewhere in the raw command
+# string" -- the browser always emits this as one discrete argv element, so
+# real matches are unaffected and unstructured prose cannot forge one.
 echo ""
 echo "Cleaning up mode-spawned Chrome profiles..."
+
+# Args: $1 profile path prefix. Prints "<pid> <pgid>" for every live process
+# that really is a Chrome/Chromium launched with --user-data-dir=<profile>...
+#
+# One predicate, one home (CLAUDE.md rule 10). This same function answers both
+# questions this script asks about a browser: "which mode-spawned profiles do I
+# kill" (immediately below) and "which process groups must Phase 5 never reap"
+# (the operator's persistent CDP Chrome, right after). Two phases of this file
+# previously held OPPOSITE policies on the same browser because each answered
+# in its own way -- see the stated policy below Phase 3.
+chrome_profile_processes() {
+    python3 - "$1" <<'PY'
+import shlex
+import subprocess
+import sys
+
+
+IDENTITY_TOKEN_LIMIT = 6  # generous even for "Google Chrome.app/.../Google Chrome"
+
+
+def is_mode_spawned_chrome_profile(command: str, profile: str) -> bool:
+    """True only for a real Chrome/Chromium process actually launched with
+    --user-data-dir=<profile>... as its own argv token -- never for a
+    process whose command line merely CONTAINS that text somewhere (a
+    specialist's compiled prompt is plain-text argv too, and can run to tens
+    of KB). Extracted as a standalone function so it can be driven directly
+    by scripts/python/tests/test_argv_guard_false_positive.py without
+    invoking this whole script or a real `ps`.
+
+    Real Chrome/Chromium binary paths can contain spaces ("Google Chrome.app/
+    Contents/MacOS/Google Chrome"), and `ps`'s plain command-line text does
+    not preserve the original shell quoting that would let a space-joined
+    display string be split back into "argv[0]" unambiguously. So instead of
+    trying to isolate exactly one "executable" token, the identity check
+    collects tokens up to (not including) the first one that looks like a
+    flag ("-..."), capped at IDENTITY_TOKEN_LIMIT either way. Stopping at the
+    first flag excludes the --user-data-dir value itself from the identity
+    scan -- that value is a path under a directory literally named
+    "chrome-devtools-mcp"/"mcp-chrome-", so scanning it too would make the
+    executable-name gate nearly meaningless. The hard cap on top is what
+    keeps a multi-KB blob of prose with no leading flag at all (so nothing
+    would otherwise stop the scan) from ever reaching this gate's "chrome"
+    check with the whole blob.
+    """
+    flag_prefix = f"--user-data-dir={profile}"
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return False
+    if not tokens:
+        return False
+    identity_tokens = []
+    for token in tokens[:IDENTITY_TOKEN_LIMIT]:
+        if token.startswith("-"):
+            break
+        identity_tokens.append(token)
+    identity = " ".join(identity_tokens).lower()
+    if "chrome" not in identity and "chromium" not in identity:
+        return False
+    return any(token.startswith(flag_prefix) for token in tokens)
+
+
+profile = sys.argv[1]
+rows = subprocess.check_output(["ps", "-axo", "pid=,pgid=,command="], text=True).splitlines()
+for row in rows:
+    parts = row.strip().split(None, 2)
+    if len(parts) < 3:
+        continue
+    pid, pgid, command = parts
+    if is_mode_spawned_chrome_profile(command, profile):
+        print(pid, pgid)
+PY
+}
+
 for profile in \
     "${HOME}/Library/Caches/ms-playwright/mcp-chrome-" \
     "${HOME}/.cache/chrome-devtools-mcp/chrome-profile"
 do
-    pids=$(pgrep -f "user-data-dir=${profile}" 2>/dev/null || true)
+    pids=$(chrome_profile_processes "${profile}" | awk '{print $1}') || true
     if [[ -n "${pids}" ]]; then
         echo "  Killing ${profile}* processes: ${pids}"
         echo "${pids}" | xargs kill 2>/dev/null || true
     fi
 done
 
+# --- The persistent CDP Chrome: ONE policy, honoured by every phase --------
+# NEVER kill the operator's main Chrome at port 9222
+# (--user-data-dir=~/.chrono/chrome-persistent-profile, launched by
+# bin/chrome-bootstrap.sh). It holds authenticated bounty sessions; losing it
+# is the most expensive thing this script could do, and it is not
+# mode-spawned state this stop is responsible for.
+#
+# Phase 3 above honours that by construction: it only ever selects the two MCP
+# profile prefixes, and neither is a prefix of the persistent one. Phase 5
+# below did NOT. It TERMs and then KILLs the process GROUP of every surviving
+# descendant of every pane in the session, and bin/chrome-bootstrap.sh `exec`s
+# Chrome directly -- which is how the script is meant to be run -- so a Chrome
+# started from inside a squad pane IS a pane descendant. If it survived
+# kill-session's SIGHUP (started under nohup, disown, or its own session), its
+# whole group was reaped. Two phases of one file, added in the same task, with
+# opposite policies on the same process; the exclusion below is what keeps
+# them from drifting apart again.
+#
+# Recorded as process GROUPS, not PIDs: Chrome's helper processes share the
+# main browser's pgid (verified on this host: a Helper (Renderer) at pid 23378
+# carries pgid 51149, the browser's), so a group kill aimed at any one helper
+# takes the browser with it. Captured BEFORE the session kill for the same
+# reason Phase 3c captures its descendants there: afterwards the processes may
+# be gone and the link used to find them is lost.
+PERSISTENT_CHROME_PROFILE="${HOME}/.chrono/chrome-persistent-profile"
+PROTECTED_CHROME_PGIDS=""
+PROTECTED_CHROME_SCAN_OK=0
+
+# Populates PROTECTED_CHROME_PGIDS and PROTECTED_CHROME_SCAN_OK, keeping the
+# three states apart: scan succeeded and found the browser, scan succeeded and
+# found none, and the scan ITSELF failed.
+#
+# The scan's exit status has to be captured, because "" is otherwise
+# indistinguishable from "the persistent Chrome is not running". This script
+# runs `set -uo pipefail` without -e, so an unchecked pipeline whose `python3`
+# is off PATH, or whose inner `ps` raises, yields an empty string, every group
+# then reads as unprotected, and Phase 5 silently reverts to exactly the
+# pre-fix behaviour -- a guard reporting success while doing nothing, which is
+# the defect this whole plan is named after.
+#
+# Note the asymmetry that makes this worth the branch: Phase 3 runs the same
+# scan and a failure there fails SAFE (it kills nothing). Here a failure fails
+# UNSAFE (it protects nothing), and the cost is the operator's authenticated
+# bounty sessions.
+#
+# `local scanned` is deliberately its own statement: `local scanned="$(...)"`
+# would report `local`'s exit status, not the pipeline's, and swallow the very
+# failure this function exists to notice.
+capture_protected_chrome_pgids() {
+    local scanned
+    if scanned="$(chrome_profile_processes "${PERSISTENT_CHROME_PROFILE}" | awk '{print $2}' | sort -u | tr '\n' ' ')"; then
+        PROTECTED_CHROME_PGIDS="${scanned% }"
+        PROTECTED_CHROME_SCAN_OK=1
+        if [[ -n "${PROTECTED_CHROME_PGIDS}" ]]; then
+            echo "  Protecting the operator's persistent CDP Chrome (process group(s): ${PROTECTED_CHROME_PGIDS})"
+        else
+            echo "  No persistent CDP Chrome is running; no process group to protect."
+        fi
+        return 0
+    fi
+    PROTECTED_CHROME_PGIDS=""
+    PROTECTED_CHROME_SCAN_OK=0
+    echo "  WARNING: could not scan for the operator's persistent CDP Chrome (${PERSISTENT_CHROME_PROFILE}); the scan itself failed rather than finding nothing." >&2
+    echo "  Phase 5 will therefore reap NOTHING: without that scan this script cannot tell which process groups would take the operator's authenticated browser with them, and leaving orphans is recoverable where killing that browser is not. Any survivors are named individually below." >&2
+    return 1
+}
+capture_protected_chrome_pgids || true
+
+# True if $1 is a process group this script has promised never to kill.
+#
+# Consulted both when Phase 5 SELECTS survivors and again inside
+# reap_survivor_group() immediately before it signals, so neither the
+# announcement nor the kill can go out for a protected group.
+#
+# A failed scan answers "protected" for EVERY group, deliberately. This is the
+# enforcement point, and an enforcement point must not be able to fail open:
+# if the Phase 5 skip above it were ever reordered or removed, the refusal
+# still holds here.
+pgid_is_protected_chrome() {
+    local candidate="$1" protected
+    [[ "${PROTECTED_CHROME_SCAN_OK:-0}" == "1" ]] || return 0
+    [[ -n "${candidate}" ]] || return 1
+    for protected in ${PROTECTED_CHROME_PGIDS:-}; do
+        [[ "${candidate}" == "${protected}" ]] && return 0
+    done
+    return 1
+}
+
+# Phase 3b — reap the live-status poller.
+# bin/launch-squad.sh starts vs-lane-status.sh with `nohup ... & disown`
+# specifically so it survives the *launcher's own* exit -- but that also
+# means it is never a pane child, so the tmux kill-session below cannot
+# reach it. Proof this is real: a 7-day-old orphaned poller was found on
+# this host, writing status files every ~1s the entire time. Read the SAME
+# pidfile launch-squad.sh writes at spawn (see its "Live status poller"
+# section) and kill by pidfile, never by scanning `ps` for the script name
+# (Plan B Task 8 is why that would be unsound). Plan B Task 7.
+echo ""
+echo "Reaping live-status poller..."
+VS_LANE_STATUS_STATUS_DIR="${VIBESQUAD_STATUS_DIR:-/tmp}"
+VS_LANE_STATUS_PIDFILE="${VS_LANE_STATUS_STATUS_DIR}/vs-lane-status.pid"
+
+# pid_is_vs_lane_status_poller() verifies the live process at $1 is still,
+# structurally, the vs-lane-status.sh poller this pidfile named at spawn time --
+# not merely "some process is alive at this PID". Plan B Task 7 fix round 1:
+# this pidfile can go stale for days (from whenever the poller last crashed
+# until the next `squad stop`), unlike the Phase 3c/5 board-specialist
+# window below (sub-second to low seconds), so PID reuse here is a real
+# risk, not a theoretical one -- a script whose whole job is killing
+# processes must not kill by bare recycled PID.
+#
+# The predicate itself lives in shared/process-identity.sh because
+# bin/launch-squad.sh asks the same question from the other side (Plan B Task
+# 12: is a live poller running that my pidfile does not name?), and the two
+# answers must never disagree.
+#
+# This script runs `set -uo pipefail` without -e on purpose, so a failed
+# `source` would otherwise continue with the predicate undefined: the identity
+# call below returns 127, and reap_pidfile_process() reports "alive but no
+# longer identifies as ... (stale/recycled PID)" about a process that IS the
+# poller, then deletes the only record of it. A confident, specific, wrong
+# reason for leaking the exact process this file exists to reap. Record the
+# failure instead and let the reap decide what to do about it.
+VS_LANE_STATUS_IDENTITY_READY=1
+# shellcheck source=../shared/process-identity.sh disable=SC1091
+source "${VAULT_ROOT}/shared/process-identity.sh" || VS_LANE_STATUS_IDENTITY_READY=0
+
+reap_pidfile_process() {
+    local pidfile="$1" label="$2" identity_check="$3" pid
+    [[ -f "${pidfile}" ]] || return 0
+    pid="$(cat "${pidfile}" 2>/dev/null)"
+    if [[ "${pid}" =~ ^[0-9]+$ ]] && kill -0 "${pid}" 2>/dev/null; then
+        if "${identity_check}" "${pid}"; then
+            echo "  Killing ${label}: ${pid}"
+            kill "${pid}" 2>/dev/null || true
+        else
+            echo "  NOT killing ${label} pidfile PID ${pid}: alive but no longer identifies as ${label} (stale/recycled PID). Removing the pidfile only." >&2
+        fi
+    fi
+    rm -f "${pidfile}"
+}
+# Refuse only the identity-dependent step, rather than exiting: the rest of this
+# stop (the tmux session, the board specialists, the Chrome profiles) does not
+# need the predicate, and a stopper that aborts here would leave far more
+# running than it reaped. The pidfile is deliberately LEFT IN PLACE -- it names
+# the poller, and it is the only record of it, so deleting it while unable to
+# check the PID would destroy the operator's one lead.
+if [[ "${VS_LANE_STATUS_IDENTITY_READY}" == "1" ]]; then
+    reap_pidfile_process "${VS_LANE_STATUS_PIDFILE}" "vs-lane-status.sh poller" pid_is_vs_lane_status_poller
+else
+    echo "  NOT reaping the vs-lane-status.sh poller: ${VAULT_ROOT}/shared/process-identity.sh failed to load, so its PID cannot be verified and killing by bare PID is unsafe. ${VS_LANE_STATUS_PIDFILE} is left intact -- read it and kill by PID after checking \`ps -o args= -p <pid>\`. Every other phase of this stop continues." >&2
+fi
+
+# Phase 3c — snapshot this session's process tree before the kill.
+# Board specialists are spawned by board-supervisor.sh via
+# `subprocess.Popen(..., start_new_session=True)` (board-supervisor.sh:2664)
+# so each one becomes its own process-group/session leader. A process with
+# no controlling-terminal relationship to the pane never receives the SIGHUP
+# tmux kill-session delivers to ordinary pane children, so it survives the
+# session close outright. Proof this is real: a live specialist was found
+# orphaned for 7 days. There is no pidfile for these (ProcessGroupReaper in
+# board-supervisor.sh's own Python process tracks them only in memory, and
+# is lost the instant that process dies) so the only sound way to find them
+# is a structural walk of real kernel PID/PPID links rooted at this
+# session's OWN live pane PIDs (queried from tmux itself, right now) --
+# never a name/argv scan across the whole host (Plan B Task 8 is why that
+# would be unsound and dangerous). This only reaches descendants of THIS
+# session's panes, so it cannot touch another session's processes, and it
+# cannot touch anything dispatched through the daemon (a separate
+# launchd-managed process, not a descendant of any pane, and not started or
+# stopped by this script). Captured BEFORE the kill below: once the pane
+# process is gone, the orphan's PPID is reparented away and the link used to
+# find it is lost. Plan B Task 7.
+pane_pids="$(tmux list-panes -s -t "${SESSION}" -F '#{pane_pid}' 2>/dev/null || true)"
+descendant_pids=""
+if [[ -n "${pane_pids}" ]]; then
+    # shellcheck disable=SC2086
+    descendant_pids="$(python3 - ${pane_pids} <<'PY'
+import subprocess
+import sys
+
+
+def descendants_of(roots, pid_ppid_pairs):
+    """Every PID transitively parented by one of `roots`, per the given
+    (pid, ppid) pairs. Pure and dependency-free so it can be driven directly
+    by scripts/python/tests/*.py with synthetic rows -- no real `ps`, no
+    real processes required to test the walk itself.
+    """
+    children = {}
+    for pid, ppid in pid_ppid_pairs:
+        children.setdefault(ppid, []).append(pid)
+    seen = set()
+    stack = list(roots)
+    while stack:
+        parent = stack.pop()
+        for child in children.get(parent, []):
+            if child not in seen:
+                seen.add(child)
+                stack.append(child)
+    return seen
+
+
+def _live_pid_ppid_pairs():
+    rows = subprocess.check_output(["ps", "-axo", "pid=,ppid="], text=True).splitlines()
+    pairs = []
+    for row in rows:
+        parts = row.split()
+        if len(parts) != 2:
+            continue
+        try:
+            pairs.append((int(parts[0]), int(parts[1])))
+        except ValueError:
+            continue
+    return pairs
+
+
+roots = [int(arg) for arg in sys.argv[1:]]
+for pid in sorted(descendants_of(roots, _live_pid_ppid_pairs())):
+    print(pid)
+PY
+)" || true
+fi
+
+# Records $1's kernel start time as a single normalized string. Used as a
+# cheap process-identity fingerprint (Plan B Task 7 fix round 1): a PID
+# alone does not identify a process across time -- it can be recycled by an
+# unrelated process between when it was snapshotted and when it is acted
+# on. `lstart` (not `etime`) because it is an absolute wall-clock value, so
+# two queries of the SAME process always agree regardless of how much time
+# passed between them, while a different process reusing the same PID
+# almost certainly started at a different moment.
+pid_start_time() {
+    ps -o lstart= -p "$1" 2>/dev/null | tr -s '[:space:]' ' ' | sed 's/^ //; s/ $//'
+}
+
+# True only if $1 is BOTH currently alive AND its start time still matches
+# $2, the value recorded for it at snapshot time. A mismatch (or an empty
+# recorded value, e.g. a PID this snapshot never actually saw) means $1 is
+# no longer -- or never was -- the specific process that was snapshotted,
+# so it must never be treated as a survivor of the kill below.
+pid_identity_still_matches() {
+    local pid="$1" recorded_start="$2" current_start
+    kill -0 "${pid}" 2>/dev/null || return 1
+    [[ -n "${recorded_start}" ]] || return 1
+    current_start="$(pid_start_time "${pid}")"
+    [[ -n "${current_start}" ]] || return 1
+    [[ "${current_start}" == "${recorded_start}" ]]
+}
+
+# Fingerprint every descendant NOW, in the same pre-kill snapshot window as
+# the PID list itself, so Phase 5 below can tell a genuine survivor from a
+# PID that got recycled by something else entirely during/after the kill.
+declare -A descendant_start_time=()
+if [[ -n "${descendant_pids}" ]]; then
+    for pid in ${descendant_pids}; do
+        descendant_start_time["${pid}"]="$(pid_start_time "${pid}")"
+    done
+fi
+
 # Phase 4 — kill the tmux session
 echo ""
-echo "Killing tmux session 'squad'..."
-tmux kill-session -t squad 2>/dev/null
+echo "Killing tmux session '${SESSION}'..."
+tmux kill-session -t "${SESSION}" 2>/dev/null
+kill_rc=$?
+
+# Was `tmux kill-session -t squad 2>/dev/null` with its exit status
+# discarded, followed by an unconditional "Squad closed." -- if the session
+# survived (a stuck pane process refusing SIGHUP, a wrong session name) the
+# operator was told it closed regardless. Verify the session is actually
+# gone before claiming so. Plan B Task 7 (deferred from Task 6).
+if tmux has-session -t "${SESSION}" 2>/dev/null; then
+    session_closed=0
+else
+    session_closed=1
+fi
+
+# Phase 5 — reap any survivors from the Phase 3c snapshot.
+# Anything still alive here escaped the session kill by having its own
+# process group/session (the board-specialist case Phase 3c documents).
+# Ordinary pane children are already gone by this point, so this loop
+# naturally only ever acts on real orphans -- nothing to special-case.
+# kill by process group (not bare PID) so a specialist's own subprocess
+# tree goes with it, mirroring launch_hygiene.ProcessGroupReaper's
+# pgid-based teardown elsewhere in this repo. TERM first, KILL only if a
+# process ignores it.
+#
+# A kill-by-process-group primitive must never be able to reach pgid 0
+# (unqualified = the caller's own group), pgid 1 (init/launchd --
+# catastrophic system-wide blast radius), or this very script's own
+# process group (self-inflicted). None of these are reachable given this
+# function's only real caller below (fed exclusively by descendants_of(),
+# rooted at this session's own tmux pane PIDs, which can never resolve to
+# pgid 0/1/self) but a function whose whole job is "kill this group" should
+# refuse them unconditionally rather than lean on caller discipline. Plan B
+# Task 7 fix round 1.
+# $3 (optional) is a previously-recorded pid_start_time() value. When
+# given, it is re-checked via pid_identity_still_matches() immediately
+# before THIS call's own kill, not just once by an earlier caller -- Phase
+# 5 below invokes this function twice per survivor (TERM, then KILL after a
+# 1s grace period), and re-verifying at both call sites, not only the
+# initial survivor-selection pass, closes the window between them too. When
+# omitted, falls back to a plain liveness check (used by direct callers/
+# tests that have no recorded identity to compare against).
+SQUAD_STOP_OWN_PGID="$(ps -o pgid= -p $$ 2>/dev/null | tr -d '[:space:]')"
+reap_survivor_group() {
+    local pid="$1" signal="$2" recorded_start="${3:-}" pgid
+    if [[ -n "${recorded_start}" ]]; then
+        pid_identity_still_matches "${pid}" "${recorded_start}" || return 0
+    else
+        kill -0 "${pid}" 2>/dev/null || return 0
+    fi
+    pgid="$(ps -o pgid= -p "${pid}" 2>/dev/null | tr -d '[:space:]')"
+    if [[ "${pgid}" =~ ^[0-9]+$ ]]; then
+        if [[ "${pgid}" -le 1 ]] || [[ -n "${SQUAD_STOP_OWN_PGID:-}" && "${pgid}" == "${SQUAD_STOP_OWN_PGID:-}" ]]; then
+            echo "  Refusing to kill process group ${pgid} (pid ${pid}): unsafe target (0/1/self)" >&2
+            return 1
+        fi
+        # The stated persistent-CDP-Chrome policy, enforced at the point of
+        # the signal itself and not only at survivor selection: this function
+        # is the one thing here that actually kills, and it is called twice
+        # per survivor (TERM, then KILL).
+        if pgid_is_protected_chrome "${pgid}"; then
+            if [[ "${PROTECTED_CHROME_SCAN_OK:-0}" == "1" ]]; then
+                echo "  Refusing to kill process group ${pgid} (pid ${pid}): it is the operator's persistent CDP Chrome at port 9222, which this script never kills." >&2
+            else
+                echo "  Refusing to kill process group ${pgid} (pid ${pid}): the persistent-CDP-Chrome scan failed, so no group can be shown NOT to be the operator's authenticated browser." >&2
+            fi
+            return 1
+        fi
+        kill "-${signal}" "-${pgid}" 2>/dev/null || true
+    else
+        kill "-${signal}" "${pid}" 2>/dev/null || true
+    fi
+}
+if [[ -n "${descendant_pids}" ]]; then
+    survivors=""
+    for pid in ${descendant_pids}; do
+        # Re-verify identity immediately before treating this PID as a
+        # survivor: the Phase 3c snapshot and this check are separated by
+        # tmux's own session-teardown time, and a PID that got recycled by
+        # something unrelated in that window must never be killed just
+        # because it happens to still be alive.
+        if pid_identity_still_matches "${pid}" "${descendant_start_time[${pid}]:-}"; then
+            # Excluded here as well as at the signal, so the "Reaping orphaned
+            # process group(s)" line below never names a group this script has
+            # promised not to touch.
+            survivor_pgid="$(ps -o pgid= -p "${pid}" 2>/dev/null | tr -d '[:space:]')"
+            if pgid_is_protected_chrome "${survivor_pgid}"; then
+                if [[ "${PROTECTED_CHROME_SCAN_OK}" == "1" ]]; then
+                    echo "  Skipping pid ${pid}: it is in the operator's persistent CDP Chrome's process group (${survivor_pgid}), which this script never kills." >&2
+                else
+                    echo "  NOT reaping pid ${pid} (process group ${survivor_pgid:-unknown}): the persistent-CDP-Chrome scan failed, so this script cannot tell whether killing this group would take the operator's authenticated browser with it. Reap it by hand after checking: ps -o pgid=,command= -p ${pid}" >&2
+                fi
+                continue
+            fi
+            survivors="${survivors} ${pid}"
+        elif kill -0 "${pid}" 2>/dev/null; then
+            echo "  Skipping pid ${pid}: alive but its start time no longer matches the pre-kill snapshot (recycled PID, not our survivor)." >&2
+        fi
+    done
+    if [[ -n "${survivors}" ]]; then
+        echo ""
+        echo "Reaping orphaned process group(s) that outlived the session:${survivors}"
+        for pid in ${survivors}; do
+            reap_survivor_group "${pid}" TERM "${descendant_start_time[${pid}]:-}"
+        done
+        sleep 1
+        for pid in ${survivors}; do
+            reap_survivor_group "${pid}" KILL "${descendant_start_time[${pid}]:-}"
+        done
+    fi
+fi
 
 echo ""
-echo "✓ Squad closed. Resume next time with: squad"
-echo "✓ Resume state: _state/active-tasks.json + chrono/current.md + departments/*/current.md"
+if [[ "${session_closed}" -eq 1 ]]; then
+    echo "✓ Squad closed. Resume next time with: squad"
+    echo "✓ Resume state: _state/active-tasks.json + chrono/current.md + departments/*/current.md"
+else
+    echo "✗ tmux session '${SESSION}' is still running after kill-session (exit ${kill_rc})." >&2
+    echo "✗ Squad NOT closed. Investigate before assuming a clean restart." >&2
+    exit 1
+fi

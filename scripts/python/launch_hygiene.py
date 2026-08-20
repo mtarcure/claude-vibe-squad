@@ -189,7 +189,18 @@ def _audit_directory_fd(
             raise HygieneError(f"cannot lstat writable-tree entry {label}: {exc}") from exc
         mode = current.st_mode
         if stat.S_ISLNK(mode):
-            raise HygieneError(f"symlink in writable tree: {label}")
+            # Name the path AND the remedy: this audit runs before EVERY board
+            # launch over this tree, so a symlink here also blocks the very
+            # task that would remove it (measured 2026-08-18: a symlinked
+            # skill mirror deadlocked every dispatch touching it, including
+            # the removal task). The remedy is therefore host-side by design.
+            raise HygieneError(
+                f"symlink in writable tree: {label} -- board launches over "
+                "this tree are refused while it exists, so the fix cannot be "
+                "dispatched as a board task; remove the symlink in the "
+                "primary checkout (operator action) and commit, then "
+                "re-dispatch"
+            )
         if stat.S_ISREG(mode):
             if current.st_nlink > 1:
                 raise HygieneError(f"hardlink in writable tree: {label}")

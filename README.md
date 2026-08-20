@@ -27,6 +27,19 @@ You can ask it to:
 - "Research this product idea, compare the competitors, and turn it into a cited brief."
 - "Audit this authorized smart-contract target, keep every test in scope, and package only reproduced findings."
 
+**What's underneath**
+
+- **Multi-model orchestration with capability-aware routing** — each specialist is bound to the
+  model family that suits the work, not to whichever one you happen to be talking to.
+- **Sandboxed execution** — every task runs in an isolated git worktree under an explicit write
+  scope. A worker cannot touch what it was not granted, and nothing merges without passing its gate.
+- **Cross-family review** — work is judged by a different model family than wrote it, so a model
+  never signs off on its own reasoning.
+- **Durable memory with a closed loop** — findings are recorded as candidates, recalled into later
+  work, and promoted to verified only when a task that used them passes review.
+- **Context engineering and drift control** — bounded resume capsules instead of dumped state, and
+  thread charters that hold the original ask across topic switches.
+
 The product is the instruction layer, and it is Markdown all the way down. Modes, specialist briefs, capability cards, and skills are files you can open and change. Code handles only what must not be guessed: launching, worktree isolation, identity checks, atomic publication, admission control, and Git-integration boundaries. Judgment stays with the models.
 
 ## Quickstart
@@ -47,14 +60,22 @@ Then clone and launch:
 ```bash
 git clone https://github.com/mtarcure/claude-vibe-squad.git
 cd claude-vibe-squad
-uv sync            # create the pinned Python 3.13 environment
+uv sync                                # create the pinned Python 3.13 environment
+git config core.hooksPath .githooks    # opt in to the tracked pre-commit checks
 bin/squad doctor
 bin/squad up
 ```
 
+That `core.hooksPath` line is the one step nothing does for you. Git only ever runs hooks from
+`.git/hooks/`, which no clone receives, so the tracked hook in `.githooks/` stays inert until you
+point git at it. Until you do, the specialist, format, and capability checks run on push in CI but
+not on your commits — and neither does the private-memory leak guard, which is the check you least
+want to discover after a push. It is per-clone local config; undo it with
+`git config --unset core.hooksPath`. See [the git hooks guide](docs/git-hooks.md).
+
 That is the whole required path. There is **no background daemon to install first**. `bin/squad up` runs on a fresh clone, notices once that the optional launchd daemon is absent, and continues.
 
-**Optional: the launchd routines.** `bash bin/install-routines.sh --daemon-only` installs a background daemon; `bash bin/install-routines.sh` adds the optional routine agents too. The daemon buys exactly two things: the live `● daemon` segment in the tmux status bar, and the `/summarize` endpoint the weekly review calls. Without it the status bar reads `● daemon offline` and the weekly review writes no narrative. Dispatch, worktree isolation, review, memory, and the coordinator are untouched, because none of them talk to it. See [the daemon guide](docs/install/daemon.md).
+**Optional: the launchd routines.** `bash bin/install-routines.sh --daemon-only` installs a background daemon; `bash bin/install-routines.sh` adds the optional routine agents too. The daemon buys exactly two things: the live `● daemon` segment in the tmux status bar, and the documented `POST /mcp/<server>/<tool>` HTTP bridge. Without it the status bar reads `● daemon offline` and that `curl` path is unavailable; the MCP servers themselves are unaffected. Dispatch, worktree isolation, review, memory, and the coordinator are untouched, because none of them talk to it. See [the daemon guide](docs/install/daemon.md).
 
 `bin/squad up` opens a tmux control room with Chrono and a status window. Each specialist starts as a fresh native CLI process for its task; there are no permanent per-model panes. Detach with `Ctrl-b d`, return with `bin/squad attach`.
 
@@ -91,7 +112,7 @@ flowchart LR
 
 ## Specialists and dispatch
 
-Sixty-eight specialist briefs live under `departments/` and `shared/specialists/`, and every one of them validates on each commit. A brief is prose: what the role is for, how it should think, what it must refuse. Adding a specialist means writing Markdown, not registering a class.
+Sixty-eight specialist briefs live under `departments/` and `shared/specialists/`, and every one of them is validated on every push by CI — and on every commit too, once you enable the tracked pre-commit hook with `git config core.hooksPath .githooks` (see the Quickstart; it is opt-in per clone and never set for you). A brief is prose: what the role is for, how it should think, what it must refuse. Adding a specialist means writing Markdown, not registering a class.
 
 Dispatch is a Markdown packet with YAML frontmatter: which specialist, which model, what it may read, what it may write, what counts as done. The packet is the contract. Workers never talk to each other, and never to you. They write one artifact and one completion envelope, and the coordinator integrates the result.
 
@@ -125,11 +146,11 @@ Research on model self-correction and heterogeneous verification motivates this 
 
 Evidence is labeled by what it actually proves.
 
-- **Locally tested:** 1,233 tests cover dispatch, atomic publication, process and receipt fencing, cancellation, cleanup, vault recall, and public-export leak gates. The roster validator checks all 68 specialist briefs on every commit.
+- **Locally tested:** 1,903 tests cover dispatch, atomic publication, process and receipt fencing, cancellation, cleanup, vault recall and promotion, and public-export leak gates. The roster validator checks all 68 specialist briefs on every commit.
 - **Live-probed on the maintainer setup:** all four native CLIs have completed bounded probes. Tool availability is lane-specific, and a config entry or a successful `--version` is not liveness.
-- **Compared before adoption:** larger policy engines, parallel receipt frameworks, and premature memory-aperture code were prototyped, then removed or deferred when they added more machinery than value.
+- **Compared before adoption:** larger policy engines and parallel receipt frameworks were prototyped, then removed or deferred when they added more machinery than value. An early memory-aperture prototype was removed on the same grounds; apertures returned later, once dispatch had a real read policy to enforce.
 - **Research-informed:** published work shapes cross-family review and the memory experiments. It is not offered as proof of this implementation.
-- **Not yet claimed:** live five-aperture memory enforcement, full legacy-memory migration, automatic failover, and complete fresh-worker tool parity remain open.
+- **Not yet claimed:** full legacy-memory migration, automatic failover, and complete fresh-worker tool parity remain open. Aperture enforcement is live — six apertures, checked at admission — but the promotion loop it feeds has run only on test fixtures, not yet across a stretch of real dispatches.
 
 That last list should shrink through evidence, not through wording.
 

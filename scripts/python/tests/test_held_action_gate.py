@@ -124,11 +124,36 @@ class LifecycleMemoryPolicyTests(unittest.TestCase):
         )[1].split("## 11.", 1)[0]
 
         self.assertIn("binding memory policy", section)
-        self.assertIn("`rich` and `focused`", section)
+        self.assertIn("`rich`, `default`, and `focused`", section)
         self.assertIn("`cold` and `pool_blind`", section)
         self.assertIn("`none`", section)
         self.assertIn("do not call `recall`", section)
         self.assertNotIn("list_attempts", section)
+
+        # `default` joined the read-permitting bullet on 2026-08-17 with the
+        # dispatch default (memory-loop spec §4). §10 is the rule a worker
+        # reads to learn whether it may recall, so the aperture that an
+        # omitted field now resolves to has to appear in it -- otherwise the
+        # doc and the enforced launch prompt disagree, which is the split
+        # this plan exists to close.
+        #
+        # The negative half is what makes this a guard rather than a rubber
+        # stamp: the read-denying bullets must still deny, and must not
+        # quietly acquire `default`.
+        bullets = [line for line in section.splitlines() if line.startswith("- `")]
+        permitting = [b for b in bullets if "call `chrono-vault` `recall` once" in b]
+        denying = [b for b in bullets if "do not call" in b]
+        self.assertEqual(len(permitting), 1)
+        self.assertEqual(len(denying), 2)
+        for aperture in ("rich", "default", "focused"):
+            self.assertIn(f"`{aperture}`", permitting[0])
+        for aperture in ("cold", "pool_blind", "none"):
+            self.assertTrue(
+                any(f"`{aperture}`" in bullet for bullet in denying),
+                f"`{aperture}` must stay in a read-denying bullet",
+            )
+        for bullet in denying:
+            self.assertNotIn("`default`", bullet)
 
 
 class TokenMintAndVerifyTests(unittest.TestCase):

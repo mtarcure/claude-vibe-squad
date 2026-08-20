@@ -496,7 +496,8 @@ def main() -> int:
             candidate_root=Path(args.candidate),
             policy_path=Path(args.policy or root / "tools/export/policy/path-policy.json"),
             identifier_denylist=Path(
-                args.identifier_denylist or state / "identifier-denylist.txt"
+                args.identifier_denylist
+                or root / "tools/export/identifier-denylist.txt"
             ),
             ledger_path=Path(args.ledger or state / "export-ledger.jsonl"),
             gate_report=Path(args.gate_report or state / "candidate-gate.md"),

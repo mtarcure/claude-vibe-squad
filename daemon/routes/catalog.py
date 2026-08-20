@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from daemon.mcp_manager import MANAGER
 
 router = APIRouter()
@@ -9,5 +9,6 @@ async def catalog_search(q: str, limit: int = 20):
         result = await MANAGER.call_tool("chrono-vault", "catalog_search", {"query": q, "limit": limit})
         return result
     except Exception as e:
-        # If MCP tool doesn't exist or fails, return graceful empty result
-        return {"results": [], "error": str(e)}
+        # Was HTTP 200 with {"results": [], "error": ...} -- a caller checking
+        # resp.ok could not tell "no matches" from "backend unreachable".
+        raise HTTPException(status_code=502, detail=f"catalog backend unavailable: {e}") from e

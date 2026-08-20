@@ -17,6 +17,7 @@ from typing import Any, Iterator
 
 import audit
 from clearance import ClearanceError, can_read, lane_clearance, recall_constraints
+import index as vault_index
 from index import FTS_COLUMNS, INDEX_SCHEMA_VERSION
 from query import TOKEN_PATTERN, build_fts_query
 from vaultroot import VaultRootError, resolve_vault_root
@@ -37,6 +38,7 @@ FILTER_FIELDS = frozenset(
         "keywords",
         "status",
         "max_sensitivity",
+        "source_task",
     }
 )
 # Least sensitive first: a ceiling is a prefix of this ladder.
@@ -208,6 +210,21 @@ def _validate_filters(
             raise RecallError(f"filter type must be one of {sorted(NOTE_TYPES)}")
         structured[field] = value
 
+    # Bookkeeping only: never a WHERE-clause column (see `column_filters`
+    # below), just carried through to `_record_returns` so the notes a task
+    # received are recorded against it. Under a bound engagement `_recall`
+    # OVERRIDES whatever arrives here with the authenticated `task_id` and
+    # refuses a mismatch, so this branch governs only the unbound
+    # controller/maintenance case. Absent is valid there --
+    # `_record_returns` writes NULL rather than requiring it -- but a
+    # present-and-empty value is a caller bug, rejected like any other
+    # structured filter.
+    if "source_task" in filters:
+        source_task = filters["source_task"]
+        if not isinstance(source_task, str) or not source_task.strip():
+            raise RecallError("filter source_task must be a non-empty string")
+        structured["source_task"] = source_task
+
     if "written_before" in filters:
         raw = filters["written_before"]
         if isinstance(raw, (int, float)):
@@ -272,6 +289,25 @@ def _load_weights(connection: sqlite3.Connection) -> tuple[float, ...]:
             raise RecallError("index BM25 weights must be finite and non-negative")
         weights.append(weight)
     return tuple(weights)
+
+
+# Ranking bonuses. bm25() returns NEGATIVE relevance ordered ASC, so a
+# bonus is SUBTRACTED: a more-negative adjusted rank sorts earlier.
+#
+# Both bonuses are deliberately small relative to typical bm25 spread --
+# they break ties and nudge, they do not override relevance. A verified
+# note about the wrong thing must still lose to a candidate note about
+# the right thing.
+_VERIFIED_BONUS = 0.5   # makes promotion visible at retrieval (spec §4)
+_FINDING_BONUS = 0.25   # findings are ~9x more likely to be recalled (measured)
+
+
+def _rank_bonus_sql() -> str:
+    """SQL expression subtracted from raw_rank to bias ordering."""
+    return (
+        f"- (CASE WHEN m.status = 'verified' THEN {_VERIFIED_BONUS} ELSE 0 END)"
+        f" - (CASE WHEN m.note_type = 'finding' THEN {_FINDING_BONUS} ELSE 0 END)"
+    )
 
 
 @contextmanager
@@ -454,6 +490,65 @@ def _unreconciled_note_ids(audit_dir: Path | None = None) -> frozenset[str]:
     return frozenset(disputed)
 
 
+def _record_returns(
+    root: Path,
+    recall_id: str,
+    note_ids: list[str],
+    source_task: str | None,
+) -> None:
+    """Persist one `recall_returned` row per note this call handed back.
+
+    Recording what recall HANDED the worker is what makes citation mechanical
+    (protocol.md:445). Task 8's promotion handler reads this table directly;
+    it never parses prose for `mem-...` IDs, because an unenforced markdown
+    contract is exactly the failure this replaces -- `usage` sat empty for 23
+    days under the same class of bug (see `lifecycle.record_usage`).
+
+    `source_task` is likewise not a declaration. `_recall` derives it from the
+    bound engagement, so the same reasoning applies one level down: a field
+    the caller had to remember to send is a field that arrives NULL, and a
+    NULL here is a promotion that never fires.
+
+    Uses a dedicated write connection under the exclusive `.kg.lock`, the same
+    pattern `lifecycle.record_usage` uses -- never the connection `_read_index`
+    hands `_recall`, which is opened `mode=ro` with `PRAGMA query_only=ON` and
+    cannot accept writes. Callers must invoke this only after releasing that
+    read lock: both locks live on the same `.kg.lock` file, and this process
+    taking the exclusive lock while it still holds the shared one would
+    deadlock against itself.
+
+    MEASURED, 2026-08-17, because ruling T7a accepted this as asserted-safe
+    rather than measured-safe and carried the probe forward. Every non-empty
+    recall now takes this exclusive lock, so recalls mutually exclude, and
+    recall volume goes from 4 of 2,669 dispatches to nearly all of them.
+    On a 2,000-note temp vault: this function holds the lock for 1.4ms p50 /
+    2.1ms max, about 1% of a 231ms recall. Under 16 concurrent recalls on a
+    300-note vault, p50 latency rises 12.8ms -> 300ms while throughput stays
+    flat (~20ms/call wall), i.e. the calls serialize on the critical section
+    rather than collapsing. The worst case is a concurrent `rebuild_index()`
+    holding the same lock, which takes 264ms for 2,000 notes. Sub-second at
+    the projected corpus; revisit if the vault grows by an order of
+    magnitude, and note that `index._locked` is a blocking flock with no
+    timeout, so the bound is the rebuild's duration and nothing else.
+    """
+    timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    with vault_index._locked(root) as index_dir:
+        connection = vault_index._connect(index_dir / "kg.db", wal=True)
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.executemany(
+                "INSERT INTO recall_returned(recall_id, note_id, source_task, ts) "
+                "VALUES (?, ?, ?, ?)",
+                [(recall_id, note_id, source_task, timestamp) for note_id in note_ids],
+            )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+
 def recall(query: str, filters: dict = None, limit: int = 8) -> dict[str, Any]:
     """Return ranked, quoted note snippets from the active FTS5 tier.
 
@@ -525,6 +620,25 @@ def _recall(
     validated_limit = _validate_limit(limit)
     structured, statuses, max_sensitivity = _validate_filters(filters)
     if constraints is not None:
+        # DERIVED, never taken on the caller's word, for the same reason
+        # `lifecycle.record_usage` derives it: the launch prompt
+        # `dispatch_context_builder` gives every worker says "Pass no
+        # filters", and the MCP `recall` tool does not even expose this
+        # field, so a caller-DECLARED key is NULL on every production
+        # recall. Any query joining on it therefore matches nothing --
+        # which is how promotion came to be structurally dead, with 0
+        # `recall_returned` rows and 0 `verified_at_ns` stamps on the live
+        # vault. (Promotion itself has since moved to `usage.source_task`,
+        # which the vault derives the same way; this column is now the
+        # provenance record of what recall returned, not the promotion key.
+        # It is derived here regardless, because a NULL-by-construction
+        # column is a broken record either way.) An unbound
+        # controller/maintenance process has no engagement to derive from,
+        # and keeps the declared value (usually absent, hence NULL).
+        declared = structured.get("source_task")
+        if declared not in {None, constraints["task_id"]}:
+            raise RecallError("filter source_task does not match the engagement")
+        structured["source_task"] = constraints["task_id"]
         allowed_statuses = constraints["statuses"]
         statuses = tuple(value for value in statuses if value in allowed_statuses)
         allowed_types = constraints["note_types"]
@@ -602,7 +716,7 @@ def _recall(
             SELECT
                 m.id, m.path, m.status, m.sensitivity, m.content_hash,
                 m.mtime_ns, notes_fts.title, notes_fts.body,
-                bm25(notes_fts, {weight_sql}) AS raw_rank
+                bm25(notes_fts, {weight_sql}) {_rank_bonus_sql()} AS raw_rank
             FROM notes_fts
             JOIN meta AS m ON m.docid = notes_fts.rowid
             WHERE {' AND '.join(clauses)}
@@ -668,6 +782,20 @@ def _recall(
     disputed_ids = _unreconciled_note_ids() if results else frozenset()
     for row in results:
         row["disputed"] = row["id"] in disputed_ids
+
+    # Skipped when nothing was returned: an empty recall must never create
+    # index storage (test_missing_index_returns_empty_without_creating_storage
+    # depends on that), and there is nothing to cite anyway.
+    if results:
+        try:
+            _record_returns(
+                root,
+                recall_id,
+                [row["id"] for row in results],
+                structured.get("source_task"),
+            )
+        except (sqlite3.Error, vault_index.IndexError) as exc:
+            raise RecallError("failed to record recall_returned rows") from exc
 
     return {
         "recall_id": recall_id,

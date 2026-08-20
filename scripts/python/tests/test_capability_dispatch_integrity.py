@@ -249,7 +249,12 @@ cost_note: subscription
             ),
             encoding="utf-8",
         )
-        env = {**os.environ, "VAULT_ROOT": str(root), "PYTHONDONTWRITEBYTECODE": "1"}
+        # `root` is a plain tempdir, not a git checkout, so send-task.sh cannot
+        # derive a branch and now refuses to guess one; supply it explicitly.
+        env = {
+            **os.environ, "VAULT_ROOT": str(root), "PYTHONDONTWRITEBYTECODE": "1",
+            "SQUAD_BASE_BRANCH": "v2",
+        }
         env.pop("SQUAD_DISPATCH_MODE", None)
 
         result = subprocess.run(
@@ -363,7 +368,12 @@ class VerificationContractDispatchTests(ManagedSupervisorTestCase):
         args = [str(SEND_TASK), str(packet)]
         if dry_run:
             args.append("--dry-run")
-        env = {**os.environ, "VAULT_ROOT": str(root), "PYTHONDONTWRITEBYTECODE": "1"}
+        # `root` is a plain tempdir, not a git checkout, so send-task.sh cannot
+        # derive a branch and now refuses to guess one; supply it explicitly.
+        env = {
+            **os.environ, "VAULT_ROOT": str(root), "PYTHONDONTWRITEBYTECODE": "1",
+            "SQUAD_BASE_BRANCH": "v2",
+        }
         env.pop("SQUAD_DISPATCH_MODE", None)
         return subprocess.run(
             args,
@@ -448,7 +458,12 @@ class VerificationContractDispatchTests(ManagedSupervisorTestCase):
 
     def test_same_task_registration_contract_hash_is_identity(self) -> None:
         root = self._root()
-        env = {**os.environ, "VAULT_ROOT": str(root), "PYTHONDONTWRITEBYTECODE": "1"}
+        # `root` is a plain tempdir, not a git checkout, so send-task.sh cannot
+        # derive a branch and now refuses to guess one; supply it explicitly.
+        env = {
+            **os.environ, "VAULT_ROOT": str(root), "PYTHONDONTWRITEBYTECODE": "1",
+            "SQUAD_BASE_BRANCH": "v2",
+        }
         task_id = "TASK-2026-07-17-9697-contract-identity"
         entry = {
             "compatibility_namespace": "coding",
@@ -544,6 +559,9 @@ class CapabilityReconciliationTests(ManagedSupervisorTestCase):
             "TMUX_BIN": "/nonexistent/tmux",
             "SQUAD_SESSION": "none",
             "PYTHONDONTWRITEBYTECODE": "1",
+            # `root` is a plain tempdir, not a git checkout; see the other
+            # three env dicts in this file for why this is required now.
+            "SQUAD_BASE_BRANCH": "v2",
         }
         return root, state, env, task_id, pinned
 

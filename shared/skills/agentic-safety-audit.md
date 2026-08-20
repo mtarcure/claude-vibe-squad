@@ -8,9 +8,9 @@ status: authored
 Audit an LLM agent system for the failure modes that only exist because a model is in the control loop.
 
 ## Steps
-1. Map the trust boundary: which inputs reach the model, which of those are attacker-influenced (web pages, files, tool output, other agents), and which model outputs become actions.
+1. Map the trust boundary: which inputs reach the model, which of those are attacker-influenced (web pages, files, tool and parameter descriptions, tool output, other agents), and which model outputs become actions. Treat prose supplied by an MCP server or mutable tool registry as untrusted even when its JSON shape validates.
 2. Enumerate the action surface — every tool, shell, network call, file write, and spend the agent can reach, plus everything those actions can reach transitively.
-3. Test prompt injection at each untrusted input: can retrieved content redirect the agent, exfiltrate context, or invoke a tool the operator did not intend? Tool output is untrusted input.
+3. Test prompt injection at each untrusted input: can retrieved content, a tool/schema description, or tool output redirect the agent, expose protected context, or invoke an unintended action? Use a harmless scoped canary, never real secret material or a destructive command.
 4. Check the confused-deputy path: does the agent act with credentials or scope broader than the requester's own authority?
 5. Verify gates are enforced by the harness, not by instructions. An approval that the model can talk itself past is not a gate; test it with an adversarial prompt.
 6. Check scope containment: write scope, network scope, and working directory. Prove containment with a real denied attempt, not by reading the config.
@@ -25,3 +25,4 @@ Audit an LLM agent system for the failure modes that only exist because a model 
 - Every claimed gate was tested adversarially and observed to hold or fail.
 - Containment claims rest on an observed denial, not on configuration text.
 - Memory write-then-recall and agent-to-agent edges are covered explicitly.
+- Tool/schema descriptions and externally controlled outputs are inventoried by provenance and mutability; stripping or quarantining their untrusted prose blocks the harmless canary.

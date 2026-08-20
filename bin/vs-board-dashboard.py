@@ -21,7 +21,12 @@ import time
 import unicodedata
 from pathlib import Path
 
-VAULT = Path(os.environ.get("VAULT_ROOT", str(Path.home() / "Obsidian-Claude-Vibe-Squad")))
+_VAULT_ROOT_ENV = os.environ.get("VAULT_ROOT")
+if not _VAULT_ROOT_ENV:
+    # Fail loud -- no maintainer-path default. Run via bin/vs-dashboard-loop.sh,
+    # which sources shared/repo-root.sh and exports VAULT_ROOT before this runs.
+    sys.exit("VAULT_ROOT not set. Run via bin/vs-dashboard-loop.sh, or export VAULT_ROOT.")
+VAULT = Path(_VAULT_ROOT_ENV)
 CARDS = VAULT / "shared" / "cards"
 WIDTH = int(os.environ.get("VS_DASH_WIDTH", os.environ.get("COLUMNS", "72")) or "72")
 NOW = int(time.time())

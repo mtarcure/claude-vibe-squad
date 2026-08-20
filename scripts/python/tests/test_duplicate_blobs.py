@@ -17,6 +17,8 @@ HEADER = (
     "blob_group\twinner_path\tmember_paths\tenforced_by\tdisposition\treason\n"
 )
 IDENTITY_ENFORCER = "scripts/python/check_duplicate_blobs.py"
+SKILL_MIRROR_ENFORCER = "scripts/python/validate_skill_wiring.py"
+SKILL_MIRROR_POLICY = "model-lanes/SKILL-HOMES.md"
 
 
 class DuplicateBlobGuardTests(unittest.TestCase):
@@ -72,6 +74,49 @@ class DuplicateBlobGuardTests(unittest.TestCase):
         )
         self.registry.write_text(HEADER + row, encoding="utf-8")
         self.run_git("add", "--", self.registry.name)
+
+    def replace_default_duplicate_with_distinct_files(self) -> None:
+        (self.repo / "first.txt").write_text("first bytes\n", encoding="utf-8")
+        (self.repo / "second.txt").write_text("second bytes\n", encoding="utf-8")
+        self.run_git("add", "--", "first.txt", "second.txt")
+
+    def write_skill_mirror(
+        self,
+        *,
+        name: str = "fixture-skill",
+        audience: str = "specialist",
+        track_contract: bool = True,
+    ) -> bytes:
+        content = (
+            "---\n"
+            f"name: {name}\n"
+            f"audience: {audience}\n"
+            "description: Use when exercising the exact staged skill mirror fixture.\n"
+            "---\n\n"
+            f"# {name}\n"
+        ).encode("utf-8")
+        mirror_paths = (
+            f".agents/skills/{name}/SKILL.md",
+            f".claude/skills/{name}/SKILL.md",
+        )
+        for relative in mirror_paths:
+            path = self.repo / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content)
+        staged = list(mirror_paths)
+        if track_contract:
+            enforcer = self.repo / SKILL_MIRROR_ENFORCER
+            enforcer.parent.mkdir(parents=True, exist_ok=True)
+            enforcer.write_text("# fixture mirror validator\n", encoding="utf-8")
+            policy = self.repo / SKILL_MIRROR_POLICY
+            policy.parent.mkdir(parents=True, exist_ok=True)
+            policy.write_text(
+                "# Fixture policy: .claude/skills is the winner.\n",
+                encoding="utf-8",
+            )
+            staged.extend((SKILL_MIRROR_ENFORCER, SKILL_MIRROR_POLICY))
+        self.run_git("add", "--", *staged)
+        return content
 
     def run_checker(
         self, env_overrides: dict[str, str] | None = None
@@ -137,6 +182,56 @@ class DuplicateBlobGuardTests(unittest.TestCase):
         self.assertEqual(positive.returncode, 0, positive.stdout + positive.stderr)
         self.assertIn("ONE-FACT-ONE-HOME PASS", positive.stdout)
         self.assertIn("PASS: one fact, one home", positive.stdout)
+
+    def test_exact_staged_specialist_skill_mirror_is_validator_backed(self) -> None:
+        self.replace_default_duplicate_with_distinct_files()
+        self.write_skill_mirror()
+
+        result = self.run_checker()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("validator-backed skill mirrors=1", result.stdout)
+
+    def test_skill_mirror_does_not_hide_an_undeclared_copy_elsewhere(self) -> None:
+        self.replace_default_duplicate_with_distinct_files()
+        content = self.write_skill_mirror()
+        third = self.repo / "copied-elsewhere" / "SKILL.md"
+        third.parent.mkdir()
+        third.write_bytes(content)
+        self.run_git("add", "--", "copied-elsewhere/SKILL.md")
+
+        result = self.run_checker()
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("undeclared identical-blob group", result.stderr)
+        self.assertIn("'copied-elsewhere/SKILL.md'", result.stderr)
+
+    def test_skill_mirror_requires_its_tracked_validator_and_winner_policy(
+        self,
+    ) -> None:
+        self.replace_default_duplicate_with_distinct_files()
+        self.write_skill_mirror(track_contract=False)
+
+        result = self.run_checker()
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("undeclared identical-blob group", result.stderr)
+
+    def test_unstaged_audience_edit_cannot_change_staged_classification(self) -> None:
+        self.replace_default_duplicate_with_distinct_files()
+        self.write_skill_mirror(audience="chrono")
+        canonical = self.repo / ".claude/skills/fixture-skill/SKILL.md"
+        canonical.write_text(
+            canonical.read_text(encoding="utf-8").replace(
+                "audience: chrono", "audience: specialist"
+            ),
+            encoding="utf-8",
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("undeclared identical-blob group", result.stderr)
 
     def test_default_fast_runner_invokes_checker_and_propagates_failure(self) -> None:
         tools = self.repo / "fake-tools"

@@ -13,13 +13,17 @@ renders and installs them.
 ## What it adds, and what you lose without it
 
 The daemon is a local FastAPI process on `127.0.0.1:9876` (`daemon/main.py`).
-Exactly three things call it, and they are the whole of what it buys:
+Exactly two things call it, and they are the whole of what it buys:
 
 | Consumer | Endpoint | Without the daemon |
 |---|---|---|
 | `bin/vs-lane-status.sh` → tmux status bar | `GET /tasks` | the bar reads `● daemon offline`; per-lane task capsules stop updating |
-| `scripts/python/weekly_review_runner.py` | `POST /summarize` | the weekly review writes no narrative summary |
 | the HTTP tool bridge in `plugins/chrono-recon/README.md` | `POST /mcp/<server>/<tool>` | that documented `curl` path is unavailable; the MCP servers themselves are unaffected |
+
+The daemon also still serves `POST /summarize`. Nothing in the repository calls
+it: its only caller was `scripts/python/weekly_review_runner.py`, deleted
+2026-08-17 with the `com.vibesquad.weekly-review` job it belonged to. The route
+is live and reachable by hand, and it buys the install nothing.
 
 Nothing else opens a connection to it. Board dispatch, worktree isolation, the
 outbox watcher, the reconciliation sweep, `bin/send-task.sh`, private memory,
@@ -37,8 +41,8 @@ the status bar keeps saying `offline` for as long as it is.
 bash bin/install-routines.sh
 ```
 
-That installs the daemon plus the optional routines — `com.claudevibesquad.nightly`,
-`com.vibesquad.weekly-review`, and `com.vibesquad.dream`. The authoritative list
+That installs the daemon plus the optional routines — `com.claudevibesquad.nightly`
+and `com.vibesquad.dream`. The authoritative list
 is `OPTIONAL_AGENTS` in `bin/install-routines.sh`; the other install docs point
 here instead of restating it. To install only the daemon:
 
@@ -65,7 +69,6 @@ bash bin/install-routines.sh --status
   LABEL                                  PLIST      LAUNCHD    ROLE
   com.vibesquad.daemon                   installed  loaded     required by 'squad up'
   com.claudevibesquad.nightly            installed  loaded     optional
-  com.vibesquad.weekly-review            installed  loaded     optional
   com.vibesquad.dream                    installed  loaded     optional
 ```
 

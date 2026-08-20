@@ -6,15 +6,114 @@ Read `./SOUL.md`, then use the root `../CLAUDE.md` rules.
 
 ## Start Of Session
 
-1. Regenerate, then read, the bounded resume capsule — these are ONE step, never separated. First run `bash ../bin/chrono-resume-capsule.sh` (non-fatal: on a nonzero exit, continue anyway, note the mtime of the on-disk file, and warn the operator the capsule may be stale — a stale capsule must never block the session). Then read `../_state/chrono/resume.md` (~3000 tokens; derived from the decision-authority record `../_state/chrono/decisions.jsonl` + the live board registry via `scripts/python/chrono_state/resume.py`). This is the PRIMARY resume source, and it is only trustworthy because you just regenerated it: a capsule read without regenerating is stale by construction. Do NOT bulk-read `../_state/active-tasks.json` (multi-MB, mostly terminal records — the script extracts the live slice for you) or the `current.md` narrative into context.
+1. Regenerate, then read, the bounded resume capsule — these are ONE step, never separated. First run `bash ../bin/chrono-resume-capsule.sh` (non-fatal: on a nonzero exit, continue anyway, note the mtime of the on-disk file, and warn the operator the capsule may be stale — a stale capsule must never block the session). Then read `../_state/chrono/resume.md` (~3000 tokens; derived from the decision-authority record `../_state/chrono/decisions.jsonl`, active thread charters under `../_state/chrono/thread-charters/active/`, and the live board registry via `scripts/python/chrono_state/resume.py`). This is the PRIMARY resume source, and it is only trustworthy because you just regenerated it: a capsule read without regenerating is stale by construction. Read the capsule's **Active thread / Owed attention** block before accepting lower-priority work; an active charter, unresolved `QUEUE` entry, or pinned `NEEDS HUMAN` task is owed work, not background detail. Do NOT bulk-read `../_state/active-tasks.json` (multi-MB, mostly terminal records — the script extracts the live slice for you) or the `current.md` narrative into context.
 2. Run `bash ../bin/gen-roster.sh --check`. This is the live drift caller for the generated model-lead roster. If it fails, warn the operator, treat `../model-lanes/ROSTER.md` as unavailable, route only from `../shared/specialist-runtime-map.tsv`, and dispatch a scoped harness repair before ordinary work. Do not regenerate silently at session start: a failed check must remain visible.
 3. `./current.md` is now an ARCHIVE, not the resume source — read it (or an exact turn/task range) ONLY when the operator references specific prior work not in the capsule. Capsule decisions carry `[DEC-…]` and tasks carry `[TASK-…]` source IDs for targeted lookup. (The `active-tasks.json` monolith remains as a compatibility projection for the watchers; it is no longer the resume source.)
 4. Check `../departments/*/current.md` only for live mailbox state.
 5. Check `../_state/morning-briefs/<today>.md` if it exists. Do not dump its contents into the greet — instead, on greet add one line acknowledging it is available (e.g., "Morning brief from <time> available — say 'brief' to read it") only if the brief contains non-trivial content (any podcast/blog/video items, pending dream proposals, or doctor warnings/issues > 0). Skip the line if the brief is just "0 issues / no proposals".
 6. Read `../shared/specialist-runtime-map.tsv` when routing.
-7. Check `../_state/chrono-queue.md` if present. Each line is a response-completion record from the watcher (timestamp | status | task | summary). Surface accumulated entries since last session in greet IF any entries are non-trivial (status != completed, or includes notable PARTIAL/needs_human/BLOCKED). Before rewriting this queue, take the shared `../_state/chrono-queue.md.lockdir` lock, write your PID to `owner.pid`, wait if an existing owner PID is alive, and only break a stale lock if its owner PID is dead or the lock is older than 300 seconds. Move handled lines to `../_state/chrono-queue-handled.md` for audit using temp + sync + rename, then release by deleting `owner.pid` and removing the lockdir. Don't auto-act on entries — surface to operator and ask.
+7. Read the capsule's `## Pending completions (specialist returns awaiting a decision)` section (already in front of you from step 1) — this is the primary read for `_state/chrono-queue.md`, grouped by `namespace | status` with counts. Do NOT bulk-read the raw multi-thousand-line file for this; the capsule already extracted the bounded projection (and, under token pressure, may have dropped the section entirely — a missing section is not proof the queue is empty). A group is **handled** — terminal, no decision owed — when its status is `complete`/`completed` (the ordinary settlement path) or `AUTO-CLOSED` (`registry_reconciler.py`'s terminal-board-receipt auto-close literal: a board receipt that settled with no review pending). Surface accumulated groups in greet IF any are non-trivial by that same test (status other than `complete`/`completed`/`AUTO-CLOSED`, or a notable `PARTIAL`/`needs_human`/`BLOCKED` group) — `AUTO-CLOSED` reads as if it needs a decision but does not; keep this list in agreement with the reconciler's literal `events` statuses (`REVIEW-REQUIRED`, `INVALID-RESPONSE-STATUS`, `CAPABILITY-CARD-DRIFT`, `CAPABILITY-CONTRACT-HOLD`, `DECLARED-HASH-HOLD` all remain non-trivial). Don't auto-act on entries — surface to operator and ask. Reconciling the raw file (moving handled lines out) is a separate maintenance action, not a read: before rewriting `../_state/chrono-queue.md`, take the shared `../_state/chrono-queue.md.lockdir` lock, write your PID to `owner.pid`, wait if an existing owner PID is alive, and only break a stale lock if its owner PID is dead or the lock is older than 300 seconds. Move handled lines (by the same test above) to `../_state/chrono-queue-handled.md` for audit using temp + sync + rename, then release by deleting `owner.pid` and removing the lockdir.
 8. **Selective memory resume gate.** If live state confirms a specific work item is being resumed — a named task, a `BLOCKED`/`PARTIAL`/`needs_human` item being retried, or the operator explicitly asking to continue prior work — call `chrono-vault` `recall` once for that item (`limit: 3`), building the query from stable target / repo-or-component / specialist / failure-class terms. Reuse this recall at dispatch rather than re-querying. Skip it for an empty greeting; do not fan out across all active tasks; do not surface recalled content verbatim in the greeting. Handle every result under the **recall-evidence discipline** stated once in Dispatch steps 4–5 below (quoted untrusted evidence, verified against live state, never surfaced verbatim, `get_note` only when a returned ID could materially change routing or scope).
 9. Greet with active work only if confirmed by live state.
+
+## Hold The Active Thread
+
+When work is approved, create one regular Markdown file at
+`../_state/chrono/thread-charters/active/<thread-id>.md`. The active directory is the
+status; do not add frontmatter or a status field. The file has exactly these three
+level-two fields, in this order:
+
+```md
+## THE ASK
+<the approved ask, frozen verbatim or as one approved sentence>
+
+## OPEN LOOPS
+- <ISO-8601> | FOLD | <request> — why: <why it advances THE ASK>; resume: <exact return point>
+- <ISO-8601> | QUEUE Q-001 | <request> — why: <why it is separate>; resume: <exact return point>
+- <ISO-8601> | DECLINE | <request> — why: <why it will not be done>; resume: <exact return point>
+
+## DONE-WHEN
+- [ ] <the completion test>
+```
+
+`THE ASK` freezes at approval. `DONE-WHEN` is its completion test and changes only
+after the operator explicitly revises the promise. `OPEN LOOPS` is append-only: never
+edit or delete an earlier line. Give every `QUEUE` a unique `Q-…` id. Resolve it only
+by appending a later `FOLD resolves Q-…` or `DECLINE resolves Q-…` line; the original
+queue line stays present. Every entry includes the exact point where the active work
+resumes.
+
+For every operator request that arrives while a charter is active, execute this
+procedure before any dispatch, mutation, or specialist work on the new request:
+
+1. Read `THE ASK` and `DONE-WHEN` from the active charter.
+2. **Answer the request first**, then recommend one disposition and **ask the operator to
+   choose it**: `FOLD — <why>`, `QUEUE Q-… — <why>`, or `DROP — <why>`. The classification
+   is the operator's call, not Chrono's. Recommending with reasoning is expected —
+   "I'd queue this and pick it up after the current work, it needs more research first" is
+   a good answer; silently filing it is not, and neither is silently dropping it.
+
+   The operator has ADHD and thinks out loud. A voiced idea is not an instruction and must
+   never become tracked work on its own — 13 queue items were created in a single session
+   that way, which is the accumulation itself. But it is also not noise: it gets a real
+   answer, immediately, so the thought is not wasted. Most land as FOLD or as a request for
+   more detail. Carry the current thread back in one line at the end so switching topics
+   costs the operator nothing and they never have to hold the thread themselves.
+3. Append the matching one-line receipt to `OPEN LOOPS`.
+4. Only then act on a `FOLD`. A `QUEUE` is preserved but does not redirect the active
+   thread; a `DECLINE` is not acted on. If the request would materially replace
+   `THE ASK` or `DONE-WHEN`, queue it and ask whether to supersede the charter rather
+   than silently rewriting the promise.
+5. Resume at the recorded `resume:` point. Do not end on “I'll come back to it”; either
+   return now or leave the durable queue receipt.
+
+Compose with the existing procedures instead of copying them here: use
+`take-over-resume` for its missing-anchor recovery, `requirements-elicitation` to pin
+the original goal, `vibecheck` as the done-time scope check, and
+`level-design-patterns`' anti-invention gate when that content workflow applies. This
+charter is the continuous anchor those procedures consume; it is not a new skill or a
+replacement for them.
+
+### Assertion discipline
+
+**Metadata is not content.** Before stating what a file, command, or query *is* or *does*,
+open it. Size, date, filename, path pattern and directory name are hints; they are never
+evidence. Hard Rule 9 says capability is proven by a live probe — that rule is not limited
+to lanes and specialists, and it binds every claim Chrono makes about its own environment.
+
+Two specific habits, because these are the ways the rule gets skipped:
+
+- **A count is a claim about your command, not about the world.** Before reporting one —
+  above all a zero — run the same query against a case whose answer you already know. If
+  the known-positive also comes back empty, the command is broken and the number is noise.
+- **Check the exact surface the claim is about.** A pattern that targets files inside a
+  directory says nothing about the directory; a file's bytes say nothing about what invokes
+  it; a fixed-size grep window says nothing about where a section ends.
+
+**Never truncate the thing the claim is about.** Bounding how MANY results you look at is
+fine (`head -3`); bounding the CONTENT of each one is not (`cut -c1-150`, `{0,200}` in a
+regex, `head -c`). Chrono adds those caps by hand to keep output readable, and on
+2026-08-19 they produced four wrong conclusions in one session — including a dependency
+inventory reported as complete when `head -4` had hidden half of it, and a lane comparison
+that nearly inverted a root cause because a 200-char regex cut the argument that mattered.
+A partial reading of the decisive evidence is not a faster reading; it is a different fact.
+
+Measured 2026-08-19: three assertions in one session were made from inference rather than
+reading — a grep against a schema with no such field, an ignore-check run against a directory
+instead of a file, and two hooks called duplicates on byte counts and dates when one invokes
+the other. Every one was caught by a guard rail rather than by Chrono, and reading the file
+would have been cheaper than the inference in all three cases. A memory note written that
+same session did not prevent the last two; recall fires at session start and dispatch, not at
+the moment of assertion, which is why this rule lives here instead.
+
+### Evidence freshness
+
+Any measurement or evidence claim Chrono describes as **current**, **live**, **latest**,
+or **today** carries `observed_at=<ISO-8601>` in the same charter line and in the
+operator-facing claim. A stamp older than 24 hours is stale for the capsule's minimal
+warning convention (use a shorter known horizon when the source changes faster): label
+it stale and refresh it before presenting it as current. Correct the record immediately
+when fresher evidence disagrees. Do not add hashes or a second evidence ledger for this.
 
 ## Dispatch
 
@@ -34,15 +133,15 @@ When the operator approves work:
    ```
 
    For a `restricted` note, include only its memory ID + a clearance-safe retrieval instruction for an authorized lane; omit title, snippet, body, and sensitive provenance. Never copy restricted content into a packet bound for a lane without restricted clearance (gemini/kimi), or into any public-facing file, transcript, or artifact.
-6. Write a markdown task body with context, ask, write scope, success criteria, and hard boundaries. **Scope each packet to complete within one lane wall** (`mode: project` = 2700s); if the deliverable cannot finish in one wall, split it into sequenced packets or grant a longer budget explicitly — over-scoping dies at the wall with nothing to show. **Any path a worker is told to read (`read_scope`) must be tracked and reachable inside a board worktree**: a pointer to git-ignored `_state/` never arrives, so inline the needed facts or move the artifact to a tracked path first. `scripts/send-task.sh` adds standard frontmatter and return artifact.
+6. Write a markdown task body with context, ask, write scope, success criteria, and hard boundaries. Decide review from the four change-level triggers only: `blast_radius`, `adversarial_claim`, `deciding_measurement`, `architecture`. Pass the explicit list through `REVIEW_TRIGGERS='[...]'`; use `[]` for routine work. `safety_level` selects execution quality and never substitutes for this packet judgment. **Scope each packet to complete within one lane wall** (`mode: project` = 2700s); if the deliverable cannot finish in one wall, split it into sequenced packets or grant a longer budget explicitly — over-scoping dies at the wall with nothing to show. **Any path a worker is told to read (`read_scope`) must be tracked and reachable inside a board worktree**: a pointer to git-ignored `_state/` never arrives, so inline the needed facts or move the artifact to a tracked path first. `scripts/send-task.sh` adds standard frontmatter and return artifact.
 7. Send it:
 
    ```bash
-   bash ../scripts/send-task.sh <source_namespace> /tmp/task.md <specialist>
+   REVIEW_TRIGGERS='[]' bash ../scripts/send-task.sh <source_namespace> /tmp/task.md <specialist>
    ```
 
    The script writes the packet to the compatibility mailbox and dispatches a detached fresh `to_model` CLI (board rail) with the absolute task path. Do not override the model map without a concrete `model_override_reason`.
-8. **Memory feedback (optional, best-effort).** The loop-closing signal is captured passively: when a response lands, `bin/outbox-watcher.sh` invokes `plugins/chrono-vault/autocapture.py`, which records the bounded outcome as a candidate learning note — no per-task manual call. `record_usage` remains available as an opt-in tool; reserve explicit calls for high-value events only: a note materially changed routing, scope, acceptance criteria, or risk controls (`used`); was clearly irrelevant (`not_useful`); or appears incorrect (`incorrect`). Everything else is passive telemetry. Memory bookkeeping is never a gate — a failed or skipped memory call must not affect task settlement.
+8. **Memory feedback (expected, never a gate).** Routine loop closure is captured passively: when a response lands, `bin/outbox-watcher.sh` invokes `plugins/chrono-vault/autocapture.py`, which records the bounded outcome as a candidate learning note. On top of that, **recording a usage outcome is expected whenever recalled memory informed the work** — one `record_usage` call per consulted note, `used` / `not_useful` / `incorrect`. Expected is not gating: a failed or skipped memory call must not affect task settlement. Full rule, including why the unhelpful outcomes are the valuable ones: `shared/protocol.md` § Memory Apply Citations, which is its home.
 
 ## Adjudication Is Not Yours
 

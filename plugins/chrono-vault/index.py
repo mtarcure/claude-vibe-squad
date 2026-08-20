@@ -38,6 +38,7 @@ FRONTMATTER_FIELDS = (
     "source_artifact_hash",
     "created_at",
     "updated_at",
+    "verified_at",
     "valid_from",
     "valid_to",
     "supersedes",
@@ -47,10 +48,15 @@ FRONTMATTER_FIELDS = (
     "evidence_refs",
     "revision",
 )
-INDEX_SCHEMA_VERSION = 3
+# `verified_at` postdates every note written before 2026-08-17. It is read
+# as null when absent rather than refused, because the alternative is
+# quarantining the entire existing corpus on the reindex that follows this
+# schema bump. New writes always carry the key.
+OPTIONAL_FRONTMATTER_FIELDS = frozenset({"verified_at"})
+INDEX_SCHEMA_VERSION = 4
 META_COLUMNS = (
     "docid", "id", "path", "size", "mtime_ns", "created_at_ns",
-    "content_hash", "status", "sensitivity", "note_type",
+    "content_hash", "status", "sensitivity", "note_type", "verified_at_ns",
 )
 FTS_COLUMNS = (
     "title",
@@ -137,7 +143,8 @@ def _initialize(connection: sqlite3.Connection) -> None:
             content_hash TEXT NOT NULL,
             status TEXT NOT NULL,
             sensitivity TEXT NOT NULL,
-            note_type TEXT NOT NULL
+            note_type TEXT NOT NULL,
+            verified_at_ns INTEGER
         );
         CREATE TABLE IF NOT EXISTS state (
             key TEXT PRIMARY KEY,
@@ -164,6 +171,16 @@ def _initialize(connection: sqlite3.Connection) -> None:
             PRIMARY KEY(recall_id, note_id)
         );
         CREATE INDEX IF NOT EXISTS idx_usage_recall_id ON usage(recall_id);
+        CREATE TABLE IF NOT EXISTS recall_returned (
+            recall_id TEXT NOT NULL,
+            note_id TEXT NOT NULL,
+            source_task TEXT,
+            ts TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_recall_returned_recall_id
+            ON recall_returned(recall_id);
+        CREATE INDEX IF NOT EXISTS idx_recall_returned_note_id
+            ON recall_returned(note_id);
         """
     )
     connection.execute(
@@ -322,6 +339,29 @@ def _require_string(value: Any, field: str, *, allow_empty: bool = False) -> str
     return value
 
 
+def _timestamp_ns(value: Any, field: str) -> int | None:
+    """Project one optional ISO-8601 frontmatter timestamp to nanoseconds.
+
+    The markdown is the source of truth and the index is a rebuildable
+    projection of it, so a promotion time that lived only in the database
+    would be silently dropped by the next `rebuild_index`. Deriving it here
+    means it is restored from the note on every rebuild instead.
+    """
+    if value is None:
+        return None
+    _require_string(value, field)
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (OverflowError, ValueError) as exc:
+        raise MalformedNote(f"{field} is not ISO-8601") from exc
+    if parsed.tzinfo is None:
+        raise MalformedNote(f"{field} requires a timezone")
+    try:
+        return int(parsed.astimezone(timezone.utc).timestamp() * 1_000_000_000)
+    except (OSError, OverflowError, ValueError) as exc:
+        raise MalformedNote(f"{field} is outside the supported range") from exc
+
+
 def _require_string_list(value: Any, field: str) -> list[str]:
     if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
         raise MalformedNote(f"{field} must be a list of strings")
@@ -361,10 +401,13 @@ def _parse_note(path: Path) -> dict[str, Any]:
             raise MalformedNote(f"frontmatter value is invalid JSON: {key}") from exc
 
     expected = set(FRONTMATTER_FIELDS)
-    if set(frontmatter) != expected:
-        missing = sorted(expected - set(frontmatter))
-        unknown = sorted(set(frontmatter) - expected)
+    present = set(frontmatter)
+    missing = sorted(expected - OPTIONAL_FRONTMATTER_FIELDS - present)
+    unknown = sorted(present - expected)
+    if missing or unknown:
         raise MalformedNote(f"frontmatter fields differ: missing={missing}, unknown={unknown}")
+    for optional in OPTIONAL_FRONTMATTER_FIELDS:
+        frontmatter.setdefault(optional, None)
 
     body = text[closing + 5:]
     _require_string(body, "body")
@@ -439,6 +482,8 @@ def _parse_note(path: Path) -> dict[str, Any]:
     except (OSError, OverflowError, ValueError) as exc:
         raise MalformedNote("created_at is outside the supported range") from exc
 
+    verified_at_ns = _timestamp_ns(frontmatter["verified_at"], "verified_at")
+
     return {
         **frontmatter,
         "body": body,
@@ -446,6 +491,7 @@ def _parse_note(path: Path) -> dict[str, Any]:
         "size": stat_result.st_size,
         "mtime_ns": stat_result.st_mtime_ns,
         "created_at_ns": created_at_ns,
+        "verified_at_ns": verified_at_ns,
         "content_hash": hashlib.sha256(raw).hexdigest(),
         "aliases_text": "\n".join(aliases),
         "keywords_text": "\n".join(keywords),
@@ -475,25 +521,26 @@ def _upsert_connection(connection: sqlite3.Connection, note: dict[str, Any]) -> 
         connection.execute(
             """
             UPDATE meta SET path=?, size=?, mtime_ns=?, created_at_ns=?,
-                content_hash=?, status=?, sensitivity=?, note_type=? WHERE docid=?
+                content_hash=?, status=?, sensitivity=?, note_type=?,
+                verified_at_ns=? WHERE docid=?
             """,
             (
                 note["path"], note["size"], note["mtime_ns"],
                 note["created_at_ns"], note["content_hash"], note["status"],
-                note["sensitivity"], note["type"], docid,
+                note["sensitivity"], note["type"], note["verified_at_ns"], docid,
             ),
         )
     else:
         cursor = connection.execute(
             """
             INSERT INTO meta(id, path, size, mtime_ns, created_at_ns,
-                content_hash, status, sensitivity, note_type)
-            VALUES(?,?,?,?,?,?,?,?,?)
+                content_hash, status, sensitivity, note_type, verified_at_ns)
+            VALUES(?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 note["id"], note["path"], note["size"], note["mtime_ns"],
                 note["created_at_ns"], note["content_hash"], note["status"],
-                note["sensitivity"], note["type"],
+                note["sensitivity"], note["type"], note["verified_at_ns"],
             ),
         )
         docid = int(cursor.lastrowid)
@@ -704,6 +751,33 @@ def _read_usage_rows(path: Path) -> list[tuple[str, str, str, str | None, str]]:
             connection.close()
 
 
+def _read_recall_returned_rows(path: Path) -> list[tuple[str, str, str | None, str]]:
+    """Read `recall_returned` rows from the pre-rebuild db, mirroring
+    `_read_usage_rows`: the index is a rebuildable projection, so anything
+    `rebuild_index` does not explicitly carry forward is lost when it swaps
+    in a fresh db."""
+    if not _prepare_database(path, create=False):
+        return []
+    connection: sqlite3.Connection | None = None
+    try:
+        connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5.0)
+        exists = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='recall_returned'"
+        ).fetchone()
+        if exists is None:
+            return []
+        return list(
+            connection.execute(
+                "SELECT recall_id, note_id, source_task, ts FROM recall_returned"
+            )
+        )
+    except sqlite3.Error:
+        return []
+    finally:
+        if connection is not None:
+            connection.close()
+
+
 def rebuild_index() -> dict[str, Any]:
     """Build a complete temp index, integrity-check it, and atomically publish."""
     root = resolve_vault_root()
@@ -711,6 +785,7 @@ def rebuild_index() -> dict[str, Any]:
         db_path = index_dir / "kg.db"
         previous_generation = _read_generation(db_path)
         usage_rows = _read_usage_rows(db_path)
+        recall_returned_rows = _read_recall_returned_rows(db_path)
         temp_fd, temp_name = tempfile.mkstemp(
             prefix=".kg.db.", suffix=".tmp", dir=index_dir
         )
@@ -752,6 +827,11 @@ def rebuild_index() -> dict[str, Any]:
                 "INSERT INTO usage(recall_id, note_id, outcome, source_task, ts) "
                 "VALUES(?,?,?,?,?)",
                 usage_rows,
+            )
+            connection.executemany(
+                "INSERT INTO recall_returned(recall_id, note_id, source_task, ts) "
+                "VALUES(?,?,?,?)",
+                recall_returned_rows,
             )
 
             generation = previous_generation + 1

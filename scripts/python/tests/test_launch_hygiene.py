@@ -54,6 +54,21 @@ class WritableScopeAuditTests(unittest.TestCase):
         finally:
             hygiene.close_writable_scopes(scopes)
 
+    def test_symlink_rejection_names_path_and_remedy(self) -> None:
+        # Recoverability contract (2026-08-18): the audit refuses EVERY board
+        # launch over a tree holding a symlink, including the launch that
+        # would remove it, so the error must carry the offending path and the
+        # host-side remedy rather than leaving the operator to reverse-engineer
+        # the deadlock.
+        root = retained_fixture("symlink-remedy")
+        link = root / "mirror"
+        link.symlink_to("/private/tmp")
+        with self.assertRaises(hygiene.HygieneError) as caught:
+            hygiene.audit_writable_scopes((root,))
+        message = str(caught.exception)
+        self.assertIn(str(link), message)
+        self.assertIn("remove the symlink in the primary checkout", message)
+
     def test_symlink_device_and_fifo_are_rejected(self) -> None:
         symlink_root = retained_fixture("symlink")
         (symlink_root / "escape").symlink_to("/private/tmp")

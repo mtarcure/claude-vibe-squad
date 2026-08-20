@@ -1,5 +1,6 @@
 ---
 specialist: experimental-attacker
+blind_discovery: true
 version: 1.1
 department: security
 safety_level: high

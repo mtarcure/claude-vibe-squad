@@ -95,6 +95,9 @@ INBOX_ARCHIVE_STATUSES = frozenset(
 RUNTIME_MAP_PATH = VAULT_ROOT / "shared" / "specialist-runtime-map.tsv"
 DELIVERY_OPEN_STATES = frozenset({"queued", "claimed", "in-progress"})
 REVIEW_CLASSES = frozenset({"standard", "factual", "security-finding"})
+REVIEW_TRIGGERS = frozenset(
+    {"blast_radius", "adversarial_claim", "deciding_measurement", "architecture"}
+)
 INVALID_REVIEW_LANE = "distinct-family-review-required"
 WORKER_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._:-]{0,127}$")
 WORKER_EPOCH_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
@@ -107,15 +110,16 @@ LANE_AUTHOR_FAMILY = {
 
 # Read-only review packets performed by verdict-producing roles must not require
 # a review of their own review. The explicit empty write scope is essential:
-# reviewer specialists doing implementation work still follow the normal gate.
+# reviewer specialists doing implementation work still follow a declared trigger.
 #
 # The set must span BOTH review families or anti-affinity has no landing spot:
 # code-reviewer and security-analyst both map to gpt-codex, so a codex-authored
 # task -- which needs a non-openai reviewer -- had no eligible read-only verdict
 # role at all. `skeptic` is the canonical claude-lane judgment role (shared ns,
 # safety_level high, primary_lane claude in shared/specialist-runtime-map.tsv),
-# so it completes the pair. This set is also read by `bin/send-task.sh` so the
-# dispatcher's high-safety gate and this exemption can never disagree.
+# so it completes the pair. The dispatcher no longer reads this set: packet
+# review is trigger-derived, while this remains the narrow settlement exemption
+# that prevents an explicitly reviewed verdict from recursing forever.
 REVIEW_VERDICT_SPECIALISTS = frozenset({"code-reviewer", "security-analyst", "skeptic"})
 TEST_ISOLATION_ENV = "SQUAD_TEST_ISOLATION"
 CHRONO_NOTIFY_LOCKDIR = STATE_DIR / "chrono-notify.lockdir"
@@ -178,10 +182,47 @@ def archive_inbox_packet(task_id: str, namespace: str) -> bool:
     return True
 
 
+# Overall wall-clock bound for lockdir()'s wait loop. This does NOT change the
+# existing dead/absent-owner behavior (a confirmed-dead owner, per kill(0), or
+# an owner.pid stale past the 300s mtime rule, is still broken immediately,
+# with no timeout wait needed). It bounds the one case that used to spin
+# forever: a CONFIRMED-LIVE owner that never releases. Env override lets a
+# specific call site (or a test) shorten the wait without touching call sites
+# that are fine with the default.
+LOCKDIR_DEFAULT_TIMEOUT = float(os.environ.get("LOCKDIR_TIMEOUT_SECONDS", "60"))
+
+
+def _lockdir_wait_or_timeout(path: Path, owner_text: str, start: float, timeout: float) -> None:
+    """Sleep one poll tick, or fail loudly if the overall timeout has elapsed.
+
+    Only reached while the current holder is confirmed alive, or its
+    owner.pid is unreadable/corrupt but not yet 300s stale -- a live owner's
+    lock is never broken here, only reported. "Never silently proceed": on
+    expiry this raises rather than letting the caller believe it acquired the
+    lock or silently skip the critical section.
+    """
+    elapsed = time.monotonic() - start
+    if elapsed < timeout:
+        time.sleep(0.1)
+        return
+    owner_display = owner_text or "unknown"
+    try:
+        age_display = f"{time.time() - path.stat().st_mtime:.1f}s"
+    except OSError:
+        age_display = "unknown"
+    raise TimeoutError(
+        f"lockdir {path} still held after {elapsed:.1f}s by PID {owner_display} "
+        f"(lock age {age_display}); refusing to wait longer. Never broken "
+        f"automatically for a live owner -- if PID {owner_display} is confirmed "
+        f"gone, remove manually: rm -rf {path}"
+    )
+
+
 @contextmanager
-def lockdir(path: Path):
+def lockdir(path: Path, timeout: float = LOCKDIR_DEFAULT_TIMEOUT):
     path.parent.mkdir(parents=True, exist_ok=True)
     acquired = False
+    start = time.monotonic()
     while not acquired:
         try:
             path.mkdir()
@@ -193,31 +234,31 @@ def lockdir(path: Path):
             if owner_text.isdigit():
                 try:
                     os.kill(int(owner_text), 0)
-                    time.sleep(0.1)
+                    _lockdir_wait_or_timeout(path, owner_text, start, timeout)
                     continue
                 except ProcessLookupError:
                     try:
                         (path / "owner.pid").unlink(missing_ok=True)
                         path.rmdir()
                     except OSError:
-                        time.sleep(0.1)
+                        _lockdir_wait_or_timeout(path, owner_text, start, timeout)
                     continue
                 except PermissionError:
-                    time.sleep(0.1)
+                    _lockdir_wait_or_timeout(path, owner_text, start, timeout)
                     continue
             try:
                 age = datetime.now(timezone.utc) - datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
             except OSError:
-                time.sleep(0.1)
+                _lockdir_wait_or_timeout(path, owner_text, start, timeout)
                 continue
             if age > timedelta(minutes=5):
                 try:
                     (path / "owner.pid").unlink(missing_ok=True)
                     path.rmdir()
                 except OSError:
-                    time.sleep(0.1)
+                    _lockdir_wait_or_timeout(path, owner_text, start, timeout)
                 continue
-            time.sleep(0.1)
+            _lockdir_wait_or_timeout(path, owner_text, start, timeout)
     try:
         yield
     finally:
@@ -456,6 +497,28 @@ def canonical_review_class(value: Any, *, source: str) -> str:
     return canonical
 
 
+def canonical_review_triggers(value: Any, *, source: str) -> list[str]:
+    """Validate the packet-level reasons for independent review.
+
+    The dispatcher accepts a single-line inline list and stores it as JSON. This
+    second validation protects direct registry callers and makes trigger data a
+    stable part of dispatch identity. Missing remains a legacy shape; callers
+    decide whether to preserve the old mandatory flag or require migration.
+    """
+
+    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+        raise ValueError(f"{source} review_triggers must be a list of strings")
+    if len(value) != len(set(value)):
+        raise ValueError(f"{source} review_triggers contains duplicate values")
+    unknown = sorted(set(value) - REVIEW_TRIGGERS)
+    if unknown:
+        raise ValueError(
+            f"{source} review_triggers contains unknown value(s): "
+            + ", ".join(unknown)
+        )
+    return list(value)
+
+
 def apply_worker_schema_defaults(entry: dict[str, Any]) -> None:
     """Add nullable compatibility fields without changing dispatch identity.
 
@@ -599,6 +662,7 @@ def _dispatch_identity(entry: dict[str, Any]) -> tuple[Any, ...]:
         entry.get("verification_contract_sha256"),
         entry.get("review_model"),
         entry.get("mandatory_review"),
+        tuple(entry.get("review_triggers") or ()),
         # Canonical, so a semantically identical retry is idempotent. A stored
         # entry that predates canonicalization compares by its own raw value.
         _stored_review_class(entry),
@@ -627,6 +691,16 @@ def requires_review_class(entry: dict[str, Any]) -> bool:
 
 def register_task(task_id: str, entry: dict[str, Any]) -> bool:
     """Register once under the shared lock; idempotent retries preserve receipts."""
+    if "review_triggers" in entry:
+        entry["review_triggers"] = canonical_review_triggers(
+            entry.get("review_triggers"), source=f"task {task_id}"
+        )
+        has_triggers = bool(entry["review_triggers"])
+        flag = str(entry.get("mandatory_review", "")).strip().lower() == "true"
+        if has_triggers != flag:
+            raise ValueError(
+                f"task {task_id} review_triggers and mandatory_review disagree"
+            )
     if requires_review_class(entry) or entry.get("review_class") is not None:
         entry["review_class"] = canonical_review_class(
             entry.get("review_class"), source=f"task {task_id}"
@@ -684,6 +758,13 @@ def register_swarm(
         parent_entry.get("review_class"), source=f"swarm parent {parent_task_id}"
     )
     parent_entry["review_class"] = parent_review_class
+    if "review_triggers" in parent_entry:
+        parent_entry["review_triggers"] = canonical_review_triggers(
+            parent_entry.get("review_triggers"),
+            source=f"swarm parent {parent_task_id}",
+        )
+        if not parent_entry["review_triggers"]:
+            raise ValueError("swarm parent review_triggers must not be empty")
     lanes: set[str] = set()
     for child_id, child in member_entries.items():
         declared = child.get("review_class")
@@ -695,6 +776,12 @@ def register_swarm(
                 f"{parent_review_class}: {child_id}"
             )
         child["review_class"] = parent_review_class
+        if "review_triggers" in child:
+            child["review_triggers"] = canonical_review_triggers(
+                child.get("review_triggers"), source=f"swarm member {child_id}"
+            )
+            if not child["review_triggers"]:
+                raise ValueError(f"swarm member review_triggers must not be empty: {child_id}")
         apply_worker_schema_defaults(child)
         validate_member_identity(child)
         if child_id != f"{parent_task_id}-swarm-{child.get('to_model')}":
@@ -1986,7 +2073,18 @@ def _validate_security_review(
 
 
 def cross_family_review_pending(entry: dict[str, Any]) -> tuple[bool, str, str]:
-    if str(entry.get("mandatory_review", "")).strip().lower() != "true":
+    mandatory = str(entry.get("mandatory_review", "")).strip().lower() == "true"
+    raw_triggers = entry.get("review_triggers")
+    if raw_triggers is not None:
+        try:
+            trigger_required = bool(
+                canonical_review_triggers(raw_triggers, source="registry entry")
+            )
+        except ValueError:
+            # A malformed review contract is held, never downgraded to no review.
+            trigger_required = True
+        mandatory = mandatory or trigger_required
+    if not mandatory:
         return (False, "", "")
     review_lane = _lane(entry.get("review_model"))
     executing_lane = _lane(entry.get("to_model")) \
@@ -2078,6 +2176,73 @@ def review_verdict(review_path: Path) -> str:
     return strip_frontmatter(read_text(review_path)).get("verdict", "").strip().upper()
 
 
+# The three queue statuses this handler can write. They are distinct
+# because `memory_metrics.promotion_events` -- the alarm that notices the
+# promotion handler has stopped firing -- counts `MEMORY_PROMOTION_STATUS`
+# lines and nothing else. When all three outcomes shared one status, an
+# unset `CHRONO_VAULT_ROOT` at settlement made the alarm report "the handler
+# fired" on a machine that had never promoted anything: the alarm counted
+# its own failures as successes. A skip and a failure stay LOUD in the queue
+# -- an event handler that fails silently is what this design replaced --
+# they simply do not wear the status that means "notes moved".
+# `scripts/python/tests/test_memory_metrics.py` pins the metric to these.
+MEMORY_PROMOTION_STATUS = "MEMORY-PROMOTION"
+MEMORY_PROMOTION_SKIPPED_STATUS = "MEMORY-PROMOTION-SKIPPED"
+MEMORY_PROMOTION_FAILED_STATUS = "MEMORY-PROMOTION-FAILED"
+
+
+def memory_promotion_message(
+    task_id: str, verdict: str, review_class: str
+) -> tuple[str, str] | None:
+    """Promote the memory this task cited, and never let that block a receipt.
+
+    Returns `(queue_status, summary)` for the caller to append verbatim, or
+    `None` when the gate simply said no and there is nothing to report.
+
+    Memory bookkeeping is not allowed to break task settlement, so every
+    failure returns a message instead of propagating. It returns a message
+    rather than swallowing quietly: an event handler that fails silently is
+    the exact defect this handler exists to replace -- curation and usage
+    telemetry both stopped on 2026-07-25 and nothing noticed for 23 days.
+    The status distinguishes the three outcomes so a reader -- and the
+    doctor's alarm -- can tell "promoted" from "could not promote".
+
+    `task_id` is the authenticated identity held under the registry lock,
+    not a worker's self-declared label. See `memory_promotion` for why that
+    distinction decides the direction of every failure here.
+
+    The import is local and inside the guard on purpose. A module-level one
+    would make `memory_promotion.py` a hard dependency of every reconciler
+    invocation -- including the minimal fixture trees that stage the
+    reconciler's imports by hand (`doctor_fixture._RECONCILER_MODULES`,
+    `test_capability_dispatch_integrity.install_board_rail_fixture`), where
+    an unstaged module turns a settlement into an exit-1. Memory
+    bookkeeping is not allowed to break settlement, and that has to hold
+    for a missing module too, not just a failing promotion.
+    """
+    try:
+        import memory_promotion  # noqa: PLC0415
+
+        vault_root = os.environ.get("CHRONO_VAULT_ROOT")
+        if not vault_root:
+            return (
+                MEMORY_PROMOTION_SKIPPED_STATUS,
+                "memory promotion skipped: CHRONO_VAULT_ROOT is unset",
+            )
+        promoted = memory_promotion.promote_cited_notes(
+            task_id, verdict, review_class, Path(vault_root)
+        )
+        if not promoted:
+            return None
+        return (
+            MEMORY_PROMOTION_STATUS,
+            f"promoted {len(promoted)} memory note(s) to verified: "
+            + ", ".join(promoted),
+        )
+    except Exception as exc:  # never let memory bookkeeping break settlement
+        return (MEMORY_PROMOTION_FAILED_STATUS, f"memory promotion failed: {exc}")
+
+
 def require_approval_verdict(review_path: Path, force: bool) -> tuple[str, bool]:
     """Fail closed unless the structured review verdict is exactly APPROVE."""
     verdict = review_verdict(review_path)
@@ -2127,129 +2292,180 @@ def settle_review(task_id: str, review_ref: str, *, force: bool = False) -> bool
     decided that the task may close. Returns False for an idempotent retry.
     """
     _review_path, normalized_ref = _review_reference(review_ref)
-    with locked_registry() as _lock:
-        registry = load_registry()
-        entry = registry.get(task_id)
-        if not isinstance(entry, dict):
-            raise ValueError(f"unknown registry task: {task_id}")
-        if entry.get("dispatch_kind") == "swarm" and entry.get("swarm_role") == "parent":
-            if entry.get("status") == "complete" and entry.get("review_settled_by") == "chrono-explicit":
+    # Set by the swarm-parent branch below, consumed by the `finally` at the
+    # end of this `try`. That branch returns from INSIDE `locked_registry()`,
+    # and a `finally` runs after the enclosing `with` has released -- which is
+    # the entire point of the construct here.
+    #
+    # Promotion takes the VAULT's lock, and a schema-stale index can hold that
+    # for a full `rebuild_index()` of the corpus. Holding the GLOBAL registry
+    # lock for that duration would block every dispatch and every settlement,
+    # so a receipt must never wait on memory bookkeeping. The normal path at
+    # the bottom of this function states that rule and obeys it; the swarm path
+    # called the same function at 12-space indent, inside the lock.
+    deferred_promotion: tuple[str, str, str] | None = None
+    try:
+        with locked_registry() as _lock:
+            registry = load_registry()
+            entry = registry.get(task_id)
+            if not isinstance(entry, dict):
+                raise ValueError(f"unknown registry task: {task_id}")
+            if entry.get("dispatch_kind") == "swarm" and entry.get("swarm_role") == "parent":
+                if entry.get("status") == "complete" and entry.get("review_settled_by") == "chrono-explicit":
+                    if entry.get("cross_family_review_ref") == normalized_ref:
+                        return False
+                    raise ValueError(f"task already settled with a different review ref: {task_id}")
+                if entry.get("status") != REVIEW_REQUIRED or not entry.get("swarm_frozen_at"):
+                    raise ValueError(f"swarm parent has no frozen bundle awaiting review: {task_id}")
+                own_response = str(entry.get("expected_response_path") or "")
+                if normalized_ref == own_response:
+                    raise ValueError("--review-ref must not be the swarm controller's own response")
+                review_meta = strip_frontmatter(read_text(_review_path))
+                review_status = registry_status(review_meta.get("status", ""))
+                if review_status not in {"complete", "needs_review"}:
+                    raise ValueError("swarm review response status must be complete or needs_review")
+                echoed_bundle = review_meta.get("swarm_bundle_sha256", "").strip()
+                frozen_bundle = str(entry.get("swarm_bundle_sha256") or "").strip()
+                if not echoed_bundle:
+                    raise ValueError("swarm review response is missing swarm_bundle_sha256")
+                if echoed_bundle != frozen_bundle:
+                    raise ValueError(
+                        f"swarm_bundle_sha256 mismatch: frozen={frozen_bundle} review={echoed_bundle}"
+                    )
+                verdict, forced_override = require_approval_verdict(_review_path, force)
+                now = datetime.now(timezone.utc)
+                entry["status"] = "complete"
+                entry["completed_at"] = now.isoformat()
+                entry["reconciled_at"] = now.isoformat()
+                entry["review_settled_at"] = now.isoformat()
+                entry["review_settled_by"] = "chrono-explicit"
+                entry["cross_family_review_ref"] = normalized_ref
+                entry["review_ref"] = normalized_ref
+                entry["verdict"] = verdict
+                entry["review_force_override"] = forced_override
+                if forced_override:
+                    entry["review_force_override_at"] = now.isoformat()
+                atomic_write(
+                    _swarm_path(entry.get("expected_response_path")),
+                    _swarm_envelope(
+                        task_id, entry, status="complete", review_ref=normalized_ref
+                    ),
+                )
+                atomic_write(REGISTRY_PATH, json.dumps(registry, indent=2, ensure_ascii=False) + "\n")
+                namespace = str(entry.get("compatibility_namespace") or "coding")
+                append_chrono_queue(
+                    "SWARM-REVIEW-SETTLED-FORCED" if forced_override else "SWARM-REVIEW-SETTLED",
+                    f"{namespace}/{task_id}",
+                    "explicit Chrono frozen-bundle settlement; "
+                    f"review={normalized_ref}; verdict={verdict}; force={forced_override}",
+                )
+                # The registry is already written, so nothing below can unsettle
+                # this task. Memory that was used in work which passed review
+                # earns a higher rank in future retrieval -- handed to the
+                # `finally` above rather than done here, because promotion must
+                # not run while this still holds the registry lock.
+                # Read raw, never through `_review_class`: that canonicalizer
+                # RAISES on a missing or unrecognized class, and it would raise
+                # here outside the guard, after the registry write -- breaking a
+                # settlement that had already landed. An unusable value simply
+                # is not in SUBSTANTIVE_REVIEW_CLASSES, so it promotes nothing.
+                deferred_promotion = (
+                    namespace, verdict, str(entry.get("review_class") or "")
+                )
+                return True
+            if entry.get("status") == "complete" and str(entry.get("review_settled_by") or "").startswith("chrono-"):
                 if entry.get("cross_family_review_ref") == normalized_ref:
                     return False
                 raise ValueError(f"task already settled with a different review ref: {task_id}")
-            if entry.get("status") != REVIEW_REQUIRED or not entry.get("swarm_frozen_at"):
-                raise ValueError(f"swarm parent has no frozen bundle awaiting review: {task_id}")
-            own_response = str(entry.get("expected_response_path") or "")
-            if normalized_ref == own_response:
-                raise ValueError("--review-ref must not be the swarm controller's own response")
-            review_meta = strip_frontmatter(read_text(_review_path))
-            review_status = registry_status(review_meta.get("status", ""))
-            if review_status not in {"complete", "needs_review"}:
-                raise ValueError("swarm review response status must be complete or needs_review")
-            echoed_bundle = review_meta.get("swarm_bundle_sha256", "").strip()
-            frozen_bundle = str(entry.get("swarm_bundle_sha256") or "").strip()
-            if not echoed_bundle:
-                raise ValueError("swarm review response is missing swarm_bundle_sha256")
-            if echoed_bundle != frozen_bundle:
+            current_status = str(entry.get("status") or "")
+            if current_status not in {REVIEW_REQUIRED, "needs_review"}:
                 raise ValueError(
-                    f"swarm_bundle_sha256 mismatch: frozen={frozen_bundle} review={echoed_bundle}"
+                    f"task is not {REVIEW_REQUIRED} or needs_review: {task_id}"
                 )
+            schema, _descriptor = settlement_process(task_id, entry)
+            response, status = landed_response(
+                task_id, response_candidates(task_id, entry, schema), schema, entry
+            )
+            if response is None:
+                raise ValueError(f"task has no landed response: {task_id}")
+            issue = capability_response_issue(entry, response)
+            if issue:
+                raise ValueError(
+                    f"task response does not match dispatched capability snapshot: {issue}"
+                )
+            if entry.get("envelope_repaired_by") != "chrono-explicit":
+                # After a chrono-explicit envelope repair the fence rows were
+                # re-derived from THIS entry under the registry lock, so the
+                # echo comparison would be self-agreement, and the remaining
+                # lease-lifecycle checks are expected to read terminal on a
+                # task that already terminally closed once. Chrono vouches
+                # explicitly twice on that path (repair, then settle).
+                issue = worker_response_issue(task_id, entry, response, schema)
+                if issue:
+                    raise ValueError(f"task response does not match dispatched worker fence: {issue}")
+            if status not in {"complete", "needs_review"}:
+                raise ValueError(f"task response status cannot be settled: {status or 'missing'}")
+            if normalized_ref == str(response.relative_to(VAULT_ROOT)):
+                raise ValueError("--review-ref must not be the task's own response")
+            pending, _executing_lane, _review_lane = response_review_pending(entry, status)
+            if not pending:
+                raise ValueError(f"task does not require cross-family settlement: {task_id}")
+
+            review_class = _review_class(entry)
+            if review_class == "factual":
+                _validate_factual_attestation(task_id, entry, response, _review_path)
+                settled_by = "chrono-factual-attestation"
+            elif review_class == "security-finding":
+                _validate_security_review(task_id, entry, response, _review_path)
+                settled_by = "chrono-explicit-independent"
+            else:
+                _validate_standard_review(task_id, entry, _review_path)
+                settled_by = "chrono-explicit"
+
             verdict, forced_override = require_approval_verdict(_review_path, force)
+
             now = datetime.now(timezone.utc)
+            update_capability_card_drift(entry, now)
             entry["status"] = "complete"
             entry["completed_at"] = now.isoformat()
             entry["reconciled_at"] = now.isoformat()
             entry["review_settled_at"] = now.isoformat()
-            entry["review_settled_by"] = "chrono-explicit"
+            entry["review_settled_by"] = settled_by
             entry["cross_family_review_ref"] = normalized_ref
             entry["review_ref"] = normalized_ref
             entry["verdict"] = verdict
             entry["review_force_override"] = forced_override
             if forced_override:
                 entry["review_force_override_at"] = now.isoformat()
-            atomic_write(
-                _swarm_path(entry.get("expected_response_path")),
-                _swarm_envelope(
-                    task_id, entry, status="complete", review_ref=normalized_ref
-                ),
-            )
+            if review_class == "factual":
+                entry["coordinator_attestation_ref"] = normalized_ref
+            entry["response_path"] = str(response.relative_to(VAULT_ROOT))
+            entry.pop("review_blocking_ref", None)
+            entry.pop("review_signature", None)
             atomic_write(REGISTRY_PATH, json.dumps(registry, indent=2, ensure_ascii=False) + "\n")
-            namespace = str(entry.get("compatibility_namespace") or "coding")
-            append_chrono_queue(
-                "SWARM-REVIEW-SETTLED-FORCED" if forced_override else "SWARM-REVIEW-SETTLED",
-                f"{namespace}/{task_id}",
-                "explicit Chrono frozen-bundle settlement; "
-                f"review={normalized_ref}; verdict={verdict}; force={forced_override}",
+            namespace = str(
+                entry.get("compatibility_namespace")
+                or entry.get("source_namespace")
+                or "coding"
             )
-            return True
-        if entry.get("status") == "complete" and str(entry.get("review_settled_by") or "").startswith("chrono-"):
-            if entry.get("cross_family_review_ref") == normalized_ref:
-                return False
-            raise ValueError(f"task already settled with a different review ref: {task_id}")
-        current_status = str(entry.get("status") or "")
-        if current_status not in {REVIEW_REQUIRED, "needs_review"}:
-            raise ValueError(
-                f"task is not {REVIEW_REQUIRED} or needs_review: {task_id}"
+    finally:
+        # Runs after `locked_registry()` has released, on the swarm-parent
+        # return path and on nothing else -- the normal path leaves this None
+        # and does its own promotion below, already outside the lock.
+        if deferred_promotion is not None:
+            # Names chosen not to shadow anything this function calls: a local
+            # named `_review_class` would make the module-level
+            # `_review_class()` unresolvable for the whole body.
+            swarm_namespace, swarm_verdict, swarm_class = deferred_promotion
+            swarm_promotion = memory_promotion_message(
+                task_id, swarm_verdict, swarm_class
             )
-        schema, _descriptor = settlement_process(task_id, entry)
-        response, status = landed_response(
-            task_id, response_candidates(task_id, entry, schema), schema, entry
-        )
-        if response is None:
-            raise ValueError(f"task has no landed response: {task_id}")
-        issue = capability_response_issue(entry, response)
-        if issue:
-            raise ValueError(
-                f"task response does not match dispatched capability snapshot: {issue}"
-            )
-        issue = worker_response_issue(task_id, entry, response, schema)
-        if issue:
-            raise ValueError(f"task response does not match dispatched worker fence: {issue}")
-        if status not in {"complete", "needs_review"}:
-            raise ValueError(f"task response status cannot be settled: {status or 'missing'}")
-        if normalized_ref == str(response.relative_to(VAULT_ROOT)):
-            raise ValueError("--review-ref must not be the task's own response")
-        pending, _executing_lane, _review_lane = response_review_pending(entry, status)
-        if not pending:
-            raise ValueError(f"task does not require cross-family settlement: {task_id}")
-
-        review_class = _review_class(entry)
-        if review_class == "factual":
-            _validate_factual_attestation(task_id, entry, response, _review_path)
-            settled_by = "chrono-factual-attestation"
-        elif review_class == "security-finding":
-            _validate_security_review(task_id, entry, response, _review_path)
-            settled_by = "chrono-explicit-independent"
-        else:
-            _validate_standard_review(task_id, entry, _review_path)
-            settled_by = "chrono-explicit"
-
-        verdict, forced_override = require_approval_verdict(_review_path, force)
-
-        now = datetime.now(timezone.utc)
-        update_capability_card_drift(entry, now)
-        entry["status"] = "complete"
-        entry["completed_at"] = now.isoformat()
-        entry["reconciled_at"] = now.isoformat()
-        entry["review_settled_at"] = now.isoformat()
-        entry["review_settled_by"] = settled_by
-        entry["cross_family_review_ref"] = normalized_ref
-        entry["review_ref"] = normalized_ref
-        entry["verdict"] = verdict
-        entry["review_force_override"] = forced_override
-        if forced_override:
-            entry["review_force_override_at"] = now.isoformat()
-        if review_class == "factual":
-            entry["coordinator_attestation_ref"] = normalized_ref
-        entry["response_path"] = str(response.relative_to(VAULT_ROOT))
-        entry.pop("review_blocking_ref", None)
-        entry.pop("review_signature", None)
-        atomic_write(REGISTRY_PATH, json.dumps(registry, indent=2, ensure_ascii=False) + "\n")
-        namespace = str(
-            entry.get("compatibility_namespace")
-            or entry.get("source_namespace")
-            or "coding"
-        )
+            if swarm_promotion:
+                append_chrono_queue(
+                    swarm_promotion[0],
+                    f"{swarm_namespace}/{task_id}",
+                    swarm_promotion[1],
+                )
     append_chrono_queue(
         (
             "FACTUAL-ATTESTATION-SETTLED-FORCED"
@@ -2265,7 +2481,148 @@ def settle_review(task_id: str, review_ref: str, *, force: bool = False) -> bool
         f"class={review_class}; review={normalized_ref}; verdict={verdict}; "
         f"force={forced_override}",
     )
+    # Outside the registry lock: settlement has landed, and promotion takes
+    # the vault's own lock, which a schema-stale index can hold for a
+    # rebuild. A receipt must never wait on memory bookkeeping.
+    promotion = memory_promotion_message(task_id, verdict, review_class)
+    if promotion:
+        append_chrono_queue(promotion[0], f"{namespace}/{task_id}", promotion[1])
     return True
+
+
+def repair_promoted_envelope(task_id: str) -> bool:
+    """Re-render one task's landed outbox response as the canonical envelope.
+
+    Completes a promotion the output bridge started and lost: the bridge
+    publishes the return artifact first and the pin-carrying envelope last, so
+    a refusal between the two leaves the worker's own well-formed response at
+    the canonical outbox path WITHOUT the delivery pins ``landed_response``
+    requires -- present on disk, invisible to settlement, and auto-closed
+    ``blocked`` over finished work (measured 2026-08-18, ~a dozen tasks).
+
+    "Landed" deliberately keeps meaning *promoted through the trusted bridge*:
+    mere presence must never settle a task, because the pins are what stop a
+    worker (or any stray writer) from authoring its own settlement. This
+    repair preserves that property by construction -- every pin it writes is
+    taken from the task's own registry entry under the registry lock, never
+    from the file being repaired, and the file must sit at the task's one
+    canonical outbox path carrying that task's identity in its frontmatter.
+    A blocked stub does not parse as an envelope, so a genuinely failed task
+    cannot be "repaired" into a completion.
+
+    Chrono-explicit, like ``--settle-review``. A terminal ``blocked`` /
+    ``closed`` / ``superseded`` entry is reopened to ``needs_review`` so the
+    normal settlement paths (reconcile sweep, ``--settle-review``) apply.
+    Returns False when everything is already canonical (idempotent retry).
+    """
+
+    try:
+        import dispatch_context_builder as dcb
+    except ImportError as exc:  # pragma: no cover - co-located module
+        raise ValueError(f"dispatch_context_builder is unavailable: {exc}") from exc
+    with locked_registry() as _lock:
+        registry = load_registry()
+        entry = registry.get(task_id)
+        if not isinstance(entry, dict):
+            raise ValueError(f"unknown registry task: {task_id}")
+        if entry.get("dispatch_kind") == "swarm":
+            raise ValueError(f"swarm tasks settle through the frozen-bundle path: {task_id}")
+        current_status = str(entry.get("status") or "")
+        if current_status == "complete":
+            raise ValueError(f"task is already settled complete: {task_id}")
+        namespace = str(entry.get("compatibility_namespace") or "")
+        if namespace not in MAILBOX_NAMESPACES:
+            raise ValueError(f"task has no canonical mailbox namespace: {task_id}")
+        response_path = (
+            VAULT_ROOT / "departments" / namespace / "outbox" / f"{task_id}-response.md"
+        )
+        if response_path.is_symlink() or not response_path.is_file():
+            raise ValueError(f"task has no outbox response to repair: {task_id}")
+        attempt_id = str(entry.get("delivery_attempt_id") or "")
+        generation = entry.get("delivery_generation")
+        if (
+            not attempt_id
+            or isinstance(generation, bool)
+            or not isinstance(generation, int)
+            or generation < 1
+        ):
+            raise ValueError(f"task has no delivery fence to restore: {task_id}")
+        lane = dcb.MODEL_TO_LANE.get(_delivery_lane(entry), _delivery_lane(entry))
+        if lane not in dcb.LANE_TO_MODEL:
+            raise ValueError(f"task has no recognizable delivery lane: {task_id}")
+        raw_bytes = response_path.read_bytes()
+        try:
+            fields, summary = dcb._parse_response_envelope(raw_bytes)
+        except dcb.DispatchContextError as exc:
+            raise ValueError(f"outbox response is not a repairable envelope: {exc}") from exc
+        observed_id = fields.get("id", "").strip()
+        observed_target = fields.get("in_response_to", "").strip()
+        if (observed_target and observed_target != task_id) or (
+            observed_id and observed_id != f"{task_id}-response"
+        ):
+            raise ValueError(
+                "outbox response carries another task's identity: "
+                f"{observed_id or observed_target}"
+            )
+        echo: dict[str, str] = {
+            "delivery_attempt_id": attempt_id,
+            "delivery_generation": str(generation),
+        }
+        if entry.get("delivery_worker_id"):
+            echo.update(
+                {
+                    "delivery_worker_id": str(entry.get("delivery_worker_id") or ""),
+                    "worker_epoch": str(entry.get("worker_epoch") or ""),
+                    "lease_generation": str(int(entry.get("lease_generation") or 0)),
+                    "delivery_lane": _delivery_lane(entry),
+                }
+            )
+            for optional in ("replica_index", "member_id"):
+                if entry.get(optional) is not None:
+                    echo[optional] = str(entry[optional])
+        capability_pin = str(entry.get("capability_card_sha256") or "").strip()
+        if capability_pin:
+            echo["capability_card_sha256"] = capability_pin
+        try:
+            rendered = dcb._render_response_envelope(
+                task_id=task_id,
+                lane=lane,
+                result_relative=str(
+                    entry.get("return_artifact")
+                    or fields.get("return_artifact")
+                    or ""
+                ),
+                status=dcb._coerce_status(fields.get("status", "")),
+                summary=summary,
+                reconciliation_echo=dcb.validate_reconciliation_echo(echo),
+            )
+        except dcb.DispatchContextError as exc:
+            raise ValueError(f"cannot render a canonical envelope: {exc}") from exc
+        changed = False
+        if rendered != raw_bytes:
+            atomic_write(response_path, rendered.decode("utf-8"))
+            changed = True
+        now = datetime.now(timezone.utc)
+        if current_status in {"blocked", "closed", "superseded"}:
+            entry["envelope_repaired_from_status"] = current_status
+            entry["status"] = "needs_review"
+            entry["completed_at"] = None
+            entry["reconciled_at"] = None
+            changed = True
+        if changed:
+            entry["envelope_repaired_at"] = now.isoformat()
+            entry["envelope_repaired_by"] = "chrono-explicit"
+            atomic_write(
+                REGISTRY_PATH,
+                json.dumps(registry, indent=2, ensure_ascii=False) + "\n",
+            )
+            append_chrono_queue(
+                "ENVELOPE-REPAIRED",
+                f"{namespace}/{task_id}",
+                "canonical envelope re-rendered from registry pins; "
+                f"prior status={current_status or 'unknown'}",
+            )
+        return changed
 
 
 def reopen_task(task_id: str, target_status: str | None = None) -> bool:
@@ -3155,6 +3512,7 @@ def reconcile_swarm_parent(
     if parent.get("status") != controller_status or parent.get("swarm_frozen_members") != snapshot:
         parent["status"] = controller_status
         parent["mandatory_review"] = "true"
+        parent["review_triggers"] = ["adversarial_claim"]
         parent["swarm_frozen_members"] = snapshot
         parent["swarm_frozen_at"] = parent.get("swarm_frozen_at") or now.isoformat()
         parent["reconciled_at"] = now.isoformat()
@@ -3226,6 +3584,16 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                             f"review-required {task_id} -> terminal board receipt "
                             f"{raw_receipt_status} awaits {review_lane} review"
                         )
+                        events.append(
+                            (
+                                "REVIEW-REQUIRED",
+                                f"{namespace}/{task_id}",
+                                f"terminal board receipt {raw_receipt_status} awaits "
+                                f"{review_lane} review",
+                                f"REVIEW REQUIRED: {task_id} settled with board receipt "
+                                f"{raw_receipt_status} and awaits {review_lane} review.",
+                            )
+                        )
                     else:
                         auto_close_terminal_receipt(
                             task_id,
@@ -3238,6 +3606,15 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                         messages.append(
                             f"auto-closed {task_id} from terminal board receipt "
                             f"{raw_receipt_status}"
+                        )
+                        events.append(
+                            (
+                                "AUTO-CLOSED",
+                                f"{namespace}/{task_id}",
+                                f"auto-closed from terminal board receipt {raw_receipt_status}",
+                                f"AUTO-CLOSED: {task_id} closed from terminal board receipt "
+                                f"{raw_receipt_status}.",
+                            )
                         )
                     changed += 1
                     continue
@@ -3512,6 +3889,16 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                     continue
                 if current_status == SETTLED_WITHOUT_ENVELOPE:
                     raw_entry["prior_missing_envelope_status"] = current_status
+                if status == "complete":
+                    # This is the intended settlement path for ordinary work:
+                    # the author's own verified response closes automatically
+                    # only after the trigger contract says no review is owed.
+                    raw_entry["review_disposition"] = (
+                        "read-only-verdict-exemption"
+                        if str(raw_entry.get("mandatory_review", "")).strip().lower()
+                        == "true"
+                        else "not-required"
+                    )
                 raw_entry["status"] = status
                 if schema == "v2":
                     *_, receipt_completed_at = terminal_board_receipt(
@@ -3808,6 +4195,7 @@ def main() -> int:
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--reopen")
     parser.add_argument("--reopen-status", choices=("needs_review", "needs_rework"))
+    parser.add_argument("--repair-envelope", metavar="TASK_ID")
     # `action="extend"` is load-bearing, not cosmetic: with plain `nargs="+"`
     # argparse OVERWRITES on a repeated flag, so `--close-task A --close-task B`
     # silently discarded A and closed only B while reporting success. Both the
@@ -3837,10 +4225,19 @@ def main() -> int:
     if bool(args.settle_review) != bool(args.review_ref):
         parser.error("--settle-review and --review-ref must be used together")
     lifecycle_actions = sum(
-        bool(value) for value in (args.settle_review, args.reopen, args.close_task)
+        bool(value)
+        for value in (
+            args.settle_review,
+            args.reopen,
+            args.close_task,
+            args.repair_envelope,
+        )
     )
     if lifecycle_actions > 1:
-        parser.error("--settle-review, --reopen, and --close-task are mutually exclusive")
+        parser.error(
+            "--settle-review, --reopen, --close-task, and --repair-envelope "
+            "are mutually exclusive"
+        )
     if args.force and not args.settle_review:
         parser.error("--force is valid only with --settle-review")
     if args.reopen_status and not args.reopen:
@@ -3855,6 +4252,7 @@ def main() -> int:
         or args.settle_review
         or args.reopen
         or args.close_task
+        or args.repair_envelope
         or args.task_id
         or args.dry_run
     ):
@@ -3947,6 +4345,19 @@ def main() -> int:
             parser.error(str(exc))
         outcome = "settled" if changed else "already-settled"
         print(f"registry-reconciler review: {outcome} task={args.settle_review}")
+        return 0
+    if args.repair_envelope:
+        if args.dry_run or args.task_id:
+            parser.error("--repair-envelope cannot be combined with --task-id or --dry-run")
+        try:
+            changed = repair_promoted_envelope(args.repair_envelope)
+        except RegistryCorruptError as exc:
+            print(f"registry-reconciler ERROR: {exc}", file=sys.stderr)
+            return 2
+        except ValueError as exc:
+            parser.error(str(exc))
+        outcome = "repaired" if changed else "already-canonical"
+        print(f"registry-reconciler repair: {outcome} task={args.repair_envelope}")
         return 0
     if args.reopen:
         if args.dry_run or args.task_id:

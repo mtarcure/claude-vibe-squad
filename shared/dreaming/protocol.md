@@ -94,7 +94,7 @@ sentences. They are strict on purpose.
 ## 5. Journal format — write exactly these headings
 
 The journal is not free-form. The `## 💭 Dream insights` block of
-`bin/morning-brief.sh` (`:208-225`) parses it: it lifts
+`bin/morning-brief.sh` (`:106-124`) parses it: it lifts
 everything under `## Notable Patterns` into the morning brief and reads the
 single line **after** `## Verdict`. Rename or reorder those two headings and the
 brief silently shows nothing.

@@ -59,6 +59,7 @@ EXPECTED_LIVE = {
 # line is not a task line), so the fixture's blocked task must appear too.
 EXPECTED_DEFERRED = {"TASK-2026-08-05-0006-foxtrot"}
 DEFERRED_OMITTED = re.compile(r"\(\+(\d+) more deferred")
+PENDING_OMITTED = re.compile(r"\((\d+) group\(s\) omitted for the token bound")
 
 
 class TestResumeCanary(unittest.TestCase):
@@ -69,6 +70,10 @@ class TestResumeCanary(unittest.TestCase):
             compaction.SNAP_DIR = base / "snap"
             registry.TASKS_DIR = base / "tasks"
             registry.LIVE_REGISTRY = base / "active-tasks.json"
+            # Isolation (fix round 2): without this, pending_completions() reads
+            # this HOST's real _state/chrono-queue.md — a path that doesn't exist
+            # under `base` returns [], matching this test's fixture reality.
+            resume.QUEUE_PATH = base / "chrono-queue.md"
             (base / "tasks").mkdir()
             (base / "tasks" / "active.json").write_text(
                 '[{"id": "TASK-9", "state": "blocked", "next_action": "retry phase 2"}]'
@@ -123,12 +128,21 @@ class CapsuleFreshnessCanary(unittest.TestCase):
             (registry, "TASKS_DIR", self.base / "tasks"),
             (decisions, "DECISIONS_FILE", self.base / "decisions.jsonl"),
             (resume, "CAPSULE_PATH", self.capsule),
+            # Isolation (fix round 2): the queue path defaults to a nonexistent
+            # file under `self.base`, so every test in this class gets pending=[]
+            # (i.e. no dependency on this HOST's real chrono-queue.md) unless it
+            # explicitly opts in via write_queue().
+            (resume, "QUEUE_PATH", self.base / "chrono-queue.md"),
         ):
             self.addCleanup(setattr, module, attr, getattr(module, attr))
             setattr(module, attr, value)
 
     def write_registry(self, payload):
         registry.LIVE_REGISTRY.write_text(json.dumps(payload))
+
+    def write_queue(self, lines):
+        resume.QUEUE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        resume.QUEUE_PATH.write_text("\n".join(lines) + "\n")
 
     def capsule_task_ids(self):
         return set(TASK_REF.findall(self.capsule.read_text()))
@@ -265,8 +279,8 @@ class CapsuleFreshnessCanary(unittest.TestCase):
         through the production writer. Expectations are written out by hand,
         not derived from the code under test.
         """
+        needs_human = "TASK-2026-08-05-0301-hotel"
         expected = {
-            "TASK-2026-08-05-0301-hotel": ("needs_human", "operator decision"),
             "TASK-2026-08-05-0302-india": ("needs_rework", "rework and redispatch"),
             "TASK-2026-08-05-0303-juliet": ("needs_rework", "rework and redispatch"),
             "TASK-2026-08-05-0304-kilo": ("timed_out", "investigate timeout"),
@@ -278,7 +292,10 @@ class CapsuleFreshnessCanary(unittest.TestCase):
             "TASK-2026-08-05-0307-nova": ("needs_review", "settle review"),
         }
         self.write_registry(
-            {tid: {"status": status} for tid, (status, _) in expected.items()}
+            {
+                **{tid: {"status": status} for tid, (status, _) in expected.items()},
+                needs_human: {"status": "needs_human"},
+            }
         )
         resume.write_capsule("sess-1", "regenerate")
         text = self.capsule.read_text()
@@ -287,11 +304,31 @@ class CapsuleFreshnessCanary(unittest.TestCase):
         for tid, (status, action) in expected.items():
             with self.subTest(task=tid):
                 line = next(
-                    (l for l in section.splitlines() if f"[{tid}]" in l), None
+                    (row for row in section.splitlines() if f"[{tid}]" in row), None
                 )
                 self.assertIsNotNone(line, f"{tid} is not itemised")
                 self.assertIn(status, line)
                 self.assertIn(action, line)
+        attention = text.split(resume.THREAD_HEADING, 1)[1].split("\n## ", 1)[0]
+        self.assertIn(f"[{needs_human}]", attention)
+        self.assertIn("NEEDS HUMAN", attention)
+        self.assertNotIn(f"[{needs_human}]", section)
+
+    def test_needs_human_is_pinned_above_a_deep_deferred_queue(self):
+        """Queue depth may compress routine work, never the operator question."""
+        urgent = "TASK-2026-08-14-0810-leak-audit"
+        routine = {
+            f"TASK-2026-08-05-{index:04d}-routine": {"status": "needs_review"}
+            for index in range(240)
+        }
+        self.write_registry({**routine, urgent: {"status": "needs_human"}})
+
+        resume.write_capsule("sess-1", "regenerate", max_tokens=220)
+        text = self.capsule.read_text()
+        attention = text.split(resume.THREAD_HEADING, 1)[1].split("\n## ", 1)[0]
+        self.assertIn(f"[{urgent}]", attention)
+        self.assertIn("NEEDS HUMAN: operator decision", attention)
+        self.assertRegex(text, DEFERRED_OMITTED)
 
     def test_deferred_drops_under_the_bound_are_declared(self):
         """The bound may bite the deferred list too — never silently.
@@ -316,6 +353,53 @@ class CapsuleFreshnessCanary(unittest.TestCase):
             declared, "deferred tasks were dropped without declaring it"
         )
         self.assertEqual(len(shown) + int(declared.group(1)), len(many))
+
+    def test_pending_drops_under_the_bound_are_declared(self):
+        """The bound may bite the pending-completions section too — never silently.
+
+        Fix round 2 controller ruling: unlike the pre-fix behaviour (a silent
+        drop indistinguishable from an empty queue), a collapsed pending
+        section must always declare what it dropped — the same contract live
+        and deferred already keep.
+        """
+        self.write_registry({})
+        self.write_queue(
+            [
+                f"2026-08-16T00:{i:02d}:00Z | needs_review | ns{i}/TASK-{i} | "
+                + ("x" * 40)
+                for i in range(40)
+            ]
+        )
+        resume.write_capsule("sess-1", "regenerate", max_tokens=150)
+
+        text = self.capsule.read_text()
+        self.assertLessEqual(len(text) // 4, 150)
+        self.assertIn(
+            resume.QUEUE_HEADING, text, "pending heading must not vanish silently"
+        )
+        declared = PENDING_OMITTED.search(text)
+        self.assertIsNotNone(
+            declared, "pending groups were dropped without declaring it"
+        )
+        self.assertEqual(int(declared.group(1)), 40)
+
+    def test_pending_renders_in_full_when_it_fits(self):
+        """The positive control for the round-1 fix: pending is not dead code."""
+        self.write_registry({})
+        self.write_queue(
+            [
+                "2026-08-16T00:00:00Z | needs_review | coding/TASK-1 | a",
+                "2026-08-16T00:01:00Z | needs_review | coding/TASK-2 | b",
+            ]
+        )
+        resume.write_capsule("sess-1", "regenerate")  # real 3000-token budget
+
+        text = self.capsule.read_text()
+        self.assertIn(resume.QUEUE_HEADING, text)
+        self.assertIn("- 2 x coding | needs_review", text)
+        self.assertIsNone(
+            PENDING_OMITTED.search(text), "nothing should be declared omitted"
+        )
 
     def test_an_unknown_status_is_loud_through_the_production_writer(self):
         """The 0210 review's positive control: write_capsule itself must be loud.

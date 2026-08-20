@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import tempfile
 import unittest
@@ -45,7 +46,11 @@ class DoctorLogRelocationTests(unittest.TestCase):
             self.assertTrue(report.is_file(), diagnostic)
             report_text = report.read_text(encoding="utf-8")
             self.assertIn(f"# Doctor Report — {today}", report_text)
-            self.assertIn("Runtime repository not accessible", report_text)
+            # Plan D Task 6 split the single "not accessible" line into the
+            # three states it conflated -- not a directory, not writable, and
+            # writable-but-refusing -- because only the last needs a probe. A
+            # VAULT_ROOT that does not exist is the first of those.
+            self.assertIn("Runtime repository is not a directory", report_text)
             self.assertTrue(summary.is_file(), diagnostic)
             summary_text = summary.read_text(encoding="utf-8")
             self.assertIn(f'"date": "{today}"', summary_text)
@@ -86,14 +91,33 @@ class DoctorLogRelocationTests(unittest.TestCase):
         consumers = (
             "launch-squad.sh",
             "chrono-status-segment.sh",
+            "doctor-state.sh",
             "morning-brief.sh",
+            "vs-lane-status.sh",
             "where-are-we.sh",
         )
         for name in consumers:
             with self.subTest(name=name):
-                text = (ROOT / "bin" / name).read_text(encoding="utf-8")
+                text = self._with_sourced_libraries(ROOT / "bin" / name)
                 self.assertIn("CHRONO_DOCTOR_LOG_DIR", text)
                 self.assertNotIn('${VAULT_ROOT}/_state/doctor-logs', text)
+
+    @staticmethod
+    def _with_sourced_libraries(path: Path) -> str:
+        """A consumer's own text plus that of the bin/ libraries it sources.
+
+        A consumer satisfies this invariant by reaching the durable home, not by
+        naming a variable: bin/chrono-status-segment.sh gets there through
+        bin/doctor-state.sh. Following one hop keeps the check honest either way
+        -- if the library stopped using CHRONO_DOCTOR_LOG_DIR, every consumer
+        that sources it fails here.
+        """
+        text = path.read_text(encoding="utf-8")
+        for name in re.findall(r'source\s+"\$\{VAULT_ROOT\}/bin/([A-Za-z0-9._-]+)"', text):
+            library = ROOT / "bin" / name
+            if library.is_file():
+                text += "\n" + library.read_text(encoding="utf-8")
+        return text
         morning_brief = (ROOT / "bin" / "morning-brief.sh").read_text(
             encoding="utf-8"
         )

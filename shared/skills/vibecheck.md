@@ -13,10 +13,10 @@ is individually small and each erodes the trust that makes the next completion c
 
 Run it when the work is finished and *before* the completion message is written.
 
-## Relationship to the claim-evidence skills
-Vibecheck does **not** re-do claim verification. `verification-before-completion` owns running the
-falsifying checks and pairing evidence to claims; `claim-validation-gate` owns classifying each assertion
-as observed, derived, or asserted. Check C1 below confirms that work *happened*; it does not repeat it.
+## Relationship to claim-evidence work
+Vibecheck does **not** re-do claim verification. Run every falsifying check after the last edit and pair
+its evidence to the corresponding claim; `claim-verification` owns decomposing load-bearing claims and
+mapping each to exact evidence. Check C1 below confirms that work *happened*; it does not repeat it.
 
 The checks unique to this skill are the behavioural ones — C2 through C9. That is where its value is.
 
@@ -24,8 +24,8 @@ The checks unique to this skill are the behavioural ones — C2 through C9. That
 
 **C1 — no false done.** The summary must not claim verification that did not occur. If it says tests
 pass, a validator is green, or something works, the corresponding output must have been run and read this
-session, after the last edit. Delegate the detail to `verification-before-completion`; here, simply
-confirm it was done.
+session, after the last edit. Confirm the falsifying checks ran after the last edit and their evidence is
+paired to those claims; do not repeat the checks here.
 
 **C2 — leftover artifacts are detected and reported, not silently removed.** Scan for scratch files,
 temp scripts, debug output, commented-out experiments, and one-off helpers left in the tree, and

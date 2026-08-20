@@ -121,6 +121,11 @@ flow note under Gates.
 | 6 | Local deliver | `technical-writer`, `devops-engineer` — local package/report only in v1 |
 | 7 | Record / clean | `memory-curator` + `chrono-vault` |
 
+**Phase 6 missing-standard-files trigger:** when Local deliver begins and the verified repository lacks
+`README.md`, `CHANGELOG.md`, `LICENSE`, or its agent-context file, load `auto-scaffold` before handoff.
+It may create only the operator-approved missing files, never overwrite an existing file, and never choose
+a license by default; an unanswered license choice remains an explicitly reported outstanding item.
+
 ## Profile family notes (what each folded family adds)
 
 - **Content / media (Phase 3 asset routing):** dispatch the real media specialist for the deliverable —

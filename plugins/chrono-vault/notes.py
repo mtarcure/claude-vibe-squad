@@ -55,6 +55,7 @@ FRONTMATTER_FIELDS = (
     "source_artifact_hash",
     "created_at",
     "updated_at",
+    "verified_at",
     "valid_from",
     "valid_to",
     "supersedes",
@@ -65,8 +66,18 @@ FRONTMATTER_FIELDS = (
     "revision",
 )
 IGNORED_LOCATION_FIELDS = frozenset({"id", "path", "dest"})
+# Stamped by the promotion handler when a note reaches `verified`, never
+# supplied by a writer: a note cannot be born carrying the timestamp of a
+# review it has not had. `promotion_throughput` in
+# `scripts/python/memory_metrics.py` counts on this being a real promotion
+# time -- it deliberately refuses to fall back to file `mtime`, which every
+# reindex resets and which once reported 99 promotions on a vault where
+# promotion had never run.
+DERIVED_FIELDS = frozenset({"verified_at"})
 ALLOWED_INPUT_FIELDS = (
-    frozenset(FRONTMATTER_FIELDS) | IGNORED_LOCATION_FIELDS | frozenset({"body"})
+    (frozenset(FRONTMATTER_FIELDS) - DERIVED_FIELDS)
+    | IGNORED_LOCATION_FIELDS
+    | frozenset({"body"})
 )
 
 
@@ -110,7 +121,10 @@ def _refresh_content_ref(note: dict[str, Any]) -> None:
     hash_payload = {
         key: note[key]
         for key in (*FRONTMATTER_FIELDS, "body")
-        if key not in {"id", "created_at", "updated_at", "revision"}
+        # `verified_at` joins the other bookkeeping fields: a content ref
+        # that moved when a note was promoted would say the text changed
+        # when only its lifecycle did.
+        if key not in {"id", "created_at", "updated_at", "verified_at", "revision"}
     }
     digest = hashlib.sha256(
         json.dumps(
@@ -204,6 +218,10 @@ def _normalize(note_type: str, fields: dict[str, Any]) -> dict[str, Any]:
         ),
         "created_at": created_at,
         "updated_at": updated_at,
+        # A note recorded straight to `verified` reached that status now.
+        # Anything else has no promotion time yet, and null is the honest
+        # way to say so -- see DERIVED_FIELDS.
+        "verified_at": updated_at if status == "verified" else None,
         "valid_from": _optional_string(fields.get("valid_from"), "valid_from"),
         "valid_to": None,
         "supersedes": _string_list(fields.get("supersedes", []), "supersedes"),

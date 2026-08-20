@@ -78,13 +78,17 @@ Layer 3: SPECIALIST (this file)
 
 ## Typed v1 checks and support boundary
 
+**Canonical: `shared/lifecycle.md` rule 14.** That section is the one home for the contract, the support boundary, and the exit tiers; the operating summary below exists so this brief is usable standalone. If the two ever disagree, rule 14 wins and this summary is the bug — fix it there first.
+
 The executable derives requirements from the dispatcher-pinned `verification-contract/v1`. Common typed checks validate registry → packet → manifest trust anchors, ordered S0–S7 records, required verification coverage, memory bookends, independent review bindings, current artifact/gate hashes, complete actions, I-loop invalidation, and local-only delivery.
 
 Project adds real tests, git state, test coverage for new code, and destructive-action checks. Bounty adds deterministic target allowlisting, scope evidence, no-self-inflicted proof, normal-finding CVSS/cross-family reproduction or dry-run KILL evidence, and literal no-submit proof.
 
-Only Project and Bounty are supported in v1. Content, Research, Incident, Maintenance, Outreach, and Triage return `typed_profile_unsupported` / `OPERATOR=3`; unknown modes return `unknown_mode` / `OPERATOR=3`.
+There are exactly two modes, Project and Bounty (`shared/modes/`), and v1 types both. The retired domain-mode names — Content, Research, Incident, Maintenance, Outreach, Triage — are not enterable modes; a packet still carrying one is a legacy packet, and it returns `typed_profile_unsupported` / `OPERATOR=3` so it stops as a named failure rather than an anonymous `unknown_mode` / `OPERATOR=3`.
 
 ## Exact executable tiers
+
+Restated from `shared/lifecycle.md` rule 14 for use at the bench; rule 14 is canonical.
 
 - **OK=0** — all blocking checks pass. HTTP link-liveness warnings are advisories and remain OK.
 - **AUTOFIX=1** — only when the checker actually performed a meaning-preserving mechanical repair and set `auto_fixed`; v1 currently adds no hidden repair.

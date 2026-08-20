@@ -16,8 +16,8 @@
 #   squad help      — show this help
 #
 # The launchd daemon is OPTIONAL. `squad up` runs without one; it adds the live
-# daemon segment in the status bar and the weekly-review summary, and nothing
-# else. Add it whenever you want it, or never:
+# daemon segment in the status bar and the documented HTTP tool bridge, and
+# nothing else. Add it whenever you want it, or never:
 #   bash bin/install-routines.sh --daemon-only
 
 set -uo pipefail
@@ -115,7 +115,10 @@ case "${cmd}" in
         bash "${VAULT_ROOT}/bin/where-are-we.sh"
         ;;
     doctor|check|health)
-        bash "${VAULT_ROOT}/bin/doctor.sh"
+        # Arguments pass through so `squad doctor --deep` reaches the mode flag.
+        # Without this the deep mode was reachable only by naming the script
+        # path, while every doc tells the reader to use `squad doctor`.
+        bash "${VAULT_ROOT}/bin/doctor.sh" "${@:2}"
         ;;
     mcp-audit)
         bash "${VAULT_ROOT}/bin/mcp-audit.sh"
