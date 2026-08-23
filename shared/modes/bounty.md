@@ -211,8 +211,33 @@ model families, max-effort profiles, executable primitives, cross-family adversa
 (`docs/proposals/2026-08-05-why-we-find-nothing.md`) traced it past hunt quality to what we agreed to
 hunt in the first place.
 
-**Write a one-page admission receipt before dispatching more than two reconnaissance lanes.** A full
-campaign needs every limb below answered, or an explicit operator override recorded with its reason.
+**Write a one-page admission receipt before dispatching more than two reconnaissance lanes.**
+
+**What admission produces is the scope, the rules and the payout bar — written down. That is the
+deliverable.** The limbs below are the questions that receipt answers; the stop condition is a
+separate, much narrower test applied to the answers.
+
+**"Answered" includes "not yet known."** A limb whose answer is *unknown until we read the code or
+the chain* is answered by saying exactly that and naming which phase resolves it. **An unresolved
+limb is Phase 1 work, never a reason to refuse.** Nothing here rejects a target except the four-limb
+conjunction in the stop condition, and that conjunction requires all four to be *established* — not
+merely unproven.
+
+Measured 2026-08-22, on the very next campaign after this section was written: Chrono ran admission
+on a fresh program, found three limbs unresolved and one confirmed, and recommended **not entering**
+— inventing a blocker out of an unauthenticated 404 and a program-side "KYC required" label, neither
+of which measures our own access. That is v2 rebuilt inside Phase 0: the checklist reading of "every
+limb answered" collided with the conjunction and the checklist won. The operator had to say *"you're
+over-complicating Phase 0."*
+
+So the two failure directions, named:
+
+- **Entering blind** — 38 lanes against a target whose stop condition matched on all four limbs,
+  because the mode file was never opened.
+- **Refusing on incomplete information** — declining a live program because Phase 1 questions were
+  still Phase 1 questions.
+
+The receipt exists to prevent the first. It must not be used to commit the second.
 
 1. **Deployment identity resolves.** You can name the exact live instance you are authorized against —
    host and build, repository and commit, deployed address, binary hash, model and version, whichever
@@ -536,6 +561,26 @@ describe where we already looked?** The first is enablement. The second is the b
   `experimental-attacker` lanes bound to different model families** — one kimi-pure cold-discovery
   lane governed by the packet blindness rule, one on `claude.fable.max` for invention.
 
+- **Approach it as a USER before you approach it as an ATTACKER.** These are different frames and
+  they find different things, so run both rather than collapsing to the second.
+
+  The **user** frame asks what the system is *for*: walk the intended flows end to end, deposit,
+  withdraw, transfer, upgrade, and ask at each step what a normal participant reasonably expects to
+  be true. Bugs surface here as *broken promises* — a balance that does not settle, a withdrawal
+  that rounds against you, a state the docs say is reachable and is not. This frame needs no
+  cleverness and is the one that finds the flaw a real user would eventually hit, which is exactly
+  the flaw that pays under an impact bar written in terms of end-user funds.
+
+  The **attacker** frame asks what the system will *tolerate*: the unintended sequence, the
+  reentrant call, the skipped precondition, the escalation into a privileged entity. It starts from
+  the terminus and searches backwards for a path.
+
+  **A hunt that only runs the attacker frame misses the boring bug**, and the boring bug is often
+  the one that clears the magnitude gate, because it affects every user rather than requiring a
+  contrived setup. Run the user frame first: it is cheaper, it builds the mental model the attacker
+  frame needs, and its output is a list of promises whose violation is already denominated in the
+  program's own impact language.
+
   **Dispatch the specialist you want and pass the model as a parameter.** `to_model` selects the
   lane and the runtime map's matching route supplies the profile; a lane absent from all four route
   columns is not dispatchable at all. Never substitute a persona-specialist (`fable`, `sol`) to
@@ -652,7 +697,39 @@ Two things are easy to mistake for this phase, and neither is:
 - **Skeptic pass** — `skeptic` verifies *soundness*, not just results: harness errors, mocks that
   diverge from the real implementation, flaky oracles, and prior art. This is the one adversarial step
   that belongs here, because by now there is something real to be adversarial about.
+- **`impact-validator` runs G1–G4 — and this is the ONLY place a candidate may be killed.**
+  Everything before Phase 5 banks; Phase 5 adjudicates. `impact-validator` owns G1–G4, program fit,
+  dedup, self-inflicted screening, payability and severity, and it scores CVSS **once**, at the
+  candidate→finding transition. A hunting lane may *propose* `refuted`; the proposal does not remove
+  ground until a gate sustains it. Measured 2026-08-05: a lane proposed **21** refutations and
+  cross-family review sustained **zero** — every citation was a `file:line` pointer rather than a
+  quoted guard.
+
+  This bullet exists because the gate had no home. G1–G4 was named in the preamble, in a Phase 2
+  cautionary example and in Phase 7, and the retrospective list even says it is "retained as a
+  submission checklist in Phase 5" — while Phase 5 itself never mentioned it. A gate nobody can find
+  in the phase that owns it is a gate that leaks: its judgment migrates backwards into hunting,
+  where lanes exclude their own results on scope grounds and Chrono narrates payability during
+  Phase 3. Both are doing a Phase 5 job without a Phase 5 evidence set.
+
+  **Do not pull it forward.** A candidate adjudicated before chaining is adjudicated against an
+  evidence set Phase 4 will change.
+
 Phase 5 ends with a candidate that is reproduced, measured and sound — **not** with a written report.
+
+**If NOTHING clears Phase 5, the campaign does not end here — it goes straight to Phase 7.** Zero
+findings is the ordinary result of a bounty campaign, not an error state, and it is the exit this
+mode kept losing: with no report to package, Phase 6 has nothing to do, so the sequence 5 → 6 → 7
+simply stops at 5 and teardown is never reached. Measured 2026-08-22 — a campaign whose three
+candidates were all refuted at the impact bar sat two days with no outcome recorded and 140 MB of
+target clones still on disk, because nothing in this file said where a dead campaign goes.
+
+So the routing is explicit:
+
+- **Some candidate cleared** → Phase 6, package and hand to the operator for the submit gate.
+- **Nothing cleared** → **skip Phase 6 entirely and run Phase 7**, recording the outcome as a KILL.
+
+Phase 6 is skippable. **Phase 7 is not.** Every campaign reaches teardown by one route or the other.
 
 ## Phase 6 — PACKAGE & OPERATOR-GATE (Chrono · `technical-writer` · `vibecoding-check`)
 
@@ -678,7 +755,40 @@ a claim needs revising, it goes back to Phase 5.
 
 ## Phase 7 — TEARDOWN (Chrono)
 
-Runs only after the operator closes the program **and every lane is terminal**.
+Runs once every lane is terminal **and the campaign has an outcome recorded**.
+
+**Phase 7 needs the operator's explicit go, exactly like the submit gate does.** Chrono proposes the
+outcome and the prune list; the operator approves both. Two reasons, and the second is the one that
+bites:
+
+1. Teardown **deletes** — target clones, build output, caches. That is irreversible on a live
+   program and belongs to the operator by the same rule that holds the final Submit click.
+2. **Declaring a campaign dead is a verdict, and verdicts are not Chrono's.** `chrono/CLAUDE.md`
+   § Adjudication Is Not Yours exists because Chrono is the one role that sees every lane's caveats
+   at once and compounds them into a kill no single lane reached. A KILL that Chrono both decides
+   and executes is that failure with the evidence deleted immediately afterwards.
+
+So: present the outcome, the candidates and the gate each died at, what would have to change to
+re-enter, and what you propose to prune — then wait. An operator who disagrees may want another
+angle hunted, and that conversation is impossible once the clones are gone.
+
+**A campaign has exactly two exits, and both are closes:**
+
+- **SUBMITTED** — one or more findings cleared Phase 5 and the operator made the final submit.
+- **KILLED** — no candidate became a finding, or the operator stopped the campaign. **This is a
+  result, not an abandonment.**
+
+**A kill is the common exit and it is the one that gets skipped.** Reaching Phase 5 and hearing
+`no-submit` feels like the campaign merely ran out, so nothing closes: no outcome is written, the
+charter stays open, and the target clones sit on disk. Measured 2026-08-22 — a campaign that
+finished Phase 5 with three refuted candidates was still holding **140 MB** of clones two days
+later, with no kill recorded anywhere, and the operator had to ask for it.
+
+So before pruning anything, **write the outcome down**: which exit, which candidates died at which
+gate with the quoted guard, what stays banked, and what would have to be different to re-enter.
+That record is the campaign's only durable product when the answer is zero, and it is what stops
+the same target being re-hunted on a hunch. Move the thread charter out of `active/` in the same
+step — an open charter for a finished campaign is the drift this mode's Phase 0 exists to prevent.
 
 **Verify no artifact is unpromoted before pruning anything** — a `blocked` task never promotes its
 own, and a naive prune once destroyed a 577-line artifact. Then prune board worktrees, truncate

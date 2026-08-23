@@ -61,7 +61,10 @@ Max-plan `claude` binary is structurally unreachable regardless of PATH.
 from __future__ import annotations
 
 import contextlib
+import json
 import os
+import re
+import shutil
 import signal
 import subprocess
 import tempfile
@@ -72,6 +75,53 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
 LAUNCH_SQUAD = REPO / "bin" / "launch-squad.sh"
+LAUNCH_DEPENDENCIES = REPO / "shared" / "launch-dependencies.sh"
+
+# `rsync` copies the isolated VAULT_ROOT and `bash` runs the launcher: harness
+# dependencies, not launcher ones, so they are named separately from the list
+# below and reported separately when missing.
+HARNESS_COMMANDS = ("rsync", "bash")
+
+
+def _launcher_required_commands() -> tuple[str, ...]:
+    """Read SQUAD_REQUIRED_COMMANDS out of the launcher's own dependency file.
+
+    Parsed rather than copied (CLAUDE.md rule 10). bin/launch-squad.sh REFUSES
+    to start when any of these is absent, so a host without them cannot reach
+    a single line this file asserts about -- and a second, drifting copy of the
+    list here would eventually gate on the wrong set.
+    """
+    source = LAUNCH_DEPENDENCIES.read_text(encoding="utf-8")
+    match = re.search(r"^SQUAD_REQUIRED_COMMANDS=\(([^)]*)\)", source, re.MULTILINE)
+    if match is None:
+        raise AssertionError(
+            f"{LAUNCH_DEPENDENCIES} no longer declares SQUAD_REQUIRED_COMMANDS=(...); "
+            "the skip guard below would gate on an empty list and silently run "
+            "these tests on a host that cannot launch."
+        )
+    commands = tuple(match.group(1).split())
+    if not commands:
+        raise AssertionError(
+            f"{LAUNCH_DEPENDENCIES} declares an empty SQUAD_REQUIRED_COMMANDS"
+        )
+    return commands
+
+
+def _missing_launch_prerequisites() -> list[str]:
+    missing = [
+        f"{name} (launcher)"
+        for name in _launcher_required_commands()
+        if shutil.which(name) is None
+    ]
+    missing += [
+        f"{name} (harness)"
+        for name in HARNESS_COMMANDS
+        if shutil.which(name) is None
+    ]
+    return missing
+
+
+MISSING_LAUNCH_PREREQUISITES = _missing_launch_prerequisites()
 
 # Large, irrelevant to launch-squad.sh's own logic, or (departments/) freshly
 # recreated by the launcher itself for every namespace via `mkdir -p`, so the
@@ -128,6 +178,38 @@ def _make_claude_stub_home(dest: Path, marker_file: Path) -> Path:
     return dest
 
 
+def _make_isolated_chrono_vault(dest: Path) -> Path:
+    """A throwaway private vault root that satisfies the launcher's own gate.
+
+    bin/launch-squad.sh runs `doctor.sh --check-private-vault-root` before it
+    does anything else, which is plugins/chrono-vault/vaultroot.py's
+    resolve_vault_root(): an absolute existing directory, outside every public
+    worktree, holding a `.chrono-vault` sentinel with a non-empty vault_id and
+    a positive integer schema_version. Nothing more -- no index, no venv.
+
+    This used to be `Path.home() / "Obsidian-Chrono"`, the operator's REAL
+    private vault. That was the one hole left in an isolation harness whose
+    module docstring is otherwise entirely about not reaching live state, and
+    it made the launcher's first gate depend on a directory that exists on
+    exactly one machine: on any host without it (every Linux CI runner) all
+    seven tests below died at that gate having asserted nothing.
+    """
+    dest.mkdir(parents=True, exist_ok=True)
+    (dest / ".chrono-vault").write_text(
+        json.dumps({"vault_id": f"test-launch-{uuid.uuid4().hex[:12]}",
+                    "schema_version": 1}),
+        encoding="utf-8",
+    )
+    return dest
+
+
+@unittest.skipIf(
+    MISSING_LAUNCH_PREREQUISITES,
+    "bin/launch-squad.sh refuses to start without every command in "
+    "shared/launch-dependencies.sh, so it never reaches the behaviour these "
+    "tests assert about. Missing here: "
+    + ", ".join(MISSING_LAUNCH_PREREQUISITES),
+)
 class _IsolatedLaunchTestCase(unittest.TestCase):
     """Shared isolation harness for anything that invokes the real
     bin/launch-squad.sh -- see module docstring SAFETY section for why every
@@ -161,6 +243,8 @@ class _IsolatedLaunchTestCase(unittest.TestCase):
         self.status_dir.mkdir(parents=True, exist_ok=True)
         self.addCleanup(self._kill_isolated_status_poller)
 
+        self.chrono_vault_root = _make_isolated_chrono_vault(tmp / "chrono-vault")
+
         real_home = Path.home()
         self.env = {
             **os.environ,
@@ -172,7 +256,7 @@ class _IsolatedLaunchTestCase(unittest.TestCase):
             "SQUAD_SKIP_DOCTOR": "1",
             # See module docstring SAFETY section: never omit this.
             "SQUAD_SKIP_WATCHER_FLEET": "1",
-            "CHRONO_VAULT_ROOT": str(real_home / "Obsidian-Chrono"),
+            "CHRONO_VAULT_ROOT": str(self.chrono_vault_root),
             "SQUAD_LAUNCHAGENTS_DIR": str(real_home / "Library" / "LaunchAgents"),
             "CLAUDE_STUB_MARKER": str(self.marker_file),
         }

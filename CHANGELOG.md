@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+_Nothing yet._
+
+## v1.1.2
+
+The board-native release (`git tag v1.1.2`, 2026-08-22). Everything below shipped on top of v1.1.1, whose own
+entry follows and is kept as the May marker it was.
+
 - Kept Chrono as the single operator-facing coordinator while moving specialist work to fresh native Claude, Codex, Gemini, or Kimi CLI processes in isolated worktrees.
 - Kept all 68 Markdown specialist briefs and exactly two workflows: Project and Bounty.
 - Added exact process/receipt identity checks and artifact-first, envelope-last settlement so stale or partial work cannot appear complete.

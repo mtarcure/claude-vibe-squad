@@ -18,10 +18,18 @@ class FlashSummarizer:
     async def summarize(self, text: str, instructions: Optional[str] = None) -> str:
         """Summarize text using Flash model."""
         prompt = (instructions or "Summarize concisely with structure.") + "\n\n" + text
-        url = f"{GEMINI_API}/models/{self.model}:generateContent?key={self.key}"
+        # The key goes in a HEADER, never the query string. httpx puts the
+        # request URL into HTTPStatusError's message, and the caller in
+        # routes/summarize.py catches only the constructor's RuntimeError -- so
+        # with `?key=` an ordinary upstream 429 or 4xx raised a live credential
+        # into the exception text, and from there into whatever collects daemon
+        # stderr. Header transport is what Google documents and keeps the secret
+        # out of the URL that error paths echo.
+        url = f"{GEMINI_API}/models/{self.model}:generateContent"
         async with httpx.AsyncClient() as client:
             resp = await client.post(
                 url,
+                headers={"x-goog-api-key": self.key},
                 json={
                     "contents": [{"parts": [{"text": prompt}]}],
                 },

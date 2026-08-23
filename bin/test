@@ -524,6 +524,7 @@ suite_inventory_rows() {
     cat <<'ROWS'
 ^scripts/python/tests/orphan_supervisor_leak_test\.py$|bin-test|scripts/python/tests/orphan_supervisor_leak_test.py|Invoked by path, because the -p 'test_*.py' discovery pattern does not match a *_test.py name.
 ^scripts/python/tests/test_[^/]+\.py$|bin-test|-s scripts/python/tests|unittest discover, pattern test_*.py.
+^scripts/python/chrono_state/test_thread_charters\.py$|bin-test|-s scripts/python/chrono_state|Focused unittest discovery for the thread-charter parser and resume projection.
 ^plugins/chrono-vault/tests/test_[^/]+\.py$|bin-test|-s plugins/chrono-vault/tests|unittest discover over the plugin test package.
 ^plugins/chrono-media-studio/tests/test_[^/]+\.py$|bin-test|-s plugins/chrono-media-studio/tests|unittest discover over the plugin test package.
 ^plugins/chrono-research-arsenal/test_[^/]+\.py$|bin-test|-s plugins/chrono-research-arsenal|Tests live beside the module rather than under tests/, hence the plugin-root discovery path.
@@ -691,6 +692,9 @@ run_dispatch_enforcement() {
     TMPDIR="$suite_tmp" \
         "$PYTHON_BIN" -m unittest discover -s scripts/python/tests -p 'test_*.py' \
         || suite_rc=$?
+    TMPDIR="$suite_tmp" \
+        "$PYTHON_BIN" -m unittest discover -s scripts/python/chrono_state \
+        -p 'test_thread_charters.py' || suite_rc=$?
     TMPDIR="$suite_tmp" \
         "$PYTHON_BIN" scripts/python/tests/orphan_supervisor_leak_test.py \
         --scan-root "$suite_tmp" || detector_rc=$?

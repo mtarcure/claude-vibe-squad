@@ -522,6 +522,100 @@ class LaneCapabilityEnforcementTests(unittest.TestCase):
                 },
             )
 
+    def test_required_absent_mcp_class_still_fails_closed(self) -> None:
+        projection = {
+            "lane": "claude",
+            "specialist": "sample",
+            "mcps": ["chrono-recon"],
+            "brokered_mcps": [],
+            "tools": [],
+            "skills": [],
+            "sources": [],
+            "schema": "role-capability-projection/v1",
+        }
+        with self.assertRaisesRegex(
+            CapabilityDenied, r"unconfigured MCP servers: chrono-recon \(absent\)"
+        ):
+            plan_lane(
+                lane="claude",
+                projection=projection,
+                configured_servers={},
+                mcp_classes={"chrono-recon": {"requirement": "required"}},
+            )
+
+    def test_preferred_absent_mcp_degrades_instead_of_denying(self) -> None:
+        projection = {
+            "lane": "claude",
+            "specialist": "sample",
+            "mcps": ["chrono-recon"],
+            "brokered_mcps": [],
+            "tools": [],
+            "skills": [],
+            "sources": [],
+            "schema": "role-capability-projection/v1",
+        }
+        plan = plan_lane(
+            lane="claude",
+            projection=projection,
+            configured_servers={},
+            mcp_classes={"chrono-recon": {"requirement": "preferred"}},
+        )
+        self.assertEqual(plan.authorized_mcps, ())
+        self.assertEqual(plan.unhealthy_mcps, ("chrono-recon",))
+        self.assertEqual(plan.unhealthy_mcp_status, (("chrono-recon", "absent"),))
+
+    def test_malformed_absent_mcp_requirement_still_fails_closed(self) -> None:
+        projection = {
+            "lane": "claude",
+            "specialist": "sample",
+            "mcps": ["chrono-recon"],
+            "brokered_mcps": [],
+            "tools": [],
+            "skills": [],
+            "sources": [],
+            "schema": "role-capability-projection/v1",
+        }
+        with self.assertRaisesRegex(
+            CapabilityDenied, r"unconfigured MCP servers: chrono-recon \(absent\)"
+        ):
+            plan_lane(
+                lane="claude",
+                projection=projection,
+                configured_servers={},
+                mcp_classes={"chrono-recon": {"requirement": "unexpected"}},
+            )
+
+    def test_real_research_preferred_github_absence_degrades(self) -> None:
+        for lane in ("claude", "codex"):
+            with self.subTest(lane=lane):
+                projection = {
+                    "lane": lane,
+                    "specialist": "research",
+                    "mcps": ["github"],
+                    "brokered_mcps": [],
+                    "tools": [],
+                    "skills": [],
+                    "sources": [],
+                    "schema": "role-capability-projection/v1",
+                }
+                classes = load_tool_classes(
+                    repo_root=ROOT,
+                    lane=lane,
+                    specialist="research",
+                )
+                self.assertEqual(classes["mcp:github"]["requirement"], "preferred")
+                plan = plan_lane(
+                    lane=lane,
+                    projection=projection,
+                    configured_servers={},
+                    tool_classes=classes,
+                )
+                self.assertEqual(plan.authorized_mcps, ())
+                self.assertEqual(plan.unhealthy_mcps, ("github",))
+                self.assertEqual(
+                    plan.unhealthy_mcp_status, (("github", "absent"),)
+                )
+
     def test_unsafe_authorized_server_name_or_record_still_fails_closed(self) -> None:
         def projection_for(name: str) -> dict[str, object]:
             return {
@@ -580,6 +674,9 @@ class LaneCapabilityEnforcementTests(unittest.TestCase):
                         lane="claude",
                         projection=projection_for("chrono-recon"),
                         configured_servers={"chrono-recon": record},
+                        mcp_classes={
+                            "chrono-recon": {"requirement": "preferred"}
+                        },
                     )
 
     def test_mcp_health_means_one_thing_on_every_lane(self) -> None:

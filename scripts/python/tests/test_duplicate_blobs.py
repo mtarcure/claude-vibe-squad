@@ -86,6 +86,8 @@ class DuplicateBlobGuardTests(unittest.TestCase):
         name: str = "fixture-skill",
         audience: str = "specialist",
         track_contract: bool = True,
+        include_canonical: bool = True,
+        include_gemini_bridge: bool = False,
     ) -> bytes:
         content = (
             "---\n"
@@ -95,10 +97,13 @@ class DuplicateBlobGuardTests(unittest.TestCase):
             "---\n\n"
             f"# {name}\n"
         ).encode("utf-8")
-        mirror_paths = (
-            f".agents/skills/{name}/SKILL.md",
-            f".claude/skills/{name}/SKILL.md",
-        )
+        mirror_paths = [f".agents/skills/{name}/SKILL.md"]
+        if include_canonical:
+            mirror_paths.append(f".claude/skills/{name}/SKILL.md")
+        if include_gemini_bridge:
+            mirror_paths.append(
+                f"model-lanes/gemini/.agents/skills/{name}/SKILL.md"
+            )
         for relative in mirror_paths:
             path = self.repo / relative
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -191,6 +196,34 @@ class DuplicateBlobGuardTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("validator-backed skill mirrors=1", result.stdout)
+
+    def test_exact_staged_three_home_skill_mirror_is_validator_backed(self) -> None:
+        self.replace_default_duplicate_with_distinct_files()
+        self.write_skill_mirror(include_gemini_bridge=True)
+
+        result = self.run_checker()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("validator-backed skill mirrors=1", result.stdout)
+
+    def test_gemini_bridge_without_canonical_skill_is_not_validator_backed(
+        self,
+    ) -> None:
+        self.replace_default_duplicate_with_distinct_files()
+        self.write_skill_mirror(
+            include_canonical=False,
+            include_gemini_bridge=True,
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("undeclared identical-blob group", result.stderr)
+        self.assertIn("'.agents/skills/fixture-skill/SKILL.md'", result.stderr)
+        self.assertIn(
+            "'model-lanes/gemini/.agents/skills/fixture-skill/SKILL.md'",
+            result.stderr,
+        )
 
     def test_skill_mirror_does_not_hide_an_undeclared_copy_elsewhere(self) -> None:
         self.replace_default_duplicate_with_distinct_files()

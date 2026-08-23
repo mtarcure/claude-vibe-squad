@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -1114,8 +1115,20 @@ class Block3WatcherNoArchive(unittest.TestCase):
 
             source = OUTBOX_WATCHER.read_text(encoding="utf-8")
             self.assertEqual(source.count("stat -c %Y"), 3)
-            self.assertNotIn("stat -f %m \"$file\" 2>/dev/null || stat -c %Y", source)
-            self.assertNotIn("stat -f %m \"$lockdir\" 2>/dev/null || stat -c %Y", source)
+            # Match the SHAPE, not two literal argument spellings. This guard
+            # used to assert the absence of exactly `"$file"` and `"$lockdir"`,
+            # so when a third site spelled its argument `"${CHRONO_NOTIFY_LOCKDIR}"`
+            # the BSD-first bug walked straight past a test written to catch it
+            # and shipped: the 300s stale-lock breaker silently never fired.
+            # GNU `stat -f` means --file-system and writes filesystem rows to
+            # stdout, so BSD-first poisons the capture on Linux no matter how the
+            # argument is written.
+            flattened = re.sub(r"\\\s*\n\s*", " ", source)
+            bsd_first = re.findall(r"stat +-f +%\w+[^|\n]*\|\| *stat +-c", flattened)
+            self.assertEqual(
+                bsd_first, [],
+                msg=f"BSD-first stat fallback(s) found in {OUTBOX_WATCHER}: {bsd_first}",
+            )
         finally:
             shutil.rmtree(root, ignore_errors=True)
 

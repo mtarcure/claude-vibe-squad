@@ -318,7 +318,18 @@ from board_process_truth import load_json, process_truth  # noqa: E402
 descriptor = load_json(dispatch)
 if not isinstance(descriptor, dict):
     raise SystemExit(1)
-raise SystemExit(0 if process_truth(dispatch, descriptor)["state"] == "live" else 1)
+truth = process_truth(dispatch, descriptor)
+# A SIGSTOPped supervisor keeps a matching identity, so `state == "live"` alone
+# read it as healthy and this monitor stayed silent -- measured 2026-08-22, one
+# sat stopped for 9h30m. Identity answers "is it the same process"; it cannot
+# answer "is it still doing anything". Require both, and treat an unknown run
+# state as NOT live, matching the schema-v1 reasoning above: alert on what
+# cannot be vouched for rather than silently suppress it.
+raise SystemExit(
+    0
+    if truth["state"] == "live" and truth.get("run_state") == "running"
+    else 1
+)
 PY
 }
 

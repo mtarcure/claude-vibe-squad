@@ -421,7 +421,33 @@ class WorktreePool:
             raise WorktreeIsolationError(
                 f"git worktree remove failed for {handle.task_id}: {completed.stderr.strip()}"
             )
+        self._delete_merged_board_branch(stored)
         del self._handles[key]
+
+    def _delete_merged_board_branch(self, stored: WorktreeHandle) -> None:
+        """Drop the board-owned branch once its work is merged. Best-effort.
+
+        Releasing a worktree left its branch behind forever, so one ref
+        accumulated per dispatch: 162 of them over about two weeks, found only
+        because the operator asked why there were so many. This is the seam that
+        created the residue, so it is the seam that clears it -- not a nightly
+        janitor, which a fresh clone may never run.
+
+        Two safety properties, both deliberate:
+        * `git branch -d` (never `-D`) refuses unless the branch is merged, so
+          the "is this safe to delete" judgement stays with git rather than
+          being reimplemented here. An unmerged branch is someone's only copy of
+          recovery evidence and MUST survive.
+        * Only the exact `worktree/<task>/<attempt>` ref this pool created is
+          ever passed, so no user branch is reachable from here.
+
+        A failure to delete is not a failure to release: the worktree is already
+        gone and the ref is inert. Leaving a ref behind is the harmless outcome.
+        """
+        branch = stored.branch
+        if not branch.startswith("worktree/"):
+            return
+        _run_git(["branch", "-d", branch], cwd=self._repo_root)
 
 
 def _resolve_commit(repo_root: Path, value: str) -> str:

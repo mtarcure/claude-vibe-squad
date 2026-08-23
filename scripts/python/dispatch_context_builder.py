@@ -84,7 +84,18 @@ SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 NAMESPACES = frozenset(
     {"coding", "security", "content", "sysmgmt", "research", "shared"}
 )
-MAILBOX_NAMESPACES = frozenset(NAMESPACES - {"shared"})
+# Two sets, deliberately different, and they used to share the name
+# MAILBOX_NAMESPACES in two files with disagreeing values -- one fact, two
+# homes, nothing pinning them. They answer different questions:
+#   DISPATCHABLE_NAMESPACES (here)              -- where a task may be DISPATCHED.
+#   registry_reconciler.MAILBOX_NAMESPACES      -- which mailboxes EXIST and may
+#                                                  still need settling.
+# `shared` is the whole difference: it is a specialist-location namespace
+# (shared/specialists/) that owns no dispatch mailbox, so new work never routes
+# there -- but departments/shared/{inbox,outbox} holds real historical packets
+# the reconciler must still archive. test_board_dispatch.py pins the relation,
+# so adding a namespace to one and not the other fails closed.
+DISPATCHABLE_NAMESPACES = frozenset(NAMESPACES - {"shared"})
 CLI_TRANSPORT_FAILURE_CLASSES = frozenset({"cli_missing", "cli_nonzero", "cli_timeout"})
 # One fact with four homes: `clearance._APERTURES` owns the vocabulary,
 # `broker.CONTEXT_APERTURES` and the `case` arm in `bin/send-task.sh` are the
@@ -904,7 +915,7 @@ def _mailbox_namespace(repo_root: Path, task_file: Path, task_id: str) -> str:
     if (
         len(parts) != 4
         or parts[0] != "departments"
-        or parts[1] not in MAILBOX_NAMESPACES
+        or parts[1] not in DISPATCHABLE_NAMESPACES
         or parts[2] != "inbox"
         or parts[3] != f"{task_id}.md"
     ):
@@ -2457,7 +2468,7 @@ def prepare_worktree_outputs(
     )
     if (
         not outbox_match
-        or outbox_match.group(1) not in MAILBOX_NAMESPACES
+        or outbox_match.group(1) not in DISPATCHABLE_NAMESPACES
         or outbox_match.group(2) != task_id
     ):
         raise DispatchContextError("expected outbox path is not canonical")
@@ -2895,7 +2906,7 @@ def publish_blocked_completion(
     if (
         not TASK_RE.fullmatch(task_id)
         or lane not in LANE_TO_MODEL
-        or compatibility_namespace not in MAILBOX_NAMESPACES
+        or compatibility_namespace not in DISPATCHABLE_NAMESPACES
         or not isinstance(reason, str)
         or not reason.strip()
         or "\x00" in reason

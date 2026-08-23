@@ -21,6 +21,22 @@ Chrono is the only controller and the only operator-facing voice. Model leads ex
 
 Generated adapters, stale handoffs, old specs, and runtime logs are not source of truth. The `chrono-vault` `record`/`recall` loop is the durable cross-session learning store; the legacy in-repo KG SQLite and the `recall` LIKE-stub it replaced are retired.
 
+## Versions — three numbering systems, all real
+
+Confusing these is the single most common source of "is this doc out of date?" in this repo.
+
+- **`V1.1.2` is the current release version.** Git tags `v1.1.0`, `v1.1.1`, `v1.1.2`; the next
+  upgrade would be `V1.1.3`. This is the version of the system as a product.
+- **`V3` / `V4` are architecture generations**, not old release numbers. Git tags `v3-final` and
+  `v4-baseline-2026-08-07`. The dispatcher still runs a **live V3 compatibility bridge**, so
+  `shared/protocol.md` saying "the staged V4 boundary" is current, not stale. Renaming these to
+  `V1.1.1` would destroy a real distinction.
+- **`contract/v1`, `dispatch-preflight/v1` and friends are schema identifiers** that code parses.
+  Never touch them.
+
+Bounty mode's internal `v2` → `v3` (`shared/modes/bounty.md`) is a fourth, mode-local axis
+describing why that mode dropped its gates. Also not a release number.
+
 ## Hard Rules
 
 1. No mode or external action starts without explicit operator consent.

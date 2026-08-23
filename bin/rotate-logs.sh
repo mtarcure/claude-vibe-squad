@@ -70,9 +70,12 @@ CANDIDATES=0
 SKIPPED_UNSAFE=0
 
 file_size() {
-    # BSD stat (macOS) and GNU stat disagree on flags; try both rather than
-    # assuming a platform.
-    stat -f %z -- "$1" 2>/dev/null || stat -c %s -- "$1" 2>/dev/null
+    # BSD and GNU stat disagree on flags, so try both -- but GNU FIRST. GNU
+    # `stat -f` means --file-system: given a file it writes filesystem rows to
+    # STDOUT and exits 1, so the BSD-first order returned those rows glued to
+    # the real size, failed every numeric guard, and silently made rotation a
+    # no-op on Linux. macOS `stat -c` has no such trap: empty stdout, rc=1.
+    stat -c %s -- "$1" 2>/dev/null || stat -f %z -- "$1" 2>/dev/null
 }
 
 # Delete all but the newest $2 archives of $1. The archive suffix is a UTC

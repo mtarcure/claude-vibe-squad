@@ -310,6 +310,16 @@ class SecretsContentProbeTest(DoctorProbeRunner):
         self.assertIn("FIXTURE_TWO_KEY", json.dumps(summary))
 
 
+@unittest.skipUnless(
+    sys.platform == "darwin",
+    "launchd is macOS-only: doctor's registration audit needs `plutil`, which "
+    "Linux does not ship, so the probe correctly reports "
+    "'launchd registration audit could not run: plutil is unavailable' and "
+    "returns before the launchctl stub is ever reached. These five cases then "
+    "fail for the environment rather than for the behaviour they assert -- they "
+    "were red on the Linux hermetic gate from at least 2026-08-20. Gated, not "
+    "masked: the assertions are unchanged and still run on macOS, where they pass.",
+)
 class LaunchdLivenessProbeTest(DoctorProbeRunner):
     """`launchctl` appeared zero times in 2,000 lines of health check."""
 

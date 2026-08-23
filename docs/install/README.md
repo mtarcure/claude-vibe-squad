@@ -24,10 +24,11 @@ everything else working — see [What "optional" means](#what-optional-means).
 ## 1. Core tools
 
 ```bash
-brew install jq tmux fswatch
+brew install jq tmux fswatch uv
 ```
 
-`curl` ships with macOS. Python 3.13 and `uv` are covered in step 3.
+`curl` ships with macOS. Python 3.13 is covered in step 3, which runs `uv sync` --
+`uv` itself is installed above because that step depends on it.
 
 Check:
 

@@ -1735,6 +1735,99 @@ else
 fi
 [[ -n "${PROMOTION_OUT}" ]] && rm -f "${PROMOTION_OUT}"
 
+# UPKEEP -- accumulation a newcomer has no baseline to notice.
+#
+# Everything below is computed HERE, at the moment a human looks, rather than
+# read from a file some background job last wrote. That is the whole design:
+# a pushed report and a dead reporter look identical, and this repo has already
+# paid for that once -- a morning brief reached ten days old while looking
+# perfectly fresh. Recomputing means "could not measure" can never be mistaken
+# for "nothing to report", which is the confusion that hid every finding of
+# 2026-08-22.
+#
+# Doctor is the home because three surfaces already read it for free: `squad up`
+# (which a fresh clone cannot skip), `squad status` / where-are-we, and the
+# morning brief. One fact, one home, per Hard Rule 10.
+#
+# Format is counts against thresholds, never one line per item, so that a
+# neglected install degrades into a bigger NUMBER rather than a longer list.
+# That is what stops this becoming warning wallpaper nobody reads.
+check_upkeep() {
+    PYTHONPATH="${VAULT_ROOT}/scripts/python" python3 -B -c '
+import json, os, subprocess, sys
+root = os.environ["VAULT_ROOT"]
+out = {}
+try:
+    r = subprocess.run(["git", "-C", root, "branch", "--merged", "HEAD",
+                        "--format=%(refname:short)"],
+                       capture_output=True, text=True, timeout=10)
+    if r.returncode:
+        raise RuntimeError("git branch --merged failed")
+    out["merged_board_branches"] = sum(
+        1 for b in r.stdout.split() if b.startswith("worktree/"))
+except Exception as exc:
+    print(json.dumps({"error": "branch census: %s" % type(exc).__name__}))
+    raise SystemExit(2)
+try:
+    from board_process_truth import load_json, process_truth
+    reg = json.load(open(os.path.join(root, "_state", "active-tasks.json")))
+    rows = reg.values() if isinstance(reg, dict) else reg
+    stuck = 0
+    for rec in rows:
+        if not isinstance(rec, dict) or rec.get("status") != "in-flight":
+            continue
+        d = rec.get("dispatch_path") or rec.get("dispatch")
+        if not d or not os.path.exists(d):
+            stuck += 1
+            continue
+        desc = load_json(d)
+        if not isinstance(desc, dict):
+            stuck += 1
+            continue
+        t = process_truth(d, desc)
+        # Not runnable == not working. A SIGSTOPped supervisor keeps a matching
+        # identity, which is exactly how one hid for 9h30m before run_state
+        # existed to ask the second question.
+        if t["state"] != "live" or t.get("run_state") != "running":
+            stuck += 1
+    out["in_flight_not_running"] = stuck
+except Exception as exc:
+    print(json.dumps({"error": "task census: %s" % type(exc).__name__}))
+    raise SystemExit(2)
+print(json.dumps(out, sort_keys=True))
+raise SystemExit(1 if (out["merged_board_branches"] > 25
+                       or out["in_flight_not_running"] > 0) else 0)
+' 2>&1
+}
+UPKEEP_OUT="$(mktemp -t squad-doctor-upkeep 2>/dev/null || true)"
+if [[ -z "${UPKEEP_OUT}" ]]; then
+    note_unknown "upkeep probe had nowhere to write" \
+        "no writable temp file for the upkeep probe"
+else
+    upkeep_rc=0
+    run_bounded 20 "${UPKEEP_OUT}" check_upkeep || upkeep_rc=$?
+    UPKEEP_JSON="$(cat "${UPKEEP_OUT}" 2>/dev/null)"
+    case "${upkeep_rc}" in
+        0)
+            note_ok "upkeep: nothing accumulating (${UPKEEP_JSON:-no detail returned})" \
+                "upkeep: merged board branches are being cleared and every in-flight task has a running process (${UPKEEP_JSON:-no detail returned})"
+            ;;
+        1)
+            note_warn "upkeep: debt is accumulating — run 'squad status' for detail (${UPKEEP_JSON:-no detail returned})" \
+                "upkeep: ${UPKEEP_JSON:-no detail returned}. \`in_flight_not_running\` counts tasks the registry calls in-flight whose process is dead, stopped, or unverifiable -- work that will never finish and never report. Recover a stopped one with SIGCONT or \`board_process_truth.py reap\`; see the task's log under _state/board-dispatch/. \`merged_board_branches\` counts board refs whose work is already merged; these now clear themselves at worktree release, so a large number means either a backlog from before that landed or releases are failing."
+            ;;
+        2)
+            note_unknown "upkeep probe could not measure (${UPKEEP_JSON:-no detail returned})" \
+                "upkeep probe raised before producing a census: ${UPKEEP_JSON:-no detail returned}. This is NOT a clean bill of health -- it means the accumulation checks did not run."
+            ;;
+        *)
+            note_unknown "upkeep probe timed out or crashed (exit ${upkeep_rc})" \
+                "upkeep probe did not complete within 20s: ${UPKEEP_JSON:-no detail returned}. NOT a pass -- the census did not run."
+            ;;
+    esac
+fi
+[[ -n "${UPKEEP_OUT}" ]] && rm -f "${UPKEEP_OUT}"
+
 # Auto-capture write-path health -- the OTHER end of the loop from promotion.
 # `autocapture.distill()` shells out to the `gemini` CLI, and a failure there
 # means NO semantic note is written: the raw capture survives in the episodic
@@ -1851,8 +1944,9 @@ fi
 BROWSER_SUMMARY_MAX_AGE="${DOCTOR_BROWSER_SUMMARY_MAX_AGE:-21600}"
 BROWSER_SUMMARY_AGE=""
 if [[ -f "${BROWSER_SUMMARY}" ]]; then
-    _browser_mtime="$(stat -f %m "${BROWSER_SUMMARY}" 2>/dev/null \
-        || stat -c %Y "${BROWSER_SUMMARY}" 2>/dev/null || true)"
+    # GNU-first; see the note at the CHRONO_NOTIFY_LOCKDIR probe.
+    _browser_mtime="$(stat -c %Y "${BROWSER_SUMMARY}" 2>/dev/null \
+        || stat -f %m "${BROWSER_SUMMARY}" 2>/dev/null || true)"
     if [[ "${_browser_mtime}" =~ ^[0-9]+$ ]]; then
         BROWSER_SUMMARY_AGE=$(( $(date +%s) - _browser_mtime ))
     fi
@@ -2140,8 +2234,8 @@ else
     OLDEST_STATUS_AGE=0
     _status_now="$(date +%s)"
     for _status_file in "${STATUS_FILES[@]}"; do
-        _status_mtime="$(stat -f %m "${_status_file}" 2>/dev/null \
-            || stat -c %Y "${_status_file}" 2>/dev/null || true)"
+        _status_mtime="$(stat -c %Y "${_status_file}" 2>/dev/null \
+            || stat -f %m "${_status_file}" 2>/dev/null || true)"
         if ! [[ "${_status_mtime}" =~ ^[0-9]+$ ]]; then
             STATUS_AGE_UNREADABLE+=("$(basename -- "${_status_file}")")
             continue

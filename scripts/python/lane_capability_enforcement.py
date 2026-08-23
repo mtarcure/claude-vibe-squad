@@ -83,9 +83,13 @@ PATH_RESOLVABLE_EVIDENCE = frozenset({"host-PATH"})
 # because the `github` MCP answered `HTTP 400: Authorization header is badly
 # formatted`, on a markdown/caching packet that never touched github.
 #
-#   STRUCTURAL  -- an authorized server that is not configured at all, or whose
-#                  record is unsafe. This is a defect in the PLAN and no amount
-#                  of waiting fixes it. Still fails closed.
+#   STRUCTURAL  -- a REQUIRED authorized server that is not configured at all,
+#                  or any configured authorized server whose record is unsafe.
+#                  This is a defect in the PLAN and no amount of waiting fixes
+#                  it. Still fails closed.
+#   DEGRADATION -- an explicitly non-required server that is not configured.
+#                  The role can launch without it, and the absence is surfaced
+#                  through the same receipt fields as runtime ill health.
 #   RUNTIME     -- a properly-configured, authorized server that did not answer
 #                  the health probe (connection failure, auth failure, provider
 #                  outage). This is a fact about the WORLD at one instant. It
@@ -130,12 +134,12 @@ class LaneCapabilityPlan:
     # gate it (F6). The worker is expected to declare a `capability_gap` and use
     # the task-approved fallback rather than pretend the tool worked.
     capability_gaps: tuple[str, ...] = ()
-    # Authorized servers that ARE configured but did not answer the health
-    # probe. Degraded, not denied: the launch proceeds and these are surfaced.
+    # Authorized servers that are either explicitly non-required and absent or
+    # configured but did not answer the health probe. Degraded, not denied: the
+    # launch proceeds and these are surfaced.
     unhealthy_mcps: tuple[str, ...] = ()
-    # (server name, verbatim probe status) for every entry in `unhealthy_mcps`.
-    # Verbatim so the receipt records what the runtime actually said, not this
-    # module's paraphrase of it.
+    # (server name, degradation status) for every entry in `unhealthy_mcps`.
+    # Probe statuses stay verbatim; an absent non-required server uses `absent`.
     unhealthy_mcp_status: tuple[tuple[str, str], ...] = ()
 
 
@@ -864,14 +868,15 @@ def load_tool_classes(
     specialist: str,
     source_path: Path | None = None,
 ) -> dict[str, dict[str, str]]:
-    """Read each declared tool's requirement/availability/evidence class.
+    """Read declared tool classes plus namespaced MCP requirement classes.
 
     The generated lane adapters flatten the capability source down to bare name
     arrays (``tools: ["pdftotext","zotero"]``), which is why the launch gate had
     no way to tell a PATH binary from a GUI app bundle. This reads the typed
     record back out of the versioned source for the exact (specialist, lane)
-    pair. Returns ``{}`` when the source is unreadable or the pair is absent --
-    an unclassified tool then stays fail-closed in ``plan_lane``.
+    pair. MCP records use an ``mcp:`` key prefix so a same-named tool and server
+    cannot collide. Returns ``{}`` when the source is unreadable or the pair is
+    absent, keeping unclassified capabilities fail-closed in ``plan_lane``.
     """
 
     path = (
@@ -897,17 +902,23 @@ def load_tool_classes(
             or entry.get("lane") != source_lane
         ):
             continue
-        for tool in entry.get("tools") or ():
-            if not isinstance(tool, dict):
-                continue
-            identifier = tool.get("id")
-            if not isinstance(identifier, str) or not identifier:
-                continue
-            classes[identifier] = {
-                "requirement": str(tool.get("requirement") or ""),
-                "availability": str(tool.get("availability") or ""),
-                "evidence": str(tool.get("evidence") or ""),
-            }
+        for kind in ("tools", "mcps"):
+            for capability in entry.get(kind) or ():
+                if not isinstance(capability, dict):
+                    continue
+                identifier = capability.get("id")
+                if not isinstance(identifier, str) or not identifier:
+                    continue
+                if kind == "mcps":
+                    identifier = "mcp:" + identifier.removeprefix("lead:")
+                requirement = capability.get("requirement")
+                classes[identifier] = {
+                    "requirement": (
+                        requirement if isinstance(requirement, str) else ""
+                    ),
+                    "availability": str(capability.get("availability") or ""),
+                    "evidence": str(capability.get("evidence") or ""),
+                }
     return classes
 
 
@@ -924,6 +935,15 @@ def _tool_gates_launch(tool_class: Mapping[str, str] | None) -> bool:
     if str(tool_class.get("requirement") or "required") != "required":
         return False
     return str(tool_class.get("evidence") or "") in PATH_RESOLVABLE_EVIDENCE
+
+
+def _mcp_gates_launch(mcp_class: Mapping[str, object] | None) -> bool:
+    """True unless an MCP is explicitly classified as preferred."""
+
+    if not isinstance(mcp_class, Mapping):
+        return True
+    requirement = mcp_class.get("requirement")
+    return requirement != "preferred"
 
 
 def mcp_health(*, lane: str, details: Mapping[str, object]) -> str:
@@ -991,6 +1011,7 @@ def plan_lane(
     configured_servers: Mapping[str, Mapping[str, object]],
     tool_lookup: Callable[[str], str | None] | None = None,
     tool_classes: Mapping[str, Mapping[str, str]] | None = None,
+    mcp_classes: Mapping[str, Mapping[str, object]] | None = None,
     repo_root: Path | None = None,
     kimi_vault_environment: Mapping[str, str] | None = None,
     kimi_host_artifacts: KimiLocalHostArtifacts | None = None,
@@ -1055,23 +1076,49 @@ def plan_lane(
         for name in (*authorized, *brokered, *configured)
     ):
         raise CapabilityDenied("MCP server name is unsafe")
-    # STRUCTURAL: an authorized server that was never configured cannot be
-    # enforced at all. Fail closed -- unchanged, and deliberately so.
+    classes = mcp_classes
+    if classes is None:
+        classes = {
+            name.removeprefix("mcp:"): details
+            for name, details in (tool_classes or {}).items()
+            if name.startswith("mcp:")
+        }
+    classes = classes or {}
+    # STRUCTURAL: an absent REQUIRED server cannot be enforced at all. Missing
+    # or malformed requirement metadata defaults to required and fails closed.
     absent_mcps = tuple(sorted(set(authorized) - set(configured)))
-    if absent_mcps:
+    blocking_absent_mcps = tuple(
+        name for name in absent_mcps if _mcp_gates_launch(classes.get(name))
+    )
+    if blocking_absent_mcps:
         raise CapabilityDenied(
             "role requires unconfigured MCP servers: "
-            + ", ".join(f"{name} (absent)" for name in absent_mcps)
+            + ", ".join(f"{name} (absent)" for name in blocking_absent_mcps)
         )
+    # DEGRADATION: a declared non-required server may be absent. Remove it from
+    # the enforceable set and surface the absence through the existing health
+    # fields so the launch receipt and injected worker notice both record it.
+    degraded_absent_mcps = tuple(
+        name for name in absent_mcps if name not in blocking_absent_mcps
+    )
+    authorized = tuple(
+        name for name in authorized if name not in degraded_absent_mcps
+    )
     # STRUCTURAL: an unsafe record is a defect in the plan, not an outage.
     for name in authorized:
         _validate_server_record(name=name, details=configured_servers[name])
     # RUNTIME: record ill health and let the launch proceed. A worker that never
     # calls this server is unaffected; one that does is told up front.
-    unhealthy_status = tuple(
+    configured_unhealthy_status = tuple(
         (name, str(configured_servers[name]["status"]))
         for name in authorized
         if mcp_health(lane=lane, details=configured_servers[name]) == "unhealthy"
+    )
+    unhealthy_status = tuple(
+        sorted(
+            configured_unhealthy_status
+            + tuple((name, "absent") for name in degraded_absent_mcps)
+        )
     )
     unhealthy_mcps = tuple(name for name, _status in unhealthy_status)
     disabled = tuple(sorted(set(configured) - set(authorized)))

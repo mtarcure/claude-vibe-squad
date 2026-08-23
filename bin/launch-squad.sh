@@ -403,9 +403,37 @@ if [[ "${SQUAD_UNSAFE_AUTONOMY}" == "1" ]] \
     # Every non-zero rc still blocks. What changes is that the reason is named
     # and doctor's findings are shown. Relaxing the gate itself would let a
     # genuinely broken install launch, which is the opposite of the fix.
+    # macOS ships no coreutils `timeout`, so calling it here made `squad up`
+    # die on a stock Mac: 127 fell through to the "outside its documented
+    # 0/1/2 contract" branch and blocked launch with a message that never
+    # mentioned coreutils. doctor.sh already solved this for itself
+    # (`run_bounded`); this is the same watchdog shape, inline, because the
+    # launcher must not source doctor to start doctor.
+    #
+    # Only the PID started here is ever signalled -- the process table is
+    # shared with every other lane on this host, so a pattern-matched kill
+    # would reap siblings.
     doctor_rc=0
-    doctor_report="$(timeout "${SQUAD_DOCTOR_TIMEOUT:-45}" \
-        "${VAULT_ROOT}/bin/doctor.sh" 2>&1)" || doctor_rc=$?
+    _doctor_out="$(mktemp -t squad-doctor-gate 2>/dev/null || true)"
+    if [[ -z "${_doctor_out}" ]]; then
+        # No temp file: run unbounded rather than refuse to launch. A hung
+        # doctor is a worse outcome than no watchdog, but a false block on a
+        # healthy install is worse than both.
+        doctor_report="$("${VAULT_ROOT}/bin/doctor.sh" 2>&1)" || doctor_rc=$?
+    else
+        "${VAULT_ROOT}/bin/doctor.sh" >"${_doctor_out}" 2>&1 &
+        _doctor_pid=$!
+        ( sleep "${SQUAD_DOCTOR_TIMEOUT:-45}"; kill -TERM "${_doctor_pid}" 2>/dev/null ) >/dev/null 2>&1 &
+        _doctor_watchdog=$!
+        wait "${_doctor_pid}" 2>/dev/null || doctor_rc=$?
+        # Our own watchdog's SIGTERM surfaces as 143; report it as the 124 the
+        # case arm below already documents, so the contract is unchanged.
+        [[ "${doctor_rc}" -eq 143 ]] && doctor_rc=124
+        kill -TERM "${_doctor_watchdog}" 2>/dev/null
+        wait "${_doctor_watchdog}" 2>/dev/null || true
+        doctor_report="$(cat "${_doctor_out}" 2>/dev/null)"
+        rm -f "${_doctor_out}"
+    fi
     if [[ "${doctor_rc}" -ne 0 ]]; then
         case "${doctor_rc}" in
             1)  echo "ERROR: doctor found measured problems with this installation; autonomous launch blocked." ;;

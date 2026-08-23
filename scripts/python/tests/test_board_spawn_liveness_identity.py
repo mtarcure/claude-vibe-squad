@@ -28,15 +28,19 @@ from __future__ import annotations
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 REPO = Path(__file__).resolve().parents[3]
 MONITOR = REPO / "bin" / "squad-monitor.sh"
+SUPERVISOR = REPO / "bin" / "board-supervisor.sh"
 PYTHON_DIR = REPO / "scripts" / "python"
 if str(PYTHON_DIR) not in sys.path:
     sys.path.insert(0, str(PYTHON_DIR))
@@ -45,6 +49,102 @@ import board_process_truth as bpt  # noqa: E402
 
 TASK_ID = "TASK-2026-08-17-0001-board-liveness-identity"
 ATTEMPT_ID = "d-0123456789abcdef0123456789abcdef"
+
+
+class SignalIdentityDiagnosticTests(unittest.TestCase):
+    EXPECTED = {
+        "pid": 4100,
+        "pgid": 4100,
+        "process_start_token": "proc:111111",
+        "argv_sha256": "a" * 64,
+    }
+
+    def _mismatch_message(self, field, observed_value, signum, target, operation):
+        observed = {**self.EXPECTED, field: observed_value}
+        with (
+            mock.patch.object(bpt, "observe_process", return_value=observed),
+            mock.patch.object(bpt.os, "kill") as kill,
+            self.assertRaises(bpt.ProcessTruthError) as raised,
+        ):
+            bpt._signal_identity(
+                self.EXPECTED,
+                signum,
+                target=target,
+                operation=operation,
+            )
+        kill.assert_not_called()
+        return str(raised.exception)
+
+    def test_each_identity_field_mismatch_names_expected_and_observed_values(self):
+        cases = {
+            "pid": (4200, signal.SIGSTOP, "tree_root", "freeze"),
+            "pgid": (4200, signal.SIGTERM, "descendant", "terminate"),
+            "process_start_token": (
+                "proc:222222", signal.SIGCONT, "descendant", "continue"
+            ),
+            "argv_sha256": ("b" * 64, signal.SIGKILL, "descendant", "terminate"),
+        }
+        for field, (observed, signum, target, operation) in cases.items():
+            with self.subTest(field=field):
+                message = self._mismatch_message(
+                    field, observed, signum, target, operation
+                )
+                self.assertIn("pid=4100 pgid=4100 signal=%d" % int(signum), message)
+                self.assertIn("target=%s operation=%s" % (target, operation), message)
+                mismatch_detail = message.split("mismatches: ", 1)[1]
+                if field == "argv_sha256":
+                    expected_detail = "%s expected_prefix=%s observed_prefix=%s" % (
+                        field,
+                        self.EXPECTED[field][:12],
+                        observed[:12],
+                    )
+                else:
+                    expected_detail = "%s expected=%r observed=%r" % (
+                        field,
+                        self.EXPECTED[field],
+                        observed,
+                    )
+                self.assertIn(expected_detail, mismatch_detail)
+                for unchanged in set(bpt.PROCESS_IDENTITY_FIELDS) - {field}:
+                    self.assertNotIn("%s expected" % unchanged, mismatch_detail)
+        self.assertNotIn("a" * 64, message)
+        self.assertNotIn("b" * 64, message)
+
+    def test_complete_diagnostic_survives_the_operator_note_path(self):
+        message = self._mismatch_message(
+            "process_start_token",
+            "ps:Sat Aug 22 06:39:10 2026",
+            signal.SIGSTOP,
+            "tree_root",
+            "freeze",
+        )
+        source = SUPERVISOR.read_text(encoding="utf-8")
+        start = source.index("def write_board_note(text):")
+        note_path_source = source[
+            start : source.index("\ndef write_board_transcript", start)
+        ]
+        written = bytearray()
+        namespace = {
+            "os": SimpleNamespace(
+                environ={"BOARD_TRANSCRIPT_FD_VALUE": "7"},
+                getpid=lambda: 9999,
+                kill=lambda _pid, _signal: None,
+                write=lambda descriptor, payload: (
+                    written.extend(payload) or len(payload)
+                ),
+                fsync=lambda _descriptor: None,
+            ),
+            "signal": signal,
+            "block_after_provision": lambda *_args, **_kwargs: None,
+        }
+        exec(note_path_source, namespace)
+        namespace["hold_for_operator_stop"](message)
+
+        operator_line = written.decode("utf-8")
+        self.assertTrue(operator_line.startswith("board: "))
+        self.assertIn(message, operator_line)
+        self.assertIn("operator Stop required", operator_line)
+        self.assertLessEqual(len(message), 600)
 
 
 class BoardDispatchProcessIsLiveTests(unittest.TestCase):

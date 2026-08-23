@@ -7,7 +7,7 @@
 ![models](https://img.shields.io/badge/models-Codex%20%C2%B7%20Claude%20%C2%B7%20Gemini%20%C2%B7%20Kimi-informational)
 ![license](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![orchestration](https://img.shields.io/badge/orchestration-native%20CLIs%20%C2%B7%20isolated%20worktrees-success)
-![version](https://img.shields.io/badge/version-v1.1.1-blue)
+![version](https://img.shields.io/badge/version-v1.1.2-blue)
 
 <br>
 
@@ -166,7 +166,7 @@ The repository carries a large adversarial test suite because process boundaries
 
 ## Project status
 
-**v1.1.1** is the first public release. The maintainer installation is an active daily driver, and the release gate behind this tag included a fresh-clone rehearsal, exact-docs checks, native-CLI and tool probes, private-data leak scans, and an independent cross-family skeptic pass that had to re-execute every load-bearing claim rather than read it.
+**v1.1.2** is the current release; **v1.1.1** was the first public one. The maintainer installation is an active daily driver, and the release gate behind this tag included a fresh-clone rehearsal, exact-docs checks, native-CLI and tool probes, private-data leak scans, and an independent cross-family skeptic pass that had to re-execute every load-bearing claim rather than read it.
 
 This README describes what is verified today. The **Not yet claimed** items above are real open gates.
 

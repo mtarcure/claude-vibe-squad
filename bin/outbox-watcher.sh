@@ -113,8 +113,11 @@ acquire_chrono_notify_lock() {
         # Never break a fresh ownerless/malformed directory: it may belong to
         # a contender between those two operations. Match Python's five-minute
         # stale grace; the local 30-second bound fails closed before then.
-        lock_mtime="$(stat -f %m "${CHRONO_NOTIFY_LOCKDIR}" 2>/dev/null \
-            || stat -c %Y "${CHRONO_NOTIFY_LOCKDIR}" 2>/dev/null || true)"
+        # GNU-first: `stat -c` is a clean no-op on macOS (empty stdout, rc=1),
+        # but GNU `stat -f` means --file-system and writes filesystem rows to
+        # STDOUT, which concatenate with the fallback and fail the guard below.
+        lock_mtime="$(stat -c %Y "${CHRONO_NOTIFY_LOCKDIR}" 2>/dev/null \
+            || stat -f %m "${CHRONO_NOTIFY_LOCKDIR}" 2>/dev/null || true)"
         now="$(date +%s)"
         if [[ "$lock_mtime" =~ ^[0-9]+$ ]] && (( now - lock_mtime > 300 )); then
             rm -f "${CHRONO_NOTIFY_LOCKDIR}/owner.pid" 2>/dev/null || true

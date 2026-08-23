@@ -810,7 +810,9 @@ class PidfileSingleWriterTests(_PollerGuardHarness, unittest.TestCase):
     just-spawned poller is orphaned: Task 12's leak, through the other door. The
     window is reachable because the poller guard sits outside LAUNCH_LOCK, so
     two near-simultaneous launches can both reach the spawn
-    (test_launch_single_coordinator.py:167-172).
+    (test_launch_single_coordinator.py, _IsolatedLaunchTestCase.
+    _kill_isolated_status_poller, and the launch it describes:
+    test_concurrent_squad_up_produces_exactly_one_coordinator).
     """
 
     # The spawn block is top-level script, not a function, so it cannot be

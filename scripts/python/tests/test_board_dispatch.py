@@ -1454,3 +1454,36 @@ Dry-run dispatch test only.
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NamespaceSetsStayInAgreementTests(unittest.TestCase):
+    """Pin the two namespace sets that deliberately differ by exactly `shared`.
+
+    They previously shared the name MAILBOX_NAMESPACES in two files with
+    disagreeing values and nothing enforcing the relation. Renaming the
+    dispatch-side set was only half the fix; this is the validator that makes
+    the remaining duplication legitimate under Hard Rule 10.
+    """
+
+    def test_dispatchable_is_mailbox_set_minus_shared(self) -> None:
+        import dispatch_context_builder as dcb
+        import registry_reconciler as rr
+
+        self.assertEqual(
+            set(dcb.DISPATCHABLE_NAMESPACES),
+            set(rr.MAILBOX_NAMESPACES) - {"shared"},
+            "dispatch_context_builder.DISPATCHABLE_NAMESPACES must equal "
+            "registry_reconciler.MAILBOX_NAMESPACES minus 'shared'. A namespace "
+            "added to one and not the other silently breaks dispatch or leaves a "
+            "mailbox unsettleable.",
+        )
+
+    def test_shared_is_a_namespace_but_not_a_dispatch_target(self) -> None:
+        import dispatch_context_builder as dcb
+        import registry_reconciler as rr
+
+        # `shared` is a specialist-location namespace (shared/specialists/) whose
+        # mailbox still holds historical packets the reconciler must archive.
+        self.assertIn("shared", dcb.NAMESPACES)
+        self.assertIn("shared", rr.MAILBOX_NAMESPACES)
+        self.assertNotIn("shared", dcb.DISPATCHABLE_NAMESPACES)

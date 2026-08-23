@@ -205,6 +205,48 @@ def observe_process(pid):
     }
 
 
+def process_run_state(pid):
+    """Return 'running', 'stopped', or None -- liveness, NOT identity.
+
+    Deliberately separate from observe_process(). Identity must survive a stop,
+    because _freeze_tree() SIGSTOPs a tree and then re-observes it to confirm it
+    froze the process it meant to; if a stopped process stopped being
+    observable, every teardown would fail. So process state is not part of the
+    identity token and never can be.
+
+    The consequence was that "a PID with matching identity exists" was the only
+    liveness concept available, and a SIGSTOPped supervisor therefore read as
+    live. Measured 2026-08-22: one sat stopped for 9h30m while the health
+    monitor stayed silent, because `ps state=` was parsed only far enough to
+    reject 'Z'. The missing concept is *runnable*, and this is it.
+    """
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return None
+    proc = Path("/proc/%d/stat" % pid)
+    if proc.is_file():
+        try:
+            fields = proc.read_text(encoding="ascii").rsplit(")", 1)[1].split()
+        except (OSError, IndexError):
+            return None
+        if not fields:
+            return None
+        return "stopped" if fields[0] in ("T", "t") else "running"
+    result = subprocess.run(
+        ["/bin/ps", "-ww", "-p", str(pid), "-o", "state="],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        check=False,
+        env={"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LC_ALL": "C"},
+    )
+    state = result.stdout.strip()
+    if result.returncode or not state:
+        return None
+    # Darwin prefixes the run state, then appends flags (T, TN, T+, ...).
+    return "stopped" if state[:1] in (b"T", b"t") else "running"
+
+
 def timestamp_epoch(value):
     if not isinstance(value, str) or not value:
         return None
@@ -351,7 +393,20 @@ def process_truth(path, descriptor):
             "reason": "process_identity_mismatch",
             "observed": observed,
         }
-    return {"state": "live", "reason": "exact_live_process", "observed": observed}
+    # `runnable` is ADDITIVE on purpose. The "live" string stays exactly as it
+    # was because cancel_attempt() and reap refuse to act unless state == "live"
+    # -- demoting a stopped attempt out of "live" would make the one recovery
+    # you most need (cancelling a stuck lane) impossible. Callers that care
+    # about schedulability opt in by reading this field; everything else is
+    # unaffected by construction.
+    run_state = process_run_state(descriptor["pid"])
+    return {
+        "state": "live",
+        "reason": "exact_live_process",
+        "observed": observed,
+        "runnable": run_state != "stopped",
+        "run_state": run_state or "unknown",
+    }
 
 
 def descriptor_hash(descriptor):
@@ -630,14 +685,39 @@ def _process_rows():
     ]
 
 
-def _signal_identity(identity, signum):
+def _signal_identity(identity, signum, *, target, operation):
     # Darwin has no pidfd: re-observe immediately before every PID signal, then
     # freeze the exact session leader before any numeric process-group signal.
     observed = observe_process(identity["pid"])
     if observed is None:
         return False
     if observed != identity:
-        raise ProcessTruthError("process identity changed before signal")
+        mismatches = []
+        for field in PROCESS_IDENTITY_FIELDS:
+            if observed[field] == identity[field]:
+                continue
+            if field == "argv_sha256":
+                mismatches.append(
+                    "%s expected_prefix=%s observed_prefix=%s"
+                    % (field, identity[field][:12], observed[field][:12])
+                )
+            else:
+                mismatches.append(
+                    "%s expected=%r observed=%r"
+                    % (field, identity[field], observed[field])
+                )
+        raise ProcessTruthError(
+            "process identity changed before signal: pid=%s pgid=%s signal=%s "
+            "target=%s operation=%s; mismatches: %s"
+            % (
+                identity["pid"],
+                identity["pgid"],
+                int(signum),
+                target,
+                operation,
+                "; ".join(mismatches),
+            )
+        )
     os.kill(identity["pid"], signum)
     return True
 
@@ -646,7 +726,9 @@ def _freeze_tree(expected):
     root, pgid = expected["pid"], expected["pgid"]
     stopped = {}
     if (
-        not _signal_identity(expected, signal.SIGSTOP)
+        not _signal_identity(
+            expected, signal.SIGSTOP, target="tree_root", operation="freeze"
+        )
         or observe_process(root) != expected
     ):
         raise ProcessTruthError("session leader could not be identity-frozen")
@@ -671,7 +753,12 @@ def _freeze_tree(expected):
             ]
             for pid, _group in pending:
                 identity = observe_process(pid)
-                if identity is not None and _signal_identity(identity, signal.SIGSTOP):
+                if identity is not None and _signal_identity(
+                    identity,
+                    signal.SIGSTOP,
+                    target="descendant",
+                    operation="freeze",
+                ):
                     stopped[pid] = identity
             if pending:
                 continue
@@ -682,8 +769,17 @@ def _freeze_tree(expected):
     except BaseException:
         for identity in stopped.values():
             try:
-                _signal_identity(identity, signal.SIGCONT)
+                _signal_identity(
+                    identity,
+                    signal.SIGCONT,
+                    target="descendant",
+                    operation="continue",
+                )
             except (OSError, ProcessTruthError):
+                # Swallowed deliberately: raising during rollback would mask the
+                # original exception. So the operation="continue" mismatch detail
+                # is built and discarded here and can never reach a transcript --
+                # do not expect that string in an operator note.
                 pass
         if observe_process(root) == expected:
             os.killpg(pgid, signal.SIGCONT)
@@ -704,7 +800,12 @@ def terminate_attributable_tree(expected, grace):
         raise ProcessTruthError("process-tree root session is unavailable") from exc
     members, escaped = _freeze_tree(expected)
     for identity in escaped:
-        _signal_identity(identity, signal.SIGTERM)
+        _signal_identity(
+            identity,
+            signal.SIGTERM,
+            target="descendant",
+            operation="terminate",
+        )
     if observe_process(expected["pid"]) != expected:
         raise ProcessTruthError("session leader identity changed before group signal")
     os.killpg(expected["pgid"], signal.SIGTERM)
@@ -716,7 +817,12 @@ def terminate_attributable_tree(expected, grace):
     live = [item for item in members if observe_process(item["pid"]) == item]
     for identity in live:
         if identity["pgid"] != expected["pgid"]:
-            _signal_identity(identity, signal.SIGKILL)
+            _signal_identity(
+                identity,
+                signal.SIGKILL,
+                target="descendant",
+                operation="terminate",
+            )
     if any(item["pgid"] == expected["pgid"] for item in live):
         os.killpg(expected["pgid"], signal.SIGKILL)
     deadline = time.monotonic() + 1

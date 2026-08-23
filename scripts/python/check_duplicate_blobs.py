@@ -222,36 +222,58 @@ def git_environment() -> dict[str, str]:
     return environment
 
 
+GEMINI_BRIDGE_PREFIX = ("model-lanes", "gemini", ".agents", "skills")
+
+
+def _skill_mirror_home(path: str) -> tuple[str, str] | None:
+    """Return ``(home, skill_name)`` for a recognized ``SKILL.md`` home."""
+    parts = PurePosixPath(path).parts
+    if not parts or parts[-1] != "SKILL.md":
+        return None
+    if (
+        len(parts) == 4
+        and parts[0] in {".agents", ".claude"}
+        and parts[1] == "skills"
+    ):
+        return parts[0], parts[2]
+    if len(parts) == 6 and parts[:4] == GEMINI_BRIDGE_PREFIX:
+        return "gemini-bridge", parts[4]
+    return None
+
+
 def _skill_mirror_name(paths: Collection[str]) -> str | None:
-    """Return the name of one exact canonical/shared ``SKILL.md`` mirror pair.
+    """Return the name of one exact canonical/shared/bridge mirror group.
 
     Hard Rule 10's winner and validator live in ``SKILL_MIRROR_POLICY`` and
-    ``SKILL_MIRROR_ENFORCER``.  This matcher deliberately recognizes only the
-    direct two-file shape they own.  Assets, references, Gemini materializations,
-    cross-named skills, and any group with a third copy remain registry-required.
+    ``SKILL_MIRROR_ENFORCER``. This matcher recognizes only the shapes they own:
+    the canonical/shared two-file pair, and that pair plus the Gemini cwd bridge
+    materialization. Assets, references, cross-named skills, and every other
+    shape remain registry-required.
     """
-    if len(paths) != 2:
+    if len(paths) not in {2, 3}:
         return None
     names_by_home: dict[str, str] = {}
     for path in paths:
-        parts = PurePosixPath(path).parts
-        if (
-            len(parts) != 4
-            or parts[0] not in {".agents", ".claude"}
-            or parts[1] != "skills"
-            or parts[3] != "SKILL.md"
-        ):
+        found = _skill_mirror_home(path)
+        if found is None:
             return None
-        name = parts[2]
+        home, name = found
         if not GROUP_ID.fullmatch(name) or name == "probe-canary":
             return None
-        if parts[0] in names_by_home:
+        if home in names_by_home:
             return None
-        names_by_home[parts[0]] = name
-    if set(names_by_home) != {".agents", ".claude"}:
+        names_by_home[home] = name
+    homes = frozenset(names_by_home)
+    if homes not in {
+        frozenset({".agents", ".claude"}),
+        frozenset({".agents", ".claude", "gemini-bridge"}),
+    }:
         return None
-    shared_name = names_by_home[".agents"]
-    return shared_name if names_by_home[".claude"] == shared_name else None
+    return (
+        names_by_home[".agents"]
+        if len(set(names_by_home.values())) == 1
+        else None
+    )
 
 
 def _skill_identity(blob: bytes) -> tuple[str, str] | None:
