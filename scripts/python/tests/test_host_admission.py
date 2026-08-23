@@ -185,7 +185,7 @@ class AdmissionPredicateTests(unittest.TestCase):
     def test_growth_pressure_and_unknown_workload_fail_closed(self) -> None:
         task = candidate("TASK-2026-08-08-0001-one", "claude")
         for snapshots, clause in (
-            (safe_pair(pageouts=101), 3),
+            (safe_pair(swapouts=101), 3),  # swap, not paging: macOS pages out routinely
             (safe_pair(pressure_level="critical"), 6),
             (safe_pair(pressure_free_percent=10.0), 6),
         ):
@@ -193,6 +193,31 @@ class AdmissionPredicateTests(unittest.TestCase):
                 self.assertIn(clause, decide((task,), snapshots=snapshots).failed_clauses)
         unknown = replace(task, workload_class="unknown")
         self.assertIn(4, decide((unknown,)).failed_clauses)
+
+    def test_clause_three_watches_swap_io_only(self) -> None:
+        # Clause 3 was narrowed 2026-08-23 from "any of swapins/pageouts/swapouts/
+        # compressions grew" to swap I/O alone. macOS compresses under almost any
+        # activity (+24,306 in 3s measured under seven lanes) while swapouts stayed
+        # 0, so the old predicate refused hosts that were not swapping at all.
+        # Pin BOTH directions so neither the old behaviour returns nor the new one
+        # silently loosens further.
+        task = candidate("TASK-2026-08-08-0001-one", "claude")
+        for label, overrides in (
+            ("swapins alone", dict(swapins=101)),
+            ("swapouts alone", dict(swapouts=101)),
+            ("both swap counters", dict(swapins=101, swapouts=101)),
+        ):
+            with self.subTest(must_fail=label):
+                result = decide((task,), snapshots=safe_pair(**overrides))
+                self.assertIn(3, result.failed_clauses, label)
+        for label, overrides in (
+            ("pageouts alone", dict(pageouts=101)),
+            ("compressions alone", dict(compressions=24306)),
+            ("pageouts and compressions together", dict(pageouts=101, compressions=24306)),
+        ):
+            with self.subTest(must_not_fail=label):
+                result = decide((task,), snapshots=safe_pair(**overrides))
+                self.assertNotIn(3, result.failed_clauses, label)
 
     def test_free_swap_file_space_is_not_an_admission_clause(self) -> None:
         # Former clause 5 compared free space in the CURRENT swap file against
@@ -214,7 +239,7 @@ class AdmissionPredicateTests(unittest.TestCase):
         task = candidate("TASK-2026-08-08-0001-one", "claude", "repo-build-test")
         starving = dict(swap_free_bytes=64 * 1024**2)
         for label, overrides, clause in (
-            ("thrashing: swap is actively growing", dict(swapouts=101), 3),
+            ("swap I/O active: swapping out", dict(swapouts=101), 3),
             ("projection exceeds the pressure budget", dict(pressure_free_percent=18.0), 4),
             ("pressure critical", dict(pressure_level="critical"), 6),
             ("pressure under the class floor", dict(pressure_free_percent=19.0), 6),

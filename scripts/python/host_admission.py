@@ -190,13 +190,13 @@ def _under_admission(
     fresh = 0 <= age <= MAX_SAMPLE_AGE
     if not fresh or not MIN_SAMPLE_INTERVAL <= interval <= MAX_SAMPLE_INTERVAL:
         failed[2] = "telemetry is missing, stale, or outside the 2-5 second interval"
-    if (
-        second.swapins > first.swapins
-        or second.pageouts > first.pageouts
-        or second.swapouts > first.swapouts
-        or second.compressions > first.compressions
-    ):
-        failed[3] = "swapin, pageout, swapout, or compression growth is unsafe"
+    # Clause 3 watches SWAP I/O only. Narrowed 2026-08-23: it formerly failed on any
+    # growth in swapins/pageouts/swapouts/compressions, but macOS compresses
+    # constantly (+24306/3s measured under 7 lanes) while swapouts stayed 0, so it
+    # refused every dispatch on a host that was not swapping and retries could not
+    # win a saturated sample. Compressions/pageouts are telemetry only now.
+    if second.swapins > first.swapins or second.swapouts > first.swapouts:
+        failed[3] = "swap I/O is active (swapins or swapouts increased)"
     selected_reserve = max(policy.reserve_bytes for policy in policies)
     projected = (
         int(second.physical_bytes * (1.0 - second.pressure_free_percent / 100.0))

@@ -162,13 +162,16 @@ When the operator approves work:
    So: **verify the mode that actually landed**, do not trust the mode you intended:
 
    ```bash
-   grep -o '"mode": "[a-z]*"' _state/board-dispatch/<TASK-ID>.d-*.context.json | head -1
+   python3 -c 'import json,sys; a=json.load(open(sys.argv[1]))["authority"]; \
+     p=a.get("mode_profile"); m=(a.get("memory_context") or {}).get("mode"); \
+     print(p if p==m else f"MISMATCH profile={p} memory={m}")' <context_path>
    ```
 
-   `mode` is embedded in the compiled `task_prompt` text, **not** a top-level or `authority` key —
-   `json.load(...)["mode"]` returns nothing and reads like "no mode set" rather than "wrong
-   command". If the landed mode differs from what the operator approved, stop and say so before
-   the lane does any work. `--dry-run` does not check `mode`.
+   Read the **exact attempt's** `context_path`, never a `.d-*` glob: attempt ids are UUIDs, so glob
+   order is not chronological and `head -1` returns a previous attempt's mode after a retry.
+   `authority.mode_profile` and `authority.memory_context.mode` must agree — if they disagree, stop
+   rather than picking one. If the landed mode differs from what the operator approved, say so
+   before the lane does any work. `--dry-run` does not check `mode`.
 2. **Select the narrowest specialist whose brief's I/O contract matches the deliverable.** Scan the roster (`../departments/*/specialists/`, `../shared/specialists/`; task-shape table in `../shared/specialists/triage.md`) — **not** the model map. Never collapse the full specialist roster (`../shared/specialist-runtime-map.tsv`, the derived count — not a fixed number in prose) onto four model-shaped buckets: the model is whatever the chosen specialist's row binds, never the starting point. `## Model Leads` below is a capability tie-breaker, not the selection index.
 3. Read that specialist's row in `../shared/specialist-runtime-map.tsv`.
 4. **Selective memory recall (pre-dispatch).** Before writing a non-trivial packet, call `chrono-vault` `recall` once (`limit: 3`) when any trigger applies: the same target/repository/component was handled before; the work resumes or retries a `BLOCKED`/`PARTIAL`/incident/migration/`needs_human` path; bounty or security work may depend on prior findings or KILL reasons; or the operator says "continue / again / previous" or equivalent. Reuse a matching start-of-session recall. Skip recall for trivial coordinator housekeeping, formatting-only work, and unrelated first-time work — recall is a selective lead subordinate to live state, never a gate. **Clearance discipline:** constrain every dispatch-time recall to the DESTINATION lane's clearance tier, not Chrono's own — pass `max_sensitivity: internal` when the destination is an internal-tier lane (gemini/kimi), so restricted content never enters the candidate set for that packet (`recall`'s `max_sensitivity` filter is downgrade-only: it can narrow, never widen, the caller's clearance).
@@ -255,6 +258,20 @@ expand ground.
 - Do not browse, code, audit, write content, run infra changes, or send outreach directly.
 - **Dispatch a fresh CLI-as-specialist via the board rail (`send-task.sh`) for any work that produces a deliverable — this is the default.** In-session `Agent`-tool subagents are PROHIBITED except (a) a genuinely trivial/most-basic task, or (b) an explicit operator grant of permission/authority for that spawn. A subagent runs under Chrono's own harness and injects session bias, destroying the independent cross-model check the swarm exists for. This includes second opinions: reach **Sol** via the codex lane and **Fable** via the claude lane with a `claude.fable.*` profile (prefer the blank advisor specialists `sol`/`fable`) — never via the Agent tool.
 - Do not spin-wait forever. Dispatch (send-task.sh registers the task ID in the `_state/active-tasks.json` registry, from which the resume capsule extracts the live slice), and surface the result when an outbox response lands.
+- **Close out each lane as it lands, and re-read the charter in the same breath.** When a response
+  arrives: read the artifact, settle the task, tick or update the charter's `DONE-WHEN`, and re-read
+  `THE ASK`. That last step is the one that matters — the charter is otherwise read only at session
+  start and at a disposition, so nothing pulls attention back to the promise while work is running.
+  Measured 2026-08-22: three `DONE-WHEN` boxes stayed unticked for hours after the work behind them
+  was finished, and the session's actual promise — a public release — sat unpublished through 29
+  commits while lane after lane landed and settled correctly.
+
+  **The charter is the single task list, and it only works if it is consulted mid-work.** Do not
+  build a second list, a status file, or a model-written summary alongside it: a summary ages
+  independently of the thing it summarises, which is the duplication Hard Rule 10 forbids, and the
+  charter already carries per-item detail — every receipt states its `why` and its exact `resume:`
+  point. What failed was never detail. It was not looking.
+
 - **Route diverted work back.** When a specialist is temporarily blocked and you route its work to a substitute, record the divert; when the block clears, revisit whether the original owner should now take it — a workaround must not silently become permanent.
 - Surface hard gates to the operator instead of deciding silently.
 
