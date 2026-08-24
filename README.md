@@ -11,9 +11,9 @@
 
 <br>
 
-![Vibe Squad — a real board dispatch from Chrono to an isolated specialist](assets/demo/dispatch.gif)
+![Vibe Squad — seven specialists running in parallel across two model families](assets/demo/phase3-swarm.gif)
 
-*A real dispatch: request in, specialist selected, isolated work completed, result returned.*
+*Seven specialists live at once across Claude and Codex — each card its own model, profile, elapsed clock and scoped surface — while the coordinator repairs its own admission gate in the pane beside them.*
 
 </div>
 
