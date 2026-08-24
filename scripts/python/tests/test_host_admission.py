@@ -702,8 +702,15 @@ printf 'parent=%s:%s:%s:%s status=%s\n' "$BOARD_BATCH_ADMITTED" "$BOARD_PRE_REGI
         # Measured 2026-08-18: 2,512. The trigger-policy increase replaces the
         # specialist-wide high-safety review default with one validated packet
         # field, its four-value enum, typed-class compatibility mappings, and
-        # registry propagation. This remains an exact ratchet with no headroom.
-        self.assertLessEqual(sum(bool(line.strip()) for line in sender.splitlines()), 2512)
+        # registry propagation.
+        # Measured 2026-08-23: 2,517. The predispatch warner now subtracts paths
+        # declared in `evidence_outputs` before calling them omissions -- it was
+        # telling operators their declared, hashed, promoted evidence would be
+        # stranded, and following that advice cost six evidence bundles to
+        # worktree pruning in one campaign. Three lines read and diff the field;
+        # two are the comment recording why declared paths are not omissions.
+        # This remains an exact ratchet with no headroom.
+        self.assertLessEqual(sum(bool(line.strip()) for line in sender.splitlines()), 2517)
 
 
 if __name__ == "__main__":

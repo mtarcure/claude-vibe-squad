@@ -31,6 +31,27 @@ claim. This runs on the finished artifact at the boundary — not during authori
 - Do not "clean up" by summarizing away detail. The only things removed are the provenance of how WE
   work and the cadence of a machine — never what was found or how to reproduce it.
 
+## When a campaign ships more than one report, they must not look like a batch
+
+The register pass above works inside one document. A second tell lives *across* documents, and it is
+the one that costs most: several reports from one researcher, landing together, sharing a section
+skeleton, each citing `file:line` and carrying a local harness with no live-service crash. Read at
+volume that shape says "automated scan output" before anyone reads the finding, and it shifts the
+reader's prior from trust to suspicion on every report in the set — including the good ones.
+
+So, before sibling reports ship:
+
+- **Break the skeleton.** Do not send two reports whose sections appear in the same order with the
+  same headings. Let each be shaped by its own defect.
+- **Lead with its own observable.** Each report opens on the concrete thing that happened in *that*
+  finding — the balance that moved, the entry that can never be re-added — not a shared template
+  opener.
+- **Stagger the send** where the program's timing allows. Same-hour arrival is part of the pattern.
+- **Never make the harness result the headline.** "N/N tests pass" is the harness grading itself. Put
+  the state change first and let the suite corroborate it.
+
+None of this touches the technical content. It changes only what the set looks like from outside.
+
 ## The acceptance test
 - Read the result cold: would this pass as written by a person who works on this problem, for this
   audience? If a sentence reveals our process or reads as generated, it fails.

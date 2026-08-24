@@ -544,6 +544,36 @@ class PositiveCanaryTests(unittest.TestCase):
                 self.assertFalse(result.passed)
                 self.assertEqual(result.tier, checker.TIER_OPERATOR)
 
+    def test_recall_bookend_honors_contract_memory_policy(self) -> None:
+        # Bounty pins memory_policy.recall="optional", so an ABSENT recall
+        # receipt must PASS. This assertion fails against the pre-fix code,
+        # which demanded memory.recall unconditionally in both modes — the
+        # exact reversion the success criterion says the test must catch.
+        bounty = SpineFixture(self, mode="bounty", result_type="dry_run")
+        manifest = bounty.complete_bounty()
+        manifest["memory"]["recall"] = None
+        optional_absent = checker.check_memory_bookends(manifest)
+        self.assertTrue(optional_absent.passed, optional_absent.detail)
+
+        # A recall that IS present is still fully validated in optional mode, so
+        # a disclosed-but-malformed recall cannot slip through (bounty.md's
+        # disclosure duty). This keeps the fix from over-relaxing the check.
+        manifest = bounty.complete_bounty()
+        manifest["memory"]["recall"]["recall_id"] = "not-a-uuid"
+        optional_malformed = checker.check_memory_bookends(manifest)
+        self.assertFalse(optional_malformed.passed)
+        self.assertEqual(optional_malformed.tier, checker.TIER_OPERATOR)
+
+        # Project pins memory_policy.recall="required", so an ABSENT recall
+        # receipt must still FAIL. This is the "do not weaken project mode"
+        # guard: the fix gates on the contract, it does not drop the check.
+        project = SpineFixture(self)
+        manifest = project.complete_common()
+        manifest["memory"]["recall"] = None
+        required_absent = checker.check_memory_bookends(manifest)
+        self.assertFalse(required_absent.passed)
+        self.assertEqual(required_absent.tier, checker.TIER_OPERATOR)
+
     def test_common_structural_and_external_negatives(self) -> None:
         checks = (
             ("wrong artifact hash", checker.check_artifact_and_gate_bindings,

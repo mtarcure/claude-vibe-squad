@@ -133,6 +133,10 @@ class CapsuleFreshnessCanary(unittest.TestCase):
             # (i.e. no dependency on this HOST's real chrono-queue.md) unless it
             # explicitly opts in via write_queue().
             (resume, "QUEUE_PATH", self.base / "chrono-queue.md"),
+            # Same trap, same fix: the archived-charter debt block would
+            # otherwise read this HOST's real thread-charters/complete and
+            # spend real tokens inside a fixture capsule's bound.
+            (resume, "ARCHIVED_DEBT_ROOT", self.base),
         ):
             self.addCleanup(setattr, module, attr, getattr(module, attr))
             setattr(module, attr, value)
@@ -353,6 +357,70 @@ class CapsuleFreshnessCanary(unittest.TestCase):
             declared, "deferred tasks were dropped without declaring it"
         )
         self.assertEqual(len(shown) + int(declared.group(1)), len(many))
+
+    def _write_archived_charter(self, name, body):
+        d = self.base / "_state" / "chrono" / "thread-charters" / "complete"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / name).write_text(body)
+
+    def test_archived_debt_is_shown_and_never_silently_dropped(self):
+        """A charter archived while still owed must survive the token bound.
+
+        The block exists because archiving is a bare `mv` and every other
+        reader stops at active/. If the bound could delete it without a word,
+        the capsule would be back to the state that lost six queued items —
+        an absent heading reading as "nothing is owed".
+        """
+        self.write_registry({})
+        for i in range(6):
+            self._write_archived_charter(
+                f"owed-{i}.md",
+                "## THE ASK\nship it\n\n## OPEN LOOPS\n"
+                f"- 2026-08-01T00:00:00Z | QUEUE Q-{i:03d} | thing — why: x; resume: y\n"
+                "\n## DONE-WHEN\n- [ ] shipped\n",
+            )
+
+        # Roomy budget: the block renders in full.
+        resume.write_capsule("sess-1", "regenerate", max_tokens=3000)
+        full = self.capsule.read_text()
+        self.assertIn(resume.ARCHIVED_DEBT_HEADING, full)
+        self.assertIn("owed-0.md", full)
+
+        # Squeezed: it collapses to a declared count, and still never vanishes.
+        # NOT asserted: that the capsule then fits an arbitrary bound. Measured
+        # 2026-08-23 — with any debt present the floor is ~87 tokens (heading +
+        # declared count + the sections that never drop), so a 60-token budget
+        # is unreachable by construction. The contract is "collapses and says
+        # so", not "fits any number a caller invents".
+        resume.write_capsule("sess-1", "regenerate", max_tokens=60)
+        tight = self.capsule.read_text()
+        self.assertLess(
+            len(tight), len(full), "the squeezed capsule must actually be smaller"
+        )
+        self.assertIn(
+            resume.ARCHIVED_DEBT_HEADING,
+            tight,
+            "archived-debt heading vanished silently under the bound",
+        )
+        declared = re.search(
+            r"\((\d+) archived charter\(s\) still owed, omitted", tight
+        )
+        self.assertIsNotNone(
+            declared, "archived debt was dropped without declaring it"
+        )
+        self.assertEqual(int(declared.group(1)), 6)
+
+    def test_archived_debt_block_is_silent_when_nothing_is_owed(self):
+        """Probation clause: no debt, no block. A check that always fires is noise."""
+        self.write_registry({})
+        self._write_archived_charter(
+            "settled.md",
+            "## THE ASK\nship it\n\n## OPEN LOOPS\n"
+            "- 2026-08-01T00:00:00Z | FOLD | thing — why: x; resume: y\n"
+            "\n## DONE-WHEN\n- [x] shipped\n",
+        )
+        resume.write_capsule("sess-1", "regenerate", max_tokens=3000)
+        self.assertNotIn(resume.ARCHIVED_DEBT_HEADING, self.capsule.read_text())
 
     def test_pending_drops_under_the_bound_are_declared(self):
         """The bound may bite the pending-completions section too — never silently.

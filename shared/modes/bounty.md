@@ -144,7 +144,8 @@ claiming otherwise in a report is the failure mode this spine exists to make vis
   rather than read off the program page. No scope laundering: a chain may not borrow authority or
   impact from a sibling program. **An ambiguous scope STOPS**, and an orphan is a stop, not advice.
 - **`no_self_inflicted`** — attacker-funded, attacker-donated, and self-seeded harness balances are
-  not impact.
+  not impact. **A balance difference is not theft**: a fund-theft claim shows the victim debit AND the
+  attacker-controlled destination credit, on both accounts.
 - **Safety and refusal rails travel in the packet.** A detached lane executes without reading this
   document; the rule must be at the point of action. **A refusal is a correct outcome, not a lane
   failure** — never re-dispatch to shop for a permissive answer. Re-dispatch is Chrono's act, so this
@@ -739,8 +740,33 @@ a claim needs revising, it goes back to Phase 5.
 - **Write the report**: a runnable PoC, reproduction steps a triager can run **cold** on a clean
   checkout, the **suggested fix** (mandatory on most programs — a report without one gets closed), and
   impact stated against the program's **own enumerated impact limbs**, quoted.
-- **Differentiate against known reports here**, in the report body — entry point, code path, root
-  cause, the specific missing line. Let the triager judge; we cannot read other researchers' reports.
+- **Open with the triage-evidence capsule.** Short and factual, not a defensive essay: its job is
+  that a triager sees the pin, the identities, the state transition and an independent observable
+  **before** forming a severity opinion. This is not a second report schema —
+  `systematic-attacking` points here. Fields: **target** (exact in-scope asset, immutable pin,
+  program type) · **identities** (attacker's starting access, victim/recipient, who controls each
+  account) · **prerequisites**, each marked attacker-controlled or lab-supplied · **reproduction**
+  (clean-checkout command, expected result, actual result, primary observable) · **state delta**
+  before/after on every affected party · **controls** (the false-twin negative control, and the
+  observation proving the harness did not grade itself) · **attachments** (filename, purpose,
+  sha256 — one report's evidence never supports another) · **impact** mapped to the exact program
+  clause, with the realistic ceiling stated separately from the demonstrated impact ·
+  **differentiation**, one sentence naming root cause + impacted component against known reports.
+- **Preempt the five reflexes that close valid work.** These are the grader's own triage-mistakes
+  list — each is a way a *correct* finding gets wrongly rejected, so each is something the report
+  must **say**, not something we must check.
+  - **A `200` is not a state change** (`200 + null` is a no-op). Every state-change claim shows state
+    before and after, never a success response.
+  - **A balance difference is not theft.** A fund-theft PoC shows BOTH the victim debit AND the
+    attacker-controlled destination credit, on both accounts.
+  - **Dedup is a two-word search, not a string match.** Triagers search one or two BROAD words, then
+    read for root-cause match. So name our distinct root cause in plain broad terms and say why the
+    obvious broad-match neighbour is not our bug — written for someone who searched two words.
+  - **State the attacker's starting privilege up front** (unprivileged → privileged) on every
+    escalation report, preempting the "rogue admin, out of scope" downgrade reflex.
+  - **Argue severity from the code; never assert it.** The triager ignores our label and re-derives
+    severity from the code, so quote the program's own Critical definition against the mechanism.
+    Budget belongs in the mechanism, not the label.
 - **De-AI pass — `vibecoding-check` over the finished report.** Strip phase references, task IDs, temp
   paths, internal lane names, hedging scaffolds and AI tells. Researcher voice throughout. Several
   programs state outright that *"AI-generated reports without runable PoC are not accepted"*, and a
@@ -772,7 +798,12 @@ So: present the outcome, the candidates and the gate each died at, what would ha
 re-enter, and what you propose to prune — then wait. An operator who disagrees may want another
 angle hunted, and that conversation is impossible once the clones are gone.
 
-**A campaign has exactly two exits, and both are closes:**
+**A campaign has exactly two exits, and both are closes.** Neither is machine-enforced: the
+`vibecoding-check` verifier cannot represent either one — it rejects a normal Bounty manifest with
+no findings, so a zero-finding `KILLED` cannot validate, and it requires `submission.attempted` to
+be literal `false`, so a `SUBMITTED` campaign cannot either. Automatic close verification is
+Project-only. **Closing a campaign is Chrono's discipline and the operator's decision, not a gate
+that will stop you.**
 
 - **SUBMITTED** — one or more findings cleared Phase 5 and the operator made the final submit.
 - **KILLED** — no candidate became a finding, or the operator stopped the campaign. **This is a
@@ -844,7 +875,8 @@ opposite one is always available — pick it explicitly with `to_model` rather t
 default, and state the author's family in the packet so the reviewer can confirm it is anti-affine.
 
 Do **not** stack reviews on top of that. Per-task `mandatory_review` now comes only from a declared
-change-level trigger; `safety_level` alone never creates it. The flag is **settlement bookkeeping**,
+change-level trigger (the four-trigger gate is defined in `shared/protocol.md` § Mandatory Review Behavior, its one
+home); `safety_level` alone never creates it. The flag is **settlement bookkeeping**,
 not adjudication — it exists so genuinely triggered work can close, and it does not license
 a second opinion pass, a review of the adjudication, or a third family "to be sure". A campaign that
 reviews its hunt lanes, then reviews the chainers, then reviews the adjudicator has not become more
@@ -857,17 +889,27 @@ Two corollaries worth stating because both cost us a lane this run:
 - **If the assigned reviewer's family authored any item under review, it is not anti-affine** —
   re-route that adjudication rather than accepting it. The reviewer should say so if Chrono misses it.
 
+**A program-requested retest is a fresh scoped packet, not a ninth phase.** Preserve the original PoC
+as the baseline: it must reproduce on the vulnerable pin and fail *for the intended reason* on the
+fixed pin. Route the fixed diff through `differential-review` + `variant-analysis` +
+`code-review-loop`, and report root-cause coverage, unfixed siblings, interface/storage/trust
+regressions, and weakened tests. **A retest never authorizes production mutation or live exploit
+execution.**
+
 **Timing is the operator's.** A short window means fewer targets done properly, never the same target
 done thinly.
 
 **Report coverage and residual; ask rather than auto-close.** An empty hunt is reported with what was
 covered and what remains. Never auto-rerun, never auto-close.
 
-**Only `return_artifact` is promoted from a worktree.** Every other `write_scope` path is silently
-stranded, and because `_state/**` is gitignored the failure is invisible rather than an error. This
-stranded a PoC, a harness suite, a sealed cross-check file and a program record in a single session.
-**After any lane with more than one `write_scope` entry, sweep its worktree before settling** —
-`find _state/board-worktrees/<attempt>/ -newer <packet>` — and promote by hand what the board did not.
+**Declare evidence in `evidence_outputs` or it is stranded.** `return_artifact` is always promoted.
+Any other `write_scope` path is promoted **only** if the packet names it in `evidence_outputs`, which
+the builder validates against `write_scope`, hashes, and publishes with an `artifact-promotion/v1`
+record (`dispatch_context_builder.py:982,2805`). Undeclared paths strand silently, and because
+`_state/**` is gitignored the failure is invisible rather than an error — that stranded a PoC, a
+harness suite, a sealed cross-check file and a program record in one session, and six evidence
+bundles in another. **Name every file you want back.** Sweeping the worktree afterwards is the
+fallback for what you forgot to declare, not the design.
 
 **A retry must use a FRESH `return_artifact` path.** A blocked settlement writes a stub to the
 packet's return path; the next attempt then fails completion prevalidation with *"return artifact

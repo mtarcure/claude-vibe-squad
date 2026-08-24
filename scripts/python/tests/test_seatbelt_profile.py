@@ -295,13 +295,13 @@ class SeatbeltProfileCompilerTests(unittest.TestCase):
             compile_for_test(
                 seatbelt.ProfileSpec(
                     write_paths=(ROOT / "_state",),
-                    executable_paths=(
-                        ROOT
-                        / "docs"
-                        / "superpowers"
-                        / "plans"
-                        / "2026-07-21-v2-board-native-finalization-rev4.md",
-                    ),
+                    # Any existing non-executable file proves the point. This
+                    # named a doc under docs/superpowers/plans/, and when that
+                    # directory was deleted the fixture vanished -- so a security
+                    # test started failing on a FileNotFoundError that had
+                    # nothing to do with executable-bit validation. CLAUDE.md is
+                    # load-bearing for the repo and cannot quietly disappear.
+                    executable_paths=(ROOT / "CLAUDE.md",),
                 )
             )
 

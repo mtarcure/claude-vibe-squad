@@ -1398,7 +1398,11 @@ def field(name):
 ret = field("return_artifact")
 ws  = field("write_scope").strip("[]")
 paths = [p.strip().strip("'\"") for p in ws.split(",") if p.strip()]
-extra = [p for p in paths if p and p != ret]
+# Paths named in evidence_outputs ARE promoted (dispatch_context_builder validates,
+# hashes and publishes them), so they are not omissions. Only undeclared ones are.
+ev  = field("evidence_outputs").strip("[]")
+declared = {p.strip().strip("'\"") for p in ev.split(",") if p.strip()}
+extra = [p for p in paths if p and p != ret and p not in declared]
 if not extra:
     sys.exit(0)
 ignored = []
@@ -1410,8 +1414,9 @@ for p in extra:
     except Exception:
         pass
 print(
-    "predispatch notice: only `return_artifact` is promoted from the worktree. "
-    f"{len(extra)} other write_scope path(s) will NOT be promoted automatically"
+    "predispatch notice: `return_artifact` is always promoted; another write_scope path is "
+    "promoted only if the packet declares it in `evidence_outputs`. "
+    f"{len(extra)} undeclared write_scope path(s) will NOT be promoted"
     + (f" and {len(ignored)} of them are gitignored so the omission is silent" if ignored else "")
     + ": " + ", ".join(extra)
     + ". Sweep the attempt worktree before settling this task.",

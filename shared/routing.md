@@ -109,7 +109,7 @@ Every non-trivial task packet names:
 - `write_scope`: exact writable paths, or `[]`
 - `review_model`: read-only reviewer lane, or `none`
 - `mandatory_review`: `true | false`
-- `review_triggers`: explicit subset of `blast_radius | adversarial_claim | deciding_measurement | architecture`
+- `review_triggers`: explicit subset of `blast_radius | adversarial_claim | deciding_measurement | architecture` (the gate that defines these is `shared/protocol.md` § Mandatory Review Behavior — its one home)
 - `parallel_safe`: `true | false`
 - `direct_lane_work_allowed`: default `false`
 - `operator_approved`: `true | false` (must be `true` for any `operator_gate` work)

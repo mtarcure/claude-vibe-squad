@@ -379,6 +379,23 @@ def _current_hashes(manifest: dict[str, Any]) -> tuple[str, str]:
     return plan_sha, bundle
 
 
+def _contract_recall_required(manifest: dict[str, Any]) -> bool:
+    """Whether the dispatcher-pinned contract mandates a recall receipt.
+
+    `memory_policy.recall` is dispatcher-owned and mode-specific: project pins
+    it "required", bounty pins it "optional" so a cold hunting lane is never
+    forced to call recall (see
+    `verification_contract.derive_verification_contract_unchecked` and
+    `shared/modes/bounty.md`). The bookend honors that pinned value rather than
+    demanding a receipt unconditionally in both modes.
+    """
+    contract = validate_verification_contract(manifest.get("verification_contract"))
+    recall = contract["memory_policy"].get("recall")
+    if recall not in {"required", "optional"}:
+        raise ManifestContractError("memory_policy.recall must be required or optional")
+    return recall == "required"
+
+
 def check_memory_bookends(manifest: dict[str, Any]) -> CheckResult:
     try:
         _plan_sha, bundle = _current_hashes(manifest)
@@ -386,20 +403,28 @@ def check_memory_bookends(manifest: dict[str, Any]) -> CheckResult:
         if not isinstance(memory, dict):
             raise ManifestContractError("memory must be an object")
         recall = memory.get("recall")
-        if not isinstance(recall, dict):
-            raise ManifestContractError("memory.recall is required")
-        recall_id = recall.get("recall_id")
-        if not isinstance(recall_id, str) or str(uuid.UUID(recall_id)) != recall_id:
-            raise ManifestContractError("memory recall_id is not a canonical UUID")
-        results = recall.get("results")
-        if not isinstance(results, list) or recall.get("no_hits") is not (len(results) == 0):
-            raise ManifestContractError("memory no_hits/results mismatch")
-        applied = recall.get("applied_note_ids")
-        receipts = recall.get("usage_receipts")
-        if not isinstance(applied, list) or not isinstance(receipts, list):
-            raise ManifestContractError("memory usage coverage is malformed")
-        if {item.get("note_id") for item in receipts if isinstance(item, dict)} != set(applied):
-            raise ManifestContractError("memory usage receipts do not exactly cover applied notes")
+        # Recall is required-or-optional per the pinned contract, never
+        # unconditional: an optional-recall mode (bounty) may omit the receipt,
+        # but a receipt that IS present is still fully validated so a disclosed
+        # recall can never be malformed.
+        if recall is None:
+            if _contract_recall_required(manifest):
+                raise ManifestContractError("memory.recall is required")
+        else:
+            if not isinstance(recall, dict):
+                raise ManifestContractError("memory.recall must be an object")
+            recall_id = recall.get("recall_id")
+            if not isinstance(recall_id, str) or str(uuid.UUID(recall_id)) != recall_id:
+                raise ManifestContractError("memory recall_id is not a canonical UUID")
+            results = recall.get("results")
+            if not isinstance(results, list) or recall.get("no_hits") is not (len(results) == 0):
+                raise ManifestContractError("memory no_hits/results mismatch")
+            applied = recall.get("applied_note_ids")
+            receipts = recall.get("usage_receipts")
+            if not isinstance(applied, list) or not isinstance(receipts, list):
+                raise ManifestContractError("memory usage coverage is malformed")
+            if {item.get("note_id") for item in receipts if isinstance(item, dict)} != set(applied):
+                raise ManifestContractError("memory usage receipts do not exactly cover applied notes")
         record = memory.get("record")
         record_receipts = record.get("receipts") if isinstance(record, dict) else None
         if not isinstance(record_receipts, list) or not record_receipts:

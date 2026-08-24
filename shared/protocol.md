@@ -122,7 +122,7 @@ deletion, spending, account changes, or another consequential action; those deci
 The live worker model **denies declared held-category authority at admission rather than asking for consent at
 action time**. `bin/board-supervisor.sh:872-880` requires authenticated `operator_gates` to equal the
 controller's full `HELD_CATEGORIES` set (`scripts/python/held_action_gate.py:49`) and rejects any overlap between
-that set and the worker's declared `action_scope`. This keeps all **nine** held-category tokens outside ordinary
+that set and the worker's declared `action_scope`. This keeps all held-category tokens outside ordinary
 worker launch authority; `scripts/python/tests/test_golive_integration.py:312-342` is the positive control that
 the deny actually fires, with a same-payload negative control above it. It does not prove that every tool capable
 of causing the same real-world effect is absent: `held_action_gate.authorize()` has no production caller, so there
@@ -133,12 +133,14 @@ Two caveats about that admission check, because its shape is easy to overstate. 
 one production producer — a hardcoded literal at `scripts/python/dispatch_context_builder.py:1177` — and no
 consumer anywhere reads it to grant a capability; it is type-checked, sealed into the runtime envelope, and
 otherwise inert. The overlap check therefore catches a controller-side bug that began emitting a held token; it is
-not a barrier an adversary is pushing against. Second, the cardinal "nine" in the paragraph above is prose and is
-**not** covered by a validator. `scripts/python/tests/test_held_action_gate.py:42-73` pins exact equality among
+not a barrier an adversary is pushing against. Second, the paragraph above deliberately states **no cardinal
+count** of the held set, because a numeral in prose is not covered by a validator.
+`scripts/python/tests/test_held_action_gate.py:42-73` pins exact equality among
 the constant, the `operator_gate` vocabulary in `shared/lane-policy.tsv`, and the enumerated list in Hard Rule 6 of
-`CLAUDE.md` — those three cannot drift. A numeral written here can, and this one already did: it read "ten", which
-was **correct on the day it was written** and went stale hours later when `default_cutover` left the constant. An
-unguarded number does not have to be authored wrong to become wrong.
+`CLAUDE.md` — those three cannot drift. A count written into this prose could not: an earlier draft read "ten",
+which was **correct on the day it was written** and went stale hours later when `default_cutover` left the
+constant. An unguarded number does not have to be authored wrong to become wrong, which is why this section names
+the list's home instead of its size.
 
 `read_scope` and `write_scope` are logical packet and integration contracts. The default trusted worker can read
 and write elsewhere in its attempt worktree. Controller integration commits only in-scope residue, rejects
@@ -248,7 +250,7 @@ For Project and Bounty, `bin/send-task.sh` owns `author_family`, `verification_c
 
 The exact object/hash pair is injected into every dispatched packet and persisted in the locked active registry. A `verification-run/v1` manifest must echo both. The checker trusts in this order: active registry identity under shared lock; registry object validation and recomputed hash; registry lane-to-author-family pin; all packet echoes; then the manifest echo and manifest/contract identities. A mismatch at any layer is `verification_contract_integrity` / `OPERATOR=3`. Same-task registration includes the contract hash in dispatch identity, so a changed contract cannot silently replace the original.
 
-The trace bundle must supply ordered S0–S7 evidence, current plan and canonical artifact-bundle hashes, required verification kinds, different-family plan/deliverable review records and their evidence-file frontmatter, memory recall/record receipts (usage receipts are optional telemetry), a complete action log, expected gate decisions, iteration invalidation records, and local delivery evidence. Reviews bind S2 to `plan.sha256` and S5 to `artifact_bundle_sha256`; changed subjects require fresh evidence. Project and Bounty are the only typed v1 work modes.
+The trace bundle must supply ordered S0–S7 evidence, current plan and canonical artifact-bundle hashes, required verification kinds, different-family plan/deliverable review records and their evidence-file frontmatter, memory recall/record receipts (usage receipts are optional telemetry), a complete action log, expected gate decisions, iteration invalidation records, and local delivery evidence. Reviews bind S2 to `plan.sha256` and S5 to `artifact_bundle_sha256`; changed subjects require fresh evidence. Project and Bounty are the only typed v1 **work** modes; `advisory` is also accepted by `SUPPORTED_TYPED_MODES` as a compatibility mode restricted to `result_type: normal`.
 
 This is a trusted single-user filesystem contract, not cryptographic attestation. The checker validates reviewer-family, memory, and verification records for schema, file hash, identity, and current-subject binding, but cannot prove which external reviewer or MCP authored the bytes. Live acceptance therefore uses actual independent reviews and actual `chrono-vault` returns. The reconciler preserves and settles task state; it does not independently enforce a completed run's verification spine.
 
@@ -525,6 +527,14 @@ The staged V4 state model keeps questions separate from process status. Until P7
 ## Mandatory Review Behavior
 
 `mandatory_review: true` is a contract enforced at dispatch time, not auto-firing automation. Specifically:
+
+**This section is the one home for the review-trigger gate and its cardinality** (root `CLAUDE.md` rule 10). The
+four change-level triggers and the single distinct-family review are defined here; `shared/routing.md`,
+`shared/modes/*.md`, `chrono/CLAUDE.md`, `shared/capabilities/_skeleton.md`, and the `cross-family-review-routing`
+skill cite this section rather than restating the list. The enforced set is pinned in code — the accepted-trigger
+constant at `scripts/python/registry_reconciler.py` and the dispatch validation in `bin/send-task.sh`. `safety_level`
+and content/severity categories never manufacture a change-level review, so a home that lists a different trigger
+set (for example a security/privacy/auth/release list) is drift, not policy.
 
 ### When `mandatory_review: true` is warranted — the four-trigger gate (operator-ratified 2026-08-11)
 

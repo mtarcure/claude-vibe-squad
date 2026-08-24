@@ -15,7 +15,13 @@ REPO_ROOT = EXPORT_DIR.parents[1]
 sys.path.insert(0, str(EXPORT_DIR))
 
 from path_policy import load_policy  # noqa: E402
-from projector import ProjectorError, project  # noqa: E402
+from projector import (  # noqa: E402
+    DEFAULT_LEDGER_PATH,
+    LEDGER_CONTINUITY_FIRST_RUN,
+    LEDGER_CONTINUITY_VERIFIED,
+    ProjectorError,
+    project,
+)
 
 
 # The three fields of a guard census, held as VALUES rather than written as
@@ -98,7 +104,7 @@ class ProjectorTests(unittest.TestCase):
         self._write("CHANGELOG.md", "added public file\n")
         self._write("docs/superpowers/plans/public.md", "public superpowers plan\n")
         self._write("_state/feed-config.yaml", "feeds: [private]\n")
-        self._write("_state/repo-split-2026-07-16/identifier-denylist.txt", "blocked-target\n")
+        self._write("tools/export/identifier-denylist.txt", "blocked-target\n")
         self._write("chrono/operator-setup.local.md", "blocked-target private facts\n")
         self._write("departments/coding/inbox/payload.bin", "private mailbox\n")
         self._write("departments/coding/_state/runtime.json", "{}\n")
@@ -118,7 +124,6 @@ class ProjectorTests(unittest.TestCase):
             "add",
             "-f",
             "_state/feed-config.yaml",
-            "_state/repo-split-2026-07-16/identifier-denylist.txt",
             "chrono/operator-setup.local.md",
             "departments/coding/inbox/payload.bin",
             "departments/coding/_state/runtime.json",
@@ -127,8 +132,17 @@ class ProjectorTests(unittest.TestCase):
         self._git("commit", "-q", "-m", "private source")
         self.source_sha = self._git("rev-parse", "HEAD").stdout.strip()
         self.policy_path = self.root / "tools/export/policy/path-policy.json"
-        self.denylist = self.root / "_state/repo-split-2026-07-16/identifier-denylist.txt"
-        self.ledger = self.root / "_state/repo-split-2026-07-16/export-ledger.jsonl"
+        # Both fixtures sit where the tool itself puts them. The denylist is at
+        # main()'s default path (policy-denied, so it stays out of the candidate
+        # exactly as the old fixture did), and the ledger is DERIVED from
+        # projector.DEFAULT_LEDGER_PATH rather than spelled out. Until
+        # 2026-08-24 both were hardcoded under a state directory retired long
+        # before, and this file was the last code anywhere that still named it:
+        # a fixture path is read as an authoritative one by whoever greps for it
+        # next. Deriving the ledger also means the suite exercises the real
+        # default rather than an override, and cannot drift from it again.
+        self.denylist = self.root / "tools/export/identifier-denylist.txt"
+        self.ledger = self.root / DEFAULT_LEDGER_PATH
 
     def _git(self, *arguments: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
@@ -158,6 +172,10 @@ class ProjectorTests(unittest.TestCase):
             "policy_path": self.policy_path,
             "identifier_denylist": self.denylist,
             "ledger_path": self.ledger,
+            # Each test builds a brand-new tmp rail, so its first projection
+            # genuinely has no recorded history to continue. Tests that exercise
+            # the guard itself override this.
+            "allow_missing_ledger": self.ledger,
             "gate_report": self.base / f"{candidate_name}-gate.md",
             "public_ref": "refs/remotes/public/main",
             "public_export_ref": "refs/heads/public-export",
@@ -391,6 +409,86 @@ class ProjectorTests(unittest.TestCase):
         with self.assertRaisesRegex(ProjectorError, "candidate gate failed"):
             self._project("self-gate-poison", source=poisoned_source)
 
+        self.assertFalse(self.ledger.exists())
+
+    def test_a_missing_ledger_refuses_instead_of_passing_vacuously(self) -> None:
+        """An absent ledger used to be indistinguishable from a consistent one.
+
+        `_read_last_ledger_entry` returned None for a missing file and
+        `_verify_public_rail` compared only when it got a non-None entry, so the
+        rail-continuity guard was skipped precisely when the recorded history
+        was unavailable -- the one case you least want it skipped. This whole
+        suite ran through that branch (its ledger fixture never existed) and
+        could not see it.
+        """
+        self.assertFalse(self.ledger.exists())
+        with self.assertRaisesRegex(
+            ProjectorError, "continuity check has nothing to compare against"
+        ):
+            self._project("no-ledger", allow_missing_ledger=None)
+        self.assertFalse(self.ledger.exists())
+
+    def test_an_empty_ledger_is_no_history_either(self) -> None:
+        """A file that exists but records no public tip is the same vacuum."""
+        self.ledger.parent.mkdir(parents=True, exist_ok=True)
+        self.ledger.write_text("", encoding="utf-8")
+        with self.assertRaisesRegex(ProjectorError, "records no public tip"):
+            self._project("empty-ledger", allow_missing_ledger=None)
+
+    def test_the_first_run_optout_is_recorded_and_stops_applying(self) -> None:
+        """A genuine first export stays possible, and says so in its own history.
+
+        The opt-out permits an ABSENT ledger; it never mutes the comparison. The
+        entry it writes is what makes the next run on the same rail verified,
+        so the same command cannot keep skipping the guard.
+        """
+        first = self._project("first-run")
+        self.assertEqual(first.ledger_continuity, LEDGER_CONTINUITY_FIRST_RUN)
+        entries = [json.loads(line) for line in self.ledger.read_text().splitlines()]
+        self.assertEqual(entries[-1]["ledger_continuity"], LEDGER_CONTINUITY_FIRST_RUN)
+
+        second = self._project("second-run")
+        self.assertEqual(second.ledger_continuity, LEDGER_CONTINUITY_VERIFIED)
+        entries = [json.loads(line) for line in self.ledger.read_text().splitlines()]
+        self.assertEqual(entries[-1]["ledger_continuity"], LEDGER_CONTINUITY_VERIFIED)
+
+    def test_a_diverged_ledger_still_raises_even_under_the_optout(self) -> None:
+        """The behaviour that already worked, pinned against the new flag."""
+        self._project("seed")
+        entries = [json.loads(line) for line in self.ledger.read_text().splitlines()]
+        entries[-1]["public_tip"] = self.source_sha
+        self.ledger.write_text(
+            "".join(json.dumps(entry, sort_keys=True) + "\n" for entry in entries),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(ProjectorError, "ledger/public mismatch"):
+            self._project("diverged")
+
+    def test_the_optout_cannot_start_a_second_history_beside_the_tracked_one(self) -> None:
+        """The dangerous case is not "missing", it is "missing and not meant to be".
+
+        A typo'd --ledger, a wrong --root and a resurrected retired directory
+        all look like an absent ledger while the repository's real publish
+        history sits untouched at DEFAULT_LEDGER_PATH. That is a fork, and no
+        flag may authorise it -- an opt-out anyone can reach for reflexively is
+        not protection.
+        """
+        self.ledger.parent.mkdir(parents=True, exist_ok=True)
+        self.ledger.write_text(
+            json.dumps({"public_tip": self.public_tip}, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        typo = self.ledger.with_name("export-ledger.json")
+        with self.assertRaisesRegex(ProjectorError, "already keeps its publish history"):
+            self._project("forked", ledger_path=typo, allow_missing_ledger=typo)
+        self.assertFalse(typo.exists())
+
+    def test_the_optout_must_name_the_ledger_it_authorises(self) -> None:
+        with self.assertRaisesRegex(ProjectorError, "must name the ledger it authorises"):
+            self._project(
+                "mismatched-optout",
+                allow_missing_ledger=self.base / "somewhere-else.jsonl",
+            )
         self.assertFalse(self.ledger.exists())
 
 

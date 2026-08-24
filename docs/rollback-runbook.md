@@ -325,7 +325,7 @@ git ls-files _state
 Result: exit 0 with exactly one tracked path:
 
 ```text
-_state/repo-split-2026-07-16/identifier-denylist.txt
+tools/export/identifier-denylist.txt
 ```
 
 Git rollback therefore does not restore the untracked runtime registry,

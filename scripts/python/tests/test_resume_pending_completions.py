@@ -33,6 +33,10 @@ class TestPendingCompletions(unittest.TestCase):
                 queue_path.write_text(queue_text)
             with (
                 mock.patch.object(resume, "QUEUE_PATH", queue_path),
+                # Without this the archived-charter debt block reads this
+                # HOST's thread-charters/complete, so real debt would eat a
+                # fixture capsule's token bound.
+                mock.patch.object(resume, "ARCHIVED_DEBT_ROOT", Path(d)),
                 mock.patch.object(resume, "registry_view", return_value=EMPTY_VIEW),
                 mock.patch.object(resume, "active_decisions", return_value=[]),
             ):
@@ -123,6 +127,10 @@ class TestPendingCompletions(unittest.TestCase):
             queue_path.write_bytes(b"\xff\xfe not valid utf-8 at all\n")
             with (
                 mock.patch.object(resume, "QUEUE_PATH", queue_path),
+                # Without this the archived-charter debt block reads this
+                # HOST's thread-charters/complete, so real debt would eat a
+                # fixture capsule's token bound.
+                mock.patch.object(resume, "ARCHIVED_DEBT_ROOT", Path(d)),
                 mock.patch.object(resume, "registry_view", return_value=EMPTY_VIEW),
                 mock.patch.object(resume, "active_decisions", return_value=[]),
             ):

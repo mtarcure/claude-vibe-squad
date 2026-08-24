@@ -16,7 +16,9 @@ lead.
 
 ## The model (`Mode → Capability → Protocol`)
 
-There are exactly **two work modes** — `project` and `bounty`. A consult may remain advisory in tone, but
+There are exactly **two work modes** — `project` and `bounty`. (`advisory` is additionally accepted by
+the typed contract as a compatibility mode, restricted to `result_type: normal`, but it is not a work
+mode and no workflow selects it.) A consult may remain advisory in tone, but
 `advisory` is not a third mode. A **Capability** is
 one distinctive protocol inside a mode. The retired domain modes (`content`, `research`, `outreach`,
 `maintenance`, `incident`) are now project Capabilities, tagged with a `profile_family` frontmatter field —
@@ -183,15 +185,18 @@ a license by default; an unanswered license choice remains an explicitly reporte
 - Operator approval before implementing a broad design.
 - Operator approval before destructive changes, credential changes, dependency trust changes, cleanup
   actions, live-production mutation, public release actions, force pushes, live outreach sends, or paid media
-  generation — the per-family gates above are project's subset of the nine held-category operator-gate tokens
+  generation — the per-family gates above are project's subset of the held-category operator-gate tokens
   (`cleanup` · `credential_change` · `delete` · `live_outreach` · `malware_detonation` · `offensive_execution` ·
   `paid_media` · `production_mutation` · `public_release`); `malware_detonation` and `offensive_execution` are
   held for offensive work, not project-family engineering.
 - Content publish fires the Truth (Rule-8) and Rights (Rule-6) gates; outreach send fires `live_outreach`.
 - **Incident:** operator approval before destructive actions, rollback, credential changes, public
   disclosure, broad cleanup, or live production mutation; preserve evidence first.
-- Mandatory multi-model review for security, privacy, auth, release, incident, and high-blast-radius
-  changes.
+- Mandatory multi-model review is governed by the four change-level triggers and the single
+  distinct-family reviewer defined in `shared/protocol.md` § Mandatory Review Behavior — the one home
+  for that gate and its cardinality, pinned in `scripts/python/registry_reconciler.py` and
+  `bin/send-task.sh`. A content/severity list (security, privacy, auth, release, …) or `safety_level`
+  never manufactures a change-level review.
 - **Machine-enforced close boundary:** the final Project close packet declares
   a JSON-compatible YAML `_state/runs/<run-id>/manifest.yaml` and every newly produced file that
   manifest references in `evidence_outputs`, all inside its `write_scope`; the operator-owned approval

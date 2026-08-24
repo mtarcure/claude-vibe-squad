@@ -21,6 +21,7 @@ from pathlib import Path
 from chrono_state.decisions import active_decisions
 from chrono_state.registry import registry_view
 from chrono_state.thread_charters import (
+    load_archived_debt,
     CHARTERS_REL,
     ThreadCharter,
     clip,
@@ -31,11 +32,45 @@ CAPSULE_PATH = (
     Path(os.environ.get("VAULT_ROOT", ".")) / "_state" / "chrono" / "resume.md"
 )
 QUEUE_PATH = Path(os.environ.get("VAULT_ROOT", ".")) / "_state" / "chrono-queue.md"
+ARCHIVED_DEBT_ROOT = Path(os.environ.get("VAULT_ROOT", "."))
 TASKS_HEADING = "## Live tasks (dispatched / in-flight / review-required)"
 DEFERRED_HEADING = "## Deferred owed work (awaiting a Chrono/operator action)"
 QUEUE_HEADING = "## Pending completions (specialist returns awaiting a decision)"
 CONTRA_HEADING = "## Memory contradictions (unreconciled)"
 TURN_HEADING = "## Latest operator instruction"
+ARCHIVED_DEBT_HEADING = "## Archived with unfinished business"
+
+
+def _archived_debt_rows(root=None) -> list[str]:
+    """Bounded, warn-only rows naming charters archived while still owed.
+
+    Every reader of charter state stops at ``active/``; archiving is a bare
+    ``mv``. So debt is visible until the move and invisible after it -- which is
+    how six queued items and three unticked boxes went unread. This says what is
+    owed and nothing else: it renders no verdict, gates nothing, and no caller
+    may branch on it.
+
+    Probation: if this stays empty across roughly ten sessions, the written
+    discipline is holding and this code should be deleted. A check that never
+    fires is not a safety net, it is a cost.
+    """
+    try:
+        owed = load_archived_debt(ARCHIVED_DEBT_ROOT if root is None else root)
+    except Exception:
+        return []
+    rows = []
+    for charter in owed[:8]:
+        bits = []
+        if not charter.done_when_met:
+            bits.append("DONE-WHEN unticked")
+        if charter.unresolved_queues:
+            bits.append(f"{len(charter.unresolved_queues)} unresolved QUEUE")
+        rows.append(f"- {charter.path.name}: {', '.join(bits)}")
+    if len(owed) > 8:
+        rows.append(f"- … and {len(owed) - 8} more")
+    return rows
+
+
 THREAD_HEADING = "## Active thread / Owed attention"
 NO_TURN_PLACEHOLDER = "(none recorded since the last snapshot)"
 MAX_PROJECTED_CHARTERS = 8
@@ -292,12 +327,14 @@ def _render(latest_operator_turn, view, max_tokens=3000, unreconciled=None):
     ]
     pending = pending_completions()
     charters = active_thread_charters()
+    debt_rows = _archived_debt_rows()
 
     def build(
         shown_live,
         shown_deferred,
         show_contra,
         show_pending,
+        show_debt,
         thread_mode,
     ):
         lines = ["# Chrono resume capsule", "", "## Active decisions"]
@@ -305,6 +342,26 @@ def _render(latest_operator_turn, view, max_tokens=3000, unreconciled=None):
         if charters or needs_human:
             lines += ["", THREAD_HEADING]
             lines += _thread_lines(charters, thread_mode, needs_human)
+        # Warn-only. Charters archived while still owed are invisible to every
+        # other reader, because they all stop at active/ and archiving is a mv.
+        # Collapses before live tasks are trimmed: this block is a POINTER, so
+        # its one-line form keeps the whole signal (how many, where to look),
+        # while a dropped live line loses that task's next action outright.
+        # Never silent -- same rule as pending: an absent heading would read as
+        # "nothing is owed", which is the ambiguity the block exists to kill.
+        if debt_rows:
+            lines += ["", ARCHIVED_DEBT_HEADING]
+            if show_debt:
+                lines += [
+                    "Closed while still carrying unfinished business. Resolve "
+                    "each into `_state/chrono/OPEN-WORK.md` or finish it.",
+                ] + debt_rows
+            else:
+                lines += [
+                    f"- ({len(debt_rows)} archived charter(s) still owed, "
+                    "omitted for the token bound — regenerate at a higher "
+                    "budget or read _state/chrono/thread-charters/complete)"
+                ]
         lines += ["", TASKS_HEADING]
         lines += [
             f"- {t['state']}: {t.get('next_action', '?')} [{t['id']}]"
@@ -360,12 +417,14 @@ def _render(latest_operator_turn, view, max_tokens=3000, unreconciled=None):
     shown_live, shown_deferred = list(tasks), list(deferred)
     show_contra = True
     show_pending = True
+    show_debt = True
     thread_mode = 2
     cap = build(
         shown_live,
         shown_deferred,
         show_contra,
         show_pending,
+        show_debt,
         thread_mode,
     )
     # hard token bound (~4 chars/token): drop the contradiction line, then trim
@@ -377,6 +436,7 @@ def _render(latest_operator_turn, view, max_tokens=3000, unreconciled=None):
     # room on its own.
     while len(cap) // 4 > max_tokens and (
         show_contra
+        or show_debt
         or shown_live
         or show_pending
         or shown_deferred
@@ -384,6 +444,8 @@ def _render(latest_operator_turn, view, max_tokens=3000, unreconciled=None):
     ):
         if show_contra:
             show_contra = False
+        elif show_debt:
+            show_debt = False
         elif shown_live:
             shown_live = shown_live[:-1]
         elif show_pending:
@@ -397,6 +459,7 @@ def _render(latest_operator_turn, view, max_tokens=3000, unreconciled=None):
             shown_deferred,
             show_contra,
             show_pending,
+            show_debt,
             thread_mode,
         )
     return cap

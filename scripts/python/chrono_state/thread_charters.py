@@ -252,6 +252,39 @@ def load_active_charters(path: Path, now: datetime | None = None) -> list[Thread
     return [parse_charter(entry, now=now) for entry in entries]
 
 
+ARCHIVED_RELS = (
+    Path("_state/chrono/thread-charters/complete"),
+    Path("_state/chrono/thread-charters/parked"),
+)
+
+
+def load_archived_debt(root: Path, now: datetime | None = None) -> list[ThreadCharter]:
+    """Charters that were archived while still carrying unfinished business.
+
+    The active scan above stops at ``active/``, and archiving is a bare ``mv``
+    into ``complete/`` with no code path in between -- so an unresolved QUEUE or
+    an unticked DONE-WHEN is fully visible right up until the move, and invisible
+    to every reader immediately after. Measured 2026-08-23: six queued items sat
+    unread inside ``complete/``, one of them archived the same evening it was
+    filed, minutes after the operator was told it had been captured.
+
+    Warn-only by construction: this returns what to say, never a verdict, and no
+    caller may block on it.
+    """
+    found: list[ThreadCharter] = []
+    for rel in ARCHIVED_RELS:
+        directory = root / rel
+        try:
+            entries = sorted(directory.glob("*.md"))
+        except OSError:
+            continue
+        for entry in entries:
+            charter = parse_charter(entry, now=now)
+            if not charter.done_when_met or charter.unresolved_queues:
+                found.append(charter)
+    return found
+
+
 def clip(text: str, limit: int) -> str:
     """Bound one projected field without hiding that truncation occurred."""
     compact = " ".join(text.split())

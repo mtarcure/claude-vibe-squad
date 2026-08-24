@@ -21,6 +21,35 @@ from path_policy import Policy, PolicyError, load_policy
 
 TRUSTED_TOOL_ROOT = Path(__file__).resolve().parents[2]
 
+#: Where the publish line actually keeps its state, relative to the repo root.
+#: The date is when the export line was established, not staleness -- renaming
+#: it would orphan the tracked ledger below.
+EXPORT_STATE_DIR = PurePosixPath("_state/public-export-2026-07-21")
+
+#: The append-only publish history. This is the one file here that is git-tracked,
+#: and it is the reason these defaults are constants rather than an expression
+#: inside main(): a default pointing anywhere else does not fail, it forks. Until
+#: 2026-08-24 the rail-continuity check in _verify_public_rail read an absent
+#: ledger as "no prior entry to disagree with" and passed, so a wrong path both
+#: skipped that guard and started a second history that aged independently (Hard
+#: Rule 10). _authorize_missing_ledger now refuses that, and this constant is how
+#: it knows which history the repository actually keeps.
+DEFAULT_LEDGER_PATH = EXPORT_STATE_DIR / "export-ledger.jsonl"
+
+#: What the rail-continuity check actually did, carried in the result and in the
+#: ledger entry the run appends. `target_scan_files` below exists for the same
+#: reason: a check that did not run and a check that found nothing must not
+#: leave the same record. "unrecorded-first-run" is self-limiting -- the entry it
+#: writes is what makes every later run on that rail "verified".
+LEDGER_CONTINUITY_VERIFIED = "verified"
+LEDGER_CONTINUITY_FIRST_RUN = "unrecorded-first-run"
+
+#: Where the embedded product-hygiene gate is told to write its report, which
+#: this module then reads back and requires to be passing. Regenerated per run,
+#: so a wrong path only strands a file -- but it shares the directory because
+#: the gate report is the evidence for the ledger entry written beside it.
+DEFAULT_GATE_REPORT_PATH = EXPORT_STATE_DIR / "candidate-gate.md"
+
 
 class ProjectorError(RuntimeError):
     """Projection cannot continue without weakening a release invariant."""
@@ -32,6 +61,10 @@ class ProjectionResult:
     candidate_tree: str
     public_tip: str
     public_export_ref: str
+    #: LEDGER_CONTINUITY_VERIFIED when a recorded public tip was compared against
+    #: the live rail, LEDGER_CONTINUITY_FIRST_RUN when the operator explicitly
+    #: authorised starting a history that had none.
+    ledger_continuity: str
     policy_sha256: str
     candidate_root: str
     gate_report: str
@@ -192,6 +225,62 @@ def _read_last_ledger_entry(path: Path) -> dict[str, object] | None:
     return entry
 
 
+def _authorize_missing_ledger(
+    root: Path,
+    *,
+    ledger_path: Path,
+    allow_missing_ledger: Path | None,
+) -> None:
+    """Refuse a history-less projection unless the operator named the history it starts.
+
+    An absent ledger is the one input that makes the continuity check vacuous,
+    so it must not be allowed to look like agreement. The dangerous case is not
+    "the ledger is missing", it is "the ledger is missing and was not meant to
+    be" -- a typo'd --ledger, a wrong --root, a resurrected retired directory.
+    Two separate things therefore have to hold.
+
+    First, and not overridable: the repository must not already keep a publish
+    history somewhere else. DEFAULT_LEDGER_PATH is that history, and
+    scripts/python/tests/test_export_projector.py pins the constant to the one
+    git-tracked ledger, so it is a real oracle rather than a second guess at the
+    same answer. If that file exists and is not the one asked for, the ledger is
+    not missing, it is elsewhere -- which makes this a fork, not a first run, and
+    a flag must not be able to authorise it.
+
+    Second: the opt-out is answered in the currency of the mistake it guards,
+    which is a path. `--allow-missing-ledger <path>` has to name the ledger this
+    run will create. A bare yes/no is what an operator pastes back out of the
+    error without rereading it; naming the file makes the assertion about one
+    specific history.
+    """
+    tracked = (root / DEFAULT_LEDGER_PATH).resolve()
+    requested = ledger_path.resolve()
+    reason = (
+        f"export ledger {ledger_path} exists but records no public tip"
+        if ledger_path.exists()
+        else f"export ledger {ledger_path} does not exist"
+    )
+    if tracked != requested and tracked.is_file():
+        raise ProjectorError(
+            f"{reason}, but this repository already keeps its publish history at "
+            f"{tracked}. That is a second history, not a first run; point "
+            "--ledger at the tracked ledger."
+        )
+    if allow_missing_ledger is None:
+        raise ProjectorError(
+            f"{reason}, so the public-rail continuity check has nothing to "
+            "compare against and would pass without looking. If this really is "
+            "the first projection onto this rail, authorise it explicitly with "
+            f"--allow-missing-ledger {ledger_path}"
+        )
+    if allow_missing_ledger.resolve() != requested:
+        raise ProjectorError(
+            f"--allow-missing-ledger names {allow_missing_ledger}, but this run "
+            f"would write {ledger_path}; the opt-out must name the ledger it "
+            "authorises"
+        )
+
+
 def _verify_public_rail(
     root: Path,
     *,
@@ -199,7 +288,8 @@ def _verify_public_rail(
     public_export_ref: str,
     expected_public_tip: str,
     ledger_path: Path,
-) -> tuple[str, str]:
+    allow_missing_ledger: Path | None,
+) -> tuple[str, str, str]:
     public_tip = _resolve_commit(root, public_ref)
     expected_tip = _resolve_commit(root, expected_public_tip)
     export_tip = _resolve_commit(root, public_export_ref)
@@ -212,11 +302,21 @@ def _verify_public_rail(
             f"public-export rail drift: {public_export_ref}={export_tip}, public={public_tip}"
         )
     last_entry = _read_last_ledger_entry(ledger_path)
-    if last_entry is not None and last_entry["public_tip"] != public_tip:
+    if last_entry is None:
+        # Absent, empty, or carrying no record that names a public tip: all three
+        # leave this check with nothing to compare, and all three must be said
+        # out loud rather than inferred as agreement.
+        _authorize_missing_ledger(
+            root,
+            ledger_path=ledger_path,
+            allow_missing_ledger=allow_missing_ledger,
+        )
+        return public_tip, export_tip, LEDGER_CONTINUITY_FIRST_RUN
+    if last_entry["public_tip"] != public_tip:
         raise ProjectorError(
             f"ledger/public mismatch: ledger={last_entry['public_tip']}, public={public_tip}"
         )
-    return public_tip, export_tip
+    return public_tip, export_tip, LEDGER_CONTINUITY_VERIFIED
 
 
 def _prepare_candidate_root(path: Path) -> Path:
@@ -286,6 +386,10 @@ def _append_ledger(path: Path, result: ProjectionResult) -> None:
         "public_export_ref": result.public_export_ref,
         "public_parent": result.public_tip,
         "public_tip": result.public_tip,
+        # Receipt, exactly like target_scan_files: an entry written by a run
+        # that had no predecessor to check against says so permanently, in the
+        # history it starts.
+        "ledger_continuity": result.ledger_continuity,
         "source_sha": result.source_sha,
         "paths_refused": list(result.paths_refused),
         "unclassified_paths_refused": list(result.unclassified_paths_refused),
@@ -314,6 +418,7 @@ def project(
     policy_path: Path,
     identifier_denylist: Path,
     ledger_path: Path,
+    allow_missing_ledger: Path | None = None,
     gate_report: Path,
     public_ref: str,
     public_export_ref: str,
@@ -323,12 +428,13 @@ def project(
     root = root.resolve(strict=True)
     _require_clean_source(root)
     source_sha = _resolve_commit(root, source)
-    public_tip, export_tip = _verify_public_rail(
+    public_tip, export_tip, ledger_continuity = _verify_public_rail(
         root,
         public_ref=public_ref,
         public_export_ref=public_export_ref,
         expected_public_tip=expected_public_tip,
         ledger_path=ledger_path,
+        allow_missing_ledger=allow_missing_ledger,
     )
     try:
         policy = load_policy(policy_path)
@@ -455,6 +561,7 @@ def project(
         candidate_tree=candidate_tree,
         public_tip=public_tip,
         public_export_ref=export_tip,
+        ledger_continuity=ledger_continuity,
         policy_sha256=policy_sha256,
         candidate_root=str(candidate),
         gate_report=str(gate_report.resolve()),
@@ -480,15 +587,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--public-export-ref", default="refs/heads/public-export")
     parser.add_argument("--policy")
     parser.add_argument("--identifier-denylist")
-    parser.add_argument("--ledger")
-    parser.add_argument("--gate-report")
+    parser.add_argument("--ledger", help=f"default: <root>/{DEFAULT_LEDGER_PATH}")
+    parser.add_argument(
+        "--allow-missing-ledger",
+        metavar="LEDGER_PATH",
+        help=(
+            "authorise the first projection onto a rail with no recorded "
+            "history; must name the same ledger path this run will write"
+        ),
+    )
+    parser.add_argument("--gate-report", help=f"default: <root>/{DEFAULT_GATE_REPORT_PATH}")
     return parser
 
 
 def main() -> int:
     args = build_parser().parse_args()
     root = Path(args.root).resolve()
-    state = root / "_state" / "repo-split-2026-07-16"
     try:
         result = project(
             root=root,
@@ -499,8 +613,13 @@ def main() -> int:
                 args.identifier_denylist
                 or root / "tools/export/identifier-denylist.txt"
             ),
-            ledger_path=Path(args.ledger or state / "export-ledger.jsonl"),
-            gate_report=Path(args.gate_report or state / "candidate-gate.md"),
+            ledger_path=Path(args.ledger or root / DEFAULT_LEDGER_PATH),
+            allow_missing_ledger=(
+                Path(args.allow_missing_ledger)
+                if args.allow_missing_ledger
+                else None
+            ),
+            gate_report=Path(args.gate_report or root / DEFAULT_GATE_REPORT_PATH),
             public_ref=args.public_ref,
             public_export_ref=args.public_export_ref,
             expected_public_tip=args.expected_public_tip,

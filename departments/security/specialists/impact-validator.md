@@ -25,8 +25,8 @@ Why this binds at submission time: the dominant failure mode is **enforcement, n
 **Universal gates — a finding may not be submitted unless it clears ALL of them:**
 
 - **G1 — Impact realized, not asserted.** The chain must end in a demonstrated payout-class outcome: *funds moved; secret or private data read; another user's data accessed; code executed; authentication bypassed; privileges escalated or an account taken over; or an agent performed an attacker-controlled action*. Any terminal "could / may / potentially / would allow" → **FAIL, no-submit.**
-- **G2 — Third-party reproduction.** Reproduced from the *written steps alone*, clean environment, by someone other than the author; evidence attached. (Kills Not-reproducible — the only rejection mode that costs rep points.)
-- **G3 — Prior-art / dedup search.** Program disclosure history + our own submitted list + CVE/OSV, recorded. (Kills Duplicate + self-dup.)
+- **G2 — Third-party reproduction.** Reproduced from the *written steps alone*, clean environment, by someone other than the author; evidence attached. (Kills Not-reproducible, which closes as Not-applicable and costs rep. It is not the only one, and not the worst: a Spam close — the pattern a batch of same-day, same-shaped, local-harness reports fits — costs several times more.)
+- **G3 — Prior-art / dedup search.** Program disclosure history + our own submitted list + CVE/OSV, recorded. (Kills Duplicate + self-dup.) **Dedup protects effort, not standing** — a genuine finding that turns out to be a duplicate is not a reputational hit, so run this to avoid wasting a campaign on known ground, not out of fear of the outcome.
 - **G4 — Scope & trust-boundary check.** Asset in-scope **and** the program treats this as a defended boundary. (Kills Not-applicable.)
 
 **Per-class add-ons (a finding's class gate is *additional* to G1–G4 — carry verbatim):**
