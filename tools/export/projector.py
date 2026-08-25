@@ -32,8 +32,9 @@ EXPORT_STATE_DIR = PurePosixPath("_state/public-export-2026-07-21")
 #: 2026-08-24 the rail-continuity check in _verify_public_rail read an absent
 #: ledger as "no prior entry to disagree with" and passed, so a wrong path both
 #: skipped that guard and started a second history that aged independently (Hard
-#: Rule 10). _authorize_missing_ledger now refuses that, and this constant is how
-#: it knows which history the repository actually keeps.
+#: Rule 10). _require_canonical_ledger now refuses any ledger but this one before
+#: a single entry is read, and this constant is how it knows which history the
+#: repository actually keeps.
 DEFAULT_LEDGER_PATH = EXPORT_STATE_DIR / "export-ledger.jsonl"
 
 #: What the rail-continuity check actually did, carried in the result and in the
@@ -49,6 +50,33 @@ LEDGER_CONTINUITY_FIRST_RUN = "unrecorded-first-run"
 #: so a wrong path only strands a file -- but it shares the directory because
 #: the gate report is the evidence for the ledger entry written beside it.
 DEFAULT_GATE_REPORT_PATH = EXPORT_STATE_DIR / "candidate-gate.md"
+
+
+#: Environment variables that tell git WHICH repository to act on. A projection
+#: is defined by --root, but when the ambient shell also names a repository git
+#: silently prefers the environment: a stale `GIT_DIR` export redirects the whole
+#: run -- ledger identity included -- at a checkout the operator never named, and
+#: says nothing about it. Stripped from every git invocation this module makes so
+#: that --root is the only selector. GIT_INDEX_FILE is here because project()
+#: sets it deliberately per run; an inherited one would write the wrong index.
+_AMBIENT_GIT_SELECTORS = (
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_COMMON_DIR",
+    "GIT_DIR",
+    "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+    "GIT_INDEX_FILE",
+    "GIT_NAMESPACE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_WORK_TREE",
+)
+
+
+def _base_environment() -> dict[str, str]:
+    """The ambient environment with every git repository selector removed."""
+    environment = os.environ.copy()
+    for name in _AMBIENT_GIT_SELECTORS:
+        environment.pop(name, None)
+    return environment
 
 
 class ProjectorError(RuntimeError):
@@ -101,7 +129,9 @@ def _run(
     process = subprocess.run(
         arguments,
         cwd=root,
-        env=environment,
+        # Never a bare inherit: an unset `environment` still means "this run's
+        # repository is the one --root names", not "whatever the shell exported".
+        env=_base_environment() if environment is None else environment,
         input=input_bytes,
         capture_output=True,
     )
@@ -124,6 +154,53 @@ def _git(
         environment=environment,
         input_bytes=input_bytes,
     ).stdout
+
+
+def _git_top_level(root: Path) -> Path:
+    """The work tree root of the repository containing `root`.
+
+    git accepts any directory inside a work tree as its cwd; this module does
+    not. Three things here are stated relative to the repository root and have
+    to mean the same directory: the default ledger and gate-report paths, the
+    cwd-relative index writes in project() (which address paths exactly as
+    `git ls-tree` reported them, i.e. from the root), and the ledger identity
+    check below. Resolving the top-level once is what keeps them aligned.
+
+    In a board worktree this is that worktree, which is where its own checkout
+    of the tracked ledger lives -- so deriving it does not reach across into the
+    main checkout.
+
+    "Containing `root`" is asserted, not assumed. Until 2026-08-24 this call
+    inherited the ambient environment, so leftover `GIT_DIR`/`GIT_WORK_TREE`
+    outranked --root without a word: `--root A` under selectors naming B
+    returned B, and the policy, denylist, ledger and gate-report paths all
+    followed it there. _base_environment() removes the selectors so --root is
+    the only thing that picks a repository, and the containment check below
+    covers the routes that never touch the environment at all -- a `.git`
+    gitfile plus core.worktree reaches another work tree with no variable set.
+    A stale shell quietly selecting another checkout's publish history is the
+    exact wrong-root failure this rail exists to expose, so it is refused rather
+    than normalised away.
+    """
+    resolved_root = root.resolve()
+    raw = _git(resolved_root, ["rev-parse", "--show-toplevel"]).decode(
+        "utf-8", errors="surrogateescape"
+    )
+    # Exactly the one newline `git rev-parse` terminates its output with.
+    # `.strip()` renames a repository whose directory ends in whitespace, and
+    # Path.resolve() does not fail on the shortened path that is left.
+    top = raw.removesuffix("\n")
+    if not top:
+        raise ProjectorError(f"not inside a git work tree: {root}")
+    top_level = Path(top).resolve()
+    if top_level != resolved_root and top_level not in resolved_root.parents:
+        raise ProjectorError(
+            f"git reports work tree {top_level}, which does not contain the "
+            f"requested root {resolved_root}; refusing to project, because every "
+            "path this run derives would describe a repository that was not "
+            "named on the command line"
+        )
+    return top_level
 
 
 def _resolve_commit(root: Path, revision: str) -> str:
@@ -225,47 +302,84 @@ def _read_last_ledger_entry(path: Path) -> dict[str, object] | None:
     return entry
 
 
+def _require_canonical_ledger(root: Path, *, ledger_path: Path) -> Path:
+    """Refuse any ledger that is not the publish history this repository keeps.
+
+    An identity precondition, not a content check, and it runs before a single
+    entry is read -- which is the entire point. Until 2026-08-24 this comparison
+    lived inside the absent-ledger branch, so it ran only when there was nothing
+    to read. A populated alternate whose newest entry happened to name the live
+    public tip therefore returned a record, reached no location check at all,
+    and was reported LEDGER_CONTINUITY_VERIFIED. That receipt is materially
+    false: `verified` there meant "the file you named agreed", not "the
+    repository's publish history agreed". Nothing made it self-limiting either
+    -- the alternate keeps matching, keeps being appended to and keeps reporting
+    verified, while the tracked ledger sits untouched.
+
+    Content read out of a caller-selected file cannot establish that file's
+    authority; only its location can. DEFAULT_LEDGER_PATH is the oracle, and
+    scripts/python/tests/test_export_projector.py pins that constant to the one
+    git-tracked ledger, so this is the repository's own answer rather than a
+    second guess at the same question.
+
+    Identity is decided on the RESOLVED path, so a symlink is refused for
+    exactly the reason a plain path is -- where it lands, not what it is. The
+    one legitimate-looking shape this rejects is `--ledger` aimed at another
+    checkout's physical copy of the ledger; no current caller does that, and it
+    is indistinguishable from the wrong --root this guard exists to catch.
+
+    A repository that keeps no tracked ledger has no oracle here, so it falls
+    through to the explicit first-run opt-out below. That is the bounded
+    residual, and it is why the opt-out is still reachable at all.
+
+    Returns the resolved path identity was decided on, and every later touch of
+    the ledger goes through that rather than the caller's path. Checking a
+    symlink and then reopening the link is a check of one file and a write to
+    another: the target can be repointed in between, and the append lands in a
+    file nothing ever verified. Resolving once and carrying the result is what
+    makes the verified file and the written file the same file.
+    """
+    verified = ledger_path.resolve()
+    canonical = (root / DEFAULT_LEDGER_PATH).resolve()
+    if not canonical.is_file():
+        return verified
+    if verified == canonical:
+        return canonical
+    raise ProjectorError(
+        f"export ledger {ledger_path} is not this repository's publish history: "
+        f"it already keeps its publish history at {canonical}. Continuity read "
+        "from a caller-selected file establishes only that the file agrees with "
+        "the rail, which a copy can keep doing while the tracked ledger goes "
+        "stale; point --ledger at the tracked ledger."
+    )
+
+
 def _authorize_missing_ledger(
-    root: Path,
     *,
     ledger_path: Path,
     allow_missing_ledger: Path | None,
 ) -> None:
     """Refuse a history-less projection unless the operator named the history it starts.
 
-    An absent ledger is the one input that makes the continuity check vacuous,
-    so it must not be allowed to look like agreement. The dangerous case is not
-    "the ledger is missing", it is "the ledger is missing and was not meant to
-    be" -- a typo'd --ledger, a wrong --root, a resurrected retired directory.
-    Two separate things therefore have to hold.
+    Reached only after _require_canonical_ledger has established that this
+    ledger either IS the repository's publish history or that the repository
+    keeps none. So this branch can no longer authorise a fork, and the flag
+    covers only what it claims to: a genuine first run.
 
-    First, and not overridable: the repository must not already keep a publish
-    history somewhere else. DEFAULT_LEDGER_PATH is that history, and
-    scripts/python/tests/test_export_projector.py pins the constant to the one
-    git-tracked ledger, so it is a real oracle rather than a second guess at the
-    same answer. If that file exists and is not the one asked for, the ledger is
-    not missing, it is elsewhere -- which makes this a fork, not a first run, and
-    a flag must not be able to authorise it.
-
-    Second: the opt-out is answered in the currency of the mistake it guards,
-    which is a path. `--allow-missing-ledger <path>` has to name the ledger this
-    run will create. A bare yes/no is what an operator pastes back out of the
-    error without rereading it; naming the file makes the assertion about one
-    specific history.
+    An absent ledger -- or one that exists but records no public tip -- is the
+    input that makes the continuity check vacuous, and it must not be allowed to
+    look like agreement. The opt-out is answered in the currency of the mistake
+    it guards, which is a path. `--allow-missing-ledger <path>` has to name the
+    ledger this run will create: a bare yes/no is what an operator pastes back
+    out of the error without rereading it, while naming the file makes the
+    assertion about one specific history.
     """
-    tracked = (root / DEFAULT_LEDGER_PATH).resolve()
     requested = ledger_path.resolve()
     reason = (
         f"export ledger {ledger_path} exists but records no public tip"
         if ledger_path.exists()
         else f"export ledger {ledger_path} does not exist"
     )
-    if tracked != requested and tracked.is_file():
-        raise ProjectorError(
-            f"{reason}, but this repository already keeps its publish history at "
-            f"{tracked}. That is a second history, not a first run; point "
-            "--ledger at the tracked ledger."
-        )
     if allow_missing_ledger is None:
         raise ProjectorError(
             f"{reason}, so the public-rail continuity check has nothing to "
@@ -289,7 +403,7 @@ def _verify_public_rail(
     expected_public_tip: str,
     ledger_path: Path,
     allow_missing_ledger: Path | None,
-) -> tuple[str, str, str]:
+) -> tuple[str, str, str, Path]:
     public_tip = _resolve_commit(root, public_ref)
     expected_tip = _resolve_commit(root, expected_public_tip)
     export_tip = _resolve_commit(root, public_export_ref)
@@ -301,22 +415,29 @@ def _verify_public_rail(
         raise ProjectorError(
             f"public-export rail drift: {public_export_ref}={export_tip}, public={public_tip}"
         )
-    last_entry = _read_last_ledger_entry(ledger_path)
+    # Identity before content, and unconditionally: whether this file is the
+    # repository's publish history is not a question its contents can answer, so
+    # asking only when there are no contents is asking in the one case where the
+    # answer cannot be wrong in the dangerous direction.
+    verified_ledger = _require_canonical_ledger(root, ledger_path=ledger_path)
+    # From here the ledger is only ever addressed by the resolved path identity
+    # was settled on. The caller's path is kept for error messages, which are
+    # answered in the currency of the mistake -- what the operator typed.
+    last_entry = _read_last_ledger_entry(verified_ledger)
     if last_entry is None:
         # Absent, empty, or carrying no record that names a public tip: all three
         # leave this check with nothing to compare, and all three must be said
         # out loud rather than inferred as agreement.
         _authorize_missing_ledger(
-            root,
             ledger_path=ledger_path,
             allow_missing_ledger=allow_missing_ledger,
         )
-        return public_tip, export_tip, LEDGER_CONTINUITY_FIRST_RUN
+        return public_tip, export_tip, LEDGER_CONTINUITY_FIRST_RUN, verified_ledger
     if last_entry["public_tip"] != public_tip:
         raise ProjectorError(
             f"ledger/public mismatch: ledger={last_entry['public_tip']}, public={public_tip}"
         )
-    return public_tip, export_tip, LEDGER_CONTINUITY_VERIFIED
+    return public_tip, export_tip, LEDGER_CONTINUITY_VERIFIED, verified_ledger
 
 
 def _prepare_candidate_root(path: Path) -> Path:
@@ -425,10 +546,10 @@ def project(
     expected_public_tip: str,
     environment: dict[str, str] | None = None,
 ) -> ProjectionResult:
-    root = root.resolve(strict=True)
+    root = _git_top_level(root.resolve(strict=True))
     _require_clean_source(root)
     source_sha = _resolve_commit(root, source)
-    public_tip, export_tip, ledger_continuity = _verify_public_rail(
+    public_tip, export_tip, ledger_continuity, verified_ledger = _verify_public_rail(
         root,
         public_ref=public_ref,
         public_export_ref=public_export_ref,
@@ -448,7 +569,7 @@ def project(
 
     with tempfile.TemporaryDirectory(prefix="public-projector-") as temporary:
         index_path = str(Path(temporary) / "candidate.index")
-        index_environment = os.environ.copy()
+        index_environment = _base_environment()
         if environment:
             index_environment.update(environment)
         index_environment["GIT_INDEX_FILE"] = index_path
@@ -573,7 +694,10 @@ def project(
         public_bounty_capability_status=policy.public_bounty_status,
         public_bounty_withheld=policy.public_bounty_withheld,
     )
-    _append_ledger(ledger_path, result)
+    # The path identity was established on, never the caller's again: a symlink
+    # repointed since the check would otherwise send this append to a file that
+    # was never the repository's publish history.
+    _append_ledger(verified_ledger, result)
     return result
 
 
@@ -602,8 +726,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
-    root = Path(args.root).resolve()
     try:
+        # Resolved before the defaults below, because every one of them is
+        # relative to the repository root while --root may name any directory
+        # inside the work tree. project() derives the same top level for the
+        # ledger identity check, so the default and the check cannot end up
+        # describing different repositories.
+        root = _git_top_level(Path(args.root).resolve())
         result = project(
             root=root,
             source=args.source,

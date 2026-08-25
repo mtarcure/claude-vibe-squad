@@ -842,7 +842,7 @@ class EndToEndSettlementTests(unittest.TestCase):
             destination = self.squad_root / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_text(content, encoding="utf-8")
-        return {
+        environment = {
             **os.environ,
             "VAULT_ROOT": str(self.squad_root),
             "CHRONO_VAULT_ROOT": str(self.memory_root),
@@ -851,6 +851,17 @@ class EndToEndSettlementTests(unittest.TestCase):
             "SQUAD_SESSION": "no-such-session",
             "PYTHONDONTWRITEBYTECODE": "1",
         }
+        # Every other site in this class pops CHRONO_VAULT_CONTEXT; this one
+        # inherited it through `**os.environ` and did not. That made these two
+        # tests pass on a developer shell and fail inside a board worktree,
+        # because `board-supervisor.sh` exports an engagement envelope for the
+        # task the lane is actually running. The reconciler subprocess then
+        # attributed the promotion to THAT engagement instead of the fixture's,
+        # so the note stayed `candidate` and the assertion read
+        # `'candidate' != 'verified'`. Four lanes spent verification time
+        # proving it was not their change before this was found.
+        environment.pop("CHRONO_VAULT_CONTEXT", None)
+        return environment
 
     def _run(self, env: dict[str, str], *arguments: str) -> subprocess.CompletedProcess:
         result = subprocess.run(

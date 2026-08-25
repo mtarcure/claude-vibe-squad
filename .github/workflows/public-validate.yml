@@ -30,6 +30,14 @@ name: Public Validate
 on:
   push:
     branches: [main]
+    paths-ignore:
+      # Measured 2026-08-24: 18 of 31 commits that day touched ONLY these, and
+      # each still fanned out the full job matrix on two workflows. They carry
+      # the open-work checklist, the export ledger and prose -- nothing any job
+      # here validates. Anything that IS validated (skills, specialists,
+      # capability cards, registries, scripts, workflows) lives outside them.
+      - "_state/**"
+      - "docs/**"
   pull_request:
   schedule:
     - cron: "33 11 * * *"

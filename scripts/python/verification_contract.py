@@ -248,6 +248,47 @@ def _gate_values(admission: Mapping[str, object]) -> list[str]:
     return sorted(gates)
 
 
+def _review_required(admission: Mapping[str, object], dispatch_kind: str) -> bool:
+    """Whether the pinned contract records that a deliverable review is OWED.
+
+    This is the on/off half of ``deliverable_review_policy``. Its sibling fields
+    ``anti_affinity`` and ``subject`` describe HOW a deliverable review is
+    conducted when one happens; this describes WHETHER one is owed at all. The
+    code-enforced home for the owed decision is the reconciler
+    (``mandatory_review``/``review_triggers`` -> ``cross_family_review_pending``),
+    not this contract field -- nothing in the settlement path reads it. It exists
+    so a worker reading the pinned contract is told the same thing the reconciler
+    will enforce; when it disagreed (hardcoded ``True`` while the four triggers
+    said no review was owed) workers returned ``needs_review`` asking for a review
+    Chrono never dispatches, and the task sat open forever.
+
+    ``swarm`` members are always reviewed -- ``bin/send-task.sh`` pins every member
+    packet ``mandatory_review: true`` -- so the field is forced ``True`` there
+    regardless of what the admission carried. That preserves the anti-tamper
+    invariant a swarm contract relies on: a member cannot be weakened to skip its
+    review, because re-derivation restores ``True`` and the validator's equality
+    check rejects any tampered ``False``.
+
+    For ``single``/``panel`` the value comes from the admission's
+    ``review_required``. It DEFAULTS to ``True`` only when the key is ABSENT, so
+    an un-wired producer and every already-pinned contract derive byte-identically
+    to before this field existed -- the change is inert until a producer starts
+    passing the trigger decision. Membership is tested rather than ``.get()``
+    because a present JSON ``null`` is not an omitted field: canonicalizing it to
+    ``True`` was fail-closed but silently rewrote malformed producer input that
+    the declared admission type says must be a boolean.
+    """
+
+    if dispatch_kind == "swarm":
+        return True
+    if "review_required" not in admission:
+        return True
+    raw = admission["review_required"]
+    if not isinstance(raw, bool):
+        raise ContractError("review_required must be a boolean")
+    return raw
+
+
 def derive_verification_contract(admission: dict[str, object]) -> dict[str, object]:
     if not isinstance(admission, dict):
         raise ContractError("admission must be an object")
@@ -256,8 +297,15 @@ def derive_verification_contract(admission: dict[str, object]) -> dict[str, obje
         raise ContractError(
             f"admission contains dispatcher-owned field: {forbidden[0]}"
         )
+    contract = derive_verification_contract_unchecked(admission)
+    # The admission IS the trusted review decision here, so hand it to the
+    # validator as the external expectation instead of letting validation
+    # recover the value from the object it is checking.
     return validate_verification_contract(
-        derive_verification_contract_unchecked(admission)
+        contract,
+        expected_review_required=_review_required(
+            admission, contract["dispatch_kind"]
+        ),
     )
 
 
@@ -283,7 +331,28 @@ def _apply_authorized_delete_paths(
     contract["authorized_delete_paths"] = authorized_delete_paths
 
 
-def validate_verification_contract(contract: object) -> dict[str, object]:
+def validate_verification_contract(
+    contract: object, *, expected_review_required: bool | None = None
+) -> dict[str, object]:
+    """Check a contract against the fixed v1 policy, naming any bad field.
+
+    ``expected_review_required`` is the trusted external review decision, when
+    the caller holds one -- derived from a validated admission and its triggers,
+    never from the contract under check. With it supplied, a
+    ``deliverable_review_policy.required`` that disagrees is rejected. Without
+    it, this function can only prove INTERNAL consistency: a tampered
+    ``required`` with a recomputed adjacent hash is self-consistent, which is
+    exactly the circularity a codex-family review rejected on 2026-08-24.
+    Callers on a trust boundary therefore either supply the expectation (the
+    derive path does) or compare the whole contract against the locked
+    registry pin (`dispatch_context_builder.require_registry_contract_pin`
+    does, at dispatch admission).
+    """
+
+    if expected_review_required is not None and not isinstance(
+        expected_review_required, bool
+    ):
+        raise ContractError("expected_review_required must be a boolean or None")
     if not isinstance(contract, dict):
         raise ContractError("verification contract must be an object")
     mode = contract.get("mode")
@@ -346,6 +415,23 @@ def validate_verification_contract(contract: object) -> dict[str, object]:
         "expected_gates": contract.get("expected_gates"),
         "authorized_delete_paths": contract.get("authorized_delete_paths"),
     }
+    # `deliverable_review_policy.required` is a derived-from-admission value,
+    # not a fixed constant. When the caller supplied the trusted expectation,
+    # the re-derivation uses THAT -- recovering the value from the contract
+    # under check would make any internally-consistent tamper
+    # self-authenticating, which is the circularity the 2026-08-24 review
+    # rejected. Recovery remains only for expectation-less callers, where it
+    # keeps a legitimate `required: false` from failing its own equality
+    # check; those callers prove legitimacy elsewhere (see docstring). The
+    # swarm invariant holds on every path: `_review_required` forces True for
+    # a swarm contract regardless of the recovered OR expected value, so a
+    # member tampered down to `false` re-derives to True and the equality
+    # check rejects it (test_swarm_child_cannot_weaken_review...).
+    deliverable_policy = contract.get("deliverable_review_policy")
+    if expected_review_required is not None:
+        admission["review_required"] = expected_review_required
+    elif isinstance(deliverable_policy, Mapping) and "required" in deliverable_policy:
+        admission["review_required"] = deliverable_policy["required"]
     expected = derive_verification_contract_unchecked(admission)
     if contract != expected:
         # Name the fields. This function's contract is to identify the bad field
@@ -394,6 +480,7 @@ def derive_verification_contract_unchecked(
     author_family = author_family_for_lane(admission.get("to_model"))
     capability = _capability_from_admission(admission)
     gates = _gate_values(admission)
+    review_required = _review_required(admission, dispatch_kind)
     if mode == "project":
         verification_kinds = ["project_tests", "recipient_contract"]
         bounty_policy = None
@@ -462,7 +549,7 @@ def derive_verification_contract_unchecked(
         "memory_policy": memory_policy,
         "plan_review_policy": plan_review_policy,
         "deliverable_review_policy": {
-            "required": True,
+            "required": review_required,
             "anti_affinity": "author_family",
             "subject": "artifact_bundle_sha256",
         },

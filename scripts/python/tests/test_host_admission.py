@@ -709,8 +709,15 @@ printf 'parent=%s:%s:%s:%s status=%s\n' "$BOARD_BATCH_ADMITTED" "$BOARD_PRE_REGI
         # stranded, and following that advice cost six evidence bundles to
         # worktree pruning in one campaign. Three lines read and diff the field;
         # two are the comment recording why declared paths are not omissions.
+        # Measured 2026-08-24: 2,530. The producer half of the derived
+        # deliverable-review demand: three env exports plus the admission field
+        # and the comment recording why it exists. The contract hardcoded
+        # required=True for every dispatch while mandatory_review came from the
+        # four triggers and was usually false, so every worker asked for a
+        # review policy said was not owed and the task never closed -- 46 had
+        # accumulated. This is the half that makes the fix act in production.
         # This remains an exact ratchet with no headroom.
-        self.assertLessEqual(sum(bool(line.strip()) for line in sender.splitlines()), 2517)
+        self.assertLessEqual(sum(bool(line.strip()) for line in sender.splitlines()), 2530)
 
 
 if __name__ == "__main__":

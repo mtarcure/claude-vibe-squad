@@ -472,6 +472,8 @@ derive_verification_contract_snapshot() {
         RESULT_TYPE_VALUE="$RESULT_TYPE" TO_MODEL_VALUE="$TO_MODEL" \
         PANEL_ENABLED_VALUE="$PANEL_ENABLED" SWARM_ENABLED_VALUE="$SWARM_ENABLED" CAPABILITY_SNAPSHOT_VALUE="$CAPABILITY_SNAPSHOT_JSON" \
         AUTHORIZED_DELETE_PATHS_VALUE="$AUTHORIZED_DELETE_PATHS_JSON" \
+        MANDATORY_REVIEW_VALUE="$MANDATORY_REVIEW" \
+        REVIEW_TRIGGERS_VALUE="$REVIEW_TRIGGERS_JSON" \
         MAP_OPERATOR_GATE_VALUE="$MAP_OPERATOR_GATE" python3 - <<'PYEOF'
 import json
 import os
@@ -514,6 +516,17 @@ admission = {
     ),
     "capability": capability,
     "runtime_map_gates": runtime_gates,
+    # The producer half of the derived deliverable-review demand. Before this,
+    # the contract hardcoded required=True for every dispatch while
+    # mandatory_review came from the four change-level triggers and was usually
+    # false, so every worker asked for a review that policy said was not owed
+    # and the task stayed open forever: 46 accumulated that way. Absent or
+    # non-bool still fails closed to True in the contract, and swarm is forced
+    # True there regardless of what this sends.
+    "review_required": (
+        os.environ.get("MANDATORY_REVIEW_VALUE", "").strip().lower() == "true"
+        or bool(json.loads(os.environ.get("REVIEW_TRIGGERS_VALUE", "") or "[]"))
+    ),
 }
 
 # Present iff non-empty, mirroring the rule the contract enforces: an admission

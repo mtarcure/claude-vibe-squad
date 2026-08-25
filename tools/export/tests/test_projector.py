@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 EXPORT_DIR = Path(__file__).resolve().parents[1]
@@ -22,6 +23,7 @@ from projector import (  # noqa: E402
     ProjectorError,
     project,
 )
+import projector  # noqa: E402
 
 
 # The three fields of a guard census, held as VALUES rather than written as
@@ -490,6 +492,238 @@ class ProjectorTests(unittest.TestCase):
                 allow_missing_ledger=self.base / "somewhere-else.jsonl",
             )
         self.assertFalse(self.ledger.exists())
+
+
+    def _seed_ledger(self, path: Path) -> None:
+        """A populated ledger whose newest entry names the live public tip.
+
+        Agreement with the rail is what made the residual hole invisible:
+        `_read_last_ledger_entry` returns this record, the tip comparison
+        passes, and the run reports LEDGER_CONTINUITY_VERIFIED -- about a file
+        whose identity nothing ever checked.
+        """
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps({"public_tip": self.public_tip}, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+    def _ledger_lines(self, path: Path) -> list[str]:
+        return [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+    def test_a_populated_alternate_ledger_cannot_certify_continuity(self) -> None:
+        """Agreeing content is not authority.
+
+        Until 2026-08-24 the location check lived inside the absent-ledger
+        branch, so it ran only when there was nothing to read. A populated
+        alternate whose last entry matched the live tip therefore returned a
+        record, never reached any identity check, was reported `verified` and
+        was appended to -- indefinitely, while the tracked ledger sat untouched.
+        The receipt was materially false: `verified` meant "the file you named
+        agreed", not "the publish history agreed".
+        """
+        self._seed_ledger(self.ledger)
+        alternate = self.base / "alternate-export-ledger.jsonl"
+        self._seed_ledger(alternate)
+
+        with self.assertRaisesRegex(ProjectorError, "already keeps its publish history"):
+            self._project(
+                "populated-alternate",
+                ledger_path=alternate,
+                # Named in the opt-out too, so this pins that no flag reaches
+                # the fork case -- not merely that this run forgot to pass one.
+                allow_missing_ledger=alternate,
+            )
+
+        self.assertEqual(len(self._ledger_lines(alternate)), 1)
+        self.assertEqual(len(self._ledger_lines(self.ledger)), 1)
+
+    def test_a_symlinked_ledger_cannot_certify_continuity(self) -> None:
+        """The same bypass wearing a symlink, refused on resolved identity.
+
+        Identity is decided on the resolved real path, so a link is neither a
+        loophole nor a special case: it is refused when it lands somewhere other
+        than the tracked ledger, for exactly the reason a plain path is.
+        """
+        self._seed_ledger(self.ledger)
+        alternate = self.base / "alternate-export-ledger.jsonl"
+        self._seed_ledger(alternate)
+        link = self.base / "linked-export-ledger.jsonl"
+        os.symlink(alternate, link)
+
+        with self.assertRaisesRegex(ProjectorError, "already keeps its publish history"):
+            self._project("symlinked-alternate", ledger_path=link, allow_missing_ledger=link)
+
+        self.assertEqual(len(self._ledger_lines(alternate)), 1)
+
+    def test_the_tracked_ledger_still_verifies_and_appends(self) -> None:
+        """The guard must refuse a fork without refusing the ordinary run."""
+        self._seed_ledger(self.ledger)
+
+        result = self._project("canonical-invocation", allow_missing_ledger=None)
+
+        self.assertEqual(result.ledger_continuity, LEDGER_CONTINUITY_VERIFIED)
+        entries = [json.loads(line) for line in self._ledger_lines(self.ledger)]
+        self.assertEqual(len(entries), 2)
+        self.assertEqual(entries[-1]["candidate_tree"], result.candidate_tree)
+
+    def test_a_repository_with_no_recorded_history_still_publishes(self) -> None:
+        """A first run stays possible where there is genuinely nothing to fork.
+
+        The identity precondition has an oracle only while the repository keeps
+        a tracked ledger. With none, the explicit path-named opt-out is still
+        the way through -- and the entry it writes is what makes the next run
+        verified.
+        """
+        self.assertFalse(self.ledger.exists())
+
+        result = self._project("no-history-first-run", allow_missing_ledger=self.ledger)
+
+        self.assertEqual(result.ledger_continuity, LEDGER_CONTINUITY_FIRST_RUN)
+        self.assertEqual(len(self._ledger_lines(self.ledger)), 1)
+
+    def test_a_subdirectory_root_resolves_to_the_same_repository(self) -> None:
+        """git accepts a subdirectory as --root; the ledger defaults did not.
+
+        The default ledger and the identity check both hang off the repository
+        root, so they have to mean the same directory whichever path inside the
+        work tree the operator names. Resolving the top-level once is what makes
+        that true, and it also keeps the index writes, which are cwd-relative,
+        addressing the paths `git ls-tree` reported.
+        """
+        self._seed_ledger(self.ledger)
+
+        result = self._project(
+            "subdirectory-root",
+            root=self.root / "docs",
+            allow_missing_ledger=None,
+        )
+
+        self.assertEqual(result.ledger_continuity, LEDGER_CONTINUITY_VERIFIED)
+        self.assertEqual(len(self._ledger_lines(self.ledger)), 2)
+
+    def _init_repository(self, path: Path) -> Path:
+        path.mkdir(parents=True)
+        subprocess.run(
+            ["git", "init", "--quiet", str(path)], check=True, capture_output=True
+        )
+        return path
+
+    def test_ambient_git_selectors_cannot_outrank_the_named_root(self) -> None:
+        """`--root A` used to run on B whenever a shell had exported `GIT_DIR`.
+
+        _git_top_level inherited the ambient environment, and git prefers the
+        environment over its cwd without saying so, so the review's differential
+        read `root/policy/ledger/gate -> repo-b/...`. All four of those hang off
+        this one derivation, which is why it is pinned directly -- and the whole
+        projection is then re-run under the same environment, because stripping
+        the selectors for one call while every other git invocation still
+        inherited them would move the wrong-root confusion rather than close it.
+
+        Normalising this away would be the opposite of the job: a stale shell
+        silently selecting another checkout is the wrong-root class this rail
+        exists to expose.
+        """
+        other = self._init_repository(self.base / "other-repo")
+        self._seed_ledger(self.ledger)
+
+        with mock.patch.dict(
+            os.environ,
+            {"GIT_DIR": str(other / ".git"), "GIT_WORK_TREE": str(other)},
+        ):
+            self.assertEqual(projector._git_top_level(self.root), self.root.resolve())
+            result = self._project("ambient-selectors", allow_missing_ledger=None)
+
+        self.assertEqual(result.ledger_continuity, LEDGER_CONTINUITY_VERIFIED)
+        # `.resolve()` on both sides: the result reports the resolved gate
+        # report path, and on macOS the tmpdir reaches it through /tmp -> /private/tmp.
+        self.assertEqual(Path(result.gate_report).parent, self.base.resolve())
+        self.assertEqual(len(self._ledger_lines(self.ledger)), 2)
+        self.assertFalse((other / DEFAULT_LEDGER_PATH).exists())
+
+    def test_a_work_tree_that_does_not_contain_the_root_is_refused(self) -> None:
+        """The environment is not the only route into somebody else's work tree.
+
+        A `.git` gitfile plus `core.worktree` reaches another checkout with no
+        variable set anywhere, so stripping selectors cannot be the whole
+        answer. The docstring claims this returns the repository CONTAINING
+        `root`; that claim is now checked rather than asserted, and a run that
+        cannot honour it stops instead of quietly deriving every path from a
+        repository nobody named.
+        """
+        elsewhere = self._init_repository(self.base / "elsewhere")
+        subprocess.run(
+            ["git", "-C", str(elsewhere), "config", "core.worktree", str(elsewhere)],
+            check=True,
+            capture_output=True,
+        )
+        stray = self.base / "stray"
+        stray.mkdir()
+        (stray / ".git").write_text(
+            f"gitdir: {elsewhere}/.git\n", encoding="utf-8"
+        )
+
+        with self.assertRaisesRegex(
+            ProjectorError, "does not contain the requested root"
+        ):
+            projector._git_top_level(stray)
+
+    def test_a_repository_name_ending_in_whitespace_survives(self) -> None:
+        """`.strip()` renamed the repository, and nothing downstream objected.
+
+        A directory name ending in a space is legal on every POSIX filesystem.
+        Stripping arbitrary whitespace off `rev-parse --show-toplevel` yielded a
+        path to a directory that does not exist -- and `Path.resolve()` is
+        non-strict, so it returned that path happily and every default the run
+        derives hung off it. Only the single newline git terminates its output
+        with is removed.
+        """
+        trailing = self._init_repository(self.base / "repo with a trailing space ")
+
+        top_level = projector._git_top_level(trailing)
+
+        self.assertEqual(top_level, trailing.resolve())
+        self.assertTrue(str(top_level).endswith(" "), str(top_level))
+        self.assertTrue(top_level.is_dir())
+
+    def test_the_append_follows_the_verified_identity_not_the_link(self) -> None:
+        """Checking a symlink and reopening it is a check of a different file.
+
+        Identity is settled on the resolved path, so a link aimed at the tracked
+        ledger passes -- and the append then reopened the LINK, which by that
+        point could aim anywhere. The swap is performed from inside the run
+        because that window, between the identity check and the append, is the
+        only place the defect lives: the advisory target scan runs in it.
+
+        `os.replace` rather than unlink-then-relink, because that is the shape
+        an attacker gets for free -- atomic, with no interval in which the link
+        is absent for the projector to notice.
+        """
+        self._seed_ledger(self.ledger)
+        alternate = self.base / "alternate-export-ledger.jsonl"
+        self._seed_ledger(alternate)
+        link = self.base / "linked-export-ledger.jsonl"
+        os.symlink(self.ledger, link)
+
+        unswapped_scan = projector.target_scan.scan
+
+        def swap_the_link_mid_run(candidate):
+            repointed = link.with_name("repointed-link")
+            os.symlink(alternate, repointed)
+            os.replace(repointed, link)
+            return unswapped_scan(candidate)
+
+        with mock.patch.object(projector.target_scan, "scan", swap_the_link_mid_run):
+            result = self._project(
+                "swapped-link", ledger_path=link, allow_missing_ledger=None
+            )
+
+        self.assertEqual(os.readlink(link), str(alternate))
+        self.assertEqual(result.ledger_continuity, LEDGER_CONTINUITY_VERIFIED)
+        entries = self._ledger_lines(self.ledger)
+        self.assertEqual(len(entries), 2)
+        self.assertEqual(json.loads(entries[-1])["candidate_tree"], result.candidate_tree)
+        self.assertEqual(len(self._ledger_lines(alternate)), 1)
 
 
 if __name__ == "__main__":

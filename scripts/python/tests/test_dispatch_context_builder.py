@@ -791,6 +791,292 @@ class DispatchContextBuilderTests(unittest.TestCase):
 
         self.assertEqual(dcb.validate_verification_contract(fields), contract)
 
+    def _review_contract_fields(
+        self,
+        *,
+        review_required: bool,
+        mandatory_review: str,
+        review_triggers: str,
+    ) -> dict[str, str]:
+        admission = {
+            "task_id": "TASK-2026-08-24-9001-review-agreement",
+            "run_id": "PRJ-REVIEW",
+            "mode": "project",
+            "result_type": "normal",
+            "to_model": "gpt-codex",
+            "dispatch_kind": "single",
+            "capability": None,
+            "expected_gates": [],
+            "review_required": review_required,
+        }
+        contract = derive_verification_contract(admission)
+        contract_text = json.dumps(contract, sort_keys=True, separators=(",", ":"))
+        return {
+            "id": contract["task_id"],
+            "mandatory_review": mandatory_review,
+            "review_triggers": review_triggers,
+            "verification_contract": contract_text,
+            "verification_contract_sha256": hashlib.sha256(
+                contract_text.encode("ascii")
+            ).hexdigest(),
+        }
+
+    def test_routine_packet_no_review_contract_is_accepted(self) -> None:
+        # End to end through the builder's validator: a routine packet whose
+        # producer set review_required=False yields a contract that does not
+        # demand a review, and the builder accepts it. On the pre-fix code the
+        # schema validator rejected required=False outright, so this could not
+        # happen -- the assertion below is what discriminates fixed from broken.
+        fields = self._review_contract_fields(
+            review_required=False,
+            mandatory_review="false",
+            review_triggers="[]",
+        )
+        contract = dcb.validate_verification_contract(fields)
+        self.assertIs(contract["deliverable_review_policy"]["required"], False)
+
+    def test_triggered_packet_may_not_carry_a_no_review_contract(self) -> None:
+        # The hard boundary: when the triggers fire, a contract that says no
+        # review is owed is refused, and refused for THAT reason (not a generic
+        # schema mismatch). The regex pins the agreement failure so the test
+        # cannot pass by any other rejection path.
+        fields = self._review_contract_fields(
+            review_required=False,
+            mandatory_review="true",
+            review_triggers="[blast_radius]",
+        )
+        with self.assertRaisesRegex(
+            dcb.DispatchContextError, "demand a different-family review"
+        ):
+            dcb.validate_verification_contract(fields)
+
+    def test_over_claiming_review_contract_is_tolerated_before_producer_wiring(
+        self,
+    ) -> None:
+        # Safety: an un-wired producer still emits required=True for a routine
+        # packet. Hard-rejecting that over-claim would break every routine
+        # dispatch, so the builder tolerates it. This is why the agreement check
+        # is one-directional.
+        fields = self._review_contract_fields(
+            review_required=True,
+            mandatory_review="false",
+            review_triggers="[]",
+        )
+        contract = dcb.validate_verification_contract(fields)
+        self.assertIs(contract["deliverable_review_policy"]["required"], True)
+
+    def test_packet_review_is_owed_mirrors_the_trigger_policy(self) -> None:
+        owed = dcb._packet_review_is_owed
+        self.assertFalse(owed({"mandatory_review": "false", "review_triggers": "[]"}))
+        self.assertTrue(owed({"mandatory_review": "true", "review_triggers": "[]"}))
+        self.assertTrue(
+            owed({"mandatory_review": "false", "review_triggers": "[architecture]"})
+        )
+        # A malformed review_triggers value fails closed to "owed", exactly as the
+        # reconciler holds rather than downgrades a malformed review contract.
+        self.assertTrue(
+            owed({"mandatory_review": "false", "review_triggers": "not-a-list"})
+        )
+        # Absent review frontmatter is not "owed" on its own.
+        self.assertFalse(owed({}))
+
+    def _board_admission(
+        self, task_id: str, dispatch_kind: str, **extra: object
+    ) -> dict[str, object]:
+        admission: dict[str, object] = {
+            "task_id": task_id,
+            "run_id": "RUN-TEST",
+            "mode": "project",
+            "result_type": "normal",
+            "to_model": "gpt-codex",
+            "dispatch_kind": dispatch_kind,
+            "capability": None,
+            "expected_gates": [],
+        }
+        admission.update(extra)
+        return admission
+
+    def _rewrite_packet_contract(self, packet: Path, contract: dict) -> str:
+        """Swap the packet's contract and recompute its packet-local hash.
+
+        This is exactly what a post-admission tamper that controls the packet
+        file can do -- the adjacent self-hash authenticates nothing.
+        """
+
+        contract_text = json.dumps(contract, sort_keys=True, separators=(",", ":"))
+        digest = hashlib.sha256(contract_text.encode("ascii")).hexdigest()
+        lines = []
+        for line in packet.read_text(encoding="utf-8").splitlines():
+            if line.startswith("verification_contract: "):
+                line = f"verification_contract: {contract_text}"
+            elif line.startswith("verification_contract_sha256: "):
+                line = f"verification_contract_sha256: {digest}"
+            lines.append(line)
+        packet.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return digest
+
+    def _pin_registry_entry(
+        self, root: Path, task_id: str, entry: dict[str, object]
+    ) -> Path:
+        registry = root / "_state" / "active-tasks.json"
+        registry.parent.mkdir(parents=True, exist_ok=True)
+        registry.write_text(
+            json.dumps({task_id: entry}, indent=2) + "\n", encoding="utf-8"
+        )
+        return registry
+
+    def test_tampered_review_downgrade_is_rejected_at_dispatch_admission(self) -> None:
+        # The reviewer's BLOCKER, end to end: a single/panel contract admitted
+        # with required=True, then edited to required=False with the
+        # packet-local hash recomputed, must be refused by build_context. On
+        # the pre-fix code this dispatch was ACCEPTED -- the schema validator
+        # recovered `required` from the tampered object itself, and dispatch
+        # construction never compared the packet to the registry pin.
+        import registry_reconciler as rr
+
+        attempt_id = "d-" + "5" * 32
+        with tempfile.TemporaryDirectory() as directory:
+            for dispatch_kind in ("single", "panel"):
+                with self.subTest(dispatch_kind=dispatch_kind):
+                    root, packet = self._fake_repo_for_lane(
+                        Path(directory) / dispatch_kind,
+                        lane="codex",
+                        model="gpt-codex",
+                    )
+                    task_id = packet.stem
+                    admitted = derive_verification_contract(
+                        self._board_admission(task_id, dispatch_kind)
+                    )
+                    admitted_text = json.dumps(
+                        admitted, sort_keys=True, separators=(",", ":")
+                    )
+                    registry = self._pin_registry_entry(
+                        root,
+                        task_id,
+                        {
+                            "delivery_attempt_id": attempt_id,
+                            "delivery_generation": 1,
+                            "verification_contract": admitted,
+                            "verification_contract_sha256": hashlib.sha256(
+                                admitted_text.encode("ascii")
+                            ).hexdigest(),
+                        },
+                    )
+                    tampered = json.loads(json.dumps(admitted))
+                    tampered["deliverable_review_policy"]["required"] = False
+                    self._rewrite_packet_contract(packet, tampered)
+                    with (
+                        mock.patch.dict(
+                            dcb.LANE_CLI_PATHS, {"codex": Path("/bin/sh")}
+                        ),
+                        mock.patch.object(rr, "REGISTRY_PATH", registry),
+                    ):
+                        with self.assertRaisesRegex(
+                            dcb.DispatchContextError, "registry"
+                        ):
+                            dcb.build_context(
+                                root,
+                                packet,
+                                attempt_id=attempt_id,
+                                generation=1,
+                                now=1_784_800_000,
+                                nonce="6" * 64,
+                            )
+
+    def test_registry_agreed_no_review_contract_admits(self) -> None:
+        # The mechanism stays usable once the producer lands: a required=False
+        # contract that the registry pin was actually created with builds a
+        # context, so the grounding rejects downgrades without rejecting the
+        # legitimate value.
+        import registry_reconciler as rr
+
+        attempt_id = "d-" + "7" * 32
+        with tempfile.TemporaryDirectory() as directory:
+            root, packet = self._fake_repo_for_lane(
+                Path(directory), lane="codex", model="gpt-codex"
+            )
+            task_id = packet.stem
+            legitimate = derive_verification_contract(
+                self._board_admission(task_id, "single", review_required=False)
+            )
+            digest = self._rewrite_packet_contract(packet, legitimate)
+            registry = self._pin_registry_entry(
+                root,
+                task_id,
+                {
+                    "delivery_attempt_id": attempt_id,
+                    "delivery_generation": 1,
+                    "verification_contract": legitimate,
+                    "verification_contract_sha256": digest,
+                },
+            )
+            with (
+                mock.patch.dict(dcb.LANE_CLI_PATHS, {"codex": Path("/bin/sh")}),
+                mock.patch.object(rr, "REGISTRY_PATH", registry),
+            ):
+                context = dcb.build_context(
+                    root,
+                    packet,
+                    attempt_id=attempt_id,
+                    generation=1,
+                    now=1_784_800_000,
+                    nonce="8" * 64,
+                )
+        self.assertEqual(
+            context["authority"]["verification_contract_sha256"], digest
+        )
+
+    def test_registry_pin_check_fails_open_only_when_nothing_to_compare(self) -> None:
+        import registry_reconciler as rr
+
+        contract = derive_verification_contract(
+            self._board_admission("TASK-2026-08-24-9002-pin-check", "single")
+        )
+        contract_text = json.dumps(contract, sort_keys=True, separators=(",", ":"))
+        digest = hashlib.sha256(contract_text.encode("ascii")).hexdigest()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            def check() -> None:
+                dcb.require_registry_contract_pin(
+                    root,
+                    contract["task_id"],
+                    contract=contract,
+                    declared_sha256=digest,
+                )
+
+            # No registry at all: nothing to compare.
+            check()
+            registry = self._pin_registry_entry(
+                root, "TASK-OTHER", {"delivery_attempt_id": "d-" + "1" * 32}
+            )
+            with mock.patch.object(rr, "REGISTRY_PATH", registry):
+                # No entry for this task, then an entry that predates pinning.
+                check()
+                self._pin_registry_entry(
+                    root, contract["task_id"], {"delivery_generation": 1}
+                )
+                check()
+                # A present digest pin that disagrees is fatal on its own.
+                self._pin_registry_entry(
+                    root,
+                    contract["task_id"],
+                    {"verification_contract_sha256": "0" * 64},
+                )
+                with self.assertRaisesRegex(dcb.DispatchContextError, "registry"):
+                    check()
+                # A pinned object that disagrees is fatal even when the digest
+                # row is absent.
+                divergent = json.loads(json.dumps(contract))
+                divergent["deliverable_review_policy"]["required"] = False
+                self._pin_registry_entry(
+                    root,
+                    contract["task_id"],
+                    {"verification_contract": divergent},
+                )
+                with self.assertRaisesRegex(dcb.DispatchContextError, "registry"):
+                    check()
+
     def test_scope_parser_rejects_traversal_and_absolute_paths(self) -> None:
         for raw in ("[../../outside]", '["/absolute/path"]', "[.]"):
             with self.subTest(raw=raw):

@@ -2698,13 +2698,27 @@ else
                 return name == "node" || name == "python" || name == "python3" \
                     || name == "bash"
             }
+            # The harness itself runs as `claude <subcommand>` with ppid 1: the
+            # background pty host, the spare it hands out, and the daemon. Those
+            # are not lane CLIs, and one of them is an ANCESTOR of the running
+            # session -- measured 2026-08-24, `claude bg-pty-host` PID 51061 was
+            # the grandparent of the shell reading this warning. Reporting them
+            # as reapable orphans told the operator to kill their own session.
+            # A dispatched lane is invoked with a prompt flag, never these.
+            function is_harness(subcmd) {
+                return subcmd == "daemon" || subcmd == "bg-pty-host" \
+                    || subcmd == "bg-spare" || subcmd == "mcp"
+            }
             {
                 lane = leaf($4)
+                subcmd = (NF >= 5 ? $5 : "")
                 if (!is_lane(lane)) {
                     if (!is_interpreter(lane) || NF < 5) next
                     lane = leaf($5)
                     if (!is_lane(lane)) next
+                    subcmd = (NF >= 6 ? $6 : "")
                 }
+                if (is_harness(subcmd)) next
                 if (is_squad($1) || is_squad($2)) next
                 printf "%s %s PID %s (parent %s, up %s)\n", \
                     ($2 == 1 ? "orphan" : "attached"), lane, $1, $2, $3

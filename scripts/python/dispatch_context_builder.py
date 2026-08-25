@@ -563,6 +563,59 @@ def require_packet_fields(fields: Mapping[str, str]) -> None:
         )
 
 
+def _packet_review_is_owed(fields: Mapping[str, str]) -> bool:
+    """Whether the packet's trigger policy owes a different-family review.
+
+    Mirrors the reconciler's owed-decision (`cross_family_review_pending`): a
+    review is owed when `mandatory_review` is true OR `review_triggers` is a
+    non-empty list. A malformed `review_triggers` value is treated as owed
+    (fail-closed), exactly as the reconciler holds a malformed review contract
+    rather than downgrading it to no review.
+    """
+
+    mandatory = _unquote(fields.get("mandatory_review", "")).strip().lower() == "true"
+    raw_triggers = fields.get("review_triggers")
+    if raw_triggers is None or not str(raw_triggers).strip():
+        return mandatory
+    try:
+        triggers = parse_scope(str(raw_triggers), field="review_triggers")
+    except DispatchContextError:
+        return True
+    return mandatory or bool(triggers)
+
+
+def _check_deliverable_review_agreement(
+    fields: Mapping[str, str], contract: Mapping[str, Any]
+) -> None:
+    """Refuse a contract that owes LESS review than the packet's triggers demand.
+
+    The pinned contract's `deliverable_review_policy.required` is the worker-facing
+    statement of whether a deliverable review is owed. If the packet's triggers
+    fire (`mandatory_review`/`review_triggers`) but the contract says no review is
+    required, the worker is told the opposite of what the reconciler enforces and
+    the different-family review the triggers demand could be skipped. That is the
+    one direction that must never be permitted -- it is the hard boundary of the
+    change that made `required` variable in the first place.
+
+    The reverse -- a contract requiring a review the triggers do not -- is the
+    historical over-claim this change exists to retire. It is TOLERATED here, not
+    rejected: an un-wired producer still emits `required: true` for every packet,
+    so hard-rejecting the over-claim would break every routine dispatch before the
+    producer is updated. The over-claim is retired at the producer, not policed
+    here; policing it would trade one dead board for another.
+    """
+
+    policy = contract.get("deliverable_review_policy")
+    if not isinstance(policy, Mapping):
+        return
+    if policy.get("required") is False and _packet_review_is_owed(fields):
+        raise DispatchContextError(
+            "verification_contract deliverable_review_policy.required is false but "
+            "the packet's mandatory_review/review_triggers demand a different-family "
+            "review"
+        )
+
+
 def validate_verification_contract(fields: Mapping[str, str]) -> dict[str, Any]:
     """Validate the dispatcher-pinned contract, naming any bad field (F7)."""
 
@@ -620,6 +673,7 @@ def validate_verification_contract(fields: Mapping[str, str]) -> dict[str, Any]:
             "verification_contract has a missing or malformed nonempty string "
             "array for: " + ", ".join(invalid)
         )
+    _check_deliverable_review_agreement(fields, contract)
     return contract
 
 
@@ -1541,6 +1595,16 @@ def build_context(
     author_family = contract.get("author_family")
     if not isinstance(author_family, str) or not author_family:
         raise DispatchContextError("verification contract author_family is invalid")
+    # Ground the packet's contract in the admission-time registry pin before
+    # any authority is constructed from it. Schema validation above proved
+    # only internal consistency, and a packet-local hash can be recomputed
+    # after a tamper; the registry entry cannot.
+    require_registry_contract_pin(
+        root,
+        task_id,
+        contract=contract,
+        declared_sha256=_unquote(fields.get("verification_contract_sha256", "")),
+    )
 
     source_lane = LANE_TO_MODEL[lane]
     try:
@@ -1968,6 +2032,62 @@ def packet_reconciliation_echo(fields: Mapping[str, str]) -> dict[str, str]:
         if swarm_pin:
             echo["swarm_spec_sha256"] = swarm_pin
     return validate_reconciliation_echo(echo)
+
+
+def require_registry_contract_pin(
+    repo_root: Path,
+    task_id: str,
+    *,
+    contract: Mapping[str, Any],
+    declared_sha256: str,
+) -> None:
+    """Refuse a packet contract that disagrees with the locked registry pin.
+
+    The registry entry written at admission time carries the full contract
+    object AND its digest (`bin/send-task.sh` pins both), and that entry is the
+    trusted external record of what was admitted. The packet's copy is not: its
+    adjacent self-hash authenticates nothing, because whoever can edit the
+    contract can recompute the hash, and the schema validator alone cannot tell
+    a legitimate `deliverable_review_policy.required` from a downgrade -- it
+    re-derives that value from the object under check
+    (`verification_contract.validate_verification_contract`). Comparing here,
+    before authority is constructed, grounds dispatch admission in a fact the
+    packet cannot rewrite.
+
+    Fails open only when there is nothing to compare -- no registry file, no
+    entry for the task, or an entry that predates contract pinning -- mirroring
+    `registry_reconciliation_echo`'s availability behavior exactly. A pin that
+    is PRESENT and disagrees is always fatal, including a malformed one.
+    """
+
+    registry_path = Path(repo_root) / "_state" / "active-tasks.json"
+    if registry_path.is_symlink() or not registry_path.is_file():
+        return
+    try:
+        import registry_reconciler as rr
+    except ImportError:
+        return
+    try:
+        with rr.locked_registry():
+            registry = rr.load_registry()
+            entry = registry.get(task_id) if isinstance(registry, dict) else None
+    except (OSError, ValueError):
+        return
+    if not isinstance(entry, dict):
+        return
+    pinned_contract = entry.get("verification_contract")
+    pinned_digest = entry.get("verification_contract_sha256")
+    if pinned_digest is not None and pinned_digest != declared_sha256:
+        raise DispatchContextError(
+            "packet verification_contract_sha256 does not match the locked "
+            f"registry pin for {task_id} "
+            f"(packet={declared_sha256} registry={pinned_digest})"
+        )
+    if pinned_contract is not None and pinned_contract != dict(contract):
+        raise DispatchContextError(
+            "packet verification_contract does not match the locked registry "
+            f"pin for {task_id}"
+        )
 
 
 def registry_reconciliation_echo(

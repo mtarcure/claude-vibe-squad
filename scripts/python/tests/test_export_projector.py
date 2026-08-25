@@ -87,9 +87,10 @@ class TestDefaultLedgerPath(unittest.TestCase):
             tracked,
             "projector.DEFAULT_LEDGER_PATH does not name the git-tracked export "
             "ledger. This constant is now load-bearing twice over: it is the "
-            "default, and it is also how _authorize_missing_ledger recognises "
-            "that a run reporting a 'missing' ledger is really pointed away "
-            "from the history the repository keeps.",
+            "default, and it is also how _require_canonical_ledger recognises "
+            "that a run is pointed away from the history the repository keeps "
+            "-- which it decides before reading the ledger, so an alternate "
+            "that happens to agree with the rail cannot certify itself.",
         )
 
     def test_default_ledger_exists_on_disk(self):
