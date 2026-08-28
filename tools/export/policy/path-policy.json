@@ -331,6 +331,7 @@
     "docs/model-runtime-map.md",
     "docs/private-config.md",
     "docs/production-readiness.md",
+    "docs/publish-provenance.md",
     "docs/rollback-runbook.md",
     "docs/routing-map.html",
     "docs/standards/instruction-layer-standard-and-rubric.md",

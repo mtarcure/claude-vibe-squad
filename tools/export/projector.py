@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import posixpath
+import shlex
 import stat
 import subprocess
 import sys
@@ -50,6 +51,15 @@ LEDGER_CONTINUITY_FIRST_RUN = "unrecorded-first-run"
 #: so a wrong path only strands a file -- but it shares the directory because
 #: the gate report is the evidence for the ledger entry written beside it.
 DEFAULT_GATE_REPORT_PATH = EXPORT_STATE_DIR / "candidate-gate.md"
+
+#: Runtime receipts are deliberately private, but they are the authority for
+#: whether a protected-path change came through a board lane. A publish from
+#: the main checkout has this directory; an isolated checkout without it earns
+#: no bindings and therefore reports protected commits rather than guessing.
+DEFAULT_BOARD_STATE_DIR = PurePosixPath("_state/board-dispatch")
+
+PROTECTED_PATH_PREFIXES = ("scripts/python/", "bin/", "plugins/", "tools/")
+PROTECTED_PATHS = frozenset({"shared/dispatch-toolkit.sh"})
 
 
 #: Environment variables that tell git WHICH repository to act on. A projection
@@ -205,6 +215,144 @@ def _git_top_level(root: Path) -> Path:
 
 def _resolve_commit(root: Path, revision: str) -> str:
     return _git(root, ["rev-parse", "--verify", f"{revision}^{{commit}}"]).decode().strip()
+
+
+def _is_protected_path(path: str) -> bool:
+    return path in PROTECTED_PATHS or path.startswith(PROTECTED_PATH_PREFIXES)
+
+
+def _read_last_source_anchor(path: Path) -> str | None:
+    """Return the newest projected private SHA from the existing export ledger."""
+    if not path.exists():
+        return None
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+        for line in reversed(lines):
+            if not line.strip():
+                continue
+            entry = json.loads(line)
+            source_sha = entry.get("source_sha") if isinstance(entry, dict) else None
+            if isinstance(source_sha, str) and source_sha:
+                return source_sha
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise ProjectorError(f"cannot read export ledger {path}: {error}") from error
+    return None
+
+
+def _protected_first_parent_commits(
+    root: Path, anchor: str, source: str
+) -> list[tuple[str, tuple[str, ...]]]:
+    anchor_sha = _resolve_commit(root, anchor)
+    source_sha = _resolve_commit(root, source)
+    ancestry = _run(
+        root,
+        ["git", "merge-base", "--is-ancestor", anchor_sha, source_sha],
+        check=False,
+    )
+    if ancestry.returncode != 0:
+        raise ProjectorError(
+            f"publish provenance anchor {anchor_sha} is not an ancestor of {source_sha}"
+        )
+    commits = _git(
+        root, ["rev-list", "--first-parent", "--reverse", f"{anchor_sha}..{source_sha}"]
+    ).decode().splitlines()
+    protected: list[tuple[str, tuple[str, ...]]] = []
+    for commit in commits:
+        parent = _git(root, ["rev-parse", f"{commit}^"]).decode().strip()
+        changed = _git(
+            root,
+            ["diff-tree", "--no-commit-id", "--name-only", "-r", "-z", parent, commit],
+        )
+        paths = tuple(
+            sorted(
+                path
+                for path in changed.decode("utf-8", errors="surrogateescape").split("\0")
+                if path and _is_protected_path(path)
+            )
+        )
+        if paths:
+            protected.append((commit, paths))
+    return protected
+
+
+def _receipt_bindings(board_state: Path) -> dict[str, list[frozenset[str]]]:
+    bindings: dict[str, list[frozenset[str]]] = {}
+    if not board_state.is_dir():
+        return bindings
+    for path in board_state.glob("*.receipt.json"):
+        try:
+            if not stat.S_ISREG(path.lstat().st_mode):
+                continue
+            receipt = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            continue
+        if (
+            not isinstance(receipt, dict)
+            or receipt.get("schema") != "board-dispatch-receipt/v2"
+            or not isinstance(receipt.get("task_id"), str)
+        ):
+            continue
+        for key in ("worktree_integration", "work_recovery"):
+            record = receipt.get(key)
+            if not isinstance(record, dict) or record.get("status") != "integrated":
+                continue
+            commit = record.get("integration_commit")
+            integrated_paths = record.get("integrated_paths")
+            record_task = record.get("task_id")
+            if (
+                isinstance(commit, str)
+                and record.get("target_after") == commit
+                and isinstance(integrated_paths, list)
+                and all(isinstance(item, str) for item in integrated_paths)
+                and (record_task is None or record_task == receipt["task_id"])
+            ):
+                bindings.setdefault(commit, []).append(frozenset(integrated_paths))
+    return bindings
+
+
+def _provenance_dispatch_command(commit: str, paths: tuple[str, ...]) -> str:
+    specialist = (
+        "devops-engineer"
+        if any(path.startswith(("bin/", "tools/")) or path in PROTECTED_PATHS for path in paths)
+        else "backend-engineer"
+    )
+    body = (
+        f"Independently inspect protected-path commit {commit}, reproduce its intended "
+        "behavior, remediate any defects within the declared paths, add or adjust tests, "
+        "and report the verification evidence."
+    )
+    return (
+        "( body=\"$(mktemp \"${TMPDIR:-/tmp}/publish-provenance.XXXXXX\")\" && "
+        "trap 'rm -f \"$body\"' EXIT && "
+        f"printf '%s\\n' {shlex.quote(body)} >\"$body\" && "
+        f"WRITE_SCOPE={shlex.quote(', '.join(paths))} "
+        f"bash scripts/send-task.sh coding \"$body\" {specialist} --mode project )"
+    )
+
+
+def check_publish_provenance(
+    root: Path,
+    *,
+    anchor: str,
+    source: str,
+    board_state: Path,
+) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    bindings = _receipt_bindings(board_state)
+    findings: list[tuple[str, tuple[str, ...]]] = []
+    for commit, paths in _protected_first_parent_commits(root, anchor, source):
+        if any(set(paths) <= integrated for integrated in bindings.get(commit, [])):
+            continue
+        findings.append((commit, paths))
+    return tuple(findings)
+
+
+def format_publish_provenance(findings: tuple[tuple[str, tuple[str, ...]], ...]) -> str:
+    lines: list[str] = []
+    for commit, paths in findings:
+        lines.append(f"UNBOUND PROTECTED COMMIT {commit}")
+        lines.extend(f"  path: {json.dumps(path)}" for path in paths)
+        lines.append(f"  dispatch: {_provenance_dispatch_command(commit, paths)}")
+    return "\n".join(lines)
 
 
 def _require_clean_source(root: Path) -> None:
@@ -733,6 +881,27 @@ def main() -> int:
         # ledger identity check, so the default and the check cannot end up
         # describing different repositories.
         root = _git_top_level(Path(args.root).resolve())
+        requested_ledger = Path(args.ledger or root / DEFAULT_LEDGER_PATH)
+        verified_ledger = _require_canonical_ledger(root, ledger_path=requested_ledger)
+        anchor = _read_last_source_anchor(verified_ledger)
+        if anchor:
+            try:
+                rendered = format_publish_provenance(
+                    check_publish_provenance(
+                        root,
+                        anchor=anchor,
+                        source=args.source,
+                        board_state=root / DEFAULT_BOARD_STATE_DIR,
+                    )
+                )
+            except (OSError, ProjectorError) as error:
+                # This fence creates work; it must never destroy the publish
+                # that made the work visible. Existing projector rails retain
+                # their own exit behavior below.
+                rendered = f"PUBLISH PROVENANCE CHECK UNAVAILABLE: {error}"
+            if rendered:
+                # Preserve stdout as the machine-readable ProjectionResult.
+                print(rendered, file=sys.stderr)
         result = project(
             root=root,
             source=args.source,
@@ -742,7 +911,7 @@ def main() -> int:
                 args.identifier_denylist
                 or root / "tools/export/identifier-denylist.txt"
             ),
-            ledger_path=Path(args.ledger or root / DEFAULT_LEDGER_PATH),
+            ledger_path=requested_ledger,
             allow_missing_ledger=(
                 Path(args.allow_missing_ledger)
                 if args.allow_missing_ledger
