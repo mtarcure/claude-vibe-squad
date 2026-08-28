@@ -242,9 +242,12 @@ class Block1SymlinkedInbox(unittest.TestCase):
             pkt = root / f"{task_id}.md"
             # specialist: none (direct-lane) skips the specialist/adapter/safety gauntlet
             # so the test targets the containment check itself, not incidental validation.
+            # No `mode:` field means `modeless`, which derives a verification contract
+            # like any other mode, so `run_id` is required to reach the containment check.
             pkt.write_text(envelope({
                 "id": task_id, "to_model": "claude", "specialist": "none",
                 "source_namespace": "coding", "compatibility_namespace": "coding",
+                "run_id": "wave2-b1-symlinked-inbox",
                 "parallel_safe": "true", "direct_lane_work_allowed": "true",
                 "write_scope": "[]",
                 "return_artifact": f"{dept}/outbox/{task_id}-response.md",

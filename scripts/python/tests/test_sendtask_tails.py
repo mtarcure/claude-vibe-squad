@@ -137,12 +137,16 @@ class SendTaskTailsTests(unittest.TestCase):
     # ── fixtures ──────────────────────────────────────────────────────────────
 
     def fields(self, **overrides: str) -> dict[str, str]:
+        # No `mode:` field means `modeless`, which derives a verification
+        # contract like any other mode, so `run_id` is required even here.
+        # `typed_fields` below overrides both with the `project` pair.
         fields = {
             "id": "TASK-2026-07-27-0926-tailsfixture",
             "to_model": "claude",
             "specialist": "none",
             "source_namespace": "coding",
             "compatibility_namespace": "coding",
+            "run_id": "TAILS-MODELESS-FIXTURE",
             "parallel_safe": "true",
             "direct_lane_work_allowed": "true",
             "write_scope": "[_state/tails/out.md]",
@@ -340,16 +344,43 @@ class SendTaskTailsTests(unittest.TestCase):
                 self.assertIn("authorized_delete_paths", output)
                 self.assertNotIn(fields["id"], self.registry())
 
-    def test_delete_authorization_without_a_typed_contract_is_refused(self) -> None:
-        # No typed mode means no contract is derived at all.  Silently dropping
-        # the operator's authorization would dispatch a packet that looks
-        # authorized and carries nothing; refuse instead.
-        fields = self.fields(authorized_delete_paths="[_state/tails/first.md]")
-        completed = self.dispatch(self.packet_bytes(fields))
-        output = self.output(completed)
-        self.assertNotEqual(completed.returncode, 0, msg=output)
-        self.assertIn("authorized_delete_paths", output)
-        self.assertNotIn(fields["id"], self.registry())
+    def test_delete_authorization_without_a_derived_contract_is_refused(self) -> None:
+        # No contract means no home for the operator's authorization.  Silently
+        # dropping it would dispatch a packet that reads as authorized and
+        # carries nothing; refuse instead.
+        #
+        # This guard is NOT dead code after `modeless`.  A missing `mode` field
+        # now derives a contract, but `mode` is read verbatim when the field is
+        # present (bin/send-task.sh: MODE_PRESENT), and the derivation branch
+        # accepts only project|bounty|modeless.  Both cases below are present
+        # `mode` values outside that set, so they still fall to the refusal.
+        for label, mode_value in (
+            # The dispatcher's own comment names this path: "an explicitly
+            # empty `mode:` remains empty and follows the legacy rejection
+            # path below."
+            ("explicitly empty mode", ""),
+            # Any other token: warned about above the derivation branch, never
+            # promoted into it.
+            ("unrecognized mode token", "research"),
+        ):
+            with self.subTest(case=label):
+                shutil.rmtree(self.root, ignore_errors=True)
+                self.setUp()
+                fields = self.fields(
+                    mode=mode_value,
+                    authorized_delete_paths="[_state/tails/first.md]",
+                )
+                completed = self.dispatch(self.packet_bytes(fields))
+                output = self.output(completed)
+                self.assertNotEqual(completed.returncode, 0, msg=output)
+                # No contract was derived, so the refusal must be the deletion
+                # guard itself and not an admission failure that would reach
+                # the same exit code for an unrelated reason.
+                self.assertNotIn(
+                    "verification contract admission failed", output
+                )
+                self.assertIn("authorized_delete_paths requires", output)
+                self.assertNotIn(fields["id"], self.registry())
 
 
 if __name__ == "__main__":

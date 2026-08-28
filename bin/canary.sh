@@ -169,6 +169,7 @@ emit_packet() {
     cat <<PACKET_EOF
 ---
 id: ${id}
+run_id: ${id}
 to_model: claude
 specialist: backend-engineer
 source_namespace: coding
@@ -203,6 +204,7 @@ emit_mcp_packet() {
     cat <<PACKET_EOF
 ---
 id: ${id}
+run_id: ${id}
 to_model: gpt-codex
 specialist: systems-engineer
 source_namespace: coding
@@ -226,12 +228,14 @@ the systems-engineer@gpt-codex board worker.
    not this worker's callable surface. If the runtime provides \`ALL_TOOLS\`,
    enumerate names beginning \`mcp__\`, extract the component between the first
    two \`__\` separators, deduplicate, and sort. Otherwise use the runtime's
-   equivalent live tool-manifest operation. Make one bounded read-only call to
-   every namespace found. Paste the literal inventory command/expression and
-   literal output, then emit exactly one single-line record with sorted unique
-   arrays (a prefix belongs in \`successful_probes\` only after a non-error call):
+   equivalent live tool-manifest operation. Also enumerate every complete tool
+   name beginning \`mcp__codex_apps__\`; the bridge name alone is not a surface
+   measurement. Make one bounded read-only call to every namespace found. Paste
+   the literal inventory command/expression and literal output, then emit exactly
+   one single-line record with sorted unique arrays (a prefix belongs in
+   \`successful_probes\` only after a non-error call):
 
-   \`MCP_SURFACE_JSON: {"inventory_command":"<literal command or expression>","server_prefixes":["<runtime prefix>"],"successful_probes":["<runtime prefix>"]}\`
+   \`MCP_SURFACE_JSON: {"codex_apps_tools":["mcp__codex_apps__<tool>"],"inventory_command":"<literal command or expression>","server_prefixes":["<runtime prefix>"],"successful_probes":["<runtime prefix>"]}\`
 
 2. Write your response envelope to the return_artifact path above.
 PACKET_EOF
@@ -260,6 +264,7 @@ run_evidence_probes() {
     python3 -B - <<'PY'
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -305,6 +310,41 @@ def artifact_present(entry):
     if candidate.is_file() and candidate.stat().st_size > 0:
         return True, declared
     return False, declared
+
+def persisted_task_prompt(entry, tid):
+    """Load the task/attempt-bound assembled brief that survives dispatch."""
+    if not isinstance(entry, dict):
+        return None, "registry entry is absent"
+    attempt_id = str(entry.get("delivery_attempt_id") or "").strip()
+    generation = entry.get("delivery_generation")
+    safe_component = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,191}")
+    if not safe_component.fullmatch(tid) or not safe_component.fullmatch(attempt_id):
+        return None, "registry task or delivery attempt id is unsafe or absent"
+    if isinstance(generation, bool) or not isinstance(generation, int) or generation < 1:
+        return None, "registry delivery generation is absent or invalid"
+    context_path = (
+        root / "_state" / "board-dispatch" / f"{tid}.{attempt_id}.context.json"
+    )
+    if context_path.is_symlink() or not context_path.is_file():
+        return None, f"persisted assembled brief is absent: {context_path.name}"
+    try:
+        context = json.loads(context_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return None, f"persisted assembled brief is unreadable: {exc}"
+    authority = context.get("authority") if isinstance(context, dict) else None
+    prompt = context.get("task_prompt") if isinstance(context, dict) else None
+    if (
+        not isinstance(context, dict)
+        or context.get("schema") != "go-live-trusted-context/v1"
+        or not isinstance(authority, dict)
+        or authority.get("task_id") != tid
+        or authority.get("attempt_id") != attempt_id
+        or authority.get("generation") != generation
+        or not isinstance(prompt, str)
+        or not prompt.strip()
+    ):
+        return None, "persisted assembled brief failed task/attempt binding"
+    return prompt, None
 
 # --- Probe 1: dispatch ------------------------------------------------------
 # "A trivial task reaches a lane and returns." The evidence is delivery_history:
@@ -417,25 +457,18 @@ else:
     # Without this the probe reports FAIL for every ordinary board task, which
     # is a fabricated finding -- and a probe that cries wolf gets ignored
     # exactly like doctor's permanently-yellow warnings did.
-    ns_for_packet = str((entry or {}).get("source_namespace") or "coding")
-    packet = None
-    for candidate in (
-        root / "departments" / ns_for_packet / "inbox" / f"{task_id}.md",
-        root / "departments" / ns_for_packet / "archive" / f"{task_id}.md",
-    ):
-        if candidate.is_file():
-            packet = candidate
-            break
-    asked = bool(packet) and "probe-canary" in packet.read_text(
-        encoding="utf-8", errors="replace"
-    )
+    request_prompt, request_problem = persisted_task_prompt(entry, task_id)
+    asked = request_prompt is not None and "probe-canary" in request_prompt
     if not entry or not promoted:
         emit("skills", "NOT_MEASURED",
              f"{task_id} promoted no artifact to read; the skills oracle needs one")
+    elif request_problem:
+        emit("skills", "NOT_MEASURED",
+             f"{task_id} ask evidence is unavailable: {request_problem}")
     elif not asked:
         emit("skills", "NOT_MEASURED",
              f"{task_id} was never asked to invoke probe-canary "
-             f"({'packet not found' if packet is None else 'no such instruction in its packet'}); "
+             "(no such instruction in its task/attempt-bound assembled brief); "
              "dispatch the packet from --emit-packet to measure this")
     else:
         text = (root / declared).read_text(encoding="utf-8", errors="replace")
@@ -508,24 +541,18 @@ else:
     else:
         entry = entry_for(mcp_task_id)
         promoted, declared = artifact_present(entry) if entry else (False, "")
-        ns_for_packet = str((entry or {}).get("source_namespace") or "coding")
-        packet = None
-        for candidate in (
-            root / "departments" / ns_for_packet / "inbox" / f"{mcp_task_id}.md",
-            root / "departments" / ns_for_packet / "archive" / f"{mcp_task_id}.md",
-        ):
-            if candidate.is_file():
-                packet = candidate
-                break
-        asked = bool(packet) and mcp_marker in packet.read_text(
-            encoding="utf-8", errors="replace"
-        )
+        request_prompt, request_problem = persisted_task_prompt(entry, mcp_task_id)
+        asked = request_prompt is not None and mcp_marker in request_prompt
         if not entry or not promoted:
             emit("mcp_surface", "NOT_MEASURED",
                  f"{mcp_task_id} promoted no artifact containing a live MCP report")
+        elif request_problem:
+            emit("mcp_surface", "NOT_MEASURED",
+                 f"{mcp_task_id} ask evidence is unavailable: {request_problem}")
         elif not asked:
             emit("mcp_surface", "NOT_MEASURED",
-                 f"{mcp_task_id} was never asked for {mcp_marker.rstrip(':')} evidence")
+                 f"{mcp_task_id} was never asked for {mcp_marker.rstrip(':')} evidence "
+                 "in its task/attempt-bound assembled brief")
         else:
             artifact_text = (root / declared).read_text(
                 encoding="utf-8", errors="replace"
@@ -546,16 +573,28 @@ else:
                          f"artifact MCP report is invalid JSON: {exc}")
                 else:
                     expected_keys = {
-                        "inventory_command", "server_prefixes", "successful_probes"
+                        "codex_apps_tools", "inventory_command", "server_prefixes",
+                        "successful_probes"
                     }
                     visible = report.get("server_prefixes") if isinstance(report, dict) else None
                     successful = report.get("successful_probes") if isinstance(report, dict) else None
+                    codex_apps_tools = report.get("codex_apps_tools") if isinstance(report, dict) else None
                     command = report.get("inventory_command") if isinstance(report, dict) else None
                     lists_are_valid = all(
                         isinstance(values, list)
                         and all(isinstance(item, str) and item for item in values)
                         and values == sorted(set(values))
                         for values in (visible, successful)
+                    )
+                    codex_apps_tools_are_valid = (
+                        isinstance(codex_apps_tools, list)
+                        and all(
+                            isinstance(item, str)
+                            and item.startswith("mcp__codex_apps__")
+                            and item != "mcp__codex_apps__"
+                            for item in codex_apps_tools
+                        )
+                        and codex_apps_tools == sorted(set(codex_apps_tools))
                     )
                     if (
                         not isinstance(report, dict)
@@ -564,12 +603,17 @@ else:
                         or not command.strip()
                         or "\n" in command
                         or not lists_are_valid
+                        or not codex_apps_tools_are_valid
                     ):
                         emit("mcp_surface", "NOT_MEASURED",
                              "artifact MCP report has the wrong schema or unsorted values")
+                    elif ("codex_apps" in visible) != bool(codex_apps_tools):
+                        emit("mcp_surface", "NOT_MEASURED",
+                             "artifact MCP report did not enumerate the visible codex_apps bridge")
                     elif visible == expected_mcp and successful == expected_mcp:
                         emit("mcp_surface", "PASS",
-                             f"live prefixes and bounded calls match {expected_mcp}")
+                             f"live prefixes and bounded calls match {expected_mcp}; "
+                             f"codex_apps tools={len(codex_apps_tools)}")
                     else:
                         missing = sorted(set(expected_mcp) - set(visible))
                         unexpected = sorted(set(visible) - set(expected_mcp))
@@ -735,17 +779,25 @@ JSON_EOF
     #    ask for the skill, and the artifact still never quotes it. This is the
     #    case the whole probe exists for, and it must be FAIL, not unmeasured.
     local mute="${fixture}/mute"
-    mkdir -p "${mute}/_state" "${mute}/departments/coding/inbox" \
+    mkdir -p "${mute}/_state/board-dispatch" \
              "${mute}/departments/coding/outbox" "${mute}/.claude/skills/probe-canary"
     printf 'If you are reading this, **%s** -- the runtime found this file.\n' \
         "${SKILL_SENTINEL}" > "${mute}/.claude/skills/probe-canary/SKILL.md"
-    printf 'Invoke the project skill named probe-canary and quote it.\nReturn %s evidence.\n' \
-        "${MCP_SURFACE_MARKER}" \
-        > "${mute}/departments/coding/inbox/TASK-2099-01-01-0002-mute.md"
+    cat > "${mute}/_state/board-dispatch/TASK-2099-01-01-0002-mute.d-mute.context.json" <<'JSON_EOF'
+{
+  "schema": "go-live-trusted-context/v1",
+  "authority": {
+    "task_id": "TASK-2099-01-01-0002-mute",
+    "attempt_id": "d-mute",
+    "generation": 1
+  },
+  "task_prompt": "Invoke the project skill named probe-canary and quote it. Return MCP_SURFACE_JSON: evidence."
+}
+JSON_EOF
     printf '%s\n%s %s\n' \
         'I ran the task. I did not invoke any skill.' \
         "${MCP_SURFACE_MARKER}" \
-        '{"inventory_command":"fixture inventory","server_prefixes":["chrono_research_arsenal","chrono_vault","codex_apps"],"successful_probes":["chrono_research_arsenal","chrono_vault","codex_apps"]}' \
+        '{"codex_apps_tools":["mcp__codex_apps__fixture"],"inventory_command":"fixture inventory","server_prefixes":["chrono_research_arsenal","chrono_vault","codex_apps"],"successful_probes":["chrono_research_arsenal","chrono_vault","codex_apps"]}' \
         > "${mute}/departments/coding/outbox/TASK-2099-01-01-0002-mute-response.md"
     cat > "${mute}/_state/active-tasks.json" <<'JSON_EOF'
 {
@@ -753,6 +805,8 @@ JSON_EOF
     "source_namespace": "coding",
     "status": "complete",
     "dispatched_at": "2099-01-01T00:00:00+00:00",
+    "delivery_attempt_id": "d-mute",
+    "delivery_generation": 1,
     "return_artifact": "departments/coding/outbox/TASK-2099-01-01-0002-mute-response.md",
     "delivery_history": [
       {"event": "queued"}, {"event": "board-claimed"}, {"event": "terminal"}
@@ -777,14 +831,22 @@ JSON_EOF
     #    all five must report PASS.
     local good="${fixture}/good"
     mkdir -p "${good}/_state/chrono-notify-receipts" \
-             "${good}/departments/coding/inbox" "${good}/departments/coding/outbox" \
+             "${good}/_state/board-dispatch" "${good}/departments/coding/outbox" \
              "${good}/.claude/skills/probe-canary"
     printf 'If you are reading this, **%s** -- the runtime found this file.\n' \
         "${SKILL_SENTINEL}" > "${good}/.claude/skills/probe-canary/SKILL.md"
-    printf 'Invoke the project skill named probe-canary and quote it.\nReturn %s evidence.\n' \
-        "${MCP_SURFACE_MARKER}" \
-        > "${good}/departments/coding/inbox/TASK-2099-01-01-0003-good.md"
-    printf 'HEAD abc1234. The skill says: %s.\n%s {"inventory_command":"fixture inventory","server_prefixes":%s,"successful_probes":%s}\n' \
+    cat > "${good}/_state/board-dispatch/TASK-2099-01-01-0003-good.d-good.context.json" <<'JSON_EOF'
+{
+  "schema": "go-live-trusted-context/v1",
+  "authority": {
+    "task_id": "TASK-2099-01-01-0003-good",
+    "attempt_id": "d-good",
+    "generation": 1
+  },
+  "task_prompt": "Invoke the project skill named probe-canary and quote it. Return MCP_SURFACE_JSON: evidence."
+}
+JSON_EOF
+    printf 'HEAD abc1234. The skill says: %s.\n%s {"codex_apps_tools":["mcp__codex_apps__fixture"],"inventory_command":"fixture inventory","server_prefixes":%s,"successful_probes":%s}\n' \
         "${SKILL_SENTINEL}" "${MCP_SURFACE_MARKER}" \
         "${MCP_SURFACE_EXPECTED_JSON}" "${MCP_SURFACE_EXPECTED_JSON}" \
         > "${good}/departments/coding/outbox/TASK-2099-01-01-0003-good-response.md"
@@ -797,6 +859,8 @@ JSON_EOF
     "status": "complete",
     "dispatched_at": "2099-01-01T00:00:00+00:00",
     "delivery_lane": "claude",
+    "delivery_attempt_id": "d-good",
+    "delivery_generation": 1,
     "return_artifact": "departments/coding/outbox/TASK-2099-01-01-0003-good-response.md",
     "delivery_history": [
       {"event": "queued"},

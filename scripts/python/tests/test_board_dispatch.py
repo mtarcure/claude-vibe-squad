@@ -45,6 +45,19 @@ COMPAT_SEND_TASK = ROOT / "scripts" / "send-task.sh"
 LAUNCH_SQUAD = ROOT / "bin" / "launch-squad.sh"
 
 
+def _success_path_integration_offset(text: str) -> int:
+    """Offset of the SUCCESS-path `integrate_worktree_commits`, not the first one.
+
+    V113-18 added a second, earlier call site that lands a blocked attempt's
+    committed code when only its return path failed. Two structural tests here
+    used `text.index(...)` to mean "the success path integrates here", and that
+    assumption broke silently the moment a legitimate second caller appeared
+    above it -- one test then compared offsets across two different code paths
+    and reported an ordering regression that did not exist.
+    """
+    return text.index("wti.integrate_worktree_commits(", text.index("prepare_worktree_outputs("))
+
+
 class BoardDispatchShellTests(unittest.TestCase):
     def test_shell_entrypoints_are_syntax_valid(self) -> None:
         for script in (SEND_TASK, SUPERVISOR):
@@ -1263,7 +1276,11 @@ Dry-run dispatch test only.
     def test_codex_worker_gets_only_derived_linked_git_commit_dirs(self) -> None:
         text = SUPERVISOR.read_text(encoding="utf-8")
         codex = text.index('lane == "codex"')
-        integration = text.index("wti.integrate_worktree_commits(")
+        # There are TWO integration call sites since V113-18: the success path,
+        # and an earlier one that recovers a blocked attempt's committed code.
+        # Anchoring on the first textual match silently moved this window above
+        # the code it is meant to inspect, so name the success-path call.
+        integration = _success_path_integration_offset(text)
         body = text[codex:integration]
         self.assertIn("wti.linked_worktree_commit_write_dirs(handle)", body)
         self.assertIn('("--add-dir", str(git_write_dir))', body)
@@ -1308,7 +1325,7 @@ Dry-run dispatch test only.
         )
         self.assertIn("publish_prepared_worktree_outputs(", text)
         prevalidate_offset = text.index("prepare_worktree_outputs(")
-        integration_offset = text.index("wti.integrate_worktree_commits(")
+        integration_offset = _success_path_integration_offset(text)
         bridge_offset = text.index(
             "bridge_receipt = publish_prepared_worktree_outputs("
         )

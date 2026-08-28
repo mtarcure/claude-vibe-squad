@@ -14,6 +14,29 @@ from typing import Mapping, Sequence
 
 CONTRACT_VERSION = "verification-contract/v1"
 SUPPORTED_TYPED_MODES = frozenset({"project", "bounty"})
+# The third engagement state: a packet that declared no mode at all. `modeless`
+# is an AFFIRMATIVE token, never an absence and never an alias for `project`. A
+# dropped/empty `mode` field is not one of these tokens and so fails closed
+# (rejected) here -- the only place a packet's *absence* of a mode becomes the
+# `modeless` token is the single controller translation site (the prepared-packet
+# dispatcher), never a silent `.get()` default. On every AUTHORITY axis a modeless
+# contract takes the INTERSECTION of the typed modes, i.e. the narrower value
+# where they disagree:
+#   - result_type latitude: the project set (no `dry_run`; dry_run is bounty-only)
+#   - capability card (tool projection): forbidden -- cards are mode-scoped under
+#     shared/capabilities/<mode>/, so a modeless packet resolves none (see below)
+#   - memory write floor: forced to `restricted` in clearance.apply_record_policy
+#   - launch timeout budget: the 2700s cap, never bounty's 3600s (board-supervisor)
+# It is deliberately routed to the *project-shaped* contract body (same
+# verification kinds and phase set as ordinary internal work) because "work on
+# our own system / simple research" is exactly project-shaped work; the only
+# field that reveals the state is `mode: "modeless"` itself, which a reader can
+# distinguish from `"project"` at a glance.
+MODELESS_MODE = "modeless"
+SUPPORTED_MODES = SUPPORTED_TYPED_MODES | frozenset({MODELESS_MODE})
+# Modes whose contract body is the ordinary internal-work shape. `bounty` is the
+# only mode that is NOT project-shaped.
+_PROJECT_SHAPED_MODES = frozenset({"project", MODELESS_MODE})
 REQUIRED_PHASE_IDS = tuple(f"S{i}" for i in range(8))
 LANE_TO_AUTHOR_FAMILY = {
     "claude": "claude",
@@ -579,17 +602,23 @@ def derive_verification_contract_unchecked(
     """Re-derive for validation without recursively invoking the validator."""
 
     mode = admission.get("mode")
-    if mode not in SUPPORTED_TYPED_MODES:
-        raise ContractError(f"unsupported typed mode: {mode!r}")
+    if not isinstance(mode, str) or mode not in SUPPORTED_MODES:
+        raise ContractError(f"unsupported mode: {mode!r}")
     task_id = _nonempty_string(admission.get("task_id"), "task_id")
     run_id = _nonempty_string(admission.get("run_id"), "run_id")
     result_type = admission.get("result_type") or "normal"
-    if mode == "project" and result_type not in {
+    if mode in _PROJECT_SHAPED_MODES and result_type not in {
         "normal",
         *_TYPED_REVIEW_RESULT_TYPES,
     }:
+        # Modeless takes project's narrower result_type latitude: `dry_run` is a
+        # bounty-only affordance, so a modeless packet is refused it exactly as
+        # a project packet is. The `Project` label is preserved verbatim -- a
+        # dispatcher die-line message pins that exact string downstream -- while
+        # modeless names itself so its own diagnostic is unambiguous.
+        label = "Project" if mode == "project" else mode
         raise ContractError(
-            "Project result_type must be normal, review, or verification"
+            f"{label} result_type must be normal, review, or verification"
         )
     if mode == "bounty" and result_type not in {
         "normal",
@@ -605,9 +634,21 @@ def derive_verification_contract_unchecked(
     author_family = author_family_for_lane(admission.get("to_model"))
     review_evidence = _typed_review_evidence(admission, result_type)
     capability = _capability_from_admission(admission)
+    if mode == MODELESS_MODE and capability["id"] is not None:
+        # Tool-projection fail-closed. A capability card is resolved beneath
+        # shared/capabilities/<mode>/ and grants mode-specific tool authority on
+        # top of the specialist's base projection. A modeless packet has no such
+        # <mode> namespace, so it may resolve NO card: the intersection of the
+        # typed modes' card authority for an unshared card is empty. Refusing it
+        # here keeps a modeless packet from ever carrying more tool projection
+        # than a bare specialist adapter already grants.
+        raise ContractError(
+            "modeless dispatch cannot carry a capability card "
+            "(cards are mode-scoped under shared/capabilities/<mode>/)"
+        )
     gates = _gate_values(admission)
     review_required = _review_required(admission)
-    if mode == "project":
+    if mode in _PROJECT_SHAPED_MODES:
         verification_kinds = ["project_tests", "recipient_contract"]
         bounty_policy = None
         required_phase_ids = list(REQUIRED_PHASE_IDS)

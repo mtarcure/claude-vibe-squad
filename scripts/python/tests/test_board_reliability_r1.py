@@ -599,5 +599,136 @@ class ContractAdmissionDiagnosticsTests(unittest.TestCase):
                 self.assertIn(missing, str(caught.exception))
 
 
+# --- V113-18 (a): a nested envelope key must not strand a finished run --------
+
+SUPERVISOR = ROOT / "bin" / "board-supervisor.sh"
+
+# The exact shape `TASK-2026-08-27-0620-wb2` emitted. Its work was finished and
+# committed; it terminalised `blocked failure_class=request_validation` on this
+# frontmatter alone, and recovery cost Chrono a hand-run cherry-pick.
+WB2_ENVELOPE = """---
+id: TASK-2026-08-27-0620-wb2-response
+in_response_to: TASK-2026-08-27-0620-wb2
+from: gpt-codex
+to: chrono
+type: RESULT
+status: complete
+return_artifact: departments/coding/outbox/TASK-2026-08-27-0620-wb2-response.md
+verification_contract:
+  contract_version: verification-contract/v1
+  mode: project
+  required_phase_ids:
+    - S0
+    - S1
+  memory_policy:
+    recall: required
+    record: required
+  external_delivery_policy:
+    allowed: false
+---
+
+The work is finished and committed.
+"""
+
+
+def _load_envelope_repair():
+    """Exec the SHIPPED repair region out of `bin/board-supervisor.sh`.
+
+    The supervisor is a shell script wrapping one Python program, so there is
+    nothing to import. Extracting the marked region exercises the shipped bytes;
+    a reimplementation here would keep passing while the script regressed.
+    """
+
+    import json as _json
+    import re as _re
+
+    source = SUPERVISOR.read_text(encoding="utf-8")
+    begin = "# BEGIN envelope-frontmatter-repair\n"
+    end = "# END envelope-frontmatter-repair"
+    if begin not in source or end not in source:
+        raise AssertionError("board-supervisor.sh lost the envelope-repair markers")
+    namespace = {"json": _json, "re": _re}
+    exec(source.split(begin, 1)[1].split(end, 1)[0], namespace)  # noqa: S102
+    return namespace["flatten_nested_frontmatter"]
+
+
+class NestedEnvelopeFrontmatterRepairTests(unittest.TestCase):
+    """The repair happens BEFORE prevalidation and never weakens the contract."""
+
+    def setUp(self) -> None:
+        self.flatten = _load_envelope_repair()
+
+    def test_the_wb2_envelope_is_rejected_without_the_repair(self) -> None:
+        """Fail-without-fix: the measured defect, reproduced."""
+
+        with self.assertRaises(dcb.DispatchContextError) as caught:
+            dcb._parse_response_envelope(WB2_ENVELOPE.encode("utf-8"))
+        message = str(caught.exception)
+        # Half of the packet's fix (a) is already shipped: the diagnosis names
+        # the offending key, its line, and the expected shape. What was missing
+        # is anything acting on it.
+        self.assertIn("'verification_contract'", message)
+        self.assertIn("flat scalar values are required", message)
+
+    def test_the_repaired_envelope_parses_and_keeps_the_workers_intent(self) -> None:
+        repaired, keys = self.flatten(WB2_ENVELOPE)
+        self.assertEqual(keys, ("verification_contract",))
+
+        fields, summary = dcb._parse_response_envelope(repaired.encode("utf-8"))
+
+        self.assertEqual(fields["status"], "complete")
+        self.assertEqual(summary, "The work is finished and committed.")
+        contract = json.loads(fields["verification_contract"])
+        self.assertEqual(contract["mode"], "project")
+        self.assertEqual(contract["required_phase_ids"], ["S0", "S1"])
+        self.assertEqual(contract["memory_policy"], {"recall": "required", "record": "required"})
+        self.assertIs(contract["external_delivery_policy"]["allowed"], False)
+
+    def test_every_other_field_survives_the_repair_byte_for_byte(self) -> None:
+        repaired, _ = self.flatten(WB2_ENVELOPE)
+        untouched = [
+            line
+            for line in WB2_ENVELOPE.split("\n")
+            if line and not line.startswith(" ") and not line.startswith("verification_contract")
+        ]
+        for line in untouched:
+            with self.subTest(line=line):
+                self.assertIn(line, repaired.split("\n"))
+
+    def test_shapes_it_cannot_round_trip_are_left_for_the_prevalidator(self) -> None:
+        """No silent guessing: an unrepairable envelope keeps its named diagnosis."""
+
+        for name, document in (
+            ("already flat", "---\na: 1\nb: two\n---\n\nbody\n"),
+            ("tab indentation", "---\na:\n\tb: 1\n---\n\nbody\n"),
+            ("indent with no owning key", "---\n  a: 1\n---\n\nbody\n"),
+            ("no frontmatter fence", "id: x\n"),
+            ("unclosed fence", "---\na:\n  b: 1\n"),
+            ("genuinely empty scalar", "---\na:\nb: 1\n---\n\nbody\n"),
+            ("mixed sequence and mapping", "---\na:\n  - 1\n  b: 2\n---\n\nbody\n"),
+            ("duplicate top-level key", "---\na: 1\na: 2\n---\n\nbody\n"),
+        ):
+            with self.subTest(shape=name):
+                self.assertEqual(self.flatten(document), (None, ()))
+
+    def test_an_oversized_nested_block_is_refused(self) -> None:
+        giant = "---\nk:\n" + "".join(
+            f"  field_{index}: {'x' * 64}\n" for index in range(400)
+        ) + "---\n\nbody\n"
+        self.assertEqual(self.flatten(giant), (None, ()))
+
+    def test_the_flat_scalar_contract_itself_is_untouched(self) -> None:
+        """The parser still rejects nesting; only the envelope was repaired."""
+
+        source = (ROOT / "scripts" / "python" / "dispatch_context_builder.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("flat scalar values are required", source)
+        with self.assertRaises(dcb.DispatchContextError):
+            dcb._parse_response_envelope(
+                b"---\nid: x\nnested:\n  child: 1\n---\n\nbody\n"
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

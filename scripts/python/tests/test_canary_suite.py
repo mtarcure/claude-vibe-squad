@@ -37,6 +37,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import unittest
@@ -47,6 +48,7 @@ CANARY = REPO_ROOT / "bin" / "canary.sh"
 SKILL_FILE = REPO_ROOT / ".claude" / "skills" / "probe-canary" / "SKILL.md"
 MCP_SURFACE_DOC = REPO_ROOT / "docs" / "board-mcp-surface.md"
 MCP_MARKER = "MCP_SURFACE_JSON:"
+CONTEXT_SCHEMA = "go-live-trusted-context/v1"
 
 # Duplicated from canary.sh on purpose, and the duplication is the point: if
 # either copy drifts, test_sentinel_is_live_in_the_skill_file below goes red
@@ -96,6 +98,30 @@ def write_fixture(root: Path, entry: dict, task_id: str) -> None:
     (root / "_state").mkdir(parents=True, exist_ok=True)
     (root / "_state" / "active-tasks.json").write_text(
         json.dumps({task_id: entry}), encoding="utf-8"
+    )
+
+
+def write_persisted_prompt(
+    root: Path, entry: dict, task_id: str, prompt: str
+) -> None:
+    """Write the controller-built brief that remains after inbox consumption."""
+    attempt_id = entry["delivery_attempt_id"]
+    generation = entry["delivery_generation"]
+    context_dir = root / "_state" / "board-dispatch"
+    context_dir.mkdir(parents=True, exist_ok=True)
+    (context_dir / f"{task_id}.{attempt_id}.context.json").write_text(
+        json.dumps(
+            {
+                "schema": CONTEXT_SCHEMA,
+                "authority": {
+                    "task_id": task_id,
+                    "attempt_id": attempt_id,
+                    "generation": generation,
+                },
+                "task_prompt": prompt,
+            }
+        ),
+        encoding="utf-8",
     )
 
 
@@ -182,6 +208,7 @@ class SkillsProbeMeasuresFiringNotProjection(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn(SENTINEL, result.stdout)
         self.assertIn("probe-canary", result.stdout)
+        self.assertIn("run_id: TASK-2099-01-01-0005-pkt", result.stdout)
         self.assertIn("to_model: claude", result.stdout)
         self.assertIn("specialist: backend-engineer", result.stdout)
         self.assertNotIn(MCP_MARKER, result.stdout)
@@ -193,12 +220,53 @@ class SkillsProbeMeasuresFiringNotProjection(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("to_model: gpt-codex", result.stdout)
         self.assertIn("specialist: systems-engineer", result.stdout)
+        self.assertIn("run_id: TASK-2099-01-01-0008-mcp-pkt", result.stdout)
         self.assertIn(MCP_MARKER, result.stdout)
+        self.assertIn("codex_apps_tools", result.stdout)
+        self.assertIn("mcp__codex_apps__", result.stdout)
         self.assertNotIn(
             json.dumps(expected_mcp_surface(), separators=(",", ":")),
             result.stdout,
             "the MCP packet quoted the expected answer instead of asking for a probe",
         )
+
+    def test_persisted_assembled_brief_can_reach_pass(self) -> None:
+        """The ask oracle survives after the dispatcher consumes the inbox packet."""
+        task = "TASK-2099-01-01-0009-persisted"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            skill = root / ".claude" / "skills" / "probe-canary"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_text(f"**{SENTINEL}**\n", encoding="utf-8")
+            outbox = root / "departments" / "coding" / "outbox"
+            outbox.mkdir(parents=True)
+            (outbox / f"{task}-response.md").write_text(
+                f"The loaded skill says {SENTINEL}.\n", encoding="utf-8"
+            )
+            entry = {
+                "source_namespace": "coding",
+                "status": "complete",
+                "dispatched_at": "2099-01-01T00:00:00+00:00",
+                "delivery_attempt_id": "d-persisted",
+                "delivery_generation": 1,
+                "return_artifact": f"departments/coding/outbox/{task}-response.md",
+                "delivery_history": [
+                    {"event": "queued"},
+                    {"event": "board-claimed"},
+                    {"event": "terminal"},
+                ],
+            }
+            write_fixture(root, entry, task)
+            write_persisted_prompt(
+                root,
+                entry,
+                task,
+                "Invoke the project skill named probe-canary and quote it.",
+            )
+            self.assertFalse((root / "departments/coding/inbox" / f"{task}.md").exists())
+            self.assertFalse((root / "departments/coding/archive" / f"{task}.md").exists())
+            result = run_canary("--task", task, "--no-memory-write", root=root)
+        self.assertEqual(status_of(result.stdout, "skills"), "PASS", result.stdout)
 
     def test_a_task_never_asked_is_unmeasured_not_failed(self) -> None:
         """An ordinary board task is not evidence about skills either way."""
@@ -210,22 +278,26 @@ class SkillsProbeMeasuresFiringNotProjection(unittest.TestCase):
             (skill / "SKILL.md").write_text(f"**{SENTINEL}**\n", encoding="utf-8")
             outbox = root / "departments" / "coding" / "outbox"
             outbox.mkdir(parents=True)
-            (outbox / f"{task}-response.md").write_text("ordinary work\n", encoding="utf-8")
-            write_fixture(
-                root,
-                {
-                    "source_namespace": "coding",
-                    "status": "complete",
-                    "dispatched_at": "2099-01-01T00:00:00+00:00",
-                    "return_artifact": f"departments/coding/outbox/{task}-response.md",
-                    "delivery_history": [
-                        {"event": "queued"},
-                        {"event": "board-claimed"},
-                        {"event": "terminal"},
-                    ],
-                },
-                task,
+            # Deliberately quote both sentinels in the response: response text
+            # is output, never proof the worker was asked to produce evidence.
+            (outbox / f"{task}-response.md").write_text(
+                f"ordinary work; {SENTINEL}; {MCP_MARKER}\n", encoding="utf-8"
             )
+            entry = {
+                "source_namespace": "coding",
+                "status": "complete",
+                "dispatched_at": "2099-01-01T00:00:00+00:00",
+                "delivery_attempt_id": "d-ordinary",
+                "delivery_generation": 1,
+                "return_artifact": f"departments/coding/outbox/{task}-response.md",
+                "delivery_history": [
+                    {"event": "queued"},
+                    {"event": "board-claimed"},
+                    {"event": "terminal"},
+                ],
+            }
+            write_fixture(root, entry, task)
+            write_persisted_prompt(root, entry, task, "Perform ordinary work only.")
             result = run_canary("--task", task, "--no-memory-write", root=root)
         self.assertEqual(
             status_of(result.stdout, "skills"), "NOT MEASURED", result.stdout
@@ -234,6 +306,46 @@ class SkillsProbeMeasuresFiringNotProjection(unittest.TestCase):
             status_of(result.stdout, "mcp_surface"), "NOT MEASURED", result.stdout
         )
 
+    def test_malformed_persisted_brief_is_unmeasured_not_a_crash(self) -> None:
+        task = "TASK-2099-01-01-0011-malformed"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            skill = root / ".claude" / "skills" / "probe-canary"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_text(f"**{SENTINEL}**\n", encoding="utf-8")
+            outbox = root / "departments" / "coding" / "outbox"
+            outbox.mkdir(parents=True)
+            (outbox / f"{task}-response.md").write_text(
+                f"{SENTINEL}\n", encoding="utf-8"
+            )
+            entry = {
+                "source_namespace": "coding",
+                "status": "complete",
+                "dispatched_at": "2099-01-01T00:00:00+00:00",
+                "delivery_attempt_id": "d-malformed",
+                "delivery_generation": 1,
+                "return_artifact": f"departments/coding/outbox/{task}-response.md",
+                "delivery_history": [
+                    {"event": "queued"},
+                    {"event": "board-claimed"},
+                    {"event": "terminal"},
+                ],
+            }
+            write_fixture(root, entry, task)
+            write_persisted_prompt(root, entry, task, "Invoke probe-canary.")
+            context = (
+                root
+                / "_state"
+                / "board-dispatch"
+                / f"{task}.d-malformed.context.json"
+            )
+            context.write_text("[]\n", encoding="utf-8")
+            result = run_canary("--task", task, "--no-memory-write", root=root)
+        self.assertEqual(
+            status_of(result.stdout, "skills"), "NOT MEASURED", result.stdout
+        )
+        self.assertIn("failed task/attempt binding", result.stdout)
+
 
 class McpSurfaceMeasuresTheWorkerNotConfig(unittest.TestCase):
     def run_surface_fixture(
@@ -241,19 +353,21 @@ class McpSurfaceMeasuresTheWorkerNotConfig(unittest.TestCase):
         *,
         server_prefixes: list[str],
         successful_probes: list[str],
+        codex_apps_tools: list[str] | None = None,
     ) -> subprocess.CompletedProcess:
         task = "TASK-2099-01-01-0007-mcp"
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            inbox = root / "departments" / "coding" / "inbox"
             outbox = root / "departments" / "coding" / "outbox"
-            inbox.mkdir(parents=True)
             outbox.mkdir(parents=True)
-            (inbox / f"{task}.md").write_text(
-                f"Measure the live tool manifest and return {MCP_MARKER} evidence.\n",
-                encoding="utf-8",
-            )
             report = {
+                "codex_apps_tools": (
+                    codex_apps_tools
+                    if codex_apps_tools is not None
+                    else ["mcp__codex_apps__fixture"]
+                    if "codex_apps" in server_prefixes
+                    else []
+                ),
                 "inventory_command": "fixture live tool manifest",
                 "server_prefixes": server_prefixes,
                 "successful_probes": successful_probes,
@@ -262,22 +376,25 @@ class McpSurfaceMeasuresTheWorkerNotConfig(unittest.TestCase):
                 f"{MCP_MARKER} {json.dumps(report, separators=(',', ':'))}\n",
                 encoding="utf-8",
             )
-            write_fixture(
+            entry = {
+                "source_namespace": "coding",
+                "status": "complete",
+                "dispatched_at": "2099-01-01T00:00:00+00:00",
+                "delivery_attempt_id": "d-mcp",
+                "delivery_generation": 1,
+                "return_artifact": f"departments/coding/outbox/{task}-response.md",
+                "delivery_history": [
+                    {"event": "queued"},
+                    {"event": "board-claimed"},
+                    {"event": "terminal"},
+                ],
+            }
+            write_fixture(root, entry, task)
+            write_persisted_prompt(
                 root,
-                {
-                    "source_namespace": "coding",
-                    "status": "complete",
-                    "dispatched_at": "2099-01-01T00:00:00+00:00",
-                    "return_artifact": (
-                        f"departments/coding/outbox/{task}-response.md"
-                    ),
-                    "delivery_history": [
-                        {"event": "queued"},
-                        {"event": "board-claimed"},
-                        {"event": "terminal"},
-                    ],
-                },
+                entry,
                 task,
+                f"Measure the live tool manifest and return {MCP_MARKER} evidence.",
             )
             return run_canary("--mcp-task", task, "--no-memory-write", root=root)
 
@@ -306,13 +423,41 @@ class McpSurfaceMeasuresTheWorkerNotConfig(unittest.TestCase):
         )
         self.assertEqual(status_of(result.stdout, "mcp_surface"), "FAIL", result.stdout)
 
+    def test_visible_bridge_without_tool_inventory_is_unmeasured(self) -> None:
+        expected = expected_mcp_surface()
+        result = self.run_surface_fixture(
+            server_prefixes=expected,
+            successful_probes=expected,
+            codex_apps_tools=[],
+        )
+        self.assertEqual(
+            status_of(result.stdout, "mcp_surface"), "NOT MEASURED", result.stdout
+        )
+
     def test_documented_surface_matches_executable_expectation(self) -> None:
         self.assertTrue(MCP_SURFACE_DOC.is_file(), f"missing {MCP_SURFACE_DOC}")
+        document = MCP_SURFACE_DOC.read_text(encoding="utf-8")
         encoded = json.dumps(expected_mcp_surface(), separators=(",", ":"))
         self.assertIn(
             f"Canary contract (runtime prefixes): `{encoded}`",
-            MCP_SURFACE_DOC.read_text(encoding="utf-8"),
+            document,
         )
+
+    def test_document_records_complete_codex_apps_inventory(self) -> None:
+        document = MCP_SURFACE_DOC.read_text(encoding="utf-8")
+        documented_tools = re.findall(
+            r"^mcp__codex_apps__[A-Za-z0-9_]+$", document, flags=re.MULTILINE
+        )
+        self.assertEqual(len(documented_tools), 125)
+        self.assertEqual(documented_tools, sorted(set(documented_tools)))
+        self.assertIn("mcp_servers.codex_apps={enabled=false", document)
+        # The disable experiment was NOT MEASURED until 2026-08-28, when Chrono ran
+        # it from the main checkout (a worker may not launch a second Codex CLI).
+        # The guard's point survives the flip: a suppression verdict is only
+        # meaningful alongside the positive control, because an empty array is
+        # equally consistent with a probe that never had the bridge at all.
+        self.assertIn("Status: **MEASURED", document)
+        self.assertIn("positive control", document)
 
 
 class MemoryProbeFailsClosed(unittest.TestCase):

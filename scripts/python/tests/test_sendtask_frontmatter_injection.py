@@ -75,12 +75,16 @@ class SendTaskFrontmatterInjectionTests(unittest.TestCase):
             (self.vault / "departments" / "coding" / mailbox).mkdir(parents=True)
 
     def fields(self, **overrides: str) -> dict[str, str]:
+        # No `mode:` field means `modeless`, which derives a verification
+        # contract like any other mode, so `run_id` is required to get past
+        # admission and reach the frontmatter boundaries this suite is about.
         fields = {
             "id": "TASK-2026-07-27-0400-cc04fixture",
             "to_model": "claude",
             "specialist": "none",
             "source_namespace": "coding",
             "compatibility_namespace": "coding",
+            "run_id": "CC04-FRONTMATTER-INJECTION",
             "parallel_safe": "true",
             "direct_lane_work_allowed": "true",
             "write_scope": "[_state/cc04/out.md]",

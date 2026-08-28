@@ -1408,6 +1408,30 @@ class PreservedWorkSurfacingTests(unittest.TestCase):
         self.assertNotIn("terminal_receipt_evidence_ref", entry)
         self.assertEqual(entry["terminal_receipt_failure_class"], "launch")
 
+    def test_recovered_work_is_not_reported_as_stranded(self) -> None:
+        # Measured 2026-08-28 on TASK-2026-08-28-2140-recov1, a deliberate
+        # no-envelope run: the receipt carried work_recovery.status=integrated
+        # and the commit was on `main`, while the nudge told the operator the
+        # work was "NOT on a branch ... do not prune it". Both records are
+        # written for the same blocked attempt, so reading only the
+        # preservation half inverts the truth.
+        payload = self._preserved_payload(worktree_location="/tmp/wt", status="retained")
+        payload["evidence_preservation"]["evidence_ref"] = ""
+        payload["evidence_preservation"]["evidence_commit"] = ""
+        payload["work_recovery"] = {
+            "status": "integrated",
+            "integration_commit": "d" * 40,
+            "integrated_paths": ["docs/probe-recovery-marker.md"],
+        }
+        diagnostics = reconciler.receipt_failure_diagnostics(self._receipt(payload))
+        statement = reconciler.preserved_work_statement("TASK-X", {}, diagnostics)
+        self.assertIn("RECOVERED WORK", statement)
+        self.assertIn("d" * 40, statement)
+        self.assertIn("docs/probe-recovery-marker.md", statement)
+        self.assertNotIn("NOT on a branch", statement)
+        # The rail: recovery must not read as settlement.
+        self.assertIn("stays blocked", statement)
+
     def test_statement_names_the_branch_and_how_to_read_it(self) -> None:
         diagnostics = reconciler.receipt_failure_diagnostics(
             self._receipt(self._preserved_payload())

@@ -199,6 +199,72 @@ class VerificationContractTests(unittest.TestCase):
                     self.expected_contract(mode=mode, result_type=result_type),
                 )
 
+    def modeless_admission(self) -> dict[str, object]:
+        # Ordinary internal work that declared no mode: no capability card, no
+        # gates. The controller has already translated the packet's ABSENCE of a
+        # mode into the affirmative `modeless` token by this point.
+        return {
+            "task_id": "TASK-TEST-001",
+            "run_id": "MDL-TEST-001",
+            "mode": "modeless",
+            "result_type": "normal",
+            "to_model": "claude",
+            "dispatch_kind": "single",
+        }
+
+    def test_modeless_derives_project_shaped_contract_tagged_modeless(self) -> None:
+        contract = derive_verification_contract(self.modeless_admission())
+        # The one field that makes the third state visible and un-confusable.
+        self.assertEqual(contract["mode"], "modeless")
+        # Body is the ordinary internal-work shape (identical to project's).
+        self.assertEqual(
+            contract["required_verification_kinds"],
+            ["project_tests", "recipient_contract"],
+        )
+        self.assertEqual(
+            contract["memory_policy"], {"recall": "required", "record": "required"}
+        )
+        self.assertIsNone(contract["bounty_policy"])
+        # No capability card resolved -> no mode-specific tool projection.
+        self.assertEqual(
+            contract["capability"],
+            {"id": None, "card_sha256": None, "derived_state": None},
+        )
+        self.assertEqual(validate_verification_contract(contract), contract)
+        # Modeless is EXACTLY project-shaped except for the mode tag: flipping the
+        # single mode field yields the byte-identical project contract, and the
+        # pinned hash moves with the tag. This documents that the divergence that
+        # matters (write floor, budget, capability) lives at the OTHER two owners,
+        # not in the contract body.
+        project = derive_verification_contract(
+            {**self.modeless_admission(), "mode": "project"}
+        )
+        self.assertEqual({**contract, "mode": "project"}, project)
+        self.assertNotEqual(
+            verification_contract_sha256(contract),
+            verification_contract_sha256(project),
+        )
+
+    def test_modeless_rejects_dry_run_and_capability_card(self) -> None:
+        # dry_run is a bounty-only affordance; modeless takes project's narrower
+        # latitude and is refused it.
+        with self.assertRaisesRegex(ContractError, "modeless result_type"):
+            derive_verification_contract(
+                {**self.modeless_admission(), "result_type": "dry_run"}
+            )
+        # Capability cards are mode-scoped; a modeless packet may resolve none.
+        with self.assertRaisesRegex(ContractError, "modeless dispatch cannot carry"):
+            derive_verification_contract(
+                {
+                    **self.modeless_admission(),
+                    "capability": {
+                        "id": "project/web-app",
+                        "card_sha256": "a" * 64,
+                        "derived_state": "live",
+                    },
+                }
+            )
+
     def test_lane_map_is_closed_and_pinned(self) -> None:
         cases = {
             "claude": "claude",

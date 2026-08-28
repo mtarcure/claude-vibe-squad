@@ -1347,6 +1347,9 @@ RECEIPT_DIAGNOSTIC_FIELDS = (
     "evidence_worktree_location",
     "evidence_preserved_path_count",
     "evidence_worktree_retained_required",
+    "work_recovery_status",
+    "work_recovery_commit",
+    "work_recovery_paths",
 )
 
 # receipt `evidence_preservation` key -> diagnostics key.
@@ -1507,6 +1510,28 @@ def preserved_work_statement(
             "block and no promoted artifact is on disk; check "
             f"`git log -1 {conventional}` before concluding nothing was produced"
         )
+    # A block inside the return-path window now integrates the worker's committed
+    # code onto the base branch (V113-18). The receipt still reads `blocked`, so
+    # the preservation fields below are ALSO populated and would otherwise report
+    # the work as stranded in a worktree -- the exact opposite of the truth, and
+    # measured saying so on 2026-08-28 while the commit sat on `main`. Recovery
+    # outranks preservation: it describes the same work at a later point.
+    recovery_status = str(diagnostics.get("work_recovery_status") or "")
+    recovery_commit = str(diagnostics.get("work_recovery_commit") or "")
+    if recovery_status == "integrated" and recovery_commit:
+        recovered_paths = diagnostics.get("work_recovery_paths")
+        where = (
+            f" ({', '.join(recovered_paths)})"
+            if isinstance(recovered_paths, list) and recovered_paths
+            else ""
+        )
+        return (
+            f"RECOVERED WORK: this attempt blocked, but its committed code{where} "
+            f"was integrated onto the base branch as {recovery_commit} -- nothing "
+            "is stranded and no cherry-pick is needed. The task stays blocked "
+            "until it settles on its own merits"
+        )
+
     if status in {"preserved", "preserved_existing"} and ref and commit:
         return (
             f"PRESERVED WORK ({status}): {scale} on {ref}@{commit} -- recover with "
@@ -1570,6 +1595,26 @@ def receipt_failure_diagnostics(receipt: Path) -> dict[str, Any]:
         retained = evidence.get("worktree_retained_required")
         if isinstance(retained, bool):
             diagnostics["evidence_worktree_retained_required"] = retained
+    # `work_recovery` (V113-18) records a block whose committed code was
+    # nonetheless integrated onto the base branch. It coexists with
+    # `evidence_preservation`, so reading only the latter reports recovered
+    # work as stranded.
+    recovery = payload.get("work_recovery")
+    if isinstance(recovery, dict):
+        for source, field in (
+            ("status", "work_recovery_status"),
+            ("integration_commit", "work_recovery_commit"),
+        ):
+            value = recovery.get(source)
+            if isinstance(value, str) and value.strip():
+                diagnostics[field] = " ".join(value.split())[
+                    :RECEIPT_DIAGNOSTIC_REASON_LIMIT
+                ]
+        paths = recovery.get("integrated_paths")
+        if isinstance(paths, list):
+            clean = [p for p in paths if isinstance(p, str) and p.strip()]
+            if clean:
+                diagnostics["work_recovery_paths"] = clean
     return diagnostics
 
 

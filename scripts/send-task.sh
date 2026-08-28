@@ -4,7 +4,7 @@
 # Usage:
 #   REVIEW_TRIGGERS='[blast_radius]' bash scripts/send-task.sh \
 #       <source-namespace> <body-file> <specialist> [to-model] \
-#       --mode <project|bounty> [--dry-run]
+#       --mode <project|bounty|modeless> [--dry-run]
 #
 #   --mode is required. The wrapper writes that exact operator-approved value
 #     into packet frontmatter and never supplies a default.
@@ -33,7 +33,7 @@ RUNTIME_MAP="${VAULT_ROOT}/shared/specialist-runtime-map.tsv"
 source "${VAULT_ROOT}/shared/lead-windows.sh"
 
 if [[ $# -lt 3 ]]; then
-    echo "usage: $0 <source-namespace> <body-file> <specialist> [to-model] --mode <project|bounty> [--dry-run]"
+    echo "usage: $0 <source-namespace> <body-file> <specialist> [to-model] --mode <project|bounty|modeless> [--dry-run]"
     echo "  source-namespace: ${COMPATIBILITY_NAMESPACES[*]}"
     echo "  body-file: path to markdown file containing task body"
     echo "  specialist: canonical specialist name, or none only when direct_lane_work_allowed is intentionally true"
@@ -55,7 +55,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --mode)
             [[ $# -ge 2 ]] || {
-                echo "ERROR: --mode requires project or bounty"
+                echo "ERROR: --mode requires project, bounty, or modeless"
                 exit 1
             }
             [[ -z "${MODE}" ]] || {
@@ -85,13 +85,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "${MODE}" ]]; then
-    echo "ERROR: missing required --mode <project|bounty>; the wrapper will not invent packet field 'mode'"
+    echo "ERROR: missing required --mode <project|bounty|modeless>; the wrapper will not invent packet field 'mode'"
     exit 1
 fi
 case "${MODE}" in
-    project|bounty) ;;
+    project|bounty|modeless) ;;
     *)
-        echo "ERROR: invalid --mode '${MODE}'; expected project or bounty"
+        echo "ERROR: invalid --mode '${MODE}'; expected project, bounty, or modeless"
         exit 1
         ;;
 esac

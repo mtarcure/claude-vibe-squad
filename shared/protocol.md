@@ -15,7 +15,7 @@ source_namespace: coding | security | content | sysmgmt | research | shared
 compatibility_namespace: coding | security | content | sysmgmt | research
 review_model: gpt-codex | claude | gemini | kimi | none
 mandatory_review: true | false
-mode: bounty | project
+mode: bounty | project | modeless | <field absent → modeless>
 memory_aperture: rich | focused | default | cold | pool_blind | none
 memory_focus: <exact canonical note target; required only with focused> | none
 target: <free text; the blindness floor reads dossier slugs out of it> | none
@@ -40,7 +40,13 @@ parent_msg_id: none
 ---
 ```
 
-The dispatcher contains a temporary compatibility bridge for older local packets, but new V4 Markdown uses exactly `project` or `bounty`. Legacy packets carrying `content`, `maintenance`, `incident`, `research`, `triage`, `outreach`, or `none` remain V3 compatibility input only; acceptance by that bridge does not make them a V4 engagement.
+This is the single mode contract. `project` and `bounty` are the two typed modes. `modeless` is the fail-closed
+third engagement state, with authority equal to the intersection of those typed modes. For a prepared packet,
+`bin/send-task.sh` translates true absence of the `mode` field into the affirmative `modeless` token; an empty
+or malformed field is not absence. The generating wrapper cannot express field absence: it requires an explicit
+`--mode project`, `--mode bounty`, or `--mode modeless` and writes that exact choice. The dispatcher retains a
+temporary compatibility bridge for older local packets carrying `content`, `maintenance`, `incident`,
+`research`, `triage`, `outreach`, or `none`; acceptance by that bridge does not make them a V4 engagement.
 
 ### V4 engagement boundary
 
@@ -208,8 +214,8 @@ None of these is active today — treat them as the intended hardening roadmap, 
 ## Lifecycle
 
 1. Chrono writes a task body.
-2. `scripts/send-task.sh ... --mode <project|bounty>` requires the operator-approved mode and adds frontmatter from the model map; it rejects an omitted mode instead of inventing one.
-3. `bin/send-task.sh` validates safety and writes to `departments/<compatibility_namespace>/inbox/`.
+2. `scripts/send-task.sh ... --mode <project|bounty|modeless>` requires an explicit operator-approved choice and adds frontmatter from the model map; it rejects an omitted option instead of inventing a packet field.
+3. `bin/send-task.sh` translates an absent prepared-packet `mode` field to `modeless`, validates safety, derives the verification contract, and writes to `departments/<compatibility_namespace>/inbox/`.
 4. `bin/send-task.sh` registers the task under the shared registry lock, advances `delivery_state` to `in-progress`, builds a signed launch context with `scripts/python/dispatch_context_builder.py build`, and detaches `bin/board-supervisor.sh detached-launch`.
 5. The supervisor provisions a private git worktree under `_state/board-worktrees/<attempt-id>/` and execs a **fresh, capability-scoped CLI** for the packet's lane; that CLI reads the packet and the named specialist markdown.
 6. The CLI writes the return artifact and the outbox completion envelope **inside its worktree**. The supervisor validates both, publishes the artifact first and the envelope last into the repo, and runs `scripts/python/registry_reconciler.py` to settle the registry.
@@ -246,7 +252,7 @@ no-follow publisher before that environment is supported.
 
 ### Dispatcher-pinned verification contract v1
 
-For Project and Bounty, `bin/send-task.sh` owns `author_family`, `verification_contract`, and `verification_contract_sha256`; author packets may not pre-populate them. The author family comes only from the executing `to_model` lane. The dispatcher combines the validated capability snapshot and runtime-map gates, derives `verification-contract/v1`, serializes it as UTF-8 canonical JSON (`sort_keys`, compact separators, no NaN), and stores the lowercase SHA-256 beside the object.
+For project, bounty, and modeless engagements, `bin/send-task.sh` owns `author_family`, `verification_contract`, and `verification_contract_sha256`; author packets may not pre-populate them. The author family comes only from the executing `to_model` lane. The dispatcher combines the validated capability snapshot and runtime-map gates, derives `verification-contract/v1`, serializes it as UTF-8 canonical JSON (`sort_keys`, compact separators, no NaN), and stores the lowercase SHA-256 beside the object.
 
 The exact object/hash pair is injected into every dispatched packet and persisted in the locked active registry. A `verification-run/v1` manifest must echo both. The checker trusts in this order: active registry identity under shared lock; registry object validation and recomputed hash; registry lane-to-author-family pin; all packet echoes; then the manifest echo and manifest/contract identities. A mismatch at any layer is `verification_contract_integrity` / `OPERATOR=3`. Same-task registration includes the contract hash in dispatch identity, so a changed contract cannot silently replace the original.
 
@@ -337,7 +343,7 @@ Lifecycle step 6 has **two** required outputs, not one. On finishing a task the 
 2. the **outbox completion envelope** at `departments/<compatibility_namespace>/outbox/<id>-response.md`.
 
 That means two logical outputs and, for ordinary prepared packets, two distinct files. The convenience
-wrapper `scripts/send-task.sh ... --mode <project|bounty>` is a compatibility exception: it authors
+wrapper `scripts/send-task.sh ... --mode <project|bounty|modeless>` is a compatibility exception: it authors
 `return_artifact` equal to the outbox envelope path, so one physical envelope-shaped file serves both roles and no
 separate work artifact is delivered. The publisher writes both logical outputs to that same destination
 idempotently when their bytes match (`scripts/python/dispatch_context_builder.py:2341-2353`). Do not describe

@@ -241,12 +241,15 @@ class SendTaskFixture(unittest.TestCase):
         # `specialist: none` + `direct_lane_work_allowed: true` skips the
         # specialist/adapter/capability gauntlet, so the run reaches the
         # registration and settlement code this suite is about.
+        # No `mode:` field means `modeless`, which derives a contract like any
+        # other mode, so `run_id` is required to reach that code at all.
         fields = {
                     "id": task_id,
                     "to_model": "claude",
                     "specialist": "none",
                     "source_namespace": "coding",
                     "compatibility_namespace": "coding",
+                    "run_id": "R2-SENDTASK-HARDENING",
                     "parallel_safe": "true",
                     "direct_lane_work_allowed": "true",
                     "write_scope": write_scope,

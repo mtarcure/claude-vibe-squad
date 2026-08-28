@@ -804,6 +804,16 @@ RETURN_ARTIFACT=$(task_frontmatter_field "return_artifact")
 SWARM_SPEC_SHA256=$(task_frontmatter_field "swarm_spec_sha256")
 PLAN_ITEM_IDS_RAW=$(task_frontmatter_field "plan_item_ids") PHASE=$(task_frontmatter_field "phase")
 MODE=$(task_frontmatter_field "mode")
+# A hand-written prepared packet expresses a deliberate modeless engagement
+# through true field absence. This is the single absence-to-token translation
+# site; an explicitly empty `mode:` remains empty and follows the legacy
+# rejection path below. The generating wrapper never reaches this branch
+# because it authors the exact explicit token its caller chose.
+MODE_PRESENT=false
+task_frontmatter_has_field "mode" && MODE_PRESENT=true
+if ! $MODE_PRESENT; then
+    MODE="modeless"
+fi
 CAPABILITY=$(task_frontmatter_field "capability")
 CAPABILITY_DEGRADATION_ACK=$(task_frontmatter_field "capability_degradation_ack")
 MEMORY_APERTURE=$(task_frontmatter_field "memory_aperture")
@@ -932,11 +942,11 @@ case "$REVIEW_MODEL" in
     gpt-codex|claude|gemini|kimi|none) ;;
     *) die "invalid review_model '${REVIEW_MODEL}'. Expected gpt-codex|claude|gemini|kimi|none." ;;
 esac
-# Legacy modes remain warnings here; the typed contract/launch boundary decides.
+# Legacy modes remain warnings here; the contract/launch boundary decides.
 case "$MODE" in
-    bounty|project) ;;
-    "") printf 'WARNING: task packet has no mode; expected bounty|project. No verification contract will be derived and the launch will fail.\n' >&2 ;;
-    *) printf 'WARNING: mode %s is not bounty|project. If no verification contract is derived, the launch fails with a misleading "missing verification_contract" error.\n' "$MODE" >&2 ;;
+    bounty|project|modeless) ;;
+    "") printf 'WARNING: task packet has an empty mode field; expected bounty|project|modeless. No verification contract will be derived and the launch will fail.\n' >&2 ;;
+    *) printf 'WARNING: mode %s is not bounty|project|modeless. If no verification contract is derived, the launch fails with a misleading "missing verification_contract" error.\n' "$MODE" >&2 ;;
 esac
 [[ -n "$MEMORY_APERTURE" ]] || MEMORY_APERTURE="default" # validation-only mirror of resolve_memory_aperture() in scripts/python/dispatch_context_builder.py; pinned by scripts/python/tests/test_dispatch_memory_default.py
 case "$MEMORY_APERTURE" in
@@ -1221,7 +1231,7 @@ warn_low_disk
 validate_unpromoted_write_scope \
     || die "dispatch refused: undeclared git-ignored write_scope would be silently unpromotable"
 
-if [[ "$MODE" == "project" || "$MODE" == "bounty" ]]; then
+if [[ "$MODE" == "project" || "$MODE" == "bounty" || "$MODE" == "modeless" ]]; then
     derive_verification_contract_snapshot
     info "Verification contract: version=verification-contract/v1 sha256=${VERIFICATION_CONTRACT_SHA256}"
     if [[ "$AUTHORIZED_DELETE_PATHS_JSON" != "[]" ]]; then
@@ -1232,7 +1242,7 @@ elif [[ "$AUTHORIZED_DELETE_PATHS_JSON" != "[]" ]]; then
     # land. Dispatching anyway would deliver a packet that reads as authorized
     # and carries no deletion authority at all -- refuse instead of silently
     # dropping an operator approval.
-    die "authorized_delete_paths requires a typed packet (mode: project or bounty); got mode='${MODE}'"
+    die "authorized_delete_paths requires a contract-bearing packet (mode: project, bounty, or modeless); got mode='${MODE}'"
 fi
 
 DEPARTMENTS_ROOT="${VAULT_ROOT}/departments"

@@ -67,6 +67,29 @@ def _fixture_base_branch(repo_root: Path = ROOT) -> str:
 
 
 BASE_BRANCH = _fixture_base_branch()
+
+
+def _head_is_detached(repo_root: Path = ROOT) -> bool:
+    """True when HEAD names no branch.
+
+    `trusted-launch` request validation refuses a checkout whose branch is not
+    the base branch, and a detached HEAD is on no branch at all -- so a run in
+    that shape blocks at `request_validation` and never reaches the worker CLI.
+    That is correct behaviour, not a defect, but it means an end-to-end test of
+    a CLI-nonzero block cannot reach its subject here.
+    """
+
+    probe = subprocess.run(
+        ["/usr/bin/git", "-C", str(repo_root), "symbolic-ref", "--quiet", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={"LC_ALL": "C", "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"},
+    )
+    return probe.returncode != 0 or not probe.stdout.strip()
+
+
+HEAD_IS_DETACHED = _head_is_detached()
 SETTLED_T1P1_BUNDLE_SHA256 = (
     "95438e2cc6b06ab3f12622ad0a0f3e0a6654e6cf3a7b35f3908b3487f883f376"
 )
@@ -816,6 +839,340 @@ class TrustedLaunchTests(unittest.TestCase):
                 if isinstance(block, dict) and block.get("type") == "tool_use"
             )
         )
+
+
+# --- V113-18: committed work must not need Chrono doing git surgery -----------
+
+
+def _supervisor_region(marker: str) -> str:
+    """The shipped source between `# BEGIN <marker>` and `# END <marker>`.
+
+    Exercising the extracted region rather than a copy is the point: a
+    reimplementation here would pass while `bin/board-supervisor.sh` regressed,
+    which is the failure mode this whole file exists to avoid. The markers are
+    declared load-bearing in the script itself.
+    """
+
+    source = SCRIPT.read_text(encoding="utf-8")
+    begin = f"# BEGIN {marker}\n"
+    end = f"# END {marker}"
+    if begin not in source or end not in source:
+        raise AssertionError(f"board-supervisor.sh lost the {marker!r} markers")
+    return source.split(begin, 1)[1].split(end, 1)[0]
+
+
+class CommittedWorkRecoveryTests(unittest.TestCase):
+    """V113-18 (b): a blocked RETURN path must not strand committed work.
+
+    Three lanes (`w8a`, `w8e`, `wb2`) finished and committed, then lost the
+    return path -- two at the lane wall, one on a nested-YAML envelope. Recovery
+    meant a human spotting a `PRESERVED WORK` line and running `git cherry-pick`.
+
+    Every test here drives the SHIPPED `recover_committed_work_for_block` over
+    real git, through the same `worktree_isolation` the supervisor imports.
+    """
+
+    TASK_ID = "TASK-2026-08-28-9918-recovery"
+    ATTEMPT_ID = "d-" + "c" * 32
+    ARTIFACT = "departments/coding/outbox/response.md"
+    SCOPE = ("scripts/python/thing.py", ARTIFACT)
+
+    def setUp(self) -> None:
+        # `integrate_worktree_commits` pins its target to SQUAD_BASE_BRANCH, and
+        # the disposable fixture repo is created on BASE_BRANCH. Without this the
+        # refusal is "integration repo is not checked out on v2", which looks
+        # like a product failure and is a fixture failure.
+        self._previous_base_branch = os.environ.get("SQUAD_BASE_BRANCH")
+        os.environ["SQUAD_BASE_BRANCH"] = BASE_BRANCH
+
+    def tearDown(self) -> None:
+        if self._previous_base_branch is None:
+            os.environ.pop("SQUAD_BASE_BRANCH", None)
+        else:
+            os.environ["SQUAD_BASE_BRANCH"] = self._previous_base_branch
+
+    def _namespace(self, repo: Path, handle: object) -> dict:
+        """Bind the shipped function to the globals the supervisor gives it."""
+
+        import worktree_isolation as wti
+
+        notes: list[str] = []
+        namespace = {
+            "os": os,
+            "wti": wti,
+            "launch_mode": "trusted",
+            "execution_kind": "lane",
+            "handle": handle,
+            "authority": {
+                "write_paths": list(self.SCOPE),
+                "expected_result_path": self.ARTIFACT,
+                "expected_outbox_path": self.ARTIFACT,
+            },
+            "authorized_delete_paths": (),
+            "write_board_note": notes.append,
+        }
+        exec(_supervisor_region("committed-work-recovery"), namespace)  # noqa: S102
+        namespace["_board_notes"] = notes
+        return namespace
+
+    def _fixture(self, root: Path):
+        import worktree_isolation as wti
+
+        repo = _init_repo(root)
+        pool = wti.WorktreePool(repo, root / "pool", base_branch=BASE_BRANCH)
+        handle = pool.provision(self.TASK_ID, self.ATTEMPT_ID)
+        return repo, handle
+
+    def _worker_commits(self, handle, relative: str, content: str) -> str:
+        destination = handle.worktree_root / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(content, encoding="utf-8")
+        _git(["add", "--", relative], cwd=handle.worktree_root)
+        _git(["commit", "-q", "-m", "worker work"], cwd=handle.worktree_root)
+        return subprocess.run(
+            ["/usr/bin/git", "rev-parse", "HEAD"],
+            cwd=str(handle.worktree_root),
+            capture_output=True,
+            text=True,
+            env={"LC_ALL": "C", "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"},
+            check=True,
+        ).stdout.strip()
+
+    def _branch_head(self, repo: Path) -> str:
+        return subprocess.run(
+            ["/usr/bin/git", "rev-parse", f"refs/heads/{BASE_BRANCH}"],
+            cwd=str(repo),
+            capture_output=True,
+            text=True,
+            env={"LC_ALL": "C", "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"},
+            check=True,
+        ).stdout.strip()
+
+    def _reachable(self, repo: Path, commit: str) -> bool:
+        return (
+            subprocess.run(
+                [
+                    "/usr/bin/git",
+                    "merge-base",
+                    "--is-ancestor",
+                    commit,
+                    f"refs/heads/{BASE_BRANCH}",
+                ],
+                cwd=str(repo),
+                capture_output=True,
+                text=True,
+                env={"LC_ALL": "C", "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"},
+            ).returncode
+            == 0
+        )
+
+    def test_a_failed_return_path_lands_the_workers_committed_code(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo, handle = self._fixture(Path(directory))
+            worker_head = self._worker_commits(
+                handle, "scripts/python/thing.py", "the real fix\n"
+            )
+            before = self._branch_head(repo)
+            self.assertFalse(self._reachable(repo, worker_head))
+
+            namespace = self._namespace(repo, handle)
+            namespace["_work_recovery_window"][0] = True
+            recovery = namespace["recover_committed_work_for_block"]()
+
+            self.assertEqual(recovery["status"], "integrated")
+            self.assertEqual(recovery["integrated_paths"], ["scripts/python/thing.py"])
+            self.assertNotEqual(self._branch_head(repo), before)
+            self.assertTrue(self._reachable(repo, worker_head))
+            self.assertEqual(
+                (repo / "scripts" / "python" / "thing.py").read_text(encoding="utf-8"),
+                "the real fix\n",
+            )
+
+    def test_inverted_control_the_same_commit_is_stranded_without_the_window(
+        self,
+    ) -> None:
+        """Break the recovery path; the identical case strands again."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            repo, handle = self._fixture(Path(directory))
+            worker_head = self._worker_commits(
+                handle, "scripts/python/thing.py", "the real fix\n"
+            )
+            before = self._branch_head(repo)
+
+            namespace = self._namespace(repo, handle)
+            # The pre-fix supervisor: no window is ever opened, so the block
+            # exits 75 with the work reachable only from the attempt branch.
+            namespace["_work_recovery_window"][0] = False
+            stranded = namespace["recover_committed_work_for_block"]()
+
+            self.assertEqual(stranded["status"], "not-attempted")
+            self.assertEqual(self._branch_head(repo), before)
+            self.assertFalse(self._reachable(repo, worker_head))
+            self.assertFalse((repo / "scripts" / "python" / "thing.py").exists())
+
+            # Restore it: the same fixture, the same commit, now recovered.
+            namespace["_work_recovery_window"][0] = True
+            recovered = namespace["recover_committed_work_for_block"]()
+            self.assertEqual(recovered["status"], "integrated")
+            self.assertTrue(self._reachable(repo, worker_head))
+
+    def test_recovery_runs_at_most_once_per_attempt(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo, handle = self._fixture(Path(directory))
+            self._worker_commits(handle, "scripts/python/thing.py", "the real fix\n")
+            namespace = self._namespace(repo, handle)
+            namespace["_work_recovery_window"][0] = True
+
+            self.assertEqual(
+                namespace["recover_committed_work_for_block"]()["status"], "integrated"
+            )
+            landed = self._branch_head(repo)
+            self.assertEqual(
+                namespace["recover_committed_work_for_block"]()["status"],
+                "not-attempted",
+            )
+            self.assertEqual(self._branch_head(repo), landed)
+
+    def test_uncommitted_residue_is_declined_rather_than_half_landed(self) -> None:
+        """A lane killed mid-edit must not push an unreviewable file to the branch."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            repo, handle = self._fixture(Path(directory))
+            self._worker_commits(handle, "scripts/python/thing.py", "the real fix\n")
+            residue = handle.worktree_root / "scripts" / "python" / "thing.py"
+            residue.write_text("half-written when the wall hit\n", encoding="utf-8")
+            before = self._branch_head(repo)
+
+            namespace = self._namespace(repo, handle)
+            namespace["_work_recovery_window"][0] = True
+            declined = namespace["recover_committed_work_for_block"]()
+
+            self.assertEqual(declined["status"], "declined")
+            self.assertIn("uncommitted in-scope", declined["reason"])
+            self.assertEqual(self._branch_head(repo), before)
+
+    def test_a_worker_that_committed_nothing_recovers_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo, handle = self._fixture(Path(directory))
+            before = self._branch_head(repo)
+            namespace = self._namespace(repo, handle)
+            namespace["_work_recovery_window"][0] = True
+
+            recovery = namespace["recover_committed_work_for_block"]()
+
+            self.assertEqual(recovery["status"], "nothing-to-integrate")
+            self.assertEqual(self._branch_head(repo), before)
+
+    def test_out_of_scope_commits_are_still_categorically_refused(self) -> None:
+        """Recovery inherits every integration gate; it does not bypass them."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            repo, handle = self._fixture(Path(directory))
+            self._worker_commits(handle, "bin/not-in-my-scope.sh", "sneaky\n")
+            before = self._branch_head(repo)
+
+            namespace = self._namespace(repo, handle)
+            namespace["_work_recovery_window"][0] = True
+            refused = namespace["recover_committed_work_for_block"]()
+
+            self.assertEqual(refused["status"], "declined")
+            self.assertIn("outside the integration scope", refused["reason"])
+            self.assertEqual(self._branch_head(repo), before)
+
+
+class BlockedReceiptStaysBlockedTests(unittest.TestCase):
+    """The rail: recovery makes work REACHABLE, never settles a blocked receipt."""
+
+    @unittest.skipIf(
+        HEAD_IS_DETACHED,
+        "request validation refuses a detached checkout before the worker CLI "
+        "runs, so a cli_nonzero block is unreachable in this shape",
+    )
+    def test_a_real_supervisor_block_reports_recovery_and_still_exits_75(self) -> None:
+        """End-to-end through the shipped script, not a fixture of it.
+
+        `/usr/bin/false` is an approved inert probe executable, so this drives a
+        genuine provision -> launch -> nonzero -> `block_after_provision` run.
+        The receipt must now carry a machine-readable `work_recovery` outcome --
+        the whole point being that Chrono stops having to notice a log line --
+        while the status and the exit code are unchanged.
+        """
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            payload = TrustedLaunchTests()._fixture_payload(
+                root,
+                task_id="TASK-2026-08-28-9919-blockpath",
+                attempt_id="d-" + "e" * 32,
+            )
+            executable = Path("/usr/bin/false")
+            payload["authority"]["executable"] = str(executable)
+            payload["authority"]["executable_sha256"] = hashlib.sha256(
+                Path(os.path.realpath(executable)).read_bytes()
+            ).hexdigest()
+            with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
+                json.dump(payload, handle)
+                context_path = Path(handle.name)
+            try:
+                completed = subprocess.run(
+                    ["/bin/bash", str(SCRIPT), "trusted-launch", str(context_path)],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                    env={
+                        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                        "LC_ALL": "C",
+                        "VAULT_ROOT": str(ROOT),
+                        "TRUSTED_LAUNCH_TEST_MODE": "1",
+                        "SQUAD_BASE_BRANCH": BASE_BRANCH,
+                    },
+                )
+            finally:
+                context_path.unlink(missing_ok=True)
+
+            receipt = json.loads(completed.stdout.strip() or completed.stderr.strip())
+            self.assertEqual(completed.returncode, 75)
+            self.assertEqual(receipt["status"], "blocked")
+            self.assertEqual(receipt["failure_class"], "cli_nonzero")
+            self.assertIn("work_recovery", receipt)
+            # An offline probe has no lane integration on the SUCCESS path
+            # either, so recovery correctly declines rather than inventing one.
+            self.assertEqual(receipt["work_recovery"]["status"], "not-attempted")
+            self.assertEqual(
+                receipt["work_recovery"]["reason"], "not a trusted lane launch"
+            )
+
+    def test_the_block_receipt_reports_recovery_without_changing_status(self) -> None:
+        source = SCRIPT.read_text(encoding="utf-8")
+        block = source.split(
+            "def block_after_provision(reason, *, failure_class=None", 1
+        )[1].split("\n    sys.exit(75)", 1)[0]
+        self.assertIn('"status": "blocked"', block)
+        self.assertIn('"work_recovery": work_recovery', block)
+        self.assertNotIn("sys.exit(0)", block)
+        # Nothing on this path may promote the attempt to a launched receipt.
+        self.assertNotIn('"status": "launched"', block)
+
+    def test_the_recovery_window_is_opened_and_closed_exactly_once(self) -> None:
+        source = SCRIPT.read_text(encoding="utf-8")
+        self.assertEqual(source.count("_work_recovery_window[0] = True"), 1)
+        opened = source.index("_work_recovery_window[0] = True")
+        closed = source.index("_work_recovery_window[0] = False\n        try:")
+        prevalidate = source.index("prepared_outputs = prepare_worktree_outputs(")
+        launch = source.index("completed = launch_task(")
+        # Opened before the worker CLI, closed after prevalidation and before
+        # integration: exactly the span in which a block means the return path
+        # failed rather than the work being judged.
+        self.assertLess(opened, launch)
+        self.assertLess(launch, prevalidate)
+        self.assertLess(prevalidate, closed)
+
+    def test_the_envelope_repair_runs_before_prevalidation(self) -> None:
+        source = SCRIPT.read_text(encoding="utf-8")
+        repair = source.index("            repair_worker_envelope_frontmatter()")
+        prevalidate = source.index("            prepared_outputs = prepare_worktree_outputs(")
+        self.assertLess(repair, prevalidate)
 
 
 if __name__ == "__main__":

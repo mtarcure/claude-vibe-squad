@@ -341,6 +341,13 @@ cat <<EOF
 - Mailbox namespace (compatibility): \`${NAMESPACE}\`
 - Executing model lane: \`${TO_MODEL}\`
 
+- **The packet's premise is a claim, not a fact.** If the task asserts something false,
+  say so and quote the evidence; do not silently repair the premise or answer it as framed.
+- **A null, absent, or negative result needs a positive control.** Show the check can detect
+  what you report absent; silent failure and a clean result otherwise look identical.
+- **Report what you measured and what you could not measure.** Never call an unreachable or
+  unmeasured surface clean or green; name the parts your environment could not reach.
+
 EOF
 
 if [[ "$inject_security_doctrine" == true ]]; then
@@ -360,9 +367,8 @@ claim about the program and it needs evidence, exactly like a positive result do
   line. A refutation without a quoted guard is not a refutation.
 - **If your evidence only bounds the claim, say BOUNDED, not REFUTED.** Bounded work stays in the
   pool. Only a verdict that kills the stated claim removes anything.
-- **A null result needs a positive control.** Show your harness *can* detect the thing you are
-  reporting absent — a tool that silently failed to run and a tool that found nothing print the same
-  empty output.
+- **Apply the universal evidence rail above to every verdict.** Its positive-control and
+  measurement-boundary requirements govern negative security conclusions too.
 - **You have no authority to exclude on scope, severity, impact or payability grounds.** That is the
   adjudicator's job at the end. Bank what you find with the concern attached, and continue.
 

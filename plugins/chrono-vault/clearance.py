@@ -18,7 +18,21 @@ RESTRICTED = "restricted"
 SENSITIVITIES = frozenset({INTERNAL, RESTRICTED})
 CONTEXT_ENV = "CHRONO_VAULT_CONTEXT"
 CONTEXT_SCHEMA = "chrono-vault-context/v1"
+# The TYPED engagement-mode vocabulary. Pinned 1:1 to shared/modes/*.md by
+# tests/test_mode_vocabulary.py -- adding a value here without a mode document
+# (or vice versa) fails that invariant. `modeless` is deliberately NOT a member:
+# it is an engagement state rather than a typed mode, so it has no doctrine
+# document, the same way project.md records that "advisory is not a third mode".
 MEMORY_ENGAGEMENT_MODES = frozenset({"project", "bounty"})
+MODELESS_MODE = "modeless"
+# The engagement STATES the boundary admits: the typed modes plus the modeless
+# third state. `modeless` is an AFFIRMATIVE token, so a dropped mode field
+# (`None`, `""`, absent) is not one of these and is rejected rather than silently
+# admitted. There is deliberately NO `modeless_write_floor` column in
+# memory-apertures.tsv: a modeless note's write floor is not a table lookup a new
+# column could widen, it is COMPUTED as the strictest floor any typed mode
+# imposes -- see `apply_record_policy`.
+ACCEPTED_ENGAGEMENT_MODES = MEMORY_ENGAGEMENT_MODES | frozenset({MODELESS_MODE})
 POLICY_PATH = (
     Path(__file__).resolve().parents[2]
     / "shared"
@@ -239,7 +253,13 @@ def validate_memory_context(
     ):
         raise ClearanceError("memory engagement generation is invalid")
     engagement_mode = value.get("mode")
-    if engagement_mode not in MEMORY_ENGAGEMENT_MODES:
+    if (
+        not isinstance(engagement_mode, str)
+        or engagement_mode not in ACCEPTED_ENGAGEMENT_MODES
+    ):
+        # The diagnostic lists the TYPED modes; modeless is the separately
+        # projected engagement state, not a doctrine mode. Sourcing the message
+        # from the typed vocabulary also keeps it pinned by test_mode_vocabulary.
         supported = ", ".join(sorted(MEMORY_ENGAGEMENT_MODES))
         raise ClearanceError(
             f"unsupported memory engagement mode {engagement_mode!r}; "
@@ -342,7 +362,24 @@ def apply_record_policy(note_type: str, fields: dict[str, Any]) -> dict[str, Any
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     result["created_at"] = now
     result["updated_at"] = now
-    floor = context["policy"][f"{context['mode']}_write_floor"]
+    policy = context["policy"]
+    mode = context["mode"]
+    if mode == MODELESS_MODE:
+        # Fail closed to the INTERSECTION of every typed mode's write latitude.
+        # A modeless note is one BOTH a project and a bounty engagement would be
+        # allowed to write, so it may only be as disclosive as the stricter
+        # permits: project permits `internal`, bounty forces `restricted`
+        # (pinned by `_validate_policy_row`), and {internal,restricted} ∩
+        # {restricted} = {restricted}. Computed from the row, never a
+        # `modeless_write_floor` lookup, so no future column can widen it. A
+        # modeless note that project would have let be `internal` is therefore
+        # forced to `restricted`.
+        typed_floors = {
+            policy[f"{typed}_write_floor"] for typed in MEMORY_ENGAGEMENT_MODES
+        }
+        floor = RESTRICTED if RESTRICTED in typed_floors else INTERNAL
+    else:
+        floor = policy[f"{mode}_write_floor"]
     if floor == "restricted":
         result["sensitivity"] = "restricted"
     focus = context["focus"]

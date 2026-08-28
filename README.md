@@ -196,6 +196,20 @@ The simplification release. Full detail in [CHANGELOG.md](CHANGELOG.md) — this
   trip, skills, memory and artifact placement with real actions, reporting `PASS` / `FAIL` /
   `NOT MEASURED` — and its `--self-test` proves each probe fails when its capability breaks.
 
+Four items deferred at first publish were folded back in under the same version rather than held for
+a later release:
+
+- **Committed work survives a failed return path.** When a lane blocks but its code is already
+  committed, the board integrates it through the same gated path the success path uses and names the
+  commit on the receipt. The task stays `blocked` until it settles on its own merits — recovery is
+  not settlement.
+- **`modeless` dispatch.** A prepared packet may omit `mode:`; that absence becomes an affirmative
+  `modeless` state whose authority is the intersection of `project` and `bounty` on every axis, with
+  an unknown or dropped mode rejected rather than admitted. The generating wrapper still refuses an
+  omitted `--mode`, because a wrapper must never invent a packet field.
+- **The board MCP surface is measured rather than declared** — including a positive-controlled check
+  that the per-server disable override actually suppresses the bridge.
+
 ## Contributing and license
 
 Contributions are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md). Keep generated state, mailbox traffic, credentials, private memory, and authorized-target evidence out of commits.

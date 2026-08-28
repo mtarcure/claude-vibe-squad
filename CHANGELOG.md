@@ -16,6 +16,33 @@ The simplification release. Everything below shipped on top of v1.1.2 (`git tag 
 - Derived review-settlement provenance from the registry rather than trusting the reviewer's own frontmatter.
 - Pinned guards that were live but untested with mutation-proven tests: the anti-affinity cross-family review — which a bare `if False:` could have disabled while the whole suite stayed green — and the compact subagent safety rails.
 
+### Update — 2026-08-28
+
+Four items deferred at the v1.1.3 publish, folded back in rather than pushed to a later release.
+Shipped under the same version.
+
+- **A lane's committed work no longer strands when only its return path fails.** A block inside the
+  return-path window now integrates the worker's committed, in-scope code through the same gated
+  path the success path uses, and names the commit on the receipt. The receipt still reads `blocked`
+  and still exits 75 — recovery never reads as settlement. Proven on a deliberate no-envelope
+  dispatch, and it went on to recover a real lane that died at its wall the same night. The operator
+  notification was corrected in the same change: it read the preservation record only, so it reported
+  recovered work as stranded while the commit sat on `main`.
+- **`modeless` dispatch.** A prepared packet may omit `mode:` entirely; the controller renders that
+  absence as an affirmative `modeless` token whose authority is the intersection of `project` and
+  `bounty` on every axis, with the memory write floor computed from the aperture row rather than
+  looked up, so no future column can widen it. A dropped or unknown mode is rejected, not admitted.
+  The generating wrapper still refuses an omitted `--mode`: omission there is an unmade choice, and a
+  wrapper must never invent a packet field. This also closed a real bypass — omitting `mode` used to
+  skip verification-contract derivation altogether.
+- **Canary defects fixed.** `--emit-packet` now produces a packet that passes admission unaided, and
+  the skills probe reads a task-bound source that survives dispatch, so it can reach `PASS`.
+- **The board `codex_apps` surface is measured, not assumed.** A live worker probe enumerated 125
+  callable tools, and the per-server disable control was then run from the main checkout: 0 tools
+  with the override, 125 in the positive control. It is an ordinary configurable MCP server, so the
+  existing allowlist seam governs it.
+
+
 ## v1.1.2
 
 The board-native release (`git tag v1.1.2`, 2026-08-22). Everything below shipped on top of v1.1.1, whose own

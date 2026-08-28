@@ -1448,6 +1448,12 @@ def trusted_worker_environment(worker_lane):
 
 
 memory_context_value = authority.get("memory_context")
+# This is the supervisor's single mode-acceptance point. It does NOT keep its
+# own list of valid modes; it delegates to validate_memory_context, which admits
+# exactly {project, bounty, modeless} and cross-checks that the authority's
+# `mode_profile` equals the memory context's own `mode`. A modeless launch is
+# admitted here iff both carry the affirmative `modeless` token; a dropped or
+# unknown mode fails closed as an invalid memory_context.
 try:
     memory_context_value = validate_memory_context(
         memory_context_value,
@@ -2156,6 +2162,13 @@ if board_dispatch_context:
         or not isinstance(budgets["timeout_seconds"], int)
         or not (
             30 <= budgets["timeout_seconds"] <= 2700
+            # The extended 2700-3600s ceiling is an ALLOWLIST keyed on the exact
+            # `bounty` token, never a denylist like `!= "project"`. This is what
+            # makes the third `modeless` state fail closed here: modeless is not
+            # `bounty`, so it gets the 2700s cap -- the intersection of the typed
+            # modes' budgets (project 2700 ∩ bounty 3600 = 2700). If this is ever
+            # rewritten as `!= "project"`, modeless silently gains the 3600s
+            # budget; test_modeless_dispatch pins the `== "bounty"` shape.
             or (
                 authority["mode_profile"] == "bounty"
                 and 2700 < budgets["timeout_seconds"] <= 3600
@@ -2284,6 +2297,302 @@ except wti.WorktreeIsolationError as exc:
     deny(f"worktree provisioning failed: {exc}")
 
 
+# --- V113-18: a lane's completed work must not need Chrono doing git surgery ---
+# Placed ABOVE `_classify_block_reason` deliberately: test_board_supervisor_integration
+# slices that function out by "marker to next top-level def" and execs it with a bare
+# namespace, so a module-level constant landing between the two breaks it on `re`.
+# Three lanes (w8a, w8e, wb2) finished and COMMITTED their work and then lost the
+# return path -- two at the lane wall, one on a nested-YAML response envelope. The
+# preservation guard held everything, but recovery meant a human spotting a
+# "PRESERVED WORK" log line and hand-running `git cherry-pick`. The two helpers
+# below close that, WITHOUT letting a blocked receipt settle as complete: the work
+# becomes reachable on the integration branch, the task stays blocked.
+
+# Extracted and exercised verbatim by scripts/python/tests/test_board_reliability_r1.py,
+# so the two marker lines around this region are load-bearing.
+# BEGIN envelope-frontmatter-repair
+_ENVELOPE_REPAIR_MAX_VALUE_BYTES = 16384
+_FLAT_FRONTMATTER_KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
+
+class _EnvelopeRepairUnsupported(Exception):
+    """This frontmatter shape cannot be round-tripped, so leave the file alone."""
+
+
+def _repair_indent_width(line):
+    width = 0
+    for char in line:
+        if char == " ":
+            width += 1
+        elif char == "\t":
+            raise _EnvelopeRepairUnsupported("tab indentation")
+        else:
+            break
+    return width
+
+
+def _repair_scalar(value):
+    text = value.strip()
+    if not text or text.startswith("#"):
+        raise _EnvelopeRepairUnsupported("empty or commented scalar")
+    try:
+        return json.loads(text)
+    except ValueError:
+        pass
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in {'"', "'"}:
+        return text[1:-1]
+    return text
+
+
+def _repair_parse_block(lines, start, indent):
+    """(value, next_index) for the YAML-ish mapping or sequence block at `indent`."""
+    index = start
+    mapping = {}
+    sequence = []
+    while index < len(lines):
+        line = lines[index]
+        if not line.strip() or line.lstrip().startswith("#"):
+            index += 1
+            continue
+        width = _repair_indent_width(line)
+        if width < indent:
+            break
+        if width > indent:
+            raise _EnvelopeRepairUnsupported("unexpected deeper indent")
+        body = line.strip()
+        if body.startswith("- "):
+            if mapping:
+                raise _EnvelopeRepairUnsupported("mixed mapping and sequence")
+            sequence.append(_repair_scalar(body[2:]))
+            index += 1
+            continue
+        if sequence:
+            raise _EnvelopeRepairUnsupported("mixed sequence and mapping")
+        key, separator, value = body.partition(":")
+        key = key.strip()
+        if not separator or not _FLAT_FRONTMATTER_KEY.fullmatch(key):
+            raise _EnvelopeRepairUnsupported("not a key/value row")
+        if key in mapping:
+            raise _EnvelopeRepairUnsupported("duplicate nested key")
+        if value.strip():
+            mapping[key] = _repair_scalar(value)
+            index += 1
+            continue
+        probe = index + 1
+        while probe < len(lines) and (
+            not lines[probe].strip() or lines[probe].lstrip().startswith("#")
+        ):
+            probe += 1
+        if probe >= len(lines) or _repair_indent_width(lines[probe]) <= width:
+            raise _EnvelopeRepairUnsupported("nested key has no body")
+        mapping[key], index = _repair_parse_block(
+            lines, probe, _repair_indent_width(lines[probe])
+        )
+    if sequence:
+        return sequence, index
+    if not mapping:
+        raise _EnvelopeRepairUnsupported("empty block")
+    return mapping, index
+
+
+def flatten_nested_frontmatter(text):
+    """Return (repaired_text, repaired_keys), or (None, ()) to leave `text` alone.
+
+    Rewrites only a TOP-LEVEL key whose value is an indented block, as one
+    compact JSON scalar on that key's own line. The flat-scalar contract itself
+    is untouched -- it is deliberate, and `bin/outbox-watcher.sh` carries a
+    behavioural twin of the parser that enforces it. This runs BEFORE
+    prevalidation and only converts a shape it can round-trip exactly; anything
+    else is left alone so the prevalidator's named-key diagnosis still reaches
+    the worker.
+    """
+    records = text.split("\n")
+    if not records or records[0] != "---":
+        return None, ()
+    closing = 0
+    for number, line in enumerate(records[1:], start=1):
+        if line == "---":
+            closing = number
+            break
+    if not closing:
+        return None, ()
+    body = records[1:closing]
+    rows = []
+    repaired_keys = []
+    index = 0
+    while index < len(body):
+        line = body[index]
+        if not line.strip() or line.lstrip().startswith("#"):
+            rows.append(line)
+            index += 1
+            continue
+        if line[0] in " \t\v\f\r":
+            # An indented row with no flat key above it: not a repairable nesting.
+            return None, ()
+        key, separator, value = line.partition(":")
+        if not separator or not _FLAT_FRONTMATTER_KEY.fullmatch(key):
+            return None, ()
+        if value.strip():
+            rows.append(line)
+            index += 1
+            continue
+        try:
+            probe = index + 1
+            while probe < len(body) and (
+                not body[probe].strip() or body[probe].lstrip().startswith("#")
+            ):
+                probe += 1
+            if probe >= len(body) or _repair_indent_width(body[probe]) == 0:
+                # A genuinely empty scalar. Legal today; not this repair's business.
+                rows.append(line)
+                index += 1
+                continue
+            nested, index = _repair_parse_block(
+                body, probe, _repair_indent_width(body[probe])
+            )
+        except _EnvelopeRepairUnsupported:
+            return None, ()
+        serialized = json.dumps(nested, sort_keys=True, separators=(",", ":"))
+        if (
+            "\n" in serialized
+            or len(serialized.encode("utf-8")) > _ENVELOPE_REPAIR_MAX_VALUE_BYTES
+        ):
+            return None, ()
+        rows.append(f"{key}: {serialized}")
+        repaired_keys.append(key)
+    if not repaired_keys:
+        return None, ()
+    return "\n".join(["---", *rows, *records[closing:]]), tuple(repaired_keys)
+
+
+# END envelope-frontmatter-repair
+
+
+def repair_worker_envelope_frontmatter():
+    """Flatten a nested response-envelope frontmatter block in place, pre-validation.
+
+    V113-18 fix (a). `wb2` emitted `verification_contract` as a nested YAML
+    mapping, which the deliberate flat-scalar contract rejects -- so a finished,
+    committed run terminalised `blocked failure_class=request_validation` on
+    metadata alone. The lane plainly meant to emit the contract; serializing it
+    onto one line is a repair, not a weakening, and it is the same shape as the
+    Gemini lane-cwd reclaim directly below: fix the worker's addressing mistake
+    before validating, never inside the validator.
+    """
+    relative = str(authority.get("expected_outbox_path") or "")
+    if not relative:
+        return ()
+    envelope_path = handle.worktree_root / relative
+    try:
+        if envelope_path.is_symlink() or not envelope_path.is_file():
+            return ()
+        original = envelope_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return ()
+    repaired, repaired_keys = flatten_nested_frontmatter(original)
+    if repaired is None or repaired == original:
+        return ()
+    try:
+        envelope_path.write_text(repaired, encoding="utf-8")
+    except OSError:
+        return ()
+    write_board_note(
+        "repaired nested response-envelope frontmatter into flat scalars: "
+        + ", ".join(repaired_keys)
+    )
+    return repaired_keys
+
+
+# Extracted and exercised verbatim by scripts/python/tests/test_trusted_launch.py,
+# so the two marker lines around this region are load-bearing.
+# BEGIN committed-work-recovery
+# Opened immediately before the worker CLI runs and closed the moment code
+# integration is first attempted. Inside that window a block means the WORK may
+# be committed while only the RETURN PATH failed, which is the one situation
+# where landing committed code is recovery rather than a verdict override.
+# Outside it: nothing ran yet (nothing to recover), or integration already ran
+# and made its own decision, or the mode-exit verifier judged the work itself.
+_work_recovery_window = [False]
+
+
+def recover_committed_work_for_block():
+    """Land the worker's COMMITTED, in-scope code when only its return path failed.
+
+    V113-18 fix (b), and the one that covers all three measured causes rather
+    than one. This does NOT settle the task: `block_after_provision` still emits
+    `status: blocked` and still exits 75. It only makes the committed work
+    REACHABLE on the integration branch instead of stranded behind a
+    "PRESERVED WORK" line that a human has to notice and cherry-pick.
+
+    Deliberately committed-only -- `commit_worker_residue` is NOT called here.
+    A lane that died at the wall may have been killed mid-edit, and an
+    unreviewable half-written file must not reach the shared branch on a failure
+    path. Uncommitted residue keeps its existing home: the preservation guard.
+
+    Every gate `integrate_worktree_commits` enforces on the success path applies
+    unchanged -- declared write scope, categorical deletion refusal, the CBSE
+    plant scan, and the atomic branch lock -- because this calls exactly that
+    function. Best-effort by construction: any failure is reported in the
+    receipt and never replaces the block.
+    """
+    if not _work_recovery_window[0]:
+        return {"status": "not-attempted", "reason": "outside the return-path window"}
+    _work_recovery_window[0] = False
+    if launch_mode != "trusted" or execution_kind != "lane":
+        return {"status": "not-attempted", "reason": "not a trusted lane launch"}
+    worktree_handle = globals().get("handle")
+    if worktree_handle is None:
+        return {"status": "not-attempted", "reason": "no worktree handle"}
+    try:
+        receipt = wti.integrate_worktree_commits(
+            worktree_handle,
+            authority["write_paths"],
+            exclude_paths=(
+                authority["expected_result_path"],
+                authority["expected_outbox_path"],
+            ),
+            authorized_delete_paths=globals().get("authorized_delete_paths") or (),
+            target_branch=os.environ.get("SQUAD_BASE_BRANCH", "v2"),
+        )
+    except Exception as exc:  # best-effort: a block receipt is never lost to this
+        detail = " ".join(str(exc).split())[:400]
+        write_board_note(f"committed-work recovery declined: {type(exc).__name__}: {detail}")
+        return {
+            "status": "declined",
+            "reason": f"{type(exc).__name__}: {detail}",
+        }
+    landed = receipt.status == "integrated"
+    write_board_note(
+        "committed-work recovery: "
+        + (
+            f"integrated {len(receipt.integrated_paths)} path(s) as "
+            f"{receipt.integration_commit} -- the task remains blocked"
+            if landed
+            else "the worker committed no in-scope changes; nothing to recover"
+        )
+    )
+    return {
+        "status": "integrated" if landed else "nothing-to-integrate",
+        "integration_commit": receipt.integration_commit if landed else None,
+        "target_after": receipt.target_after if landed else None,
+        "integrated_paths": list(receipt.integrated_paths),
+        "uncommitted_excluded_paths": list(receipt.uncommitted_excluded_paths),
+    }
+
+
+# END committed-work-recovery
+
+
+def _work_recovery_for_receipt():
+    """Never let recovery cost the block receipt itself."""
+    try:
+        return recover_committed_work_for_block()
+    except BaseException as exc:  # noqa: BLE001 -- the receipt outranks the recovery
+        return {
+            "status": "declined",
+            "reason": f"{type(exc).__name__}: {' '.join(str(exc).split())[:400]}",
+        }
+
+
 def _classify_block_reason(reason):
     """Typed failure class so downstream shows the real cause, not a bare 'exit 75'.
 
@@ -2373,10 +2682,15 @@ def _classify_block_reason(reason):
 def block_after_provision(reason, *, failure_class=None, returncode=None, cli_stdout="", cli_stderr=""):
     if failure_class is not None and failure_class not in CLI_TRANSPORT_FAILURE_CLASSES:
         raise ValueError("invalid CLI transport failure class")
+    work_recovery = _work_recovery_for_receipt()
     print(json.dumps({
         "status": "blocked",
         "reason": str(reason),
         "failure_class": failure_class or _classify_block_reason(reason),
+        # Machine-readable recovery outcome. Chrono no longer has to notice a
+        # log line: either the committed work is already on the branch and this
+        # names the commit, or this says exactly why it is not.
+        "work_recovery": work_recovery,
         "task_id": task_id,
         "attempt_id": attempt_id,
         "worktree_root": str(handle.worktree_root),
@@ -2992,6 +3306,9 @@ try:
             block_after_provision(
                 f"chrono-vault broker lost readiness before worker launch: {exc}"
             )
+    # From here until integration is first attempted, a block means the return
+    # path failed -- not that the work was judged. See recover_committed_work_for_block.
+    _work_recovery_window[0] = True
     try:
         completed = launch_task(
             envelope,
@@ -3105,6 +3422,7 @@ try:
                         "reclaimed gemini lane-cwd outputs: "
                         + ", ".join(reclaimed_outputs)
                     )
+            repair_worker_envelope_frontmatter()
             prepared_outputs = prepare_worktree_outputs(
                 repo_path,
                 handle.worktree_root,
@@ -3127,6 +3445,7 @@ try:
             block_after_provision(
                 f"fresh lane completion prevalidation failed: {exc}"
             )
+        _work_recovery_window[0] = False
         try:
             # A specialist CLI edits files; it does not commit them. Integration
             # only moves committed history, so without this the finalize step

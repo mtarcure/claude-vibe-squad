@@ -36,8 +36,11 @@ class DispatchCapabilityRegistryTests(unittest.TestCase):
         optional = ""
         if mode is not None:
             optional += f"mode: {mode}\n"
-        if include_run_id and mode in {"project", "bounty"}:
-            prefix = "PRJ" if mode == "project" else "BTY"
+        # Every contract-bearing mode needs a run_id. An omitted `mode` is the
+        # `modeless` state, which derives a contract too -- only an explicit
+        # non-contract mode (e.g. `research`) skips derivation entirely.
+        if include_run_id and mode in {"project", "bounty", None}:
+            prefix = {"project": "PRJ", "bounty": "BTY", None: "MDL"}[mode]
             optional += f"run_id: {prefix}-DISPATCH-REGISTRY-TEST\n"
         if capability is not None:
             optional += f"capability: {capability}\n"

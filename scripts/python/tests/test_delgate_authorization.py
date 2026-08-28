@@ -1127,10 +1127,32 @@ class SupervisorThreadingTests(unittest.TestCase):
         self.assertLess(approval, integration)
         self.assertNotIn('"delete-from-main"', self.text)
 
-    def test_the_authorization_is_threaded_into_integration(self) -> None:
-        integration = self.text.index("wti.integrate_worktree_commits(")
-        call = self.text[integration : self.text.index(")", self.text.index("target_branch=", integration))]
-        self.assertIn("authorized_delete_paths=authorized_delete_paths", call)
+    def test_every_integration_call_site_threads_the_authorization(self) -> None:
+        """EVERY caller, not just the first one found.
+
+        V113-18 added a second integration call site that lands a blocked
+        attempt's committed code when only its return path failed. It integrates
+        real commits, so it is an authorization boundary too -- and a test that
+        checked only `text.index(...)` would have inspected whichever site
+        happened to sit higher in the file while the other went unguarded.
+        """
+        sites = []
+        cursor = 0
+        while True:
+            found = self.text.find("wti.integrate_worktree_commits(", cursor)
+            if found == -1:
+                break
+            end = self.text.index(")", self.text.index("target_branch=", found))
+            sites.append(self.text[found:end])
+            cursor = found + 1
+
+        self.assertGreaterEqual(len(sites), 2, "expected success and recovery call sites")
+        for call in sites:
+            self.assertIn("authorized_delete_paths=", call)
+            # The default must stay the categorical refusal. A site that omits
+            # the manifest gets an empty tuple, never the repo-wide latitude.
+            if "authorized_delete_paths=authorized_delete_paths" not in call:
+                self.assertIn("or ()", call)
 
     def test_residue_commit_is_not_an_authorization_path(self) -> None:
         """`commit_worker_residue` is scope-limited evidence capture; the
