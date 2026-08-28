@@ -34,6 +34,11 @@ from scripts.python.tests.supervisor_lifecycle import (  # noqa: E402
     cleanup_supervisors_before_root,
 )
 
+if str(REPO / "scripts" / "python") not in sys.path:
+    sys.path.insert(0, str(REPO / "scripts" / "python"))
+import dispatch_context_builder as dcb  # noqa: E402
+import registry_reconciler as reconciler_module  # noqa: E402
+
 RECONCILER = REPO / "scripts" / "python" / "registry_reconciler.py"
 SEND_TASK = REPO / "bin" / "send-task.sh"
 OUTBOX_WATCHER = REPO / "bin" / "outbox-watcher.sh"
@@ -154,15 +159,19 @@ class Fix3CanonicalStatus(ReconcilerFixture, unittest.TestCase):
                 "to_model": "claude", "source_namespace": "coding",
                 "review_model": "none", "mandatory_review": "false", "status": "in-flight"}
 
-    def _settle_to(self, response_status: str) -> str:
+    def _settle_entry(self, response_status: str, overrides: dict | None = None) -> dict:
         t = "TASK-2026-07-16-0002-status"
         resp = {f"departments/coding/outbox/{t}-response.md": envelope({
             "id": f"{t}-response", "in_response_to": t, "from": "claude",
             "to": "chrono", "type": "RESULT", "status": response_status,
         })}
-        root, state, env = self.fixture(json.dumps({t: self._entry()}).encode(), resp)
+        entry = {**self._entry(), **(overrides or {})}
+        root, state, env = self.fixture(json.dumps({t: entry}).encode(), resp)
         self.reconcile(env, t)
-        return json.loads((state / "active-tasks.json").read_text())[t]["status"]
+        return json.loads((state / "active-tasks.json").read_text())[t]
+
+    def _settle_to(self, response_status: str) -> str:
+        return self._settle_entry(response_status)["status"]
 
     def test_typo_status_keeps_task_open(self):
         self.assertEqual(self._settle_to("compelted"), "in-flight")
@@ -172,8 +181,30 @@ class Fix3CanonicalStatus(ReconcilerFixture, unittest.TestCase):
 
     def test_canonical_statuses_settle(self):
         self.assertEqual(self._settle_to("complete"), "complete")
-        self.assertEqual(self._settle_to("needs_review"), "needs_review")
         self.assertEqual(self._settle_to("blocked"), "blocked")
+
+    def test_untriggered_needs_review_settles_complete_with_a_coordination_flag(self):
+        """b92a55f2: a worker cannot manufacture review debt.
+
+        `needs_review` is still a canonical settleable status -- it is what a
+        TRIGGERED packet settles to.  Absent a trusted packet trigger the
+        reconciler now records the outcome (`complete`) separately from the
+        nonblocking coordination request, preserving the raw spelling in
+        `worker_reported_status`.  Asserting only the old identity mapping would
+        re-admit the escalation this fix removed.
+        """
+        entry = self._settle_entry("needs_review")
+        self.assertEqual(entry["status"], "complete")
+        self.assertIs(entry.get("coordination_requested"), True)
+        self.assertEqual(entry.get("worker_reported_status"), "needs_review")
+
+    def test_triggered_needs_review_still_settles_as_review_debt(self):
+        """The control: with a trusted trigger the review hold is real."""
+        entry = self._settle_entry(
+            "needs_review",
+            overrides={"mandatory_review": "true", "review_model": "gpt-codex"},
+        )
+        self.assertEqual(entry["status"], reconciler_module.REVIEW_REQUIRED)
 
     def test_sanctioned_alias_canonicalizes(self):
         self.assertEqual(self._settle_to("completed"), "complete")
@@ -368,33 +399,59 @@ class Block1SymlinkedInbox(unittest.TestCase):
         finally:
             cleanup_supervisors_before_root(root, vault)
 
-    def test_compatibility_namespace_traversal_rejected_before_mailbox_write(self):
+    def test_compatibility_namespace_cannot_steer_the_mailbox_at_all(self):
+        """The traversal is unreachable: the mailbox is no longer packet-derived.
+
+        The transport collapse (`shared/protocol.md` § board-native transport)
+        pinned every dispatch to `dispatch_context_builder.CANONICAL_MAILBOX_ROOT`,
+        so `bin/send-task.sh` never reads `compatibility_namespace` from the
+        packet.  The old assertion looked for a rejection MESSAGE; a message that
+        no longer exists because the field is no longer honoured is a stronger
+        guarantee, not a weaker one -- but only if the pin itself is asserted.
+        So this checks both halves: the constant still matches, and a
+        traversal-shaped value reaches neither the announced mailbox nor disk.
+        """
+        # Half 1 -- the pin. If a future change reintroduces a packet-derived
+        # mailbox, this fails even though half 2 might still look clean.
+        self.assertEqual(
+            dcb.CANONICAL_MAILBOX_ROOT.as_posix(), "departments/coding"
+        )
+        send_task_source = SEND_TASK.read_text(encoding="utf-8")
+        self.assertIn('MAILBOX_NAMESPACE="coding"', send_task_source)
+        self.assertNotIn("compatibility_namespace", send_task_source)
+
+        # Half 2 -- live behaviour. `--dry-run` exits DRY_RUN_ADMITTED after
+        # every gate and before any mailbox write, so the announced paths are
+        # the ones a real dispatch would use.
         root = Path(tempfile.mkdtemp(prefix="wave2-b1compat-"))
         try:
-            vault = root / "vault"
-            vault.mkdir()
             task_id = "TASK-2026-07-16-0330-compatprobe"
             pkt = root / f"{task_id}.md"
             pkt.write_text(envelope({
-                "id": task_id, "to_model": "none", "specialist": "none",
-                "source_namespace": "shared",
+                "id": task_id, "to_model": "claude", "specialist": "none",
+                "source_namespace": "coding",
                 "compatibility_namespace": "../../escaped-compat",
+                "mode": "project", "run_id": "wave2-compat-pin",
+                "result_type": "normal", "review_triggers": "[]",
                 "parallel_safe": "true", "direct_lane_work_allowed": "true",
                 "write_scope": "[]",
+                "return_artifact":
+                    f"departments/coding/outbox/{task_id}-response.md",
             }, "body"), encoding="utf-8")
 
-            # vault is a plain tempdir, not a git checkout, so send-task.sh
-            # cannot derive a branch and now refuses to guess one; supply
-            # it explicitly.
-            env = {**os.environ, "VAULT_ROOT": str(vault), "SKIP_NUDGE": "1",
-                   "SQUAD_BASE_BRANCH": "v2",
-                   }
-            r = subprocess.run([str(SEND_TASK), str(pkt)], env=env,
-                               capture_output=True, text=True, timeout=60)
+            env = {**os.environ, "VAULT_ROOT": str(REPO), "SKIP_NUDGE": "1"}
+            r = subprocess.run([str(SEND_TASK), str(pkt), "--dry-run"], env=env,
+                               capture_output=True, text=True, timeout=120)
             out = r.stdout + r.stderr
-            self.assertNotEqual(r.returncode, 0, msg=out)
-            self.assertIn("invalid compatibility_namespace", out)
-            self.assertFalse((root / "escaped-compat").exists(), msg=out)
+            self.assertEqual(r.returncode, 2, msg=out)
+            self.assertIn(
+                f"Board inbox: departments/coding/inbox/{task_id}.md", out
+            )
+            self.assertNotIn("escaped-compat", out)
+            self.assertFalse((REPO / "escaped-compat").exists(), msg=out)
+            self.assertFalse(
+                (REPO.parent / "escaped-compat").exists(), msg=out
+            )
         finally:
             shutil.rmtree(root, ignore_errors=True)
 
@@ -420,10 +477,15 @@ class Block1SymlinkedInbox(unittest.TestCase):
                     task_id = f"TASK-2026-07-16-0330-{component}probe"
                     pkt = root / f"{task_id}.md"
                     pkt.write_text(envelope({
-                        "id": task_id, "to_model": "none", "specialist": "none",
+                        "id": task_id, "to_model": "claude", "specialist": "none",
+                        "mode": "project",
+                        "run_id": "wave2-static-symlink",
+                        "result_type": "normal",
+                        "review_triggers": "[]",
                         "source_namespace": "coding", "compatibility_namespace": "coding",
                         "parallel_safe": "true", "direct_lane_work_allowed": "true",
-                        "write_scope": "[]",
+                        "write_scope": f"[departments/coding/outbox/{task_id}-response.md]",
+                        "return_artifact": f"departments/coding/outbox/{task_id}-response.md",
                     }, "body"), encoding="utf-8")
                     # vault is a plain tempdir, not a git checkout; see the
                     # sibling env dicts above in this class for why this is

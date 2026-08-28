@@ -33,7 +33,7 @@ MAILBOXES = ("inbox", "active", "outbox", "archive")
 
 # Every character `str.splitlines()` treats as a line break but `str.split("\n")`
 # does not.  `read_yaml_frontmatter` (scripts/python/verification_contract.py)
-# and the swarm builder both use `splitlines()`, so any of these inside the
+# and other Python frontmatter readers use `splitlines()`, so any of these inside the
 # frontmatter region is a parser differential unless the dispatcher rejects it.
 SPLITLINES_ONLY_SEPARATORS = (
     "\v",
@@ -73,7 +73,7 @@ def splitlines_fields(raw: bytes) -> dict[str, str]:
 
 
 def newline_only_fields(raw: bytes) -> dict[str, str]:
-    """The `\\n`-only view: awk `frontmatter_field`, the swarm builder's regex.
+    """The `\\n`-only view used by the dispatcher's awk consumers.
 
     The two views disagree in BOTH directions around a splitlines-only
     separator, which is why the fix is "split on \\n" *and* "reject the
@@ -145,7 +145,7 @@ class SendTaskTailsTests(unittest.TestCase):
             "compatibility_namespace": "coding",
             "parallel_safe": "true",
             "direct_lane_work_allowed": "true",
-            "write_scope": "[_state/tails/]",
+            "write_scope": "[_state/tails/out.md]",
             "return_artifact": "_state/tails/out.md",
         }
         fields.update(overrides)
@@ -208,14 +208,14 @@ class SendTaskTailsTests(unittest.TestCase):
         # `note:` ends with a \v-prefixed "---".  `splitlines()` reads that as a
         # closing delimiter, so the strict parse ends BEFORE dispatch_kind.
         content = (
-            f"---\n{rows}\nnote: benign\v---\ndispatch_kind: swarm\n---\n\nbody\n"
+            f"---\n{rows}\nnote: benign\v---\ndispatch_kind: single\n---\n\nbody\n"
         ).encode()
 
         # The differential is real, not hypothetical: the pre-fix dispatcher
         # never saw the field its reserved-field gate exists to refuse, while
         # every \n-only consumer of the delivered packet reads it as top level.
         self.assertNotIn("dispatch_kind", splitlines_fields(content))
-        self.assertEqual(newline_only_fields(content).get("dispatch_kind"), "swarm")
+        self.assertEqual(newline_only_fields(content).get("dispatch_kind"), "single")
 
         completed = self.dispatch(content)
         output = self.output(completed)

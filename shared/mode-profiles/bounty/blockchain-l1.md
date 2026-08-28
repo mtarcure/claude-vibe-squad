@@ -32,7 +32,7 @@ For auditing an L1/L2 node, appchain, or cross-chain interoperability protocol �
 - `exploit-developer` (Codex/Sol) — PoC mechanics, hostile meta-review, dynamic harness
 - `smart-contract-engineer` (Codex/Sol) — the EVM/SVM gateway + precompile + fork-diff layer
 - `threat-modeler` (Claude/Fable) — the value/trust pipeline + economic surface
-- **Swarm it:** run a claude panel (security-analyst + threat-modeler) in parallel with codex (smart-contract-engineer) — different surfaces, different families, concurrently.
+- **Run in parallel:** dispatch security-analyst + threat-modeler on claude alongside smart-contract-engineer on codex — different surfaces, different families, concurrently (independently dispatched single packets; `shared/routing.md` § 9).
 
 ## Tools (all installed locally; specialists shell out)
 - **Go:** `gosec -severity=medium ./...`, `staticcheck ./...`, `golangci-lint`, `semgrep --config=p/gosec --config=p/golang`, `osv-scanner --lockfile go.mod`, `go test -race`, native `go test -fuzz`. (`govulncheck` needs a buildable module — often blocked by vendored crypto; use `osv-scanner`.)

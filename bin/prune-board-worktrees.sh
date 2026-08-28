@@ -30,16 +30,47 @@ case "${1:-}" in
   *) echo "unknown flag: $1" >&2; exit 2 ;;
 esac
 
-python3 - "$MODE" "_state/rescued-worker-artifacts" <<'PY'
+TRANSCRIPT_RETENTION_DAYS=30
+python3 - "$MODE" "_state/rescued-worker-artifacts" "$TRANSCRIPT_RETENTION_DAYS" <<'PY'
 import json, pathlib, re, shutil, subprocess, sys
 
-mode, rescue_dir = sys.argv[1], sys.argv[2]
+mode, rescue_dir, transcript_retention_days = sys.argv[1], sys.argv[2], int(sys.argv[3])
 TERMINAL = {"complete", "closed", "superseded", "settled", "cancelled"}
 BLOCKED_STUB = "board dispatch blocked"
 
 registry = json.load(open("_state/active-tasks.json"))
 dispatch = pathlib.Path("_state/board-dispatch")
 worktrees = pathlib.Path("_state/board-worktrees")
+
+# Worker session transcripts are descriptor-owned state, not disposable
+# worktree/Codex-home residue. Keep every live transcript and every settled
+# transcript younger than 30 days; only the explicit --apply path expires older
+# settled logs. The durable `skills` count has already been written to
+# dispatch-log.jsonl by outbox-watcher before normal settlement cleanup reaches
+# this script, so the aggregate survives the bounded raw-transcript window.
+# Importing and planning this policy before any worktree removal makes the
+# carve-out executable: a missing/broken telemetry module fails before cleanup.
+sys.path.insert(0, str(pathlib.Path.cwd() / "scripts" / "python"))
+from dispatch_log import DispatchLogError, enforce_transcript_retention
+
+try:
+    transcript_summary = enforce_transcript_retention(
+        pathlib.Path.cwd(),
+        retention_days=transcript_retention_days,
+        apply=mode == "apply",
+    )
+except DispatchLogError as exc:
+    raise SystemExit(f"transcript retention policy failed closed: {exc}")
+print(
+    "transcripts: "
+    f"retention={transcript_summary.retention_days}d "
+    f"live={transcript_summary.retained_live} "
+    f"recent={transcript_summary.retained_recent} "
+    f"expired={transcript_summary.expired} "
+    f"removed={transcript_summary.removed} "
+    f"missing={transcript_summary.missing} "
+    f"invalid={transcript_summary.invalid}"
+)
 
 owner = {}
 for d in dispatch.glob("*.dispatch.json"):

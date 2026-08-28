@@ -10,7 +10,6 @@ that pointed at the live vault would mutate it.
 """
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import shutil
@@ -520,140 +519,9 @@ class ReconcilerHookTests(unittest.TestCase):
         )
         settle = source[source.index("def settle_review("):]
         settle = settle[: settle.index("\ndef reopen_task(")]
-        self.assertEqual(settle.count("memory_promotion_message("), 2)
+        self.assertEqual(settle.count("memory_promotion_message("), 1)
 
 
-class SwarmPromotionLockTests(unittest.TestCase):
-    """A receipt must never wait on memory bookkeeping -- on EITHER path.
-
-    The normal settlement path promotes outside `locked_registry()` and says
-    why in its own comment. The swarm-parent path called the same function
-    at 12-space indent, inside the lock. Promotion takes the vault's lock,
-    which a schema-stale index can hold for a full `rebuild_index()`, so a
-    swarm settlement concurrent with a rebuild would hold the GLOBAL registry
-    lock for that rebuild's duration and block all dispatch and settlement.
-    """
-
-    BUNDLE = "c" * 64
-
-    def setUp(self) -> None:
-        self.root = Path(
-            os.path.realpath(tempfile.mkdtemp(prefix="chrono-swarm-lock-"))
-        )
-        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
-        self.registry_path = self.root / "_state" / "active-tasks.json"
-        self.registry_path.parent.mkdir(parents=True, exist_ok=True)
-        outbox = self.root / "departments" / "coding" / "outbox"
-        outbox.mkdir(parents=True, exist_ok=True)
-        self.review = outbox / "TASK-SWARM-REVIEW-response.md"
-        self.review.write_text(
-            "---\nstatus: complete\nverdict: APPROVE\n"
-            f"swarm_bundle_sha256: {self.BUNDLE}\n---\n\nreviewed\n",
-            encoding="utf-8",
-        )
-        self.registry_path.write_text(
-            json.dumps(
-                {
-                    "TASK-SWARM": {
-                        "dispatch_kind": "swarm",
-                        "swarm_role": "parent",
-                        "status": registry_reconciler.REVIEW_REQUIRED,
-                        "swarm_frozen_at": "2026-08-17T00:00:00+00:00",
-                        "swarm_bundle_sha256": self.BUNDLE,
-                        "expected_response_path": (
-                            "departments/coding/outbox/TASK-SWARM-response.md"
-                        ),
-                        "compatibility_namespace": "coding",
-                        "review_class": "standard",
-                    }
-                }
-            ),
-            encoding="utf-8",
-        )
-        for item in (
-            mock.patch.dict(
-                os.environ, {registry_reconciler.TEST_ISOLATION_ENV: "1"}
-            ),
-            mock.patch.object(registry_reconciler, "VAULT_ROOT", self.root),
-            mock.patch.object(
-                registry_reconciler, "STATE_DIR", self.root / "_state"
-            ),
-            mock.patch.object(
-                registry_reconciler, "REGISTRY_PATH", self.registry_path
-            ),
-            mock.patch.object(
-                registry_reconciler,
-                "CHRONO_QUEUE_PATH",
-                self.root / "_state" / "chrono-queue.md",
-            ),
-        ):
-            item.start()
-            self.addCleanup(item.stop)
-
-    def _registry_lock_is_free(self) -> bool:
-        """Whether `locked_registry()`'s flock is currently unheld.
-
-        A second descriptor on the same file contends with the first even
-        within one process, so this answers the question honestly.
-        """
-        lock_path = self.registry_path.with_suffix(
-            self.registry_path.suffix + ".lock"
-        )
-        with open(lock_path, "w", encoding="utf-8") as probe:
-            try:
-                fcntl.flock(probe.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except OSError:
-                return False
-            fcntl.flock(probe.fileno(), fcntl.LOCK_UN)
-            return True
-
-    def test_swarm_settlement_promotes_outside_the_registry_lock(self) -> None:
-        observed: list[bool] = []
-
-        def probe(
-            task_id: str, verdict: str, review_class: str
-        ) -> tuple[str, str] | None:
-            observed.append(self._registry_lock_is_free())
-            return (
-                registry_reconciler.MEMORY_PROMOTION_STATUS,
-                f"promoted 1 memory note(s) to verified: {task_id}",
-            )
-
-        with mock.patch.object(
-            registry_reconciler, "memory_promotion_message", probe
-        ):
-            self.assertTrue(
-                registry_reconciler.settle_review("TASK-SWARM", str(self.review))
-            )
-
-        self.assertEqual(observed, [True], "promotion ran while holding the lock")
-        registry = json.loads(self.registry_path.read_text(encoding="utf-8"))
-        self.assertEqual(registry["TASK-SWARM"]["status"], "complete")
-        queue = (self.root / "_state" / "chrono-queue.md").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("SWARM-REVIEW-SETTLED", queue)
-        self.assertIn("MEMORY-PROMOTION", queue)
-
-    def test_an_idempotent_retry_promotes_nothing(self) -> None:
-        calls: list[str] = []
-
-        def probe(task_id: str, verdict: str, review_class: str) -> None:
-            calls.append(task_id)
-            return None
-
-
-        with mock.patch.object(
-            registry_reconciler, "memory_promotion_message", probe
-        ):
-            self.assertTrue(
-                registry_reconciler.settle_review("TASK-SWARM", str(self.review))
-            )
-            self.assertFalse(
-                registry_reconciler.settle_review("TASK-SWARM", str(self.review))
-            )
-
-        self.assertEqual(calls, ["TASK-SWARM"])
 
 
 RUNTIME_MAP = (
@@ -664,7 +532,8 @@ RUNTIME_MAP = (
 )
 RECONCILER = SCRIPTS_ROOT / "registry_reconciler.py"
 TASK = "TASK-2026-08-17-0001-promotion"
-REVIEW_REF = "departments/coding/outbox/TASK-PROMOTION-REVIEW-response.md"
+REVIEW_TASK = "TASK-PROMOTION-REVIEW"
+REVIEW_REF = f"departments/coding/outbox/{REVIEW_TASK}-response.md"
 
 
 def envelope(fields: dict[str, str], body: str = "done.") -> str:
@@ -809,8 +678,13 @@ class EndToEndSettlementTests(unittest.TestCase):
             "status": "in-flight",
             "review_class": review_class,
         }
+        review_entry = {
+            "reviews": TASK,
+            "to_model": "gpt-codex",
+            "status": "complete",
+        }
         (state / "active-tasks.json").write_text(
-            json.dumps({TASK: entry}), encoding="utf-8"
+            json.dumps({TASK: entry, REVIEW_TASK: review_entry}), encoding="utf-8"
         )
         responses = {
             f"departments/coding/outbox/{TASK}-response.md": envelope(
@@ -825,8 +699,8 @@ class EndToEndSettlementTests(unittest.TestCase):
             ),
             REVIEW_REF: envelope(
                 {
-                    "id": "TASK-PROMOTION-REVIEW-response",
-                    "in_response_to": "TASK-PROMOTION-REVIEW",
+                    "id": f"{REVIEW_TASK}-response",
+                    "in_response_to": REVIEW_TASK,
                     "reviews": TASK,
                     "from": "gpt-codex",
                     "to": "chrono",
@@ -924,6 +798,149 @@ class EndToEndSettlementTests(unittest.TestCase):
         ]
         self.assertIn(registry_reconciler.MEMORY_PROMOTION_STATUS, statuses)
         self.assertIn(note_id, queue)
+
+    def test_registration_projects_packet_review_target_into_registry(self) -> None:
+        """The production registrar stores controller-owned review linkage."""
+        packet = (
+            self.squad_root
+            / "departments"
+            / "coding"
+            / "inbox"
+            / f"{REVIEW_TASK}.md"
+        )
+        packet.parent.mkdir(parents=True, exist_ok=True)
+        packet.write_text(
+            envelope(
+                {
+                    "id": REVIEW_TASK,
+                    "reviews": TASK,
+                    "to_model": "gpt-codex",
+                }
+            ),
+            encoding="utf-8",
+        )
+        state = self.squad_root / "_state"
+        state.mkdir(parents=True, exist_ok=True)
+        env = {
+            **os.environ,
+            "VAULT_ROOT": str(self.squad_root),
+            "PYTHONDONTWRITEBYTECODE": "1",
+        }
+
+        self._run(
+            env,
+            "--register-task",
+            REVIEW_TASK,
+            "--entry-json",
+            json.dumps({"to_model": "gpt-codex", "status": "in-flight"}),
+        )
+
+        registry = json.loads(
+            (state / "active-tasks.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(registry[REVIEW_TASK]["reviews"], TASK)
+
+    def test_registration_retry_enriches_legacy_review_provenance(self) -> None:
+        """A schema-only retry preserves the original dispatch receipts."""
+        state = self.squad_root / "_state"
+        state.mkdir(parents=True, exist_ok=True)
+        env = {
+            **os.environ,
+            "VAULT_ROOT": str(self.squad_root),
+            "PYTHONDONTWRITEBYTECODE": "1",
+        }
+        entry = {"to_model": "gpt-codex", "status": "in-flight"}
+        first = self._run(
+            env,
+            "--register-task",
+            REVIEW_TASK,
+            "--entry-json",
+            json.dumps(entry),
+        )
+        self.assertIn("outcome=registered", first.stdout)
+        original = json.loads(
+            (state / "active-tasks.json").read_text(encoding="utf-8")
+        )[REVIEW_TASK]
+        packet = (
+            self.squad_root
+            / "departments"
+            / "coding"
+            / "inbox"
+            / f"{REVIEW_TASK}.md"
+        )
+        packet.parent.mkdir(parents=True, exist_ok=True)
+        packet.write_text(
+            envelope({"id": REVIEW_TASK, "reviews": TASK}), encoding="utf-8"
+        )
+
+        retry = self._run(
+            env,
+            "--register-task",
+            REVIEW_TASK,
+            "--entry-json",
+            json.dumps(entry),
+        )
+
+        self.assertIn("outcome=idempotent", retry.stdout)
+        enriched = json.loads(
+            (state / "active-tasks.json").read_text(encoding="utf-8")
+        )[REVIEW_TASK]
+        self.assertEqual(enriched["reviews"], TASK)
+        for field in (
+            "delivery_attempt_id",
+            "delivery_generation",
+            "delivery_history",
+        ):
+            self.assertEqual(enriched.get(field), original.get(field))
+
+    def test_late_settlement_recovers_closed_review_from_archived_packet(
+        self,
+    ) -> None:
+        """Closing/archiving a real review cannot strand a late settlement."""
+        env = self._fixture(verdict="APPROVE", review_class="standard")
+        state = self.squad_root / "_state" / "active-tasks.json"
+        registry = json.loads(state.read_text(encoding="utf-8"))
+        registry[REVIEW_TASK].pop("reviews")
+        registry[REVIEW_TASK]["status"] = "closed"
+        state.write_text(json.dumps(registry), encoding="utf-8")
+        archived = (
+            self.squad_root
+            / "departments"
+            / "coding"
+            / "archive"
+            / f"{REVIEW_TASK}.md"
+        )
+        archived.parent.mkdir(parents=True, exist_ok=True)
+        archived.write_text(
+            envelope({"id": REVIEW_TASK, "reviews": TASK}), encoding="utf-8"
+        )
+
+        settled = self._settle(env)
+
+        self.assertEqual(settled["status"], "complete")
+        registry = json.loads(state.read_text(encoding="utf-8"))
+        self.assertEqual(registry[REVIEW_TASK]["status"], "closed")
+        self.assertEqual(registry[REVIEW_TASK]["reviews"], TASK)
+
+    def test_packet_lookup_retries_across_the_archive_rename(self) -> None:
+        """A close racing settlement does not create a false missing packet."""
+        inbox = Path("departments/coding/inbox") / f"{REVIEW_TASK}.md"
+        archive = Path("departments/coding/archive") / f"{REVIEW_TASK}.md"
+        with (
+            mock.patch.object(
+                registry_reconciler,
+                "task_packet_candidates",
+                side_effect=[[inbox], [archive]],
+            ),
+            mock.patch.object(
+                registry_reconciler,
+                "read_text",
+                side_effect=["", envelope({"id": REVIEW_TASK, "reviews": TASK})],
+            ),
+        ):
+            target = registry_reconciler._packet_review_target(REVIEW_TASK)
+
+        self.assertEqual(target, TASK)
 
     def test_a_worker_that_passed_no_filters_still_gets_promoted(self) -> None:
         """The loop, driven exactly as the dispatch prompt mandates.
@@ -1034,9 +1051,18 @@ class EndToEndSettlementTests(unittest.TestCase):
         staged = self.squad_root / "staged" / "scripts" / "python"
         staged.mkdir(parents=True)
         for module in (
+            "board_process_truth.py",
+            "dispatch_context_builder.py",
             "registry_reconciler.py",
             "repo_root.py",
             "durable_publish.py",
+            "held_action_gate.py",
+            "lane_capability_enforcement.py",
+            "launch_hygiene.py",
+            "plan_item_binding.py",
+            "seatbelt_profile.py",
+            "specialist_capability_source.py",
+            "verification_contract.py",
         ):
             shutil.copy2(SCRIPTS_ROOT / module, staged / module)
         self.assertFalse((staged / "memory_promotion.py").exists())

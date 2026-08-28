@@ -102,6 +102,11 @@ class ThreadCharterCapsuleTests(unittest.TestCase):
             mock.patch.object(resume, "active_decisions", return_value=[]),
             mock.patch.object(resume, "pending_completions", return_value=[]),
             mock.patch.object(resume, "active_thread_charters", return_value=charters),
+            # Keep the unit fixture independent from this host's real work-state
+            # inputs. Under a tight bound either block can otherwise consume the
+            # budget before the charter compression branch is reached.
+            mock.patch.object(resume, "_archived_debt_rows", return_value=[]),
+            mock.patch.object(resume, "open_work_items", return_value=[]),
         ):
             return resume._render(
                 "continue",

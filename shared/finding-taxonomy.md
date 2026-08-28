@@ -1,6 +1,8 @@
-# Swarm finding taxonomy
+# Retired transport finding taxonomy
 
-This document defines the closed vocabulary used by `swarm-member-result/v1`. Code enforces the schema and exact-key comparison; this markdown defines the words. A taxonomy change is a reviewed policy change.
+Status: retired. This document preserves the closed vocabulary formerly used by the removed
+`swarm-member-result/v1` transport for interpreting historical artifacts. No live dispatch or reconciliation
+path consumes this schema.
 
 The fenced object below is the machine-readable source of truth.
 

@@ -422,6 +422,16 @@ autocapture_response_best_effort() {
     return 0
 }
 
+record_skill_telemetry_best_effort() {
+    local task_id="$1" telemetry_error
+    telemetry_error="$(
+        python3 "${VAULT_ROOT}/scripts/python/dispatch_log.py" record-skills \
+            --repo-root "${VAULT_ROOT}" --task-id "$task_id" \
+            2>&1 >/dev/null
+    )" || echo "[$(date '+%H:%M:%S')] warning: skill telemetry failed for ${task_id}: ${telemetry_error%%$'\n'*}" >&2
+    return 0
+}
+
 # Bound the auto-capture fan-out. `scan_existing_responses` below replays
 # every response file in every outbox on every watcher start -- 1,571 of them
 # when this bound was added -- and each one forks two python3 processes. A
@@ -624,8 +634,7 @@ handle_response_path() {
                 || grep -Fq "already-settled ${task_id} ->" <<<"$reconcile_output" \
                 || grep -Fq "review-required ${task_id} ->" <<<"$reconcile_output" \
                 || grep -Fq "review-held ${task_id} ->" <<<"$reconcile_output" \
-                || grep -Fq "auto-closed ${task_id} from" <<<"$reconcile_output" \
-                || grep -Fq "swarm-review-required ${task_id} ->" <<<"$reconcile_output"; then
+                || grep -Fq "auto-closed ${task_id} from" <<<"$reconcile_output"; then
                 reconciler_handled=1
                 echo "[$(date '+%H:%M:%S')] shared reconciler handled registry entry: ${task_id}"
             fi
@@ -664,6 +673,13 @@ handle_response_path() {
     PROCESSED_PATHS="${PROCESSED_PATHS}${path}|"
     if [[ "$fname" == TASK-*-response.md ]]; then
         autocapture_dispatch "$path"
+        # A handled V2 settlement proves the descriptor and completed worker
+        # transcript are stable. Record the count before any later cleanup can
+        # age that transcript out; replay is idempotent and backfills missed
+        # watcher windows.
+        if [[ "$reconciler_handled" == 1 ]]; then
+            record_skill_telemetry_best_effort "$task_id"
+        fi
     fi
     can_nudge=1
     if ! "$TMUX_BIN" has-session -t "$SESSION" 2>/dev/null; then

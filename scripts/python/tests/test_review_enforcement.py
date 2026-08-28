@@ -6,6 +6,7 @@ command.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -34,7 +35,7 @@ def envelope(fm: dict, body: str = "done.") -> str:
 
 
 def review(
-    target: str,
+    _target: str,
     from_lane: str,
     body: str,
     status: str = "needs_review",
@@ -42,7 +43,10 @@ def review(
     verdict: str | None = None,
 ) -> str:
     meta = {
-        "id": f"{ident}-response", "in_response_to": target,
+        # A review response answers its own separately dispatched task. The
+        # held subject is controller-owned registry provenance, not this
+        # worker-authored identity field.
+        "id": f"{ident}-response", "in_response_to": ident,
         "from": from_lane, "to": "chrono", "type": "RESULT", "status": status,
     }
     if verdict is not None:
@@ -186,6 +190,20 @@ class ReviewEnforcementTest(unittest.TestCase):
         base.update(over)
         return base
 
+    def _with_review_provenance(
+        self,
+        entries: dict,
+        review_ref: str,
+        target: str,
+        lane: str,
+        **over,
+    ) -> dict:
+        """Add the controller-owned registry record for a review response."""
+        review_task_id = Path(review_ref).name.removesuffix("-response.md")
+        review_entry = {"reviews": target, "to_model": lane}
+        review_entry.update(over)
+        return {**entries, review_task_id: review_entry}
+
     # ---- baseline (7) ------------------------------------------------------
     def test_a_cross_family_own_response_stays_review_required(self):
         t = "TASK-2026-07-15-0001-aaaa"
@@ -278,7 +296,11 @@ class ReviewEnforcementTest(unittest.TestCase):
         self.assertNotIn("cross_family_review_ref", entry)
 
         entry, queue = self.reconcile(
-            {t: self._entry()}, responses, t,
+            self._with_review_provenance(
+                {t: self._entry()}, review_ref, t, "gpt-codex"
+            ),
+            responses,
+            t,
             settle_ref=review_ref, settle_runs=2,
         )
         self.assertEqual(entry["status"], "complete")
@@ -298,6 +320,113 @@ class ReviewEnforcementTest(unittest.TestCase):
         self.assertEqual(entry["status"], "review-required")
         self.assertNotIn("review_blocking_ref", entry)
         self.assertIn("REVIEW-REQUIRED", queue)
+
+    def test_b3_matching_explicit_review_echoes_do_not_conflict_with_registry(self):
+        t = "TASK-2026-08-27-explicit-review-echoes"
+        review_task = "TASK-2026-08-27-explicit-review-task"
+        review_ref = f"departments/coding/outbox/{review_task}-response.md"
+        responses = self._own_response(t, "claude", "needs_review")
+        responses[review_ref] = envelope({
+            "id": f"{review_task}-response",
+            "in_response_to": review_task,
+            "reviews": t,
+            "from": "gpt-codex",
+            "reviewer_family": "openai",
+            "to": "chrono",
+            "type": "RESULT",
+            "status": "complete",
+            "verdict": "APPROVE",
+        })
+        entries = self._with_review_provenance(
+            {t: self._entry(author_family="anthropic")},
+            review_ref,
+            t,
+            "gpt-codex",
+        )
+        _root, state, env = self.fixture(entries, responses)
+        self.run_reconcile(env, t)
+
+        self.run_settle(env, t, review_ref)
+
+        settled, _queue = self.result(state, t)
+        self.assertEqual(settled["status"], "complete")
+        self.assertEqual(settled["cross_family_review_ref"], review_ref)
+
+    def test_b4_explicit_review_echoes_cannot_override_registry_provenance(self):
+        cases = {
+            "target": (
+                {"reviews": "TASK-2026-08-27-wrong-held-task"},
+                "reviews conflicts with registry provenance",
+            ),
+            "family": (
+                {"reviewer_family": "anthropic"},
+                "reviewer_family conflicts with registry reviewer lane",
+            ),
+        }
+        for label, (override, expected) in cases.items():
+            with self.subTest(label=label):
+                t = f"TASK-2026-08-27-explicit-conflict-{label}"
+                review_task = f"TASK-2026-08-27-conflict-review-{label}"
+                review_ref = (
+                    f"departments/coding/outbox/{review_task}-response.md"
+                )
+                review_meta = {
+                    "id": f"{review_task}-response",
+                    "in_response_to": review_task,
+                    "reviews": t,
+                    "from": "gpt-codex",
+                    "reviewer_family": "openai",
+                    "to": "chrono",
+                    "type": "RESULT",
+                    "status": "complete",
+                    "verdict": "APPROVE",
+                }
+                review_meta.update(override)
+                responses = self._own_response(t, "claude", "needs_review")
+                responses[review_ref] = envelope(review_meta)
+                entries = self._with_review_provenance(
+                    {t: self._entry(author_family="anthropic")},
+                    review_ref,
+                    t,
+                    "gpt-codex",
+                )
+                _root, state, env = self.fixture(entries, responses)
+                self.run_reconcile(env, t)
+
+                refused = self.run_settle(
+                    env, t, review_ref, expected_returncode=2
+                )
+
+                self.assertIn(expected, refused.stderr)
+                self.assertEqual(
+                    self.result(state, t)[0]["status"], "review-required"
+                )
+
+    def test_b5_missing_registry_review_target_reports_absence(self):
+        t = "TASK-2026-08-27-missing-registry-review-target"
+        review_task = "TASK-2026-08-27-missing-registry-review-task"
+        review_ref = f"departments/coding/outbox/{review_task}-response.md"
+        responses = self._own_response(t, "claude", "needs_review")
+        responses[review_ref] = review(
+            t,
+            "gpt-codex",
+            "APPROVE",
+            "complete",
+            review_task,
+            verdict="APPROVE",
+        )
+        entries = {
+            t: self._entry(author_family="anthropic"),
+            review_task: {"to_model": "gpt-codex"},
+        }
+        _root, state, env = self.fixture(entries, responses)
+        self.run_reconcile(env, t)
+
+        refused = self.run_settle(env, t, review_ref, expected_returncode=2)
+
+        self.assertIn("registry entry is missing reviews provenance", refused.stderr)
+        self.assertNotIn("must target the held task", refused.stderr)
+        self.assertEqual(self.result(state, t)[0]["status"], "review-required")
 
     def test_c_in_lane_capability_does_not_override_explicit_needs_review(self):
         t = "TASK-2026-07-15-0005-eeee"
@@ -323,11 +452,17 @@ class ReviewEnforcementTest(unittest.TestCase):
         task = self._entry(
             specialist="codex-spec", to_model="gpt-codex", review_model="claude"
         )
-        root, state, env = self.fixture({t: task}, responses)
+        root, state, env = self.fixture(
+            self._with_review_provenance(
+                {t: task}, review_ref, t, "claude"
+            ),
+            responses,
+        )
 
         # The worker authors its own review-task identity and substantive
-        # verdict, but deliberately does NOT hand-add `reviews:`. The trusted
-        # bridge must derive that linkage from the controller-authored packet.
+        # verdict, but deliberately does NOT hand-add `reviews:`. The publish
+        # bridge may echo the controller-authored packet value; settlement
+        # independently treats the matching registry provenance as authority.
         worktree = root / "review-worktree"
         raw_response = worktree / review_ref
         raw_response.parent.mkdir(parents=True)
@@ -388,7 +523,12 @@ class ReviewEnforcementTest(unittest.TestCase):
         task = self._entry(
             specialist="codex-spec", to_model="gpt-codex", review_model="claude"
         )
-        _root, state, env = self.fixture({t: task}, responses)
+        _root, state, env = self.fixture(
+            self._with_review_provenance(
+                {t: task}, review_ref, t, "gpt-codex"
+            ),
+            responses,
+        )
         self.run_reconcile(env, t)
 
         result = self.run_settle(env, t, review_ref, expected_returncode=2)
@@ -697,7 +837,13 @@ class ReviewEnforcementTest(unittest.TestCase):
             t, "gpt-codex", "APPROVE", "complete", "TASK-SECOND-REVIEW",
             verdict="APPROVE",
         )
-        _root, state, env = self.fixture({t: self._entry()}, responses)
+        entries = self._with_review_provenance(
+            {t: self._entry()}, first_ref, t, "gpt-codex"
+        )
+        entries = self._with_review_provenance(
+            entries, second_ref, t, "gpt-codex"
+        )
+        _root, state, env = self.fixture(entries, responses)
         self.run_reconcile(env, t)
 
         command = [
@@ -737,7 +883,12 @@ class ReviewEnforcementTest(unittest.TestCase):
             status="needs_review", specialist="codex-spec",
             to_model="gpt-codex", review_model="claude",
         )
-        _root, state, env = self.fixture({t: legacy}, responses)
+        _root, state, env = self.fixture(
+            self._with_review_provenance(
+                {t: legacy}, review_ref, t, "claude"
+            ),
+            responses,
+        )
 
         self.run_settle(env, t, review_ref)
 
@@ -754,7 +905,12 @@ class ReviewEnforcementTest(unittest.TestCase):
             t, "gpt-codex", "Prose says approve but the structured verdict rejects.",
             "complete", "TASK-VERDICT-REVIEW", verdict="REJECT",
         )
-        _root, state, env = self.fixture({t: self._entry()}, responses)
+        _root, state, env = self.fixture(
+            self._with_review_provenance(
+                {t: self._entry()}, review_ref, t, "gpt-codex"
+            ),
+            responses,
+        )
         self.run_reconcile(env, t)
 
         refused = self.run_settle(env, t, review_ref, expected_returncode=2)
@@ -778,13 +934,155 @@ class ReviewEnforcementTest(unittest.TestCase):
             t, "gpt-codex", "APPROVE appears only in prose.",
             "complete", "TASK-VERDICT-MISSING",
         )
-        _root, state, env = self.fixture({t: self._entry()}, responses)
+        _root, state, env = self.fixture(
+            self._with_review_provenance(
+                {t: self._entry()}, review_ref, t, "gpt-codex"
+            ),
+            responses,
+        )
         self.run_reconcile(env, t)
 
         refused = self.run_settle(env, t, review_ref, expected_returncode=2)
         self.assertIn("observed MISSING", refused.stderr)
         held, _queue = self.result(state, t)
         self.assertEqual(held["status"], "review-required")
+
+    def test_u3_settlement_rejects_a_different_LANE_of_the_SAME_family(self):
+        """Anti-affinity is a FAMILY rule, and the lane check cannot stand in for it.
+
+        `author_family` is not a function of `to_model`: `_entry_author_family`
+        prefers an explicit `author_family` (then the pinned
+        `verification_contract.author_family`) and only falls back to the lane
+        map. So a claude-lane task can carry an openai author pin -- a codex
+        artifact reworked on another lane -- and a gpt-codex review then clears
+        every lane-level check while being same-family.
+
+        `_validate_standard_review`'s `reviewer_family == author_family` clause
+        is the only thing that catches it. Before this test the three
+        `must be cross-family` clauses in the reconciler could all be replaced
+        with `if False:` and the whole suite plus
+        `bin/review-loop-guard-selftest.py` stayed green
+        (measured 2026-08-26, TASK-2026-08-27-0430-w9b): the coverage the
+        removed subswarm suite claimed for anti-affinity was never here.
+        """
+        t = "TASK-2026-08-26-same-family-other-lane"
+        review_ref = "departments/coding/outbox/TASK-SAME-FAMILY-REVIEW-response.md"
+        responses = self._own_response(t, "claude", "needs_review")
+        responses[review_ref] = review(
+            t, "gpt-codex", "APPROVE", "complete", "TASK-SAME-FAMILY-REVIEW",
+            verdict="APPROVE",
+        )
+        # The reviewer lane (gpt-codex) differs from the executing lane
+        # (claude), so nothing upstream of settlement objects.
+        same_family = self._entry(author_family="openai")
+        _root, state, env = self.fixture(
+            self._with_review_provenance(
+                {t: same_family}, review_ref, t, "gpt-codex"
+            ),
+            responses,
+        )
+        self.run_reconcile(env, t)
+        refused = self.run_settle(env, t, review_ref, expected_returncode=2)
+        self.assertIn("standard review must be cross-family", refused.stderr)
+        held, _queue = self.result(state, t)
+        self.assertEqual(held["status"], "review-required")
+
+        # Positive control on the SAME bytes: only the author pin changes, so a
+        # pass here proves the refusal above came from the family clause and not
+        # from some other defect in the fixture.
+        cross = "TASK-2026-08-26-cross-family-other-lane"
+        cross_ref = "departments/coding/outbox/TASK-CROSS-FAMILY-REVIEW-response.md"
+        cross_responses = self._own_response(cross, "claude", "needs_review")
+        cross_responses[cross_ref] = review(
+            cross, "gpt-codex", "APPROVE", "complete", "TASK-CROSS-FAMILY-REVIEW",
+            verdict="APPROVE",
+        )
+        _root, cross_state, cross_env = self.fixture(
+            self._with_review_provenance(
+                {cross: self._entry(author_family="anthropic")},
+                cross_ref,
+                cross,
+                "gpt-codex",
+            ),
+            cross_responses,
+        )
+        self.run_reconcile(cross_env, cross)
+        self.run_settle(cross_env, cross, cross_ref)
+        settled, _queue = self.result(cross_state, cross)
+        self.assertEqual(settled["status"], "complete")
+        self.assertEqual(settled["verdict"], "APPROVE")
+
+    def test_u4_same_family_is_refused_on_the_security_and_factual_paths_too(self):
+        """The other two `must be cross-family` clauses, same defect, same shape.
+
+        `standard`, `security-finding`, and `factual` each have their own
+        validator and their own copy of the family clause. All three were
+        unasserted together -- disarming all three left this suite and
+        `bin/review-loop-guard-selftest.py` green -- so covering only the
+        standard path would leave two of the three still free to regress.
+        """
+        # --- security-finding: independent lane review, same family ----------
+        t = "TASK-2026-08-26-security-same-family"
+        own_body = self._own_response(t, "claude", "needs_review")
+        own_path = f"departments/coding/outbox/{t}-response.md"
+        reviewed_hash = hashlib.sha256(
+            own_body[own_path].encode("utf-8")
+        ).hexdigest()
+        security_ref = "departments/coding/outbox/TASK-SEC-SAME-FAMILY-response.md"
+        responses = dict(own_body)
+        responses[security_ref] = envelope({
+            "id": "TASK-SEC-SAME-FAMILY-response", "in_response_to": t,
+            "from": "gpt-codex", "to": "chrono", "type": "RESULT",
+            "status": "complete", "verdict": "APPROVE",
+            "reviewer_family": "openai",
+            "reviewed_response_sha256": reviewed_hash,
+        }, body="Independent lane review, but the author pin is openai too.")
+        entry = self._entry(
+            author_family="openai",
+            review_class="security-finding",
+            review_triggers=["adversarial_claim"],
+        )
+        _root, state, env = self.fixture({t: entry}, responses)
+        self.run_reconcile(env, t)
+        refused = self.run_settle(env, t, security_ref, expected_returncode=2)
+        self.assertIn("security-finding review must be cross-family", refused.stderr)
+        self.assertEqual(self.result(state, t)[0]["status"], "review-required")
+
+        # --- factual: controller attestation, same family --------------------
+        f = "TASK-2026-08-26-factual-same-family"
+        factual_own = self._own_response(f, "claude", "needs_review")
+        factual_own_path = f"departments/coding/outbox/{f}-response.md"
+        attested_hash = hashlib.sha256(
+            factual_own[factual_own_path].encode("utf-8")
+        ).hexdigest()
+        factual_ref = "departments/coding/outbox/TASK-FACTUAL-SAME-FAMILY-response.md"
+        factual_responses = dict(factual_own)
+        factual_responses[factual_ref] = envelope({
+            "id": "TASK-FACTUAL-SAME-FAMILY-response", "in_response_to": f,
+            "from": "chrono", "type": "REVIEW_ATTESTATION", "status": "complete",
+            "verdict": "APPROVE", "review_class": "factual",
+            "reviewer_lane": "gpt-codex", "reviewer_family": "openai",
+            "attested_response_sha256": attested_hash,
+        }, body="Coordinator attested, but against an openai-authored task.")
+        factual_entry = self._entry(
+            author_family="openai",
+            review_class="factual",
+            review_triggers=["deciding_measurement"],
+        )
+        _root, factual_state, factual_env = self.fixture(
+            {f: factual_entry}, factual_responses
+        )
+        self.run_reconcile(factual_env, f)
+        factual_refused = self.run_settle(
+            factual_env, f, factual_ref, expected_returncode=2
+        )
+        self.assertIn(
+            "factual coordinator attestation must be cross-family",
+            factual_refused.stderr,
+        )
+        self.assertEqual(
+            self.result(factual_state, f)[0]["status"], "review-required"
+        )
 
     def test_v_reopen_uses_fixture_registry_and_derives_rework(self):
         t = "TASK-2026-07-20-fixture-reopen"

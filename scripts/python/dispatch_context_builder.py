@@ -24,7 +24,6 @@ import time
 from typing import Any, Callable, Mapping, NoReturn, Sequence
 
 try:
-    import board_router
     from durable_publish import rename_noreplace
     from held_action_gate import HELD_CATEGORIES
     from lane_capability_enforcement import adapter_path_for
@@ -38,7 +37,6 @@ try:
         validate_verification_contract as validate_contract_schema,
     )
 except ImportError:  # pragma: no cover - package-context fallback
-    from . import board_router  # type: ignore[no-redef]
     from .durable_publish import rename_noreplace  # type: ignore[no-redef]
     from .held_action_gate import HELD_CATEGORIES  # type: ignore[no-redef]
     from .lane_capability_enforcement import adapter_path_for  # type: ignore[no-redef]
@@ -67,7 +65,7 @@ ATTEMPT_RE = re.compile(r"^d-[0-9a-f]{32}$")
 # Raised from 32768 on 2026-08-16 after measurement, not to quiet a test.
 # The assembled prompt embeds ABSOLUTE paths, so the same logical packet has a
 # different size in different checkouts. A minimal, entirely legitimate bounty
-# swarm child measured 32,688-32,730 bytes on CI's 69-character checkout path
+# packet measured 32,688-32,730 bytes on CI's 69-character checkout path
 # and ~29 bytes-per-embedded-path less on the maintainer's 41-character one.
 # That put a valid dispatch 38 bytes under the old ceiling locally and OVER it
 # in CI -- so whether a real bounty dispatch was permitted depended on where the
@@ -76,26 +74,21 @@ ATTEMPT_RE = re.compile(r"^d-[0-9a-f]{32}$")
 #
 # 40960 keeps a real bound (the prompt is still ~10k tokens) while leaving
 # ~8 KiB of headroom, which is hundreds of characters of additional path depth
-# per embedded reference. The swarm dispatch suites are the regression guard,
-# and CI is the stricter environment because its paths are longer.
+# per embedded reference. CI remains the stricter environment because its paths
+# are longer.
 TRUSTED_LAUNCH_PROMPT_LIMIT = 40960
 IDENTIFIER_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 NAMESPACES = frozenset(
     {"coding", "security", "content", "sysmgmt", "research", "shared"}
 )
-# Two sets, deliberately different, and they used to share the name
-# MAILBOX_NAMESPACES in two files with disagreeing values -- one fact, two
-# homes, nothing pinning them. They answer different questions:
-#   DISPATCHABLE_NAMESPACES (here)              -- where a task may be DISPATCHED.
-#   registry_reconciler.MAILBOX_NAMESPACES      -- which mailboxes EXIST and may
-#                                                  still need settling.
-# `shared` is the whole difference: it is a specialist-location namespace
-# (shared/specialists/) that owns no dispatch mailbox, so new work never routes
-# there -- but departments/shared/{inbox,outbox} holds real historical packets
-# the reconciler must still archive. test_board_dispatch.py pins the relation,
-# so adding a namespace to one and not the other fails closed.
-DISPATCHABLE_NAMESPACES = frozenset(NAMESPACES - {"shared"})
+# One task-id namespace, one mailbox. Source namespaces still locate specialist
+# briefs, but they never participate in delivery-path construction. Keeping the
+# canonical mailbox under ``departments/coding`` lets the existing ``all``
+# watcher drain both this live path and historical per-namespace mailboxes
+# during migration without a second compatibility write.
+CANONICAL_MAILBOX_ROOT = PurePosixPath("departments/coding")
+MAILBOX_TASK_RE = re.compile(r"^TASK-[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 CLI_TRANSPORT_FAILURE_CLASSES = frozenset({"cli_missing", "cli_nonzero", "cli_timeout"})
 # One fact with four homes: `clearance._APERTURES` owns the vocabulary,
 # `broker.CONTEXT_APERTURES` and the `case` arm in `bin/send-task.sh` are the
@@ -189,216 +182,6 @@ class DispatchContextError(ValueError):
 
 class ModeExitVerificationError(DispatchContextError):
     """A declared mode-close manifest did not earn envelope publication."""
-
-
-def schedule_board_batch(
-    repo_root: Path,
-    task_files: Sequence[Path],
-    *,
-    concurrency: int,
-    admission_gate: Callable[[tuple[board_router.BoardTask, ...]], bool] | None = None,
-    logical_only: bool = False,
-) -> board_router.ScheduleResult:
-    """Use the settled board scheduler to validate one detached fan-out batch."""
-
-    root = Path(repo_root).resolve(strict=True)
-    if (
-        isinstance(concurrency, bool)
-        or not isinstance(concurrency, int)
-        or concurrency <= 0
-        or concurrency > 12
-    ):
-        raise DispatchContextError("board batch concurrency must be in 1..12")
-    if not task_files or len(task_files) > 12:
-        raise DispatchContextError("board batch must contain 1..12 task packets")
-
-    tasks: list[board_router.BoardTask] = []
-    for task_file in task_files:
-        packet = Path(task_file).resolve(strict=True)
-        try:
-            packet.relative_to(root)
-        except ValueError as exc:
-            raise DispatchContextError("board batch packet escapes repository") from exc
-        fields, _body = parse_task_packet(packet)
-        task_id = _unquote(fields.get("id", ""))
-        if not TASK_RE.fullmatch(task_id):
-            raise DispatchContextError("board batch task id is invalid")
-        write_paths = parse_scope(fields.get("write_scope", "[]"), field="write_scope")
-        read_paths = parse_scope(fields.get("read_scope", "[]"), field="read_scope")
-        try:
-            dependencies_raw = json.loads(_unquote(fields.get("depends_on", "[]")))
-            resources_raw = json.loads(_unquote(fields.get("resources", "[]")))
-            dependencies = tuple(
-                board_router.DepEdge(
-                    task_id=str(item["task_id"]),
-                    generation=int(item["generation"]),
-                    artifact_sha256=str(item["artifact_sha256"]),
-                )
-                for item in dependencies_raw
-            )
-            resources = tuple(
-                board_router.ResourceClaim(
-                    resource_class=str(item["resource_class"]),
-                    target=str(item.get("target", "")),
-                    mode=str(item.get("mode", "write")),
-                    units=int(item.get("units", 1)),
-                )
-                for item in resources_raw
-            )
-            priority = int(_unquote(fields.get("priority", "0")))
-        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-            raise DispatchContextError(
-                f"board batch task metadata is invalid: {task_id}"
-            ) from exc
-        tasks.append(
-            board_router.BoardTask(
-                task_id=task_id,
-                write_paths=write_paths,
-                read_paths=read_paths,
-                depends_on=dependencies,
-                resources=resources,
-                worktree_root=str(root),
-                metadata_complete=_unquote(fields.get("parallel_safe", "")) == "true",
-                priority=priority,
-            )
-        )
-    try:
-        return board_router.schedule(
-            tuple(tasks),
-            concurrency=concurrency,
-            admission_gate=admission_gate,
-            logical_only=logical_only,
-        )
-    except ValueError as exc:
-        raise DispatchContextError(f"board batch scheduling failed: {exc}") from exc
-
-
-def build_board_fanout_members(
-    repo_root: Path,
-    parent_task_file: Path,
-    output_dir: Path,
-    assignments: Sequence[str],
-    verification_contract: Mapping[str, object] | None = None,
-) -> tuple[Path, ...]:
-    """Materialize isolated advisory member packets for board-native fan-out."""
-
-    root = Path(repo_root).resolve(strict=True)
-    parent = Path(parent_task_file).resolve(strict=True)
-    try:
-        parent.relative_to(root)
-    except ValueError as exc:
-        raise DispatchContextError("fan-out parent packet escapes repository") from exc
-    if not 2 <= len(assignments) <= 12:
-        raise DispatchContextError("board fan-out requires 2..12 assignments")
-    if any(
-        not isinstance(item, str) or not item.strip() or "\n" in item or "\r" in item
-        for item in assignments
-    ):
-        raise DispatchContextError(
-            "board fan-out assignments must be non-empty single lines"
-        )
-
-    fields, body = parse_task_packet(parent)
-    parent_id = _unquote(fields.get("id", ""))
-    if not TASK_RE.fullmatch(parent_id):
-        raise DispatchContextError("fan-out parent task id is invalid")
-    if verification_contract is None:
-        contract = validate_verification_contract(fields)
-    else:
-        contract = dict(verification_contract)
-        if (
-            contract.get("contract_version") != "verification-contract/v1"
-            or contract.get("task_id") != parent_id
-            or contract.get("run_id") != _unquote(fields.get("run_id", ""))
-            or contract.get("mode") != _unquote(fields.get("mode", ""))
-        ):
-            raise DispatchContextError(
-                "supplied fan-out verification contract is invalid"
-            )
-    original_scope = parse_scope(fields.get("write_scope", "[]"), field="write_scope")
-    output = Path(output_dir).resolve(strict=False)
-    try:
-        output.relative_to(root / "_state" / "board-dispatch")
-    except ValueError as exc:
-        raise DispatchContextError(
-            "fan-out build directory is outside board state"
-        ) from exc
-    output.mkdir(parents=True, exist_ok=True)
-    if any(output.iterdir()):
-        raise DispatchContextError("fan-out build directory must be empty")
-
-    replaced = {
-        "id",
-        "return_artifact",
-        "write_scope",
-        "read_scope",
-        "mandatory_review",
-        "review_model",
-        "model_override_reason",
-        "dispatch_kind",
-        "panel_id",
-        "panel_mode",
-        "panel_members",
-        "panel_member_ids",
-        "panel_policy",
-        "panel_quorum",
-        "panel_timeout_seconds",
-        "panel_max_parallel",
-        "panel_return_contract",
-        "panel_member_write_scope",
-        "verification_contract",
-        "verification_contract_sha256",
-    }
-    parent_lines = parent.read_text(encoding="utf-8").splitlines()
-    closing = parent_lines[1:].index("---") + 1
-    base_lines = [
-        line
-        for line in parent_lines[1:closing]
-        if line.partition(":")[0] not in replaced
-    ]
-    packets: list[Path] = []
-    for index, assignment in enumerate(assignments, start=1):
-        member_id = f"member-{index}"
-        child_id = f"{parent_id}-fanout-{member_id}"
-        artifact_dir = f"_state/board-fanout/{parent_id}/{member_id}/"
-        artifact = artifact_dir + "artifact.md"
-        injected = [
-            *base_lines,
-            f"id: {child_id}",
-            f"write_scope: [{artifact_dir}]",
-            f"read_scope: [{', '.join(original_scope)}]",
-            f"return_artifact: {artifact}",
-            "mandatory_review: false",
-            "review_model: none",
-            "model_override_reason: board-native fan-out advisory member",
-            f"fanout_parent_id: {parent_id}",
-            f"fanout_member_id: {member_id}",
-        ]
-        member_body = (
-            body.rstrip()
-            + "\n\n## Board-native fan-out member override\n\n"
-            + f"You are `{member_id}`. Work only on this advisory assignment: "
-            + assignment.strip()
-            + "\nDo not implement or coordinate the parent task. Write the isolated "
-            + f"artifact `{artifact}` and the canonical response envelope for `{child_id}`. "
-            + "Your artifact must contain concise findings, evidence, limitations, and the "
-            + "chrono-vault memory id required by the board completion protocol.\n"
-        )
-        packet_path = output / f"{child_id}.md"
-        packet_data = (
-            "---\n" + "\n".join(injected) + "\n---\n\n" + member_body
-        ).encode("utf-8")
-        descriptor = os.open(
-            packet_path,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
-            0o600,
-        )
-        with os.fdopen(descriptor, "wb") as stream:
-            stream.write(packet_data)
-            stream.flush()
-            os.fsync(stream.fileno())
-        packets.append(packet_path)
-    return tuple(packets)
 
 
 @dataclass(frozen=True)
@@ -505,11 +288,10 @@ def _safe_relative(value: str, *, field: str) -> str:
         or "\\" in value
         or Path(value).is_absolute()
     ):
-        # A read-only verdict role (write_scope: []) legitimately has no
-        # return_artifact -- its verdict lives in the outbox envelope. Rejecting
-        # the empty string here made that role, which send-task.sh explicitly
-        # exempts from mandatory_review to avoid an infinite review regress,
-        # undispatchable: it passed validation and then died in the builder.
+        # The blocked-completion CLI still uses an empty return_artifact to mean
+        # "publish only the controller envelope". Packet admission is stricter:
+        # require_packet_fields() rejects an empty packet value with both the
+        # public and internal field names before authority construction.
         if field == "return_artifact" and value == "":
             return ""
         raise DispatchContextError(f"{field} contains an unsafe path: {value!r}")
@@ -547,14 +329,17 @@ def require_packet_fields(fields: Mapping[str, str]) -> None:
 
     missing = [
         name
-        for name in ("source_namespace", "run_id", "mode")
-        if not _unquote(fields.get(name, ""))
+        for name in ("source_namespace", "run_id", "mode", "return_artifact")
+        if not _unquote(fields.get(name, "")).strip()
     ]
     if missing:
-        raise DispatchContextError(
+        message = (
             "task packet is missing required frontmatter field(s): "
             + ", ".join(missing)
         )
+        if "return_artifact" in missing:
+            message += "; return_artifact supplies the internal expected_result_path"
+        raise DispatchContextError(message)
     namespace = _unquote(fields.get("source_namespace", ""))
     if namespace not in NAMESPACES:
         raise DispatchContextError(
@@ -654,11 +439,10 @@ def validate_verification_contract(fields: Mapping[str, str]) -> dict[str, Any]:
         )
     required_phases = contract.get("required_phase_ids")
     verification_kinds = contract.get("required_verification_kinds")
-    advisory = contract.get("mode") == "advisory"
     invalid: list[str] = []
     if (
         not isinstance(required_phases, list)
-        or (not advisory and not required_phases)
+        or not required_phases
         or any(not isinstance(item, str) or not item for item in required_phases)
     ):
         invalid.append("required_phase_ids")
@@ -958,25 +742,44 @@ def _canonical_role(repo_root: Path, row: Mapping[str, str]) -> Path:
     return resolved
 
 
-def _mailbox_namespace(repo_root: Path, task_file: Path, task_id: str) -> str:
+def canonical_mailbox_relative(
+    state: str, task_id: str, *, response: bool = False
+) -> str:
+    """Return the sole live mailbox path for one task identity."""
+
+    if state not in {"inbox", "active", "outbox", "archive"}:
+        raise DispatchContextError(f"mailbox state is invalid: {state!r}")
+    if not MAILBOX_TASK_RE.fullmatch(task_id):
+        raise DispatchContextError("mailbox task id is invalid")
+    filename = f"{task_id}-response.md" if response else f"{task_id}.md"
+    return (CANONICAL_MAILBOX_ROOT / state / filename).as_posix()
+
+
+def _canonicalize_mailbox_response(value: str, task_id: str) -> str:
+    """Map a legacy per-namespace response declaration onto the one outbox."""
+
+    if re.fullmatch(r"departments/[^/]+/outbox/?", value):
+        return (CANONICAL_MAILBOX_ROOT / "outbox").as_posix()
+    match = re.fullmatch(
+        r"departments/[^/]+/outbox/([^/]+)-response\.md", value
+    )
+    if match and match.group(1) == task_id:
+        return canonical_mailbox_relative("outbox", task_id, response=True)
+    return value
+
+
+def _validate_mailbox_packet(repo_root: Path, task_file: Path, task_id: str) -> None:
     try:
         relative = task_file.resolve(strict=True).relative_to(
             repo_root.resolve(strict=True)
         )
     except (OSError, ValueError) as exc:
         raise DispatchContextError("task packet must be inside the repository") from exc
-    parts = relative.parts
-    if (
-        len(parts) != 4
-        or parts[0] != "departments"
-        or parts[1] not in DISPATCHABLE_NAMESPACES
-        or parts[2] != "inbox"
-        or parts[3] != f"{task_id}.md"
-    ):
+    expected = canonical_mailbox_relative("inbox", task_id)
+    if relative.as_posix() != expected:
         raise DispatchContextError(
-            "task packet must be the exact departments/<namespace>/inbox path"
+            f"task packet must be the exact unified mailbox path: {expected}"
         )
-    return parts[1]
 
 
 def _contains(scope: str, target: str) -> bool:
@@ -988,19 +791,15 @@ def _contains(scope: str, target: str) -> bool:
 def packet_evidence_outputs(
     fields: Mapping[str, str],
     write_scope: Sequence[str],
+    *,
+    task_id: str = "",
 ) -> tuple[dict[str, str], ...]:
     """Return every evidence path the packet declares at creation time.
 
-    Two exact declarations are honored, and nothing else -- this never scans a
-    worktree, infers evidence, or guesses at what a worker produced:
-
-    ``swarm_member_result``
-        The swarm member sidecar. Valid only for a swarm member.
-    ``evidence_outputs``
-        A YAML inline list of PoCs, harnesses, logs, and other unique outputs,
-        valid for **every** packet shape. Ordinary evidence is the majority
-        case and the one that has actually been stranding in pruned worktrees;
-        selecting only the swarm sidecar left the common case unprotected.
+    One exact declaration is honored, and nothing else -- this never scans a
+    worktree, infers evidence, or guesses at what a worker produced.
+    ``evidence_outputs`` is a YAML inline list of PoCs, harnesses, logs, and
+    other unique outputs.
 
     Each declared path must be worktree-relative, inside ``write_scope``, and
     distinct. A declared file that the worker did not produce blocks promotion
@@ -1009,29 +808,6 @@ def packet_evidence_outputs(
 
     outputs: list[dict[str, str]] = []
     seen: set[str] = set()
-
-    raw = _unquote(fields.get("swarm_member_result", ""))
-    if raw:
-        if (
-            _unquote(fields.get("dispatch_kind", "")) != "swarm"
-            or _unquote(fields.get("swarm_role", "")) != "member"
-        ):
-            raise DispatchContextError(
-                "swarm_member_result is valid only for a swarm member"
-            )
-        relative = _safe_relative(raw, field="swarm_member_result")
-        if not any(_contains(scope, relative) for scope in write_scope):
-            raise DispatchContextError(
-                "swarm_member_result is outside packet write_scope"
-            )
-        seen.add(relative)
-        outputs.append(
-            {
-                "path": relative,
-                "role": "swarm-member-result",
-                "declared_by": "swarm_member_result",
-            }
-        )
 
     declared = _unquote(fields.get("evidence_outputs", "")).strip()
     if declared:
@@ -1044,7 +820,12 @@ def packet_evidence_outputs(
                     "evidence_outputs must name exact files, not directories: "
                     + raw_part.strip()
                 )
-        for relative in parse_scope(declared, field="evidence_outputs"):
+        for parsed in parse_scope(declared, field="evidence_outputs"):
+            relative = (
+                _canonicalize_mailbox_response(parsed, task_id)
+                if task_id
+                else parsed
+            )
             if relative in seen:
                 raise DispatchContextError(
                     f"evidence_outputs declares a duplicate path: {relative}"
@@ -1067,6 +848,60 @@ def packet_evidence_outputs(
             f"a packet may declare at most {MAXIMUM_EVIDENCE_OUTPUTS} evidence outputs"
         )
     return tuple(outputs)
+
+
+def undeclared_gitignored_write_scope(
+    repo_root: Path,
+    write_scope: Sequence[str],
+    *,
+    return_artifact: str,
+    evidence_outputs: Sequence[Mapping[str, str]],
+) -> tuple[str, ...]:
+    """Return ignored write scopes that have no authenticated promotion path.
+
+    The return artifact and exact ``evidence_outputs`` are promoted by the
+    controller. Every other write-scope entry is merely permission to edit; if
+    Git also ignores it, neither ordinary integration nor Git status can prove
+    that the worker produced anything there. A real dispatch must reject that
+    silent-loss shape before provisioning a disposable worktree.
+
+    Synthetic unit repositories without Git metadata retain the historical
+    pure-context behavior. Production dispatch roots are Git worktrees (their
+    ``.git`` may be a directory or a file), and any failure to classify a path
+    there fails closed.
+    """
+
+    root = Path(repo_root)
+    if not (root / ".git").exists():
+        return ()
+    declared = {
+        str(output.get("path") or "")
+        for output in evidence_outputs
+        if isinstance(output, Mapping)
+    }
+    extras = tuple(
+        path
+        for path in write_scope
+        if path and path != return_artifact and path not in declared
+    )
+    ignored: list[str] = []
+    for path in extras:
+        completed = subprocess.run(
+            ("git", "check-ignore", "-q", "--", path),
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode == 0:
+            ignored.append(path)
+        elif completed.returncode != 1:
+            detail = " ".join((completed.stderr or "").split())[:400]
+            raise DispatchContextError(
+                "cannot classify undeclared write_scope against Git ignore rules"
+                + (f": {detail}" if detail else "")
+            )
+    return tuple(ignored)
 
 
 def resolve_memory_aperture(fields: Mapping[str, str]) -> str:
@@ -1376,22 +1211,49 @@ def gitignored_read_scope_note(
 
 
 def delivery_contract_note(
-    return_artifact: str, write_scope: Sequence[str]
+    return_artifact: str,
+    write_scope: Sequence[str],
+    *,
+    outbox_relative: str = "",
 ) -> str:
-    """State the three ways a lane's work gets discarded for non-work reasons.
+    """State the ways a lane's work gets discarded for non-work reasons.
 
     Observed 2026-08-15: four lanes died on mechanics rather than the task --
     two CLI timeouts, one scope violation (`worker committed paths outside the
     integration scope`), and one `return artifact is missing, non-regular, or a
     symlink`. In each case the fix itself may have been sound and was thrown
     away. The packet cannot prevent these; the launch prompt can.
+
+    ``outbox_relative`` closes the split-output hole measured 2026-08-26. When
+    `return_artifact` and the outbox path differ, the injected packet's
+    `write_scope` may name only the artifact, so item 2 can read as a prohibition
+    on the one file `prepare_worktree_outputs` also requires. The envelope is not
+    a scope violation --
+    the supervisor passes both expected paths as `exclude_paths` to
+    `commit_worker_residue` and `integrate_worktree_commits` -- so this states
+    the exemption instead of leaving the lane to guess.
     """
 
     if not return_artifact:
         return ""
     scope = ", ".join(f"`{p}`" for p in write_scope) or "(none declared)"
+    split_outputs = bool(outbox_relative) and outbox_relative != return_artifact
+    ways = "four" if split_outputs else "three"
+    envelope_item = (
+        (
+            f"3. **Your envelope is a SECOND file here: also write `{outbox_relative}`.** In this "
+            "dispatch shape `return_artifact` and the response envelope are different paths, and "
+            "the envelope is deliberately absent from the write scope in item 2 — writing it is "
+            "**not** a scope violation, because the controller excludes it from integration "
+            "entirely. A completion carrying a perfect artifact and no envelope is discarded as "
+            "`blocked`, with the work already paid for.\n"
+        )
+        if split_outputs
+        else ""
+    )
+    last_item = "4" if split_outputs else "3"
     return (
-        "## Delivery contract — three ways good work gets discarded\n\n"
+        f"## Delivery contract — {ways} ways good work gets discarded\n\n"
         f"1. **Write `{return_artifact}` as a plain file EARLY**, then update it as you go. Not a "
         "symlink, not a directory, and not left to the end. A lane whose artifact is missing at "
         "completion is discarded whole, however good the fix was.\n"
@@ -1399,9 +1261,10 @@ def delivery_contract_note(
         "anything else and discards the entire attempt — it does not partially apply. If the task "
         "genuinely needs another path, stop and report it: a scope request costs one turn, a scope "
         "violation costs the lane.\n"
-        "3. **If you are running long, land what is complete and write the artifact anyway.** A "
-        "truthful partial naming what remains is a useful result; being killed mid-flight with no "
-        "artifact is not.\n"
+        f"{envelope_item}"
+        f"{last_item}. **If you are running long, land what is complete and write the artifact "
+        "anyway.** A truthful partial naming what remains is a useful result; being killed "
+        "mid-flight with no artifact is not.\n"
     )
 
 
@@ -1416,6 +1279,7 @@ def assemble_trusted_launch_prompt(
     canonical_root: str = "",
     return_artifact: str = "",
     write_scope: Sequence[str] = (),
+    outbox_relative: str = "",
 ) -> str:
     """Assemble the exact prompt whose bytes are bounded before launch."""
 
@@ -1485,7 +1349,7 @@ def assemble_trusted_launch_prompt(
         "and promotes the artifact first and the envelope last.\n\n"
         f"{memory_instructions}\n\n"
         f"{gitignored_read_scope_note(read_scope, canonical_root)}"
-        f"{delivery_contract_note(return_artifact, write_scope)}\n"
+        f"{delivery_contract_note(return_artifact, write_scope, outbox_relative=outbox_relative)}\n"
         "## Exact task packet\n\n"
         f"{packet_text.rstrip()}\n"
     )
@@ -1509,9 +1373,10 @@ def build_context(
     to_model = _unquote(fields.get("to_model", ""))
     run_id = _unquote(fields.get("run_id", ""))
     mode = _unquote(fields.get("mode", ""))
-    return_artifact = _safe_relative(
+    raw_return_artifact = _safe_relative(
         fields.get("return_artifact", ""), field="return_artifact"
     )
+    return_artifact = _canonicalize_mailbox_response(raw_return_artifact, task_id)
     canary_autoclean_raw = _unquote(fields.get("board_canary_autoclean", "false"))
     if canary_autoclean_raw not in {"true", "false"}:
         raise DispatchContextError("board_canary_autoclean must be true or false")
@@ -1533,7 +1398,7 @@ def build_context(
         lane = MODEL_TO_LANE[to_model]
     except KeyError as exc:
         raise DispatchContextError(f"unsupported to_model: {to_model!r}") from exc
-    mailbox_namespace = _mailbox_namespace(root, packet_path, task_id)
+    _validate_mailbox_packet(root, packet_path, task_id)
     row = _runtime_row(root, specialist)
     if row.get("source_namespace") != namespace:
         raise DispatchContextError("packet namespace does not match runtime map")
@@ -1564,8 +1429,36 @@ def build_context(
             f"trusted lane executable is unavailable: {executable}"
         )
 
-    write_scope = parse_scope(fields.get("write_scope", ""), field="write_scope")
-    evidence_outputs = packet_evidence_outputs(fields, write_scope)
+    raw_write_scope = parse_scope(
+        fields.get("write_scope", ""), field="write_scope"
+    )
+    write_scope = tuple(
+        _canonicalize_mailbox_response(path, task_id) for path in raw_write_scope
+    )
+    if len(set(write_scope)) != len(write_scope):
+        raise DispatchContextError(
+            "write_scope aliases the same unified mailbox path more than once"
+        )
+    evidence_outputs = packet_evidence_outputs(
+        fields, write_scope, task_id=task_id
+    )
+    raw_evidence_paths: list[str] = []
+    if raw_declared_evidence := fields.get("evidence_outputs", ""):
+        raw_evidence_paths.extend(
+            parse_scope(raw_declared_evidence, field="evidence_outputs")
+        )
+    ignored_undeclared = undeclared_gitignored_write_scope(
+        root,
+        write_scope,
+        return_artifact=return_artifact,
+        evidence_outputs=evidence_outputs,
+    )
+    if ignored_undeclared:
+        raise DispatchContextError(
+            "undeclared git-ignored write_scope path has no promotion route: "
+            + ", ".join(ignored_undeclared)
+            + "; declare each exact output in evidence_outputs or remove it from write_scope"
+        )
     # A read-only verdict role declares no artifact and an empty write_scope;
     # `any()` over an empty scope is always False, so this containment check
     # rejected it unconditionally. Nothing to contain means nothing to check.
@@ -1669,6 +1562,23 @@ def build_context(
         ).isoformat().replace("+00:00", "Z"),
     }
     packet_text = packet_path.read_text(encoding="utf-8")
+    mailbox_rewrites = {
+        raw: normalized
+        for raw, normalized in (
+            (raw_return_artifact, return_artifact),
+            *zip(raw_write_scope, write_scope),
+            *zip(
+                raw_evidence_paths,
+                (str(output.get("path") or "") for output in evidence_outputs),
+            ),
+        )
+        if raw and raw != normalized
+    }
+    for legacy, canonical in mailbox_rewrites.items():
+        packet_text = packet_text.replace(legacy, canonical)
+    expected_outbox = canonical_mailbox_relative(
+        "outbox", task_id, response=True
+    )
     task_prompt = assemble_trusted_launch_prompt(
         packet_text,
         task_id=task_id,
@@ -1679,11 +1589,13 @@ def build_context(
         canonical_root=root.as_posix(),
         return_artifact=return_artifact,
         write_scope=write_scope,
+        # The delivery contract must name the envelope whenever it is a second
+        # file; computed here rather than after assembly so the prompt can say so.
+        outbox_relative=expected_outbox,
     )
     if len(task_prompt.encode("utf-8")) > TRUSTED_LAUNCH_PROMPT_LIMIT:
         raise DispatchContextError("task packet is too large for trusted launch prompt")
 
-    expected_outbox = f"departments/{mailbox_namespace}/outbox/{task_id}-response.md"
     authority = {
         "schema": AUTHORITY_SCHEMA,
         "task_id": task_id,
@@ -1954,11 +1866,11 @@ def _coerce_status(raw: str) -> str:
 # `registry_reconciler.py` holds a task OPEN until the landed response echoes
 # every pin and fence its registry entry carries:
 #   * capability_response_issue -> capability_card_sha256
-#   * swarm_response_issue      -> swarm_spec_sha256
+#   * frozen-question provenance -> swarm_spec_sha256
 #   * worker_response_issue     -> the legacy assigned-worker delivery fence
 # Output promotion rebuilds the envelope from the trusted launch authority, and
 # it used to emit only the seven identity rows -- silently discarding every one
-# of those echoes, so capability/swarm/worker completions could never settle
+# of those echoes, so capability/provenance/worker completions could never settle
 # (audit CC-03). A separately dispatched review has the same structural need:
 # its own task id belongs in ``in_response_to``, while the controller-authored
 # packet's ``reviews`` field names the held subject. These are reconstructed
@@ -2022,15 +1934,9 @@ def packet_reconciliation_echo(fields: Mapping[str, str]) -> dict[str, str]:
     capability_pin = _unquote(fields.get("capability_card_sha256", ""))
     if capability_pin:
         echo["capability_card_sha256"] = capability_pin
-    # The reconciler requires the swarm pin only from a swarm MEMBER; a parent
-    # carries the same field but is settled from its children, not an echo.
-    if (
-        _unquote(fields.get("dispatch_kind", "")) == "swarm"
-        and _unquote(fields.get("swarm_role", "")) == "member"
-    ):
-        swarm_pin = _unquote(fields.get("swarm_spec_sha256", ""))
-        if swarm_pin:
-            echo["swarm_spec_sha256"] = swarm_pin
+    question_pin = _unquote(fields.get("swarm_spec_sha256", ""))
+    if question_pin:
+        echo["swarm_spec_sha256"] = question_pin
     return validate_reconciliation_echo(echo)
 
 
@@ -2551,6 +2457,47 @@ def reclaim_lane_cwd_outputs(
     return tuple(reclaimed)
 
 
+SYNTHESIZED_ENVELOPE_MARKER = (
+    "CONTROLLER-SYNTHESIZED RESPONSE ENVELOPE — the lane wrote and validated its "
+    "return artifact but authored no response envelope."
+)
+
+
+def _artifact_summary_excerpt(artifact_text: str, *, limit: int = 600) -> str:
+    """Return the artifact's first prose paragraph for a synthesized envelope.
+
+    Frontmatter, headings, fences, tables and quotes are skipped so the summary
+    the reconciler surfaces to Chrono says something about the work rather than
+    echoing a `# Title` line. An artifact with no prose at all yields "" and the
+    caller falls back to the marker alone.
+    """
+
+    lines = artifact_text.splitlines()
+    if lines and lines[0].strip() == "---":
+        try:
+            lines = lines[lines[1:].index("---") + 2 :]
+        except ValueError:
+            pass
+    paragraph: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            if paragraph:
+                break
+            continue
+        if stripped.startswith(("#", "---", "```", "~~~", "|", ">", "<!--")):
+            if paragraph:
+                break
+            continue
+        paragraph.append(stripped)
+        if sum(len(item) + 1 for item in paragraph) >= limit:
+            break
+    excerpt = " ".join(paragraph)[:limit].strip()
+    # A summary row must survive `_render_response_envelope` and the watcher's
+    # frontmatter parser, so no NULs and no accidental `---` fence.
+    return excerpt.replace("\x00", "").strip("-").strip()
+
+
 def prepare_worktree_outputs(
     repo_root: Path,
     worktree_root: Path,
@@ -2560,21 +2507,37 @@ def prepare_worktree_outputs(
 
     task_id = str(authority.get("task_id", ""))
     lane = str(authority.get("lane", ""))
-    result_relative = _safe_relative(
+    raw_result_relative = _safe_relative(
         str(authority.get("expected_result_path", "")),
         field="expected_result_path",
     )
-    outbox_relative = _safe_relative(
+    result_relative = _canonicalize_mailbox_response(
+        raw_result_relative, task_id
+    )
+    raw_outbox_relative = _safe_relative(
         str(authority.get("expected_outbox_path", "")),
         field="expected_outbox_path",
     )
-    write_paths = authority.get("write_paths")
+    outbox_relative = _canonicalize_mailbox_response(
+        raw_outbox_relative, task_id
+    )
+    raw_write_paths = authority.get("write_paths")
+    write_paths = (
+        [
+            _canonicalize_mailbox_response(item, task_id)
+            for item in raw_write_paths
+        ]
+        if isinstance(raw_write_paths, list)
+        and all(isinstance(item, str) for item in raw_write_paths)
+        else raw_write_paths
+    )
     raw_evidence_outputs = authority.get("evidence_outputs", [])
     if (
         not TASK_RE.fullmatch(task_id)
         or lane not in LANE_TO_MODEL
+        or not isinstance(raw_write_paths, list)
+        or any(not isinstance(item, str) for item in raw_write_paths)
         or not isinstance(write_paths, list)
-        or any(not isinstance(item, str) for item in write_paths)
         or not any(_contains(item, result_relative) for item in write_paths)
         or not isinstance(raw_evidence_outputs, list)
         or len(raw_evidence_outputs) > MAXIMUM_EVIDENCE_OUTPUTS
@@ -2582,14 +2545,8 @@ def prepare_worktree_outputs(
         raise DispatchContextError(
             "bridge authority identity or write scope is invalid"
         )
-    outbox_match = re.fullmatch(
-        r"departments/([^/]+)/outbox/([^/]+)-response\.md",
-        outbox_relative,
-    )
-    if (
-        not outbox_match
-        or outbox_match.group(1) not in DISPATCHABLE_NAMESPACES
-        or outbox_match.group(2) != task_id
+    if outbox_relative != canonical_mailbox_relative(
+        "outbox", task_id, response=True
     ):
         raise DispatchContextError("expected outbox path is not canonical")
 
@@ -2597,7 +2554,7 @@ def prepare_worktree_outputs(
     # watcher-visible commit marker and is always published last.
     result_bytes = _read_contained_regular(
         Path(worktree_root),
-        result_relative,
+        raw_result_relative,
         label="return artifact",
         maximum_bytes=8 * 1024 * 1024,
     )
@@ -2605,13 +2562,46 @@ def prepare_worktree_outputs(
         result_bytes.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise DispatchContextError("return artifact is not UTF-8") from exc
-    envelope_bytes = _read_contained_regular(
-        Path(worktree_root),
-        outbox_relative,
-        label="response envelope",
-        maximum_bytes=256 * 1024,
+    # A split-output packet declares a `return_artifact` that is not the outbox
+    # response path. Measured 2026-08-26: completed work was discarded when the
+    # artifact existed but the required envelope did not. The prompt fix in
+    # `delivery_contract_note` is the primary path; this is the backstop that does
+    # not depend on every lane's instruction-following.
+    #
+    # This does NOT weaken the gate. Nothing here accepts a missing or empty
+    # artifact -- `_read_contained_regular` above still blocks that -- and an
+    # envelope that EXISTS but is a symlink, a directory, empty, or oversized
+    # still blocks, because that is tamper-shaped rather than forgetful-lane
+    # shaped. Only the aliased-path case is exempt: when the two paths are the
+    # same file, a missing envelope IS a missing artifact and already blocked.
+    synthesized_envelope = result_relative != outbox_relative and not os.path.lexists(
+        Path(worktree_root) / raw_outbox_relative
     )
-    envelope, summary = _parse_response_envelope(envelope_bytes)
+    if synthesized_envelope:
+        # Not `complete`: the controller knows the artifact landed, not that the
+        # lane considered itself finished. `needs_review` is the same default
+        # `_coerce_status` already applies to an unmappable worker status, so
+        # questionable work surfaces to the controller instead of auto-closing.
+        # `registry_reconciler.resolve_worker_status` then resolves it against
+        # the task's trusted review triggers, so no review debt is manufactured
+        # or silently discarded.
+        canonical_status = "needs_review"
+        excerpt = _artifact_summary_excerpt(result_bytes.decode("utf-8"))
+        summary = (
+            f"{SYNTHESIZED_ENVELOPE_MARKER} Promoted from `{result_relative}`; "
+            "status is not a worker completion claim."
+            + (f"\n\nArtifact excerpt: {excerpt}" if excerpt else "")
+        )
+        envelope = {}
+    else:
+        envelope_bytes = _read_contained_regular(
+            Path(worktree_root),
+            raw_outbox_relative,
+            label="response envelope",
+            maximum_bytes=256 * 1024,
+        )
+        envelope, summary = _parse_response_envelope(envelope_bytes)
+        canonical_status = _coerce_status(envelope.get("status", ""))
     # Normalize-and-promote rather than strand: the envelope is worker-authored
     # metadata whose identity fields are fully determined by the trusted launch
     # authority. A completion that carries a real, validated artifact (checked
@@ -2624,7 +2614,6 @@ def prepare_worktree_outputs(
     # an empty summary fails the parser, and uncommitted residue fails
     # integration upstream. See
     # _state/consults/envelope-prevalidation-fix.md.
-    canonical_status = _coerce_status(envelope.get("status", ""))
     # CC-03: carry every reconciliation pin/fence across the bridge, taken from
     # the trusted launch authority rather than from anything the worker wrote.
     normalized_bytes = _render_response_envelope(
@@ -3017,7 +3006,7 @@ def publish_blocked_completion(
     task_id: str,
     lane: str,
     return_artifact: str,
-    compatibility_namespace: str,
+    compatibility_namespace: str | None = None,
     reason: str,
     failure_class: str | None = None,
     attempt_id: str | None = None,
@@ -3026,7 +3015,6 @@ def publish_blocked_completion(
     if (
         not TASK_RE.fullmatch(task_id)
         or lane not in LANE_TO_MODEL
-        or compatibility_namespace not in DISPATCHABLE_NAMESPACES
         or not isinstance(reason, str)
         or not reason.strip()
         or "\x00" in reason
@@ -3053,8 +3041,12 @@ def publish_blocked_completion(
         f"# Board dispatch blocked — {task_id}\n\n"
         f"Controller reason: {reason_line}\n"
     ).encode("utf-8")
-    outbox_relative = (
-        f"departments/{compatibility_namespace}/outbox/{task_id}-response.md"
+    # Retain the keyword/CLI value as a transition-only ABI for supervisors
+    # launched before the mailbox cutover. It is deliberately ignored: a
+    # caller can no longer select a second outbox path.
+    del compatibility_namespace
+    outbox_relative = canonical_mailbox_relative(
+        "outbox", task_id, response=True
     )
     echo = (
         {
@@ -3209,16 +3201,6 @@ def main(argv: list[str] | None = None) -> int:
     cleanup = subparsers.add_parser("cleanup-canary")
     cleanup.add_argument("--repo-root", type=Path, required=True)
     cleanup.add_argument("--context-file", type=Path, required=True)
-    batch = subparsers.add_parser("schedule-batch")
-    batch.add_argument("--repo-root", type=Path, required=True)
-    batch.add_argument("--task-file", type=Path, action="append", required=True)
-    batch.add_argument("--concurrency", type=int, required=True)
-    fanout = subparsers.add_parser("build-fanout")
-    fanout.add_argument("--repo-root", type=Path, required=True)
-    fanout.add_argument("--parent-task-file", type=Path, required=True)
-    fanout.add_argument("--output-dir", type=Path, required=True)
-    fanout.add_argument("--assignment", action="append", required=True)
-    fanout.add_argument("--verification-contract")
     inventory = subparsers.add_parser("lane-inventory")
     inventory.add_argument("--repo-root", type=Path, required=True)
     args = parser.parse_args(argv)
@@ -3280,37 +3262,6 @@ def main(argv: list[str] | None = None) -> int:
                 context_file=args.context_file,
             )
             print(json.dumps(receipt, sort_keys=True))
-        elif command == "schedule-batch":
-            result = schedule_board_batch(
-                args.repo_root,
-                args.task_file,
-                concurrency=args.concurrency,
-                logical_only=True,
-            )
-            print(
-                json.dumps(
-                    {
-                        "run_now": list(result.run_now),
-                        "must_wait": list(result.must_wait),
-                        "reasons": result.reasons,
-                        "reservation_snapshot_sha256": result.reservation_snapshot_sha256,
-                    },
-                    sort_keys=True,
-                )
-            )
-        elif command == "build-fanout":
-            packets = build_board_fanout_members(
-                args.repo_root,
-                args.parent_task_file,
-                args.output_dir,
-                args.assignment,
-                (
-                    json.loads(args.verification_contract)
-                    if args.verification_contract
-                    else None
-                ),
-            )
-            print(json.dumps([str(path) for path in packets]))
         elif command == "lane-inventory":
             for row in lane_runtime_inventory(args.repo_root):
                 selections = ";".join(

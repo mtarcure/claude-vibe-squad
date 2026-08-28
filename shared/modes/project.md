@@ -16,9 +16,7 @@ lead.
 
 ## The model (`Mode → Capability → Protocol`)
 
-There are exactly **two work modes** — `project` and `bounty`. (`advisory` is additionally accepted by
-the typed contract as a compatibility mode, restricted to `result_type: normal`, but it is not a work
-mode and no workflow selects it.) A consult may remain advisory in tone, but
+There are exactly **two work modes** — `project` and `bounty`. A consult may remain advisory in tone, but
 `advisory` is not a third mode. A **Capability** is
 one distinctive protocol inside a mode. The retired domain modes (`content`, `research`, `outreach`,
 `maintenance`, `incident`) are now project Capabilities, tagged with a `profile_family` frontmatter field —
@@ -31,25 +29,23 @@ controls: every mode-implied gate was re-anchored onto its card (content → Tru
 capability-alias resolver preserves them for any legacy packet id. Each card's declared `capability_state`
 is machine-checked by `bin/validate-capabilities.sh` against the state derived from the tool registry: a
 card may declare a **more conservative** state (e.g. the zero-key `needs_tool` headline) but never one more
-generous than derived. The cards are the source of truth. The **State** column below mirrors each card's
-declared `capability_state`; it is a hand-maintained summary that is **not** itself validated against the
-cards, so keep it in step whenever a card's state changes. Cards live in `shared/capabilities/project/`.
+generous than derived. The cards are the source of truth. Cards live under `shared/capabilities/`.
 
 ## Capabilities (by `profile_family`)
 
 ### Engineering (`profile_family`: engineering — the base lifecycle)
 
-| Capability | State | When |
-|---|---|---|
-| [Backend service / API (server, persistence, data flows)](../capabilities/project/backend-service-api.md) | `needs_tool` | headless server / API / data-flow — protocol, persistence, concurrency |
-| [Data pipeline (ETL / analytics / ML-wiring)](../capabilities/project/data-pipeline.md) | `needs_tool` | ETL / analytics plumbing, or wire data into an ML/serving system |
-| [AI / LLM application (agents · RAG · tool-use · evals)](../capabilities/project/ai-llm-application.md) | `needs_tool` | ship an AI-enabled product — agents, RAG, tool-use, eval harnesses |
-| [Smart-contract / web3 BUILD — EVM/Solidity](../capabilities/project/smart-contract-web3.md) | `needs_tool` | author/test/deploy EVM/Solidity contracts (non-bounty) |
-| [Platform / release (CI · IaC · release rails)](../capabilities/project/platform-release.md) | `needs_tool` | CI/CD, IaC, release rails, production reliability |
-| [Self-extension — MCP servers · plugins · skills · agents](../capabilities/project/self-extension-agent-tooling.md) | `needs_tool` | build or change the agent/tool platform itself |
-| [Web application (browser UI / SaaS)](../capabilities/project/web-app.md) | `needs_tool` | browser-facing app / SaaS UI — browser build + required visual-verify + e2e gate |
-| [Game production (browser game — design · build · playtest)](../capabilities/project/game-production.md) | `needs_tool` | browser game — mechanics/levels/narrative + build, visual-verify + e2e + human playtest sign-off |
-| [Systems / low-level (cross-arch · SIMD · runtime)](../capabilities/project/systems-low-level.md) | `needs_tool` | cross-arch / SIMD / runtime — build+emulation toolchain not cataloged |
+| Capability | When |
+|---|---|
+| [Backend service / API (server, persistence, data flows)](../capabilities/public/project/backend-service-api.md) | headless server / API / data-flow — protocol, persistence, concurrency |
+| [Data pipeline (ETL / analytics / ML-wiring)](../capabilities/public/project/data-pipeline.md) | ETL / analytics plumbing, or wire data into an ML/serving system |
+| [AI / LLM application (agents · RAG · tool-use · evals)](../capabilities/public/project/ai-llm-application.md) | ship an AI-enabled product — agents, RAG, tool-use, eval harnesses |
+| [Smart-contract / web3 BUILD — EVM/Solidity](../capabilities/public/project/smart-contract-web3.md) | author/test/deploy EVM/Solidity contracts (non-bounty) |
+| [Platform / release (CI · IaC · release rails)](../capabilities/public/project/platform-release.md) | CI/CD, IaC, release rails, production reliability |
+| [Self-extension — MCP servers · plugins · skills · agents](../capabilities/public/project/self-extension-agent-tooling.md) | build or change the agent/tool platform itself |
+| [Web application (browser UI / SaaS)](../capabilities/public/project/web-app.md) | browser-facing app / SaaS UI — browser build + required visual-verify + e2e gate |
+| [Game production (browser game — design · build · playtest)](../capabilities/public/project/game-production.md) | browser game — mechanics/levels/narrative + build, visual-verify + e2e + human playtest sign-off |
+| [Systems / low-level (cross-arch · SIMD · runtime)](../capabilities/public/project/systems-low-level.md) | cross-arch / SIMD / runtime — build+emulation toolchain not cataloged |
 
 ### Content / media (`profile_family`: content — **Truth/Rights overlay on any publish**)
 
@@ -57,14 +53,14 @@ Fires the Rule-8 truth gate (`content-verifier`) on factual claims and the Rule-
 (`asset-provenance-and-rights-auditor`) on generated/third-party media; publish/paid-media/live-send are
 operator-gated.
 
-| Capability | State | When |
-|---|---|---|
-| [Editorial / technical longform](../capabilities/project/editorial-longform.md) | `needs_tool` | articles, docs, ADRs, technical longform |
-| [Marketing campaign](../capabilities/project/marketing-campaign.md) | `needs_tool` | landing/product/blog copy + social — creation live, send is `needs_tool` |
-| [Search / discoverability](../capabilities/project/search-discoverability.md) | `needs_tool` | on-page SEO / schema / growth — authoring live, measured impact `needs_tool` |
-| [Image asset generation](../capabilities/project/image.md) | `needs_tool` | stills / graphics — governed `generate_image` wrapper (raw `higgsfield__*` forbidden) |
-| [Video / motion asset generation](../capabilities/project/video.md) | `needs_tool` | video / motion — governed `generate_video` wrapper |
-| [Audio assets (music · SFX · voice · interactive)](../capabilities/project/audio-assets.md) | `needs_tool` | music/SFX/voice/interactive — `generate_audio` wrapper; ElevenLabs is Claude-lane-only |
+| Capability | When |
+|---|---|
+| [Editorial / technical longform](../capabilities/public/project/editorial-longform.md) | articles, docs, ADRs, technical longform |
+| [Marketing campaign](../capabilities/public/project/marketing-campaign.md) | landing/product/blog copy + social — creation live, send is `needs_tool` |
+| [Search / discoverability](../capabilities/public/project/search-discoverability.md) | on-page SEO / schema / growth — authoring live, measured impact `needs_tool` |
+| [Image asset generation](../capabilities/public/project/image.md) | stills / graphics — governed `generate_image` wrapper (raw `higgsfield__*` forbidden) |
+| [Video / motion asset generation](../capabilities/public/project/video.md) | video / motion — governed `generate_video` wrapper |
+| [Audio assets (music · SFX · voice · interactive)](../capabilities/public/project/audio-assets.md) | music/SFX/voice/interactive — `generate_audio` wrapper; ElevenLabs is Claude-lane-only |
 
 ### Research (`profile_family`: research — source-first, citation-heavy)
 
@@ -72,20 +68,20 @@ Load-bearing web claims route through the Rule-8 grounding path — `Google Sear
 (gemini · yes · subscription, verified cited results); the metered `perplexity_search` is unverifiable ⇒
 `needs_tool`, not PASS. Review overlay on high-impact claims.
 
-| Capability | State | When |
-|---|---|---|
-| [Multi-source investigation + synthesis](../capabilities/project/investigation-synthesis.md) | `needs_tool` | deep research / competitive / literature → cited synthesis |
-| [Data extraction + dataset wrangling](../capabilities/project/data-extraction-dataset.md) | `needs_tool` | machine-readable extraction/wrangling — PDF/OCR is `needs_tool` |
-| [Learning + study](../capabilities/project/learning-study.md) | `needs_tool` | study plans, drills, learning paths |
+| Capability | When |
+|---|---|
+| [Multi-source investigation + synthesis](../capabilities/public/project/investigation-synthesis.md) | deep research / competitive / literature → cited synthesis |
+| [Data extraction + dataset wrangling](../capabilities/public/project/data-extraction-dataset.md) | machine-readable extraction/wrangling — PDF/OCR is `needs_tool` |
+| Learning + study | study plans, drills, learning paths |
 
 ### Outreach (`profile_family`: outreach — **`live_outreach` gate; no automatic send**)
 
 Finding, qualifying, and drafting is live; the actual send is `needs_tool` + operator-gated. Privacy overlay
 whenever private contact/email/calendar state is touched.
 
-| Capability | State | When |
-|---|---|---|
-| [Prospecting / outreach](../capabilities/project/prospecting-outreach.md) | `needs_tool` | client-acquisition / job-search / prospecting — draft live, send is `needs_tool` + `live_outreach` |
+| Capability | When |
+|---|---|
+| [Prospecting / outreach](../capabilities/public/project/prospecting-outreach.md) | client-acquisition / job-search / prospecting — draft live, send is `needs_tool` + `live_outreach` |
 
 ### Operations / maintenance (`profile_family`: operations — delete/cleanup/credential/production gates)
 
@@ -93,13 +89,13 @@ Environment health, dependency/supply-chain integrity, memory-vault hygiene, har
 operations. Deletes, cleanup, credential changes, dependency-trust changes, and live-production mutation are
 operator-gated (Hard Rule 6). See the Memory Curation Sweep note below.
 
-| Capability | State | When |
-|---|---|---|
-| [Environment / repo health](../capabilities/project/environment-repo-health.md) | `needs_tool` | repo/env hygiene, cleanup, upgrades, refactors |
-| [Dependency / release integrity](../capabilities/project/dependency-release-integrity.md) | `needs_tool` | dep trust / supply-chain / advisory — signing/attestation is `needs_tool` |
-| [Memory / vault hygiene](../capabilities/project/memory-vault-hygiene.md) | `needs_tool` | durable-knowledge curation — legacy `chrono-kg` runtime-retired and protected pending migration |
-| [Harness audit / compatibility](../capabilities/project/harness-audit-compatibility.md) | `needs_tool` | prompt/tool/script drift + MCP reachability (audit-only) |
-| [Personal operations](../capabilities/project/personal-operations.md) | `needs_tool` | routines / reminders / draft — send + calendar-write are `needs_tool` |
+| Capability | When |
+|---|---|
+| [Environment / repo health](../capabilities/public/project/environment-repo-health.md) | repo/env hygiene, cleanup, upgrades, refactors |
+| [Dependency / release integrity](../capabilities/public/project/dependency-release-integrity.md) | dep trust / supply-chain / advisory — signing/attestation is `needs_tool` |
+| [Memory / vault hygiene](../capabilities/public/project/memory-vault-hygiene.md) | durable-knowledge curation — legacy `chrono-kg` runtime-retired and protected pending migration |
+| [Harness audit / compatibility](../capabilities/public/project/harness-audit-compatibility.md) | prompt/tool/script drift + MCP reachability (audit-only) |
+| Personal operations | routines / reminders / draft — send + calendar-write are `needs_tool` |
 
 ### Incident (reactive, safety-critical — 0 cards)
 
@@ -176,8 +172,8 @@ a license by default; an unanswered license choice remains an explicitly reporte
   packet `review_model`), cross-family from the author.
 - Security-touching design, auth, privacy, secrets, or public release work requires review from a different
   model family.
-- **`panel` / `swarm` / `triage` are dispatch mechanics, not modes** — any can be invoked under this mode.
-  They select *how* work is dispatched, never *what* mode it is (mechanics described in `shared/routing.md`).
+- Parallel comparison uses independently dispatched single tasks; in-process subagents remain a worker-local
+  execution detail. Neither creates another mode or a synthetic parent task (see `shared/routing.md`).
 - Only one writer owns a file path at a time.
 
 ## Gates

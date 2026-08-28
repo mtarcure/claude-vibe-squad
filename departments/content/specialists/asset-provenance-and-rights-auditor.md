@@ -28,12 +28,15 @@ Bind every decision to an immutable `subject_id`/`subject_hash`/`subject_version
 5. **Watermark/provenance markers** — no third-party watermark/C2PA marker indicating an unlicensed source; our own AI-disclosure applied where obligated.
 6. **Music/audio** — identified melodic/lyrical match/similarity flagged with evidence; generated-music license fits the use.
 
-Gate record (machine-readable; Chrono's publish workflow rejects a missing/non-PASS gate or a stale `subject_hash`):
-```
-gate_type=rights ; gate_version ; subject_id ; subject_hash ; subject_version ;
-status(PASS|HOLD|FAIL) ; evidence_refs ; unresolved_items ; assurance_level ;
-specialist ; reviewer ; completed_at ; override_actor ; override_reason
-```
+Gate record (machine-readable): emit the single canonical record defined in
+`.claude/skills/rule6-rights-gate/SKILL.md` § "Machine gate record" — that skill is the Rule-6
+record emitter and owns the schema; this brief references it rather than restating it (one fact, one
+home). Chrono's publish workflow consumes that record and rejects a missing/non-PASS gate or a stale
+`subject_hash`. The fields this role contributes are folded into that source schema — `subject_id`,
+`subject_version`, `gate_version`, `evidence_refs`, and `specialist`; the former field-name forks map
+as `status`→`result`, `assurance_level`→`assurance`, `unresolved_items`→`unresolved`,
+`completed_at`→`timestamp`, and `override_actor`/`override_reason` → the source's `override` field.
+`gate_type` is dropped as redundant (the `rule6_rights_gate:` block key names the gate).
 
 ## When to fan out
 - For factual claims in the asset/copy, name `content-verifier` as the needed follow-up in your response (the other gate). Chrono dispatches it as a separate packet.

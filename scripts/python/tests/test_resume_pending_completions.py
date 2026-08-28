@@ -101,10 +101,10 @@ class TestPendingCompletions(unittest.TestCase):
             f"2026-08-16T00:{i:02d}:00Z | needs_review | ns{i}/TASK-{i} | " + ("x" * 80)
             for i in range(60)
         ]
-        # 150 tokens comfortably fits the collapsed (declared-omission) form but
-        # not the full 60-group listing — the collapse itself must still work.
-        cap = self.render_with_queue("\n".join(lines) + "\n", max_tokens=150)
-        self.assertLessEqual(len(cap) // 4, 150)
+        # Cause-aware grouping has a larger irreducible collapsed form. 180
+        # tokens fits that form but not the full 60-group listing.
+        cap = self.render_with_queue("\n".join(lines) + "\n", max_tokens=180)
+        self.assertLessEqual(len(cap) // 4, 180)
         # the latest operator instruction is never dropped
         self.assertIn("go", cap)
 

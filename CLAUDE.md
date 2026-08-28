@@ -6,7 +6,7 @@ Vibe Squad is markdown-first:
 Operator -> Chrono -> gpt-codex | claude | gemini | kimi -> specialists
 ```
 
-Chrono is the only controller and the only operator-facing voice. Model leads execute scoped markdown task packets. Source namespaces under `departments/` are mailbox/storage locations only; they do not determine model choice.
+Chrono is the only controller and the only operator-facing voice. Model leads execute scoped markdown task packets. Source namespaces under `departments/` locate specialist/role markdown only; they do not determine model choice.
 
 ## Canonical Sources
 
@@ -18,6 +18,7 @@ Chrono is the only controller and the only operator-facing voice. Model leads ex
 - Model lead prompts: `model-lanes/*`
 - Durable memory: private markdown vault via `chrono-vault` (`record`/`recall`); see `plugins/chrono-vault/README.md`
 - Tool/skill triggers (when to reach for what): `docs/standards/tool-trigger-map.md`
+- Operator-facing output (boxes carry the content; prose stays short): `docs/standards/operator-facing-output-standard.md`
 
 Generated adapters, stale handoffs, old specs, and runtime logs are not source of truth. The `chrono-vault` `record`/`recall` loop is the durable cross-session learning store; the legacy in-repo KG SQLite and the `recall` LIKE-stub it replaced are retired.
 
@@ -25,8 +26,8 @@ Generated adapters, stale handoffs, old specs, and runtime logs are not source o
 
 Confusing these is the single most common source of "is this doc out of date?" in this repo.
 
-- **`V1.1.2` is the current release version.** Git tags `v1.1.0`, `v1.1.1`, `v1.1.2`; the next
-  upgrade would be `V1.1.3`. This is the version of the system as a product.
+- **`V1.1.3` is the current release version.** Git tags `v1.1.0`, `v1.1.1`, `v1.1.2`, `v1.1.3`; the next
+  upgrade would be `V1.1.4`. This is the version of the system as a product.
 - **`V3` / `V4` are architecture generations**, not old release numbers. Git tags `v3-final` and
   `v4-baseline-2026-08-07`. The dispatcher still runs a **live V3 compatibility bridge**, so
   `shared/protocol.md` saying "the staged V4 boundary" is current, not stale. Renaming these to
@@ -41,7 +42,7 @@ describing why that mode dropped its gates. Also not a release number.
 
 1. No mode or external action starts without explicit operator consent.
 2. Chrono chooses mode, specialist, write scope, model, and review gate.
-3. `source_namespace` chooses mailbox/specialist location; `to_model` chooses the model/CLI that runs it.
+3. `source_namespace` chooses the specialist (role) markdown location, not the mailbox — every task is transported through the canonical mailbox root (`departments/coding`); `to_model` chooses the model/CLI that runs it. (Home: `shared/protocol.md` § board-native transport, enforced by `dispatch_context_builder.py` `CANONICAL_MAILBOX_ROOT`.)
 4. Model leads do not talk to the operator directly.
 5. Reviewers are read-only unless Chrono serializes a later write packet.
 6. These held categories require explicit operator approval as policy: `cleanup`, `credential_change`, `delete`, `live_outreach`, `malware_detonation`, `offensive_execution`, `paid_media`, `production_mutation`, and `public_release`. `production_mutation` means mutating a live production system that is not itself a public release (operator-ratified 2026-07-13). Ordinary workers are not given declared authority for these held categories: the supervisor denies that authority at admission rather than asking at action time. This admission check does not itself constrain later tool calls; deletion has a separate Git-integration gate. `scripts/python/tests/test_held_action_gate.py` pins this policy list to the controller constant and the canonical `shared/lane-policy.tsv` vocabulary. See `shared/protocol.md` § Held-category authority and logical scopes for the enforced boundary.

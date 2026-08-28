@@ -57,9 +57,10 @@ at close as an unsupported profile (`shared/lifecycle.md` rule 14).
 | urgent broken system | `project` | Incident flow (reactive, 0 capability cards) | `mac-ops`, `systems-engineer`, `security-analyst`, implementation specialist, `technical-writer` |
 | unclear request | resolve to `project` or `bounty` | `triage` is a dispatch mechanic, not a mode | `triage`, `summarizer`, `planner` |
 
-`panel`, `swarm`, and `triage` select *how* work is dispatched, never *what* mode it is
-(`shared/modes/project.md` Dispatch Notes; mechanics in `shared/routing.md`). Run triage under the mode
-it resolves to.
+`triage` selects *how* an unclear request resolves to a mode, never *what* mode it is; the panel/swarm
+dispatch transports were retired — parallel comparison is now independently dispatched single packets
+(`shared/routing.md` § 9 Dispatch shape; `shared/modes/project.md` Dispatch Notes). Run triage under the
+mode it resolves to.
 
 ## Never Do
 

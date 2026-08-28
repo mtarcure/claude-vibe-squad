@@ -263,6 +263,7 @@ class SendTaskFixture(unittest.TestCase):
                 **os.environ,
                 "VAULT_ROOT": str(vault),
                 "SKIP_NUDGE": "1",
+                "UV_CACHE_DIR": str(vault.parent / "uv-cache"),
                 # `vault` is a plain directory, not a git checkout (this fixture
                 # borrows the repo's code but not its state), so send-task.sh
                 # cannot derive a branch and now refuses to guess one. That
@@ -338,7 +339,7 @@ class PreflightStreamSeparationTests(SendTaskFixture):
             vault,
             task_id=task_id,
             return_artifact="_state/sendtask-streams/out.md",
-            write_scope="[_state/sendtask-streams/]",
+            write_scope="[_state/sendtask-streams/out.md]",
             extra_env={"UV_CACHE_DIR": str(vault.parent / "uv-cache")},
         )
         output = completed.stdout + completed.stderr
@@ -400,7 +401,7 @@ class ContractAdmissionReasonTests(unittest.TestCase):
             "mode": "project",
             "run_id": "PROJ-BOARD-HARDENING-2026-07-26",
             "result_type": "normal",
-            "write_scope": "[_state/r2admit/]",
+            "write_scope": "[_state/r2admit/out.md]",
             "read_scope": "[]",
             "parallel_safe": "true",
             "direct_lane_work_allowed": "false",
@@ -418,6 +419,7 @@ class ContractAdmissionReasonTests(unittest.TestCase):
         # the message without touching the real registry or any mailbox.
         return subprocess.run(
             [str(SEND_TASK), str(packet), "--dry-run"],
+            env={**os.environ, "UV_CACHE_DIR": str(directory / "uv-cache")},
             capture_output=True,
             text=True,
             timeout=120,
@@ -441,7 +443,10 @@ class ContractAdmissionReasonTests(unittest.TestCase):
         line = self._admission_error_line(completed)
         # The whole point: the reason must be on the die line itself, not only
         # on an adjacent stderr line a caller may never surface.
-        self.assertIn("Project supports only result_type normal", line)
+        self.assertIn(
+            "Project result_type must be normal, review, or verification",
+            line,
+        )
 
     def test_admission_die_reason_is_a_single_line(self) -> None:
         # A multi-line helper failure (argparse usage, traceback) must be
@@ -470,74 +475,33 @@ class ContractAdmissionReasonTests(unittest.TestCase):
 
 
 class PostRegistrationSettlementTests(SendTaskFixture):
-    def dispatch_rebound_vector(self, mode: str, rebound: str) -> tuple[Path, subprocess.CompletedProcess, Path]:
+    def dispatch_rebound_candidate(
+        self, rebound: str
+    ) -> tuple[Path, subprocess.CompletedProcess, Path]:
         vault = self.make_vault(omit_from_bin="board-supervisor.sh")
-        task_id = f"TASK-2026-08-08-91{len(mode):02d}-{mode}-{rebound}"
-        log = vault.parent / f"{mode}-{rebound}-admission.jsonl"
-        fields: dict[str, str] = {}
-        args: tuple[str, ...] = ()
-        packet_in_vault = False
-        if mode == "fanout":
-            fields = {
-                "specialist": "skeptic", "to_model": "gpt-codex",
-                "source_namespace": "shared", "mode": "project",
-                "run_id": "PROJ-P6-REBIND-2026-08-08", "result_type": "normal",
-                "mandatory_review": "true", "review_model": "claude",
-                "direct_lane_work_allowed": "false",
-                "model_override_reason": "hermetic vector-binding fixture",
-            }
-            args = (
-                "--panel", "skeptic,skeptic", "--fanout",
-                "--panel-assignment", "inspect first slot",
-                "--panel-assignment", "inspect second slot",
-            )
-            packet_in_vault = True
-        elif mode == "swarm":
-            specialists = vault / "departments" / "coding" / "specialists"
-            specialists.mkdir()
-            shutil.copy2(
-                REPO / "departments/coding/specialists/code-reviewer.md",
-                specialists / "code-reviewer.md",
-            )
-            fields = {
-                "specialist": "code-reviewer", "to_model": "gpt-codex",
-                "mode": "bounty", "run_id": "BTY-P6-REBIND-2026-08-08",
-                "result_type": "dry_run", "mandatory_review": "true",
-                "review_model": "claude", "direct_lane_work_allowed": "false",
-            }
-            args = ("--swarm", "gpt-codex,claude")
+        task_id = f"TASK-2026-08-08-9100-single-{rebound}"
+        log = vault.parent / f"single-{rebound}-admission.jsonl"
         completed = self.dispatch(
-            vault, task_id=task_id, return_artifact=f"_state/{mode}-{rebound}/out.md",
-            extra_fields=fields,
+            vault,
+            task_id=task_id,
+            return_artifact=f"_state/single-{rebound}/out.md",
             extra_env={
                 "HOST_ADMISSION_TEST_LOG": str(log),
                 "HOST_ADMISSION_TEST_REBIND": rebound,
             },
-            dispatch_args=args,
-            packet_in_vault=packet_in_vault,
         )
         return vault, completed, log
-
-    def assert_rebound_vector_rejected(self, mode: str, rebound: str) -> None:
-        vault, completed, log = self.dispatch_rebound_vector(mode, rebound)
+    def assert_rebound_candidate_rejected(self, rebound: str) -> None:
+        vault, completed, log = self.dispatch_rebound_candidate(rebound)
         output = completed.stdout + completed.stderr
         self.assertNotEqual(completed.returncode, 0, output)
         self.assertIn("candidate vector binding mismatch", output)
         self.assertFalse((vault / "_state/active-tasks.json").exists())
         self.assertEqual(list((vault / "departments/coding/inbox").iterdir()), [])
         argv = json.loads(log.read_text(encoding="utf-8"))
-        self.assertEqual(argv.count("--candidate"), 1 if mode == "single" else 2)
-
-    def test_aba_rebind_is_rejected_for_single_fanout_and_swarm(self) -> None:
-        for mode in ("single", "fanout", "swarm"):
-            with self.subTest(mode=mode):
-                self.assert_rebound_vector_rejected(mode, "aba")
-
-    def test_sibling_swap_is_rejected_for_fanout_and_swarm(self) -> None:
-        for mode in ("fanout", "swarm"):
-            with self.subTest(mode=mode):
-                self.assert_rebound_vector_rejected(mode, "sibling")
-
+        self.assertEqual(argv.count("--candidate"), 1)
+    def test_aba_rebind_is_rejected_for_single_candidate(self) -> None:
+        self.assert_rebound_candidate_rejected("aba")
     def test_missing_native_cli_is_typed_before_detach(self) -> None:
         vault = self.make_vault()
         # The negative control for the entrypoint injection that the
@@ -548,7 +512,7 @@ class PostRegistrationSettlementTests(SendTaskFixture):
         task_id = "TASK-2026-08-08-9002-cli-missing"
         completed = self.dispatch(
             vault, task_id=task_id, return_artifact="_state/cli-missing/out.md",
-            write_scope="[_state/cli-missing/]", extra_fields={
+            write_scope="[_state/cli-missing/out.md]", extra_fields={
                 "specialist": "systems-engineer", "mode": "project",
                 "run_id": "PROJ-P6-CLI-MISSING-2026-08-08", "result_type": "normal",
                 "mandatory_review": "false", "review_model": "none",
@@ -563,37 +527,6 @@ class PostRegistrationSettlementTests(SendTaskFixture):
         self.assertFalse(list((vault / "_state/board-dispatch").glob("*.dispatch.json")))
         self.assertNotIn("Board dispatch detached", output)
 
-    def test_external_batch_marker_cannot_skip_single_admission(self) -> None:
-        vault = self.make_vault(omit_from_bin="board-supervisor.sh")
-        log = vault.parent / "host-admission.jsonl"
-        hash_log = vault.parent / "host-admission.sha256"
-        task_id = "TASK-2026-08-08-9003-admission-env"
-        completed = self.dispatch(
-            vault,
-            task_id=task_id,
-            return_artifact="_state/admission-env/out.md",
-            extra_env={
-                "BOARD_BATCH_ADMITTED": "1",
-                "BOARD_PACKET_FINAL": "1",
-                "BOARD_PRE_REGISTERED": "1",
-                "BOARD_PREPARE_TARGET": "/forged",
-                "HOST_ADMISSION_TEST_LOG": str(log),
-                "HOST_ADMISSION_TEST_HASH_LOG": str(hash_log),
-            },
-        )
-        self.assertIn("missing board supervisor", completed.stdout + completed.stderr)
-        calls = log.read_text(encoding="utf-8").splitlines()
-        self.assertEqual(len(calls), 1)
-        argv = json.loads(calls[0])
-        self.assertIn("--repo-root", argv)
-        self.assertEqual(argv.count("--candidate"), 1)
-        self.assertIn("--vector-sha256", argv)
-        delivered = vault / "departments/coding/inbox" / f"{task_id}.md"
-        self.assertEqual(
-            hash_log.read_text(encoding="utf-8").strip(),
-            hashlib.sha256(delivered.read_bytes()).hexdigest(),
-        )
-
     def test_denial_leaves_no_single_packet_or_registry_publication(self) -> None:
         vault = self.make_vault(omit_from_bin="board-supervisor.sh")
         task_id = "TASK-2026-08-08-9004-admission-denied"
@@ -607,168 +540,9 @@ class PostRegistrationSettlementTests(SendTaskFixture):
         self.assertFalse((vault / "_state/active-tasks.json").exists())
         self.assertEqual(list(vault.parent.glob(f"{task_id}.working.md.*")), [])
 
-    def test_denied_swarm_vector_publishes_no_registry_or_mailbox_members(self) -> None:
-        vault = self.make_vault(omit_from_bin="board-supervisor.sh")
-        specialists = vault / "departments/coding/specialists"
-        specialists.mkdir()
-        shutil.copy2(
-            REPO / "departments/coding/specialists/code-reviewer.md",
-            specialists / "code-reviewer.md",
-        )
-        task_id = "TASK-2026-08-08-9005-swarm-denied"
-        log = vault.parent / "swarm-admission.jsonl"
-        hash_log = vault.parent / "swarm-admission.sha256"
-        completed = self.dispatch(
-            vault, task_id=task_id, return_artifact="_state/swarm-denied/out.md",
-            extra_fields={
-                "specialist": "code-reviewer", "to_model": "gpt-codex",
-                "mode": "bounty", "run_id": "BTY-P6-DENIED-2026-08-08",
-                "result_type": "dry_run", "mandatory_review": "true",
-                "review_model": "claude", "direct_lane_work_allowed": "false",
-            },
-            extra_env={
-                "HOST_ADMISSION_TEST_DENY": "1",
-                "HOST_ADMISSION_TEST_LOG": str(log),
-                "HOST_ADMISSION_TEST_HASH_LOG": str(hash_log),
-            },
-            dispatch_args=("--swarm", "gpt-codex,claude"),
-        )
-        output = completed.stdout + completed.stderr
-        self.assertNotEqual(completed.returncode, 0, output)
-        self.assertIn("queued candidate vector", output)
-        self.assertFalse((vault / "_state/active-tasks.json").exists())
-        self.assertEqual(list((vault / "departments/coding/inbox").iterdir()), [])
-        argv = json.loads(log.read_text(encoding="utf-8"))
-        self.assertEqual(argv.count("--candidate"), 2)
-        packets = [Path(argv[index + 1]) for index, item in enumerate(argv) if item == "--candidate"]
-        self.assertEqual(len(hash_log.read_text(encoding="utf-8").splitlines()), 1)
-        for packet in packets:
-            staged = packet.read_text(encoding="utf-8")
-            self.assertIn("verification_contract_sha256:", staged)
-            self.assertIn("Hard constraint: no file deletion", staged)
-
-    def test_swarm_publishes_before_registration_and_reuses_exact_prefix(self) -> None:
-        vault = self.make_vault(omit_from_bin="board-supervisor.sh")
-        specialists = vault / "departments/coding/specialists"
-        specialists.mkdir()
-        shutil.copy2(
-            REPO / "departments/coding/specialists/code-reviewer.md",
-            specialists / "code-reviewer.md",
-        )
-        task_id = "TASK-2026-08-08-9005-swarm-replay"
-        inbox = vault / "departments/coding/inbox"
-        first_child = inbox / f"{task_id}-swarm-gpt-codex.md"
-        conflicting_child = inbox / f"{task_id}-swarm-claude.md"
-        conflicting_child.write_text("conflicting packet\n", encoding="utf-8")
-        fields = {
-            "specialist": "code-reviewer", "to_model": "gpt-codex",
-            "mode": "bounty", "run_id": "BTY-P7-SWARM-REPLAY-2026-08-08",
-            "result_type": "dry_run", "mandatory_review": "true",
-            "review_model": "claude", "direct_lane_work_allowed": "false",
-        }
-        first = self.dispatch(
-            vault, task_id=task_id, return_artifact="_state/swarm-replay/out.md",
-            extra_fields=fields, dispatch_args=("--swarm", "gpt-codex,claude"),
-        )
-        first_output = first.stdout + first.stderr
-        self.assertNotEqual(first.returncode, 0, first_output)
-        self.assertIn("refusing to replace conflicting swarm child packet", first_output)
-        self.assertFalse((vault / "_state/active-tasks.json").exists())
-        self.assertTrue(first_child.is_file())
-        first_bytes = first_child.read_bytes()
-
-        conflicting_child.unlink()
-        second = self.dispatch(
-            vault, task_id=task_id, return_artifact="_state/swarm-replay/out.md",
-            extra_fields=fields, dispatch_args=("--swarm", "gpt-codex,claude"),
-        )
-        second_output = second.stdout + second.stderr
-        self.assertNotEqual(second.returncode, 0, second_output)
-        self.assertIn("Reused exact swarm child", second_output)
-        first_after = (
-            first_child
-            if first_child.exists()
-            else vault / "departments/coding/archive" / first_child.name
-        )
-        self.assertEqual(first_after.read_bytes(), first_bytes)
-        registry = json.loads(
-            (vault / "_state/active-tasks.json").read_text(encoding="utf-8")
-        )
-        self.assertEqual(
-            set(registry),
-            {task_id, f"{task_id}-swarm-gpt-codex", f"{task_id}-swarm-claude"},
-        )
-        children = [
-            f"{task_id}-swarm-gpt-codex",
-            f"{task_id}-swarm-claude",
-        ]
-        self.assertTrue(
-            all(registry[child]["delivery_state"] == "terminal" for child in children)
-        )
-
-        # Simulate a hard sender stop after the first child crossed the start
-        # fence but before the second child detached. A retry must skip the
-        # first and still attempt the queued sibling.
-        registry[children[0]]["status"] = "in-flight"
-        registry[children[0]]["delivery_state"] = "in-progress"
-        registry[children[1]]["status"] = "in-flight"
-        registry[children[1]]["delivery_state"] = "queued"
-        (vault / "_state/active-tasks.json").write_text(
-            json.dumps(registry), encoding="utf-8"
-        )
-        third = self.dispatch(
-            vault, task_id=task_id, return_artifact="_state/swarm-replay/out.md",
-            extra_fields=fields, dispatch_args=("--swarm", "gpt-codex,claude"),
-        )
-        third_output = third.stdout + third.stderr
-        self.assertNotEqual(third.returncode, 0, third_output)
-        self.assertIn("Skipping already-started swarm child", third_output)
-        replayed = json.loads(
-            (vault / "_state/active-tasks.json").read_text(encoding="utf-8")
-        )
-        self.assertEqual(replayed[children[1]]["delivery_state"], "terminal")
-
-    def test_denied_fanout_admits_final_vector_before_any_publication(self) -> None:
-        vault = self.make_vault(omit_from_bin="board-supervisor.sh")
-        log = vault.parent / "fanout-admission.jsonl"
-        task_id = "TASK-2026-08-08-9006-fanout-denied"
-        completed = self.dispatch(
-            vault, task_id=task_id, return_artifact="_state/fanout-denied/out.md",
-            extra_fields={
-                "specialist": "skeptic", "to_model": "gpt-codex",
-                "source_namespace": "shared",
-                "mode": "project", "run_id": "PROJ-P6-DENIED-2026-08-08",
-                "result_type": "normal", "mandatory_review": "true",
-                "review_model": "claude", "direct_lane_work_allowed": "false",
-                "model_override_reason": "hermetic fan-out fixture",
-            },
-            extra_env={
-                "HOST_ADMISSION_TEST_DENY": "1",
-                "HOST_ADMISSION_TEST_LOG": str(log),
-            },
-            dispatch_args=(
-                "--panel", "skeptic,skeptic", "--fanout",
-                "--panel-assignment", "inspect parser",
-                "--panel-assignment", "inspect launcher",
-            ),
-            packet_in_vault=True,
-        )
-        output = completed.stdout + completed.stderr
-        self.assertNotEqual(completed.returncode, 0, output)
-        self.assertIn("queued candidate vector", output)
-        self.assertFalse((vault / "_state/active-tasks.json").exists())
-        self.assertEqual(list((vault / "departments/coding/inbox").iterdir()), [])
-        argv = json.loads(log.read_text(encoding="utf-8"))
-        self.assertEqual(argv.count("--candidate"), 2)
-        for index, item in enumerate(argv):
-            if item == "--candidate":
-                staged = Path(argv[index + 1]).read_text(encoding="utf-8")
-                self.assertIn("verification_contract_sha256:", staged)
-                self.assertIn("Hard constraint: no file deletion", staged)
-
     def test_packet_directory_is_synced_before_registry_registration(self) -> None:
         text = SEND_TASK.read_text(encoding="utf-8")
-        publication = text.split("# ── copy to source namespace inbox", 1)[1]
+        publication = text.split("# ── copy to unified board inbox", 1)[1]
         publication = publication.split("# ── central dispatch log", 1)[0]
 
         file_sync = publication.index("os.fsync(inbox_temp.fileno())")
@@ -802,7 +576,7 @@ class PostRegistrationSettlementTests(SendTaskFixture):
             vault,
             task_id=task_id,
             return_artifact="_state/r2detach/out.md",
-            write_scope="[_state/r2detach/]",
+            write_scope="[_state/r2detach/out.md]",
             extra_env=detach_env,
             extra_fields={
                 "specialist": "systems-engineer",
@@ -833,7 +607,7 @@ class PostRegistrationSettlementTests(SendTaskFixture):
             vault,
             task_id=task_id,
             return_artifact="_state/r2strand/out.md",
-            write_scope="[_state/r2strand/]",
+            write_scope="[_state/r2strand/out.md]",
         )
         output = completed.stdout + completed.stderr
         self.assertNotEqual(completed.returncode, 0, msg=output)
@@ -854,14 +628,14 @@ class PostRegistrationSettlementTests(SendTaskFixture):
             vault,
             task_id="TASK-2026-07-26-0002-r2first",
             return_artifact="_state/r2reuse/out.md",
-            write_scope="[_state/r2reuse/]",
+            write_scope="[_state/r2reuse/out.md]",
         )
         self.assertNotEqual(first.returncode, 0)
         second = self.dispatch(
             vault,
             task_id="TASK-2026-07-26-0003-r2second",
             return_artifact="_state/r2reuse/out.md",
-            write_scope="[_state/r2reuse/]",
+            write_scope="[_state/r2reuse/out.md]",
         )
         output = second.stdout + second.stderr
         # The re-dispatch still fails on the missing supervisor, but it must get
@@ -952,12 +726,6 @@ class PostRegistrationSettlementTests(SendTaskFixture):
                                env=environment, text=True, check=True, capture_output=True)
                 self.assertEqual(self.registry_entry(vault, task)["status"], "in-flight")
 
-    def test_pre_registered_board_child_arms_exact_abort_settlement(self) -> None:
-        text = SEND_TASK.read_text(encoding="utf-8")
-        branch = text.split('if [[ "$BOARD_PRE_REGISTERED" == "1" ]]', 1)[1]
-        branch = branch.split("elif REGISTRY_ENTRY_JSON", 1)[0]
-        self.assertIn("TASK_REGISTERED=1", branch)
-
 
 class BlockedSettlementPathTests(SendTaskFixture):
     def test_blocked_settlement_accepts_an_absolute_in_vault_artifact(self) -> None:
@@ -1017,8 +785,8 @@ class BlockedSettlementPathTests(SendTaskFixture):
         completed = self.dispatch(
             vault,
             task_id=task_id,
-            return_artifact=str(outbox / f"{task_id}-response.md"),
-            write_scope="[_state/r2outbox/]",
+            return_artifact=f"departments/coding/outbox/{task_id}-response.md",
+            write_scope=f"[departments/coding/outbox/{task_id}-response.md]",
         )
         output = completed.stdout + completed.stderr
         self.assertNotIn(

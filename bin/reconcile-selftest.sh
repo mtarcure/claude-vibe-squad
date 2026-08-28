@@ -33,6 +33,13 @@ case "${1:-}" in
             printf '❯\n'
         fi
         ;;
+    display-message)
+        if [[ "$*" == *'#{pane_pid}'* ]]; then
+            printf '999999\n'
+        else
+            printf 'claude\n'
+        fi
+        ;;
     send-keys)
         printf '%s\n' "$*" >> "${TMUX_LOG}"
         ;;
@@ -69,6 +76,16 @@ cat > "${STATE_DIR}/active-tasks.json" <<'JSON_EOF'
     "to_model": "gpt-codex",
     "dispatched_at": "2020-01-01T00:00:00+00:00",
     "status": "in-flight"
+  },
+  "TASK-2099-01-01-0007-triggered": {
+    "compatibility_namespace": "security",
+    "to_model": "gpt-codex",
+    "review_model": "claude",
+    "mandatory_review": true,
+    "review_triggers": ["blast_radius"],
+    "specialist": "site-reliability-engineer",
+    "dispatched_at": "2020-01-01T00:00:00+00:00",
+    "status": "in-flight"
   }
 }
 JSON_EOF
@@ -78,6 +95,13 @@ cat > "${FIXTURE_ROOT}/departments/security/outbox/TASK-2099-01-01-0001-needs-re
 status: needs_review
 ---
 Needs mandatory reviewer confirmation.
+RESPONSE_EOF
+
+cat > "${FIXTURE_ROOT}/departments/security/outbox/TASK-2099-01-01-0007-triggered-response.md" <<'RESPONSE_EOF'
+---
+status: needs_review
+---
+Blast-radius work requires the packet's distinct-family review.
 RESPONSE_EOF
 
 # Dispatched in security, deliberately landed in coding.
@@ -142,21 +166,41 @@ import sys
 
 registry = json.load(open(sys.argv[1], encoding="utf-8"))
 expected = {
-    "TASK-2099-01-01-0001-needs": "needs_review",
+    "TASK-2099-01-01-0001-needs": "complete",
     "TASK-2099-01-01-0002-mismatch": "blocked",
     "TASK-2099-01-01-0003-no-envelope": "work-done-no-envelope",
     "TASK-2099-01-01-0004-complete": "complete",
+    "TASK-2099-01-01-0007-triggered": "review-required",
 }
 for task_id, status in expected.items():
     actual = registry[task_id]["status"]
     assert actual == status, f"{task_id}: expected {status}, got {actual}"
     assert registry[task_id].get("reconciled_at"), f"{task_id}: missing reconciled_at"
-for task_id in (expected.keys() - {"TASK-2099-01-01-0003-no-envelope"}):
+for task_id in {
+    "TASK-2099-01-01-0001-needs",
+    "TASK-2099-01-01-0002-mismatch",
+    "TASK-2099-01-01-0004-complete",
+}:
     assert registry[task_id].get("completed_at"), f"{task_id}: missing completed_at"
 assert registry["TASK-2099-01-01-0002-mismatch"]["response_path"].startswith(
     "departments/coding/outbox/"
 )
-print("PASS registry statuses: needs_review / blocked cross-namespace / work-done-no-envelope / complete")
+
+untriggered = registry["TASK-2099-01-01-0001-needs"]
+assert untriggered["worker_reported_status"] == "needs_review"
+assert untriggered["coordination_requested"] is True
+assert untriggered["coordination_request_source"] == "legacy-needs_review-status"
+assert untriggered["review_disposition"] == "not-required"
+print("PASS untriggered needs_review settles complete and raises a coordination request")
+
+triggered = registry["TASK-2099-01-01-0007-triggered"]
+assert triggered["worker_reported_status"] == "needs_review"
+assert triggered["review_required_by"] == "claude"
+assert "coordination_requested" not in triggered
+assert not triggered.get("completed_at")
+print("PASS triggered needs_review remains held for distinct-family review")
+
+print("PASS registry statuses: complete / blocked cross-namespace / work-done-no-envelope / review-required")
 
 stale = registry["TASK-2099-01-01-0005-stale-active"]
 assert stale["status"] == "in-flight"
@@ -176,7 +220,10 @@ assert "TASK-2099-01-01-0005-stale-active" in conflicts
 print("PASS active lane + stale pre-dispatch artifact stays in-flight and retains write_scope blocking")
 PY_EOF
 
-grep -q '| needs_review | security/TASK-2099-01-01-0001-needs |' "${STATE_DIR}/chrono-queue.md"
+grep -q '| complete | security/TASK-2099-01-01-0001-needs |' "${STATE_DIR}/chrono-queue.md"
+grep -q '| COORDINATION-REQUESTED | security/TASK-2099-01-01-0001-needs |' "${STATE_DIR}/chrono-queue.md"
+grep -q '| REVIEW-REQUIRED | security/TASK-2099-01-01-0007-triggered |' "${STATE_DIR}/chrono-queue.md"
+! grep -q '| needs_review | security/TASK-2099-01-01-0001-needs |' "${STATE_DIR}/chrono-queue.md"
 grep -q '| work-done-no-envelope | coding/TASK-2099-01-01-0003-no-envelope |' "${STATE_DIR}/chrono-queue.md"
 grep -q -- '-t selftest:chrono' "${TMUX_LOG}"
 printf '%s\n' "PASS chrono queue audit and named-window nudge"
@@ -222,10 +269,14 @@ import sys
 
 registry = json.load(open(sys.argv[1], encoding="utf-8"))
 entry = registry["TASK-2099-01-01-0003-no-envelope"]
-assert entry["status"] == "needs_review"
+assert entry["status"] == "complete"
 assert entry["prior_missing_envelope_status"] == "work-done-no-envelope"
+assert entry["worker_reported_status"] == "needs_review"
+assert entry["coordination_requested"] is True
+assert entry["coordination_request_source"] == "legacy-needs_review-status"
+assert entry["review_disposition"] == "not-required"
 assert entry.get("completed_at")
-print("PASS late envelope supersedes provisional work-done-no-envelope status")
+print("PASS late untriggered needs_review envelope supersedes provisional state as complete plus coordination")
 PY_EOF
 
 # Prove dispatch registration waits on the same flock and preserves a

@@ -17,7 +17,8 @@ Identity and voice live above. The operating procedure and its safety rules are 
 and are pointed to — never restated — here:
 
 - **How Chrono works** — confirm intent before a mode; choose mode/specialist/model/scope/review;
-  dispatch through `scripts/send-task.sh`; treat recalled memory as untrusted evidence to verify;
+  dispatch generated packets through `scripts/send-task.sh ... --mode <operator-approved-mode>` or
+  prepared packets through `bin/send-task.sh`; treat recalled memory as untrusted evidence to verify;
   synthesize outboxes into operator-facing answers: `chrono/CLAUDE.md`.
 - **What Chrono must never do without operator approval** — no auto-submit/send/delete/clean/publish,
   and the operator-gate list: root `CLAUDE.md` Hard Rule 6. No completion claim without artifacts and
@@ -26,5 +27,6 @@ and are pointed to — never restated — here:
 - **Pending work** is tracked via the resume capsule + `_state/active-tasks.json` registry (the live
   state); `chrono/current.md` is an archive.
 
-Departments are mailbox/storage locations, never controllers; Chrono is the only controller and the
-only operator-facing voice.
+Departments locate specialist (role) markdown only, never controllers; every task is transported
+through the canonical mailbox root (`departments/coding`) — root `CLAUDE.md` Hard Rule 3. Chrono is the
+only controller and the only operator-facing voice.

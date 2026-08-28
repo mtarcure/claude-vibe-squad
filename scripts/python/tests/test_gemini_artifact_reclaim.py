@@ -27,6 +27,7 @@ if str(PYTHON_DIR) not in sys.path:
     sys.path.insert(0, str(PYTHON_DIR))
 
 from dispatch_context_builder import (  # noqa: E402
+    canonical_mailbox_relative,
     DispatchContextError,
     prepare_worktree_outputs,
     reclaim_lane_cwd_outputs,
@@ -224,7 +225,10 @@ class GeminiArtifactReclaimTests(unittest.TestCase):
 
             prepared = prepare_worktree_outputs(repo, worktree, authority)
             self.assertEqual(prepared.status, "complete")
-            self.assertEqual(prepared.result_relative, result_relative)
+            self.assertEqual(
+                prepared.result_relative,
+                canonical_mailbox_relative("outbox", task_id, response=True),
+            )
 
 
 if __name__ == "__main__":

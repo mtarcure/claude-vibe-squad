@@ -229,7 +229,7 @@ class DispatchPreflightTests(unittest.TestCase):
             rendered["packet_sha256"], hashlib.sha256(packet.read_bytes()).hexdigest()
         )
 
-    def test_send_task_invokes_preflight_before_every_host_admission(self) -> None:
+    def test_send_task_invokes_preflight_before_single_host_admission(self) -> None:
         sender = (ROOT / "bin" / "send-task.sh").read_text(encoding="utf-8")
         host_admit = sender.split("board_host_admit() {", 1)[1].split("\n}", 1)[0]
         invocation = host_admit.index('python3 "$DISPATCH_PREFLIGHT"')
@@ -241,15 +241,10 @@ class DispatchPreflightTests(unittest.TestCase):
         self.assertLess(binding, host_policy)
         self.assertEqual(sender.count('python3 "$DISPATCH_PREFLIGHT"'), 1)
 
-        fanout = sender.index('board_host_admit "${BOARD_FANOUT_PACKETS[@]}"')
-        fanout_publish = sender.index("dispatch_admitted_child 0", fanout)
-        swarm = sender.index('board_host_admit "${BOARD_BATCH_TASKS[@]}"')
-        swarm_publish = sender.index("# Publish the complete admitted packet", swarm)
         common = sender.index('board_host_admit "$ACTUAL_TASK_FILE"')
-        inbox_publish = sender.index("# ── copy to source namespace inbox", common)
-        self.assertLess(fanout, fanout_publish)
-        self.assertLess(swarm, swarm_publish)
+        inbox_publish = sender.index("# ── copy to unified board inbox", common)
         self.assertLess(common, inbox_publish)
+        self.assertEqual(sender.count('board_host_admit "$ACTUAL_TASK_FILE"'), 1)
 
 
 if __name__ == "__main__":

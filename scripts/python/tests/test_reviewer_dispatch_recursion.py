@@ -81,6 +81,20 @@ def map_row(specialist: str) -> list[str]:
     raise AssertionError(f"{specialist} is missing from {RUNTIME_MAP}")
 
 
+def evidence_outputs_for(write_scope: str) -> str:
+    """Declare every non-artifact write_scope path as a promoted output.
+
+    ``bin/send-task.sh`` refuses a packet whose write_scope names a git-ignored
+    path that is neither the ``return_artifact`` nor listed in
+    ``evidence_outputs`` -- such a path has no promotion route, so the work
+    would be destroyed at worktree cleanup. These fixtures write under
+    ``_state/`` (git-ignored), so the declaration is what makes them dispatchable
+    at all. It is incidental to the trigger behaviour under test; without it the
+    packet dies before any review-inference code runs.
+    """
+    return write_scope
+
+
 def packet(
     *,
     task_id: str,
@@ -101,6 +115,7 @@ def packet(
         "run_id": "PROJ-BOARD-HARDENING-2026-07-26",
         "result_type": "normal",
         "write_scope": write_scope,
+        "evidence_outputs": evidence_outputs_for(write_scope),
         "read_scope": "[]",
         "parallel_safe": "true",
         "direct_lane_work_allowed": "false",

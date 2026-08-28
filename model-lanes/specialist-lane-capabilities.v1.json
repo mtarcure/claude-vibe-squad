@@ -5242,6 +5242,60 @@
       ]
     },
     {
+      "specialist": "kestrel",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": [
+        {
+          "id": "chrono-vault",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        }
+      ]
+    },
+    {
+      "specialist": "kestrel",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": [
+        {
+          "id": "chrono-vault",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        }
+      ]
+    },
+    {
+      "specialist": "kestrel",
+      "lane": "kimi",
+      "coverage": "full",
+      "limitations": [
+        "MCP operations are lead-brokered and unavailable inside Kimi subagents; chrono-vault requires a Kimi-lead or Chrono handoff rather than a direct child tool call"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": [
+        {
+          "id": "lead:chrono-vault",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        }
+      ]
+    },
+    {
       "specialist": "knowledge-librarian",
       "lane": "claude",
       "coverage": "full",
@@ -10656,6 +10710,58 @@
         },
         {
           "id": "sequential-thinking",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        }
+      ]
+    },
+    {
+      "specialist": "vega",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": [
+        {
+          "id": "chrono-vault",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        }
+      ]
+    },
+    {
+      "specialist": "vega",
+      "lane": "gemini",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [],
+      "mcps": [
+        {
+          "id": "chrono-vault",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        }
+      ]
+    },
+    {
+      "specialist": "vega",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": [
+        {
+          "id": "chrono-vault",
           "requirement": "preferred",
           "availability": "available",
           "evidence": "lane-inventory"

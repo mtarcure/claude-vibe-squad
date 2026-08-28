@@ -201,21 +201,17 @@ class ToolkitGateConsumerOracle(unittest.TestCase):
         light = render("coding", "backend-engineer", "project")
         self.assertGreater(len(heavy) - len(light), 8000)
 
-    def test_production_wires_specialist_into_both_toolkit_call_sites(self) -> None:
+    def test_production_wires_specialist_into_the_toolkit_call(self) -> None:
         """The oracle above renders through the toolkit directly; this proves that is
-        the SAME argv production builds. Both `bin/send-task.sh` call sites (single
-        dispatch and swarm child) must pass the specialist as the 4th argument, or the
-        gate would silently fall back to fail-open in production.
+        the SAME argv production builds. The ordinary dispatch passes the specialist
+        as the 4th argument so the gate cannot silently fall back to fail-open.
         """
         sender = SEND_TASK.read_text(encoding="utf-8")
         self.assertIn(
-            'bash "$TOOLKIT" "$COMPAT_NAMESPACE" "$TO_MODEL" "$MODE" "$SPECIALIST"',
+            'bash "$TOOLKIT" "$MAILBOX_NAMESPACE" "$TO_MODEL" "$MODE" "$SPECIALIST"',
             sender,
         )
-        self.assertIn(
-            'bash "$TOOLKIT" "$COMPAT_NAMESPACE" "$lane" "$MODE" "$SPECIALIST"',
-            sender,
-        )
+        self.assertEqual(sender.count('bash "$TOOLKIT"'), 1)
 
     def test_selector_source_keys_on_safety_not_namespace(self) -> None:
         """The defect, pinned at the source. The security-doctrine gate must no longer

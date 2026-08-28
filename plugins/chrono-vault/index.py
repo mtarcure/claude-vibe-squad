@@ -68,6 +68,12 @@ FTS_COLUMNS = (
     "keywords",
     "evidence_summary",
 )
+# Provenance: this vector entered the repository with the first FTS5 index in
+# commit f6e8808b (2026-07-14). That commit and its tests record no experiment,
+# judgment set, or field-by-field rationale for the values. Keep the legacy
+# vector unchanged until a separately reviewed evaluation justifies tuning it;
+# tests/test_recall_rank.py supplies a repo-controlled regression baseline, not
+# retroactive evidence that these particular numbers are optimal.
 BM25_WEIGHTS = (8.0, 1.0, 6.0, 3.0, 2.0, 6.0, 3.0, 1.0)
 
 
@@ -171,6 +177,8 @@ def _initialize(connection: sqlite3.Connection) -> None:
             PRIMARY KEY(recall_id, note_id)
         );
         CREATE INDEX IF NOT EXISTS idx_usage_recall_id ON usage(recall_id);
+        CREATE INDEX IF NOT EXISTS idx_usage_note_id_outcome
+            ON usage(note_id, outcome);
         CREATE TABLE IF NOT EXISTS recall_returned (
             recall_id TEXT NOT NULL,
             note_id TEXT NOT NULL,

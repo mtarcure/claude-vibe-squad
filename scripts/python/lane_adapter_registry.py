@@ -94,6 +94,8 @@ GEMINI_AGENT_NATIVE_TOOLS = (
     "glob",
     "grep_search",
 )
+KIMI_LEAD_BROKER_POLICY = "lead-broker-only"
+KIMI_LEAD_BROKER_BOUNDARY = "MCP tools are unavailable inside Kimi subagents"
 
 
 class AdapterValidationError(RuntimeError):
@@ -700,7 +702,11 @@ def validate_adapter_file(
         # Native prompt adapters must state the lead-broker boundary. Older
         # direct canonical pointers contain no independent capability claim and
         # are therefore validated by identity/pointer only.
-        if "../prompts/" in pointer and "MCP tools are unavailable inside Kimi subagents" not in prompt:
+        if (
+            "../prompts/" in pointer
+            and capability.child_mcp_policy == KIMI_LEAD_BROKER_POLICY
+            and KIMI_LEAD_BROKER_BOUNDARY not in prompt
+        ):
             raise AdapterValidationError(f"Kimi adapter {specialist} lacks lead-broker MCP policy")
         return
     raise AdapterValidationError(f"validation is not enabled for lane {lane}")

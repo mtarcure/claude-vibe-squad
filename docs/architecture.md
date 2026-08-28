@@ -208,5 +208,5 @@ sentinel, watcher, or daemon launches it.
 | Routing decisions | [`shared/routing.md`](../shared/routing.md) |
 | Specialist-to-runtime mapping | [`shared/specialist-runtime-map.tsv`](../shared/specialist-runtime-map.tsv) |
 | CLI capabilities | [`model-lanes/lane-capabilities.tsv`](../model-lanes/lane-capabilities.tsv) |
-| Session lifecycle | [`shared/lifecycle.md`](../shared/lifecycle.md) |
+| Session lifecycle | [`CLAUDE.md` § Session Resume](../CLAUDE.md) |
 | Specialist briefs | [`departments/`](../departments/) and [`shared/specialists/`](../shared/specialists/) |

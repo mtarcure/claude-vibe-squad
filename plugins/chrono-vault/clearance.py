@@ -18,6 +18,7 @@ RESTRICTED = "restricted"
 SENSITIVITIES = frozenset({INTERNAL, RESTRICTED})
 CONTEXT_ENV = "CHRONO_VAULT_CONTEXT"
 CONTEXT_SCHEMA = "chrono-vault-context/v1"
+MEMORY_ENGAGEMENT_MODES = frozenset({"project", "bounty"})
 POLICY_PATH = (
     Path(__file__).resolve().parents[2]
     / "shared"
@@ -237,8 +238,13 @@ def validate_memory_context(
         or value["generation"] < 1
     ):
         raise ClearanceError("memory engagement generation is invalid")
-    if value.get("mode") not in {"project", "bounty"}:
-        raise ClearanceError("memory engagement mode is invalid")
+    engagement_mode = value.get("mode")
+    if engagement_mode not in MEMORY_ENGAGEMENT_MODES:
+        supported = ", ".join(sorted(MEMORY_ENGAGEMENT_MODES))
+        raise ClearanceError(
+            f"unsupported memory engagement mode {engagement_mode!r}; "
+            f"expected one of: {supported}"
+        )
     policies = memory_policies()
     if value.get("aperture") not in policies:
         raise ClearanceError("memory engagement aperture is invalid")

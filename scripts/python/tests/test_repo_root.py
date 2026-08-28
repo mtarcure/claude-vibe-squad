@@ -207,10 +207,8 @@ class WrapperPreambleTest(unittest.TestCase):
         (repo / "shared").mkdir(parents=True)
         (repo / "bin").mkdir()
         shutil.copy(SHELL_RESOLVER, repo / "shared" / "repo-root.sh")
-        preamble = PREAMBLE_RE.search(
-            (ROOT / "bin" / "claim-task.sh").read_text()
-        )
-        assert preamble, "bin/claim-task.sh no longer carries the canonical preamble"
+        preamble = PREAMBLE_RE.search((ROOT / "bin" / "squad").read_text())
+        assert preamble, "bin/squad no longer carries the canonical preamble"
         wrapper = repo / "bin" / "wrapper.sh"
         wrapper.write_text(
             f'set -euo pipefail\n{preamble.group(0)}\necho "$VAULT_ROOT"\n'
@@ -279,7 +277,6 @@ class NoHardcodedOperatorPathTest(unittest.TestCase):
 
     def test_a_representative_sample_was_actually_converted(self):
         sample = [
-            "claim-task.sh",
             "squad",
             "outbox-watcher.sh",
             "send-task.sh",

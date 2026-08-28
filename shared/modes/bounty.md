@@ -36,6 +36,11 @@ away the material composition needs. The types below fix that; the law stays as 
 
 ## Evidence vocabulary — the pipeline's type system
 
+This mode is the **promotion home** for these state tokens: it owns *when* each gate fires and what
+proof each transition demands. `systematic-attacking` §Vocabulary names the same offensive tokens for
+cross-mode use but defers the lifecycle to the mode (its own words: *"The lifecycle — owned by the
+MODE, not by this skill"*), so read a token's **promotion point** here, not from a skill or brief gloss.
+
 Four states, and only the last one is gated by Law 2:
 
 | State | Means | Gate |
@@ -767,10 +772,12 @@ a claim needs revising, it goes back to Phase 5.
   - **Argue severity from the code; never assert it.** The triager ignores our label and re-derives
     severity from the code, so quote the program's own Critical definition against the mechanism.
     Budget belongs in the mechanism, not the label.
-- **De-AI pass — `vibecoding-check` over the finished report.** Strip phase references, task IDs, temp
-  paths, internal lane names, hedging scaffolds and AI tells. Researcher voice throughout. Several
-  programs state outright that *"AI-generated reports without runable PoC are not accepted"*, and a
-  report that reads as machine-generated invites that judgement regardless of quality.
+- **De-AI pass — `de-ai-before-delivery` over the finished report.** Strip phase references, task IDs,
+  temp paths, internal lane names, hedging scaffolds and AI tells; researcher voice throughout, every
+  technical claim and its evidence kept intact. That register pass is `de-ai-before-delivery`'s job —
+  `vibecoding-check` is the mode-exit contract verifier and rewrites no prose. Several programs state
+  outright that *"AI-generated reports without runable PoC are not accepted"*, and a report that reads
+  as machine-generated invites that judgement regardless of quality.
 - **Platform constraints, measured before writing, not after**: character limits, upload allowlists,
   the vulnerability taxonomy the form actually offers, and any content filtering on the submission
   path — inline command strings and header literals have tripped WAFs on `submit`/`PATCH`.

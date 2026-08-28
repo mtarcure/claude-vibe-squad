@@ -4,6 +4,9 @@ agent:
   extend: default
   system_prompt_path: ./KIMI.md
   subagents:
+    kestrel:
+      path: ./.kimi/agents/kestrel.yaml
+      description: "Registry-generated thin specialist adapter."
     growth-and-search-analyst:
       path: ./.kimi/agents/growth-and-search-analyst.yaml
       description: "Registry-generated thin specialist adapter."

@@ -72,7 +72,10 @@ index; the diff against the anchor is how it is queried.
 
 What *is* worth recording is the lesson, not the contents:
 
-`record(note_type="learning", fields={"title": "take-over-resume: <task>", "body": "anchor=<commit>; files_changed=<n>; inferred_intent=<...>; plan_adjustment=<what changed and why>", "target": "<component>", "attack_class": "none", "source_task": "<task-id>"})`
+the anchor commit, files changed, inferred intent, and how the plan was adjusted. The exact `record`
+call shape, sequence, and fields are owned by the task packet's injected memory contract — see
+`wirework-reflect`; do not copy a `record(...)` example or add fields such as `source_task`, which the
+server binds.
 
 Best-effort only — a memory error is logged in one line and never blocks the resume.
 

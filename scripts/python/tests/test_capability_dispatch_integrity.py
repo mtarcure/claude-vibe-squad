@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -25,6 +26,7 @@ if str(VERIFICATION_HELPER.parent) not in sys.path:
 from scripts.python.tests.supervisor_lifecycle import (  # noqa: E402
     cleanup_supervisors_before_root,
 )
+import registry_reconciler as rr  # noqa: E402
 from verification_contract import verification_contract_sha256  # noqa: E402
 
 
@@ -399,7 +401,7 @@ class VerificationContractDispatchTests(ManagedSupervisorTestCase):
                     self._packet(root, task_id=task_id, reserved=(field, value)),
                 )
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn("dispatcher-owned field", result.stderr)
+                self.assertIn("controller-owned field", result.stderr)
                 self.assertFalse((root / "departments/coding/inbox" / f"{task_id}.md").exists())
 
     def test_result_type_and_run_id_admission(self) -> None:
@@ -648,6 +650,117 @@ class CapabilityReconciliationTests(ManagedSupervisorTestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("does not match dispatched capability snapshot", result.stderr)
+
+
+class RegistryReconcilerContractTests(unittest.TestCase):
+    """General registration/reconciliation contracts, folded from a stale swarm module."""
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.registry = self.root / "_state" / "active-tasks.json"
+        self.patches = [
+            patch.dict(os.environ, {rr.TEST_ISOLATION_ENV: "1"}),
+            patch.object(rr, "VAULT_ROOT", self.root),
+            patch.object(rr, "STATE_DIR", self.root / "_state"),
+            patch.object(rr, "REGISTRY_PATH", self.registry),
+            patch.object(
+                rr,
+                "CHRONO_QUEUE_PATH",
+                self.root / "_state" / "chrono-queue.md",
+            ),
+        ]
+        for item in self.patches:
+            item.start()
+            self.addCleanup(item.stop)
+
+    def test_isolation_signal_prevents_live_tmux_notification(self) -> None:
+        with patch.object(rr.subprocess, "run") as run:
+            self.assertFalse(rr.nudge_chrono("fixture notification"))
+        run.assert_not_called()
+
+    def test_missing_review_class_is_refused_not_defaulted_to_standard(self) -> None:
+        entry = {
+            "compatibility_namespace": "coding",
+            "specialist": "backend-engineer",
+            "to_model": "claude",
+            "mandatory_review": "true",
+            "review_model": "gpt-codex",
+            "status": "in-flight",
+        }
+        with self.assertRaisesRegex(ValueError, "missing an explicit review_class"):
+            rr.register_task("TASK-NO-CLASS", dict(entry))
+        for invalid in ("", "   ", None, "standrad", "security_finding", "SECURITY"):
+            with self.subTest(review_class=invalid):
+                with self.assertRaises(ValueError):
+                    rr.register_task(
+                        "TASK-BAD-CLASS", {**entry, "review_class": invalid}
+                    )
+
+    def test_equivalent_review_class_retry_is_idempotent_not_conflicting(self) -> None:
+        entry = {
+            "compatibility_namespace": "coding",
+            "specialist": "backend-engineer",
+            "to_model": "claude",
+            "mandatory_review": "true",
+            "review_model": "gpt-codex",
+            "review_class": " FACTUAL ",
+            "status": "in-flight",
+        }
+        self.assertTrue(rr.register_task("TASK-RETRY-CLASS", dict(entry)))
+        stored = json.loads(self.registry.read_text(encoding="utf-8"))
+        self.assertEqual(stored["TASK-RETRY-CLASS"]["review_class"], "factual")
+        self.assertFalse(
+            rr.register_task("TASK-RETRY-CLASS", {**entry, "review_class": "factual"})
+        )
+
+    def test_unreadable_review_class_holds_review_instead_of_settling(self) -> None:
+        entry = {
+            "specialist": "code-reviewer",
+            "to_model": "claude",
+            "review_model": "gpt-codex",
+            "mandatory_review": "true",
+            "write_scope": [],
+        }
+        self.assertFalse(
+            rr.cross_family_review_pending({**entry, "review_class": "standard"})[0]
+        )
+        self.assertTrue(rr.cross_family_review_pending(dict(entry))[0])
+        self.assertTrue(
+            rr.cross_family_review_pending({**entry, "review_class": "bogus"})[0]
+        )
+        with self.assertRaisesRegex(ValueError, "review_class"):
+            rr._review_class(entry)
+
+    def test_close_task_is_audited_and_idempotent(self) -> None:
+        task_id = "TASK-STALE"
+        reason = "superseded by TASK-SETTLED"
+        self.registry.parent.mkdir(parents=True, exist_ok=True)
+        self.registry.write_text(
+            json.dumps(
+                {
+                    task_id: {
+                        "compatibility_namespace": "coding",
+                        "status": "needs_review",
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        self.assertTrue(rr.close_task(task_id, reason))
+        self.assertFalse(rr.close_task(task_id, reason))
+        entry = json.loads(self.registry.read_text(encoding="utf-8"))[task_id]
+        self.assertEqual(entry["status"], "superseded")
+        self.assertEqual(entry["closure_reason"], reason)
+        self.assertEqual(entry["closed_from_status"], "needs_review")
+        self.assertEqual(entry["lifecycle_closed_by"], "chrono-explicit")
+        self.assertTrue(entry["lifecycle_closed_at"])
+        self.assertEqual(len(entry["closure_history"]), 1)
+        self.assertEqual(entry["closure_history"][0]["reason"], reason)
+        with self.assertRaisesRegex(ValueError, "already terminal"):
+            rr.close_task(task_id, "different reason")
 
 
 if __name__ == "__main__":

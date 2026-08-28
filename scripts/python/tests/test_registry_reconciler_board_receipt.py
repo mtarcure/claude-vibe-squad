@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import time
@@ -185,6 +186,76 @@ class BoardReceiptSettlementTests(unittest.TestCase):
             for patcher in patchers:
                 stack.enter_context(patcher)
             yield
+
+    def test_pruner_apply_retains_unresolved_board_receipt(self) -> None:
+        """The deferred event needs its pass-one receipt to survive pass two."""
+
+        task_id = "TASK-2026-08-26-1210-unresolved-receipt"
+        attempt_id = "d-" + "9" * 32
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state = root / "_state"
+            registry_path = state / "active-tasks.json"
+            (state / "board-worktrees").mkdir(parents=True)
+            entry = self._v2_entry(task_id, attempt_id, status="blocked")
+            registry_path.write_text(
+                json.dumps({task_id: entry}) + "\n", encoding="utf-8"
+            )
+            descriptor = self._write_v2_descriptor(state, task_id, attempt_id)
+            receipt = self._write_v2_receipt(
+                descriptor,
+                completed_at="2026-01-01T00:00:00Z",
+                terminal_outcome="failed",
+            )
+            entry["terminal_receipt_path"] = str(receipt.relative_to(root))
+            registry_path.write_text(
+                json.dumps({task_id: entry}) + "\n", encoding="utf-8"
+            )
+            os.utime(receipt, (1, 1))
+
+            # Run the production pruner source through its destructive branch
+            # in an isolated vault. Redirect its one host-global scratch root
+            # so this regression cannot touch another lane's /tmp state.
+            pruner_source = (ROOT / "bin/prune-board-worktrees.sh").read_text(
+                encoding="utf-8"
+            )
+            scratch_literal = 'pathlib.Path("/tmp/vs")'
+            self.assertIn(scratch_literal, pruner_source)
+            pruner_source = pruner_source.replace(
+                scratch_literal,
+                'pathlib.Path("_state/test-board-scratch")',
+                1,
+            )
+            fixture_pruner = root / "bin/prune-board-worktrees.sh"
+            fixture_pruner.parent.mkdir(parents=True)
+            fixture_pruner.write_text(pruner_source, encoding="utf-8")
+            fixture_helper = root / "shared/repo-root.sh"
+            fixture_helper.parent.mkdir(parents=True)
+            fixture_helper.write_bytes((ROOT / "shared/repo-root.sh").read_bytes())
+            fixture_dispatch_log = root / "scripts/python/dispatch_log.py"
+            fixture_dispatch_log.parent.mkdir(parents=True)
+            fixture_dispatch_log.write_bytes(
+                (ROOT / "scripts/python/dispatch_log.py").read_bytes()
+            )
+
+            environment = os.environ.copy()
+            environment["VAULT_ROOT"] = str(root)
+            applied = subprocess.run(
+                ["bash", str(fixture_pruner), "--apply"],
+                cwd=root,
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(applied.returncode, 0, applied.stderr)
+            self.assertIn("pruned 0", applied.stdout)
+            self.assertTrue(
+                receipt.is_file(),
+                "pruner deleted an unresolved receipt required by the next "
+                f"reconcile pass\nstdout={applied.stdout}\nstderr={applied.stderr}",
+            )
 
     def test_blocked_receipt_closes_unpromoted_worktree_response_and_releases_scope(
         self,
@@ -1514,15 +1585,25 @@ class PreservedWorkSurfacingTests(unittest.TestCase):
                 side_effect=lambda *args: emitted.append(args) or True,
             ):
                 reconciler.reconcile(task_id, dry_run=False)
+                first = json.loads(registry_path.read_text(encoding="utf-8"))[
+                    task_id
+                ]
+                self.assertEqual(first["status"], "blocked")
+                # The receipt status is recorded first; the one operator event
+                # is emitted only once the existing second pass records its
+                # close disposition.
+                reconciler.reconcile(task_id, dry_run=False)
+                reconciler.reconcile(task_id, dry_run=False)
 
             entry = json.loads(registry_path.read_text(encoding="utf-8"))[task_id]
-            self.assertEqual(entry["status"], "blocked")
+            self.assertEqual(entry["status"], "closed")
             # The registry keeps the durable record...
             self.assertEqual(entry["terminal_receipt_evidence_ref"], self.REF)
             self.assertEqual(entry["terminal_receipt_evidence_commit"], self.COMMIT)
             # ...and the operator-facing nudge states it, which is the part that
             # was missing while the data sat in the receipt unread.
-            self.assertTrue(emitted, "no notification was emitted at all")
+            self.assertEqual(len(emitted), 1, emitted)
+            self.assertEqual(emitted[0][0], "AUTO-CLOSED")
             summary, nudge = emitted[0][2], emitted[0][3]
             self.assertIn(self.REF, nudge)
             self.assertIn(self.COMMIT, nudge)

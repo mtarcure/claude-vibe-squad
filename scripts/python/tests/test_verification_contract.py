@@ -50,12 +50,10 @@ class VerificationContractTests(unittest.TestCase):
         run_prefix = {
             "project": "PRJ",
             "bounty": "BTY",
-            "advisory": "ADV",
         }.get(mode, "UNK")
         capability_id = {
             "project": "project/web-app",
             "bounty": "bounty/authorized-red-team",
-            "advisory": "advisory/second-opinion",
         }.get(mode, "unknown/mode")
         return {
             "task_id": "TASK-TEST-001",
@@ -126,17 +124,10 @@ class VerificationContractTests(unittest.TestCase):
                 "anti_affinity": "author_family",
                 "subject": "plan_sha256",
             }
-        else:
-            verification_kinds = ["artifact_written"]
-            bounty_policy = None
-            required_phase_ids = []
-            memory_policy = {"recall": "optional", "record": "optional"}
-            plan_review_policy = {"required": False}
-        run_prefix = {"project": "PRJ", "bounty": "BTY", "advisory": "ADV"}[mode]
+        run_prefix = {"project": "PRJ", "bounty": "BTY"}[mode]
         capability_id = {
             "project": "project/web-app",
             "bounty": "bounty/authorized-red-team",
-            "advisory": "advisory/second-opinion",
         }[mode]
         contract = {
             "contract_version": CONTRACT_VERSION,
@@ -177,15 +168,6 @@ class VerificationContractTests(unittest.TestCase):
             "external_delivery_policy": {"allowed": False},
             "bounty_policy": bounty_policy,
         }
-        if mode == "advisory":
-            for project_or_bounty_key in (
-                "deliverable_review_policy",
-                "artifact_policy",
-                "action_log_policy",
-                "iteration_policy",
-                "bounty_policy",
-            ):
-                contract.pop(project_or_bounty_key)
         return contract
 
     def test_canonical_hash_is_key_order_independent_and_value_sensitive(self) -> None:
@@ -217,35 +199,6 @@ class VerificationContractTests(unittest.TestCase):
                     self.expected_contract(mode=mode, result_type=result_type),
                 )
 
-    def test_advisory_derives_minimal_contract(self) -> None:
-        contract = derive_verification_contract(self.admission(mode="advisory"))
-
-        self.assertEqual(
-            contract,
-            self.expected_contract(mode="advisory", result_type="normal"),
-        )
-        self.assertEqual(contract["required_verification_kinds"], ["artifact_written"])
-        self.assertEqual(contract["required_phase_ids"], [])
-        self.assertEqual(contract["plan_review_policy"], {"required": False})
-        self.assertEqual(
-            contract["memory_policy"],
-            {"recall": "optional", "record": "optional"},
-        )
-        self.assertNotIn("bounty_policy", contract)
-        self.assertNotIn("deliverable_review_policy", contract)
-        self.assertNotIn("artifact_policy", contract)
-        self.assertNotIn("action_log_policy", contract)
-        self.assertNotIn("iteration_policy", contract)
-
-    def test_advisory_rejects_non_normal_result_type(self) -> None:
-        with self.assertRaisesRegex(
-            ContractError,
-            "Advisory supports only result_type normal",
-        ):
-            derive_verification_contract(
-                self.admission(mode="advisory", result_type="dry_run")
-            )
-
     def test_lane_map_is_closed_and_pinned(self) -> None:
         cases = {
             "claude": "claude",
@@ -266,25 +219,17 @@ class VerificationContractTests(unittest.TestCase):
         with self.assertRaises(ContractError):
             derive_verification_contract(admission)
 
-    def test_swarm_is_a_first_class_dispatch_kind(self) -> None:
-        admission = self.admission()
-        admission["dispatch_kind"] = "swarm"
-        contract = derive_verification_contract(admission)
-        self.assertEqual(contract["dispatch_kind"], "swarm")
-        self.assertEqual(validate_verification_contract(contract), contract)
+    def test_removed_transport_dispatch_kinds_are_rejected(self) -> None:
+        for dispatch_kind in ("panel", "swarm", "fanout"):
+            with self.subTest(dispatch_kind=dispatch_kind):
+                admission = self.admission()
+                admission["dispatch_kind"] = dispatch_kind
+                with self.assertRaisesRegex(ContractError, "dispatch_kind must be single"):
+                    derive_verification_contract(admission)
 
-        admission["dispatch_kind"] = "fanout"
-        with self.assertRaisesRegex(ContractError, "single, panel, or swarm"):
-            derive_verification_contract(admission)
-
-    def test_swarm_child_cannot_weaken_review_memory_or_external_policy(self) -> None:
-        admission = self.admission()
-        admission["dispatch_kind"] = "swarm"
-        baseline = derive_verification_contract(admission)
+    def test_contract_cannot_weaken_memory_or_external_policy(self) -> None:
+        baseline = derive_verification_contract(self.admission())
         mutations = {
-            "review": lambda contract: contract["deliverable_review_policy"].update(
-                required=False
-            ),
             "memory": lambda contract: contract["memory_policy"].update(
                 recall="optional"
             ),
@@ -341,15 +286,6 @@ class VerificationContractTests(unittest.TestCase):
         self.assertIs(contract["deliverable_review_policy"]["required"], True)
         self.assertEqual(validate_verification_contract(contract), contract)
 
-    def test_swarm_forces_review_required_even_if_admission_says_false(self) -> None:
-        # A swarm member is always reviewed; it cannot opt out via the admission,
-        # which keeps the anti-tamper invariant of the swarm-weaken test intact.
-        admission = self.admission()
-        admission["dispatch_kind"] = "swarm"
-        admission["review_required"] = False
-        contract = derive_verification_contract(admission)
-        self.assertIs(contract["deliverable_review_policy"]["required"], True)
-
     def test_review_required_must_be_boolean(self) -> None:
         admission = self.admission()
         admission["review_required"] = "yes"
@@ -376,71 +312,43 @@ class VerificationContractTests(unittest.TestCase):
         # The reviewer-rejected circularity: recovering `required` from the
         # object under check let a downgrade with a recomputed adjacent hash
         # self-authenticate. With the trusted expectation supplied, the
-        # downgrade is rejected for single AND panel. Without an expectation
+        # downgrade is rejected for a single-task contract. Without an expectation
         # the validator can only check internal consistency -- that residual is
         # pinned below on purpose, and it is why dispatch admission separately
         # compares the packet contract to the locked registry pin
         # (dispatch_context_builder.require_registry_contract_pin).
-        for dispatch_kind in ("single", "panel"):
-            with self.subTest(dispatch_kind=dispatch_kind):
-                admission = self.admission()
-                admission["dispatch_kind"] = dispatch_kind
-                admitted = derive_verification_contract(admission)
-                self.assertIs(admitted["deliverable_review_policy"]["required"], True)
+        admission = self.admission()
+        admitted = derive_verification_contract(admission)
+        self.assertIs(admitted["deliverable_review_policy"]["required"], True)
 
-                tampered = json.loads(json.dumps(admitted))
-                tampered["deliverable_review_policy"]["required"] = False
-                # Internal-consistency-only validation accepts the tamper: this
-                # assertion documents the boundary the grounding exists for,
-                # not a desired property.
-                self.assertEqual(validate_verification_contract(tampered), tampered)
-                with self.assertRaisesRegex(ContractError, "deliverable_review_policy"):
-                    validate_verification_contract(
-                        tampered, expected_review_required=True
-                    )
+        tampered = json.loads(json.dumps(admitted))
+        tampered["deliverable_review_policy"]["required"] = False
+        # Internal-consistency-only validation accepts the tamper: this
+        # assertion documents the boundary the grounding exists for,
+        # not a desired property.
+        self.assertEqual(validate_verification_contract(tampered), tampered)
+        with self.assertRaisesRegex(ContractError, "deliverable_review_policy"):
+            validate_verification_contract(tampered, expected_review_required=True)
 
-                # A legitimate False -- one the trusted admission was actually
-                # created with -- still validates, so the mechanism stays
-                # usable once the producer starts passing the trigger decision.
-                legitimate_admission = self.admission()
-                legitimate_admission["dispatch_kind"] = dispatch_kind
-                legitimate_admission["review_required"] = False
-                legitimate = derive_verification_contract(legitimate_admission)
-                self.assertIs(
-                    legitimate["deliverable_review_policy"]["required"], False
-                )
-                self.assertEqual(
-                    validate_verification_contract(
-                        legitimate, expected_review_required=False
-                    ),
-                    legitimate,
-                )
-                with self.assertRaisesRegex(ContractError, "deliverable_review_policy"):
-                    validate_verification_contract(
-                        legitimate, expected_review_required=True
-                    )
+        # A legitimate False -- one the trusted admission was actually
+        # created with -- still validates, so the mechanism stays usable once
+        # the producer starts passing the trigger decision.
+        legitimate_admission = self.admission()
+        legitimate_admission["review_required"] = False
+        legitimate = derive_verification_contract(legitimate_admission)
+        self.assertIs(legitimate["deliverable_review_policy"]["required"], False)
+        self.assertEqual(
+            validate_verification_contract(
+                legitimate, expected_review_required=False
+            ),
+            legitimate,
+        )
+        with self.assertRaisesRegex(ContractError, "deliverable_review_policy"):
+            validate_verification_contract(
+                legitimate, expected_review_required=True
+            )
         with self.assertRaisesRegex(ContractError, "expected_review_required"):
             validate_verification_contract(admitted, expected_review_required=1)
-
-    def test_swarm_review_stays_forced_regardless_of_expectation(self) -> None:
-        admission = self.admission()
-        admission["dispatch_kind"] = "swarm"
-        contract = derive_verification_contract(admission)
-        self.assertIs(contract["deliverable_review_policy"]["required"], True)
-        # A trusted expectation of False cannot weaken a swarm member: the
-        # re-derivation forces True before the equality check runs.
-        self.assertEqual(
-            validate_verification_contract(contract, expected_review_required=False),
-            contract,
-        )
-        tampered = json.loads(json.dumps(contract))
-        tampered["deliverable_review_policy"]["required"] = False
-        for expectation in (None, False):
-            with self.subTest(expectation=expectation):
-                with self.assertRaises(ContractError):
-                    validate_verification_contract(
-                        tampered, expected_review_required=expectation
-                    )
 
     def test_invalid_admissions_are_rejected(self) -> None:
         mutations = {

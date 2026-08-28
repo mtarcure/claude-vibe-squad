@@ -2,12 +2,12 @@
 
 # Vibe Squad
 
-**One coordinator. Four model families. Sixty-eight specialists, all written in Markdown you can read and edit.**
+**One coordinator. Four model families. Seventy specialists, all written in Markdown you can read and edit.**
 
 ![models](https://img.shields.io/badge/models-Codex%20%C2%B7%20Claude%20%C2%B7%20Gemini%20%C2%B7%20Kimi-informational)
 ![license](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![orchestration](https://img.shields.io/badge/orchestration-native%20CLIs%20%C2%B7%20isolated%20worktrees-success)
-![version](https://img.shields.io/badge/version-v1.1.2-blue)
+![version](https://img.shields.io/badge/version-v1.1.3-blue)
 
 <br>
 
@@ -90,7 +90,7 @@ You ask in plain language. Chrono maps it into exactly one of two workflows.
 - **[Project](shared/modes/project.md)** covers software, research, content and media, operations, and learning. Its lifecycle is scope → plan → build → verify → review when required → deliver → remember.
 - **[Bounty](shared/modes/bounty.md)** covers authorized offensive-security work: verified scope before hunting, and reproduced, negative-controlled impact evidence before anything is called a finding. Those are rules the mode places on Chrono and the specialists, not a launch interlock; no code blocks a bounty dispatch from starting. The end-of-run verifier refuses to close a run whose manifest does not declare a scope gate, an exact target allowlist with every declared target inside it, and a cross-family reproduction with a hash-bound evidence file per finding. It checks those declarations and the evidence hashes. It does not judge the evidence.
 
-Project and Bounty are the modes. Panels, swarms, and triage are dispatch techniques, not extra modes.
+Project and Bounty are the modes. Triage is a dispatch technique, not an extra mode; parallel work is just several independently dispatched single tasks, not a special "panel" or "swarm" transport.
 
 ## How it works
 
@@ -112,11 +112,13 @@ flowchart LR
 
 ## Specialists and dispatch
 
-Sixty-eight specialist briefs live under `departments/` and `shared/specialists/`, and every one of them is validated on every push by CI — and on every commit too, once you enable the tracked pre-commit hook with `git config core.hooksPath .githooks` (see the Quickstart; it is opt-in per clone and never set for you). A brief is prose: what the role is for, how it should think, what it must refuse. Adding a specialist means writing Markdown, not registering a class.
+Seventy specialist briefs live under `departments/` and `shared/specialists/`, and every one of them is validated on every push by CI — and on every commit too, once you enable the tracked pre-commit hook with `git config core.hooksPath .githooks` (see the Quickstart; it is opt-in per clone and never set for you). A brief is prose: what the role is for, how it should think, what it must refuse. Adding a specialist means writing Markdown, not registering a class.
 
 Dispatch is a Markdown packet with YAML frontmatter: which specialist, which model, what it may read, what it may write, what counts as done. The packet is the contract. Workers never talk to each other, and never to you. They write one artifact and one completion envelope, and the coordinator integrates the result.
 
 That mailbox shape is deliberate. It is what makes a run reconstructable after the fact, and what lets a failed lane be diagnosed from its packet and receipt rather than from a transcript.
+
+Open work that outlives a single conversation is tracked on one append-only workboard, so an item raised and not yet finished is continued on the next request rather than lost when a thread closes.
 
 ## Memory that compounds
 
@@ -134,6 +136,8 @@ Utility services are separate. Memory, research, sequential thinking, security t
 
 One rule governs all of it: **a configured tool is not a working tool until a live probe says so.** Declared, delivered, and actual are three different things, and only actual counts.
 
+That probe is [`bin/canary.sh`](bin/canary.sh). It reports **PASS**, **FAIL**, or **NOT MEASURED** — it never lets "did not run" pass for "works" — and its `--self-test` breaks each capability against a fixture to prove the probe fails when the capability does. The [MCP surface a board-spawned worker actually receives](docs/board-mcp-surface.md) is enumerated live at probe time, not read from a config file. See [`CHANGELOG.md`](CHANGELOG.md) for what changed across releases.
+
 ## Independent review without review theater
 
 Every specialist has a route to a reviewer from another model family. Review is mandatory for security- and judgment-critical work. Ordinary low-risk work does not pretend that every task needs a committee.
@@ -146,7 +150,7 @@ Research on model self-correction and heterogeneous verification motivates this 
 
 Evidence is labeled by what it actually proves.
 
-- **Locally tested:** 1,903 tests cover dispatch, atomic publication, process and receipt fencing, cancellation, cleanup, vault recall and promotion, and public-export leak gates. The roster validator checks all 68 specialist briefs on every commit.
+- **Locally tested:** 1,903 tests cover dispatch, atomic publication, process and receipt fencing, cancellation, cleanup, vault recall and promotion, and public-export leak gates. The roster validator checks all 70 specialist briefs on every commit.
 - **Live-probed on the maintainer setup:** all four native CLIs have completed bounded probes. Tool availability is lane-specific, and a config entry or a successful `--version` is not liveness.
 - **Compared before adoption:** larger policy engines and parallel receipt frameworks were prototyped, then removed or deferred when they added more machinery than value. An early memory-aperture prototype was removed on the same grounds; apertures returned later, once dispatch had a real read policy to enforce.
 - **Research-informed:** published work shapes cross-family review and the memory experiments. It is not offered as proof of this implementation.
@@ -166,11 +170,31 @@ The repository carries a large adversarial test suite because process boundaries
 
 ## Project status
 
-**v1.1.2** is the current release; **v1.1.1** was the first public one. The maintainer installation is an active daily driver, and the release gate behind this tag included a fresh-clone rehearsal, exact-docs checks, native-CLI and tool probes, private-data leak scans, and an independent cross-family skeptic pass that had to re-execute every load-bearing claim rather than read it.
+**v1.1.3** is the current release; **v1.1.1** was the first public one. The maintainer installation is an active daily driver, and the release gate behind this tag included a fresh-clone rehearsal, exact-docs checks, native-CLI and tool probes, private-data leak scans, and an independent cross-family skeptic pass that had to re-execute every load-bearing claim rather than read it.
 
 This README describes what is verified today. The **Not yet claimed** items above are real open gates.
 
 Start with the [documentation index](docs/README.md), read the [architecture](docs/architecture.md), or see how to [add a specialist](docs/adding-a-specialist.md).
+
+## What changed in v1.1.3
+
+The simplification release. Full detail in [CHANGELOG.md](CHANGELOG.md) — this is the shape of it:
+
+- **Removed the fan-out and swarm dispatch transports** (~5,500 deletions) and the `advisory` mode.
+  Chrono dispatches parallel lanes directly and specialists already fan out via subagents, which is
+  what the transports duplicated.
+- **One source of truth for work state.** A single parser, projection, validator and entry point; the
+  live plan now lives in an append-only workboard whose validator refuses an entry without a reason
+  and a resume point.
+- **Notifications and settlement.** Duplicate operator notifications collapsed on both paths, and
+  review settlement derives its provenance from the registry rather than trusting the reviewer's own
+  frontmatter.
+- **Guards that were live but untested are now pinned** with mutation-proven tests — including the
+  cross-family review check, which a one-line change could have disabled while the whole suite stayed
+  green.
+- **Live capability probes.** `bin/canary.sh` exercises dispatch, the orchestrator↔specialist round
+  trip, skills, memory and artifact placement with real actions, reporting `PASS` / `FAIL` /
+  `NOT MEASURED` — and its `--self-test` proves each probe fails when its capability breaks.
 
 ## Contributing and license
 

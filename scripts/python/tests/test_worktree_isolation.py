@@ -195,6 +195,38 @@ class WorktreePoolTests(unittest.TestCase):
             listed = _git(["worktree", "list", "--porcelain"], cwd=repo).stdout
             self.assertNotIn(str(worktree_path), listed)
 
+    def test_release_sweeps_ignored_in_scope_evidence_before_removal(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo = _init_repo(root)
+            (repo / ".gitignore").write_text("_state/\n", encoding="utf-8")
+            _git(["add", ".gitignore"], cwd=repo)
+            _git(["commit", "-q", "-m", "ignore runtime state"], cwd=repo)
+            pool = wti.WorktreePool(repo, root / "pool", base_branch="v2")
+            handle = pool.provision(
+                "TASK-2026-07-22-0007-release-evidence",
+                "d-" + "7" * 32,
+            )
+            ledger = handle.worktree_root / "_state" / "lane-ledger.md"
+            ledger.parent.mkdir(parents=True)
+            ledger.write_text("durable lane evidence\n", encoding="utf-8")
+
+            receipt = wti.integrate_worktree_commits(
+                handle, ("_state/lane-ledger.md",)
+            )
+            self.assertEqual(receipt.status, "no-committed-in-scope-changes")
+            with self.assertRaisesRegex(
+                wti.WorktreeIsolationError, "pre-release evidence sweep retained"
+            ):
+                pool.release(handle)
+
+            self.assertTrue(handle.worktree_root.is_dir())
+            preserved = _git(
+                ["show", f"refs/heads/{handle.branch}:_state/lane-ledger.md"],
+                cwd=repo,
+            ).stdout
+            self.assertEqual(preserved, "durable lane evidence\n")
+
     def test_high_assurance_provisioning_requires_dedicated_volume_attestation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -5,9 +5,12 @@ import re
 import shutil
 import subprocess
 import tempfile
+import sys
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import runner_python  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[3]
 RUNNER = ROOT / "bin" / "test"
@@ -107,7 +110,10 @@ class UnifiedTestRunnerContractTests(unittest.TestCase):
             env.update(
                 {
                     "PATH": temp_dir,
-                    "PYTHON_BIN": os.path.realpath(os.sys.executable),
+                    # The version gate runs BEFORE the -O gate, so handing the
+                    # runner the (possibly 3.14) interpreter running this suite
+                    # would assert nothing about PYTHONOPTIMIZE at all.
+                    "PYTHON_BIN": runner_python.require_runner_python(self, ROOT),
                     "PYTHONOPTIMIZE": "1",
                     "SQUAD_CI_HOST_INDEPENDENT": "1",
                 }
@@ -130,7 +136,7 @@ class UnifiedTestRunnerContractTests(unittest.TestCase):
         env = os.environ.copy()
         env.update(
             {
-                "PYTHON_BIN": os.path.realpath(os.sys.executable),
+                "PYTHON_BIN": runner_python.require_runner_python(self, ROOT),
                 "SQUAD_RUNNER_TEST_HOST_PREFLIGHT": "deny-loopback",
             }
         )
@@ -240,6 +246,24 @@ class UnifiedTestRunnerContractTests(unittest.TestCase):
         self.assertIn('UV_CACHE_DIR="${UV_CACHE_DIR:-${TMPDIR:-/tmp}/uv-cache}"', runner)
         self.assertIn("dependency:command:uv-or-python3.13", runner)
         self.assertIn("MOAT_NODE_MODULES", runner)
+
+    def test_supported_python_pin_is_mirrored_from_the_runner(self) -> None:
+        """`runner_python` copies bin/test's version guard; keep them identical.
+
+        One fact, one home: bin/test owns the pin, this asserts the copy has not
+        drifted. Without it, moving the runner to 3.14 would leave the helper
+        skipping every suite it is supposed to enable, silently.
+        """
+        runner = RUNNER.read_text(encoding="utf-8")
+        self.assertIn(
+            r'if [[ ! "$PYTHON_VERSION" =~ ^3\.13\.[0-9]+$ ]]; then',
+            runner,
+        )
+        self.assertEqual(
+            runner_python.SUPPORTED_VERSION_RE.pattern, r"^3\.13\.[0-9]+$"
+        )
+        self.assertIsNone(runner_python.SUPPORTED_VERSION_RE.fullmatch("3.14.6"))
+        self.assertIsNotNone(runner_python.SUPPORTED_VERSION_RE.fullmatch("3.13.0"))
 
     def test_private_projection_suite_has_an_explicit_na_contract(self) -> None:
         runner = RUNNER.read_text(encoding="utf-8")

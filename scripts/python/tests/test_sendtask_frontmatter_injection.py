@@ -83,7 +83,7 @@ class SendTaskFrontmatterInjectionTests(unittest.TestCase):
             "compatibility_namespace": "coding",
             "parallel_safe": "true",
             "direct_lane_work_allowed": "true",
-            "write_scope": "[_state/cc04/]",
+            "write_scope": "[_state/cc04/out.md]",
             "return_artifact": "_state/cc04/out.md",
         }
         fields.update(overrides)

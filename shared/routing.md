@@ -12,7 +12,7 @@ Markdown is the interface. Chrono writes task packets; model leads execute them;
 
 Routing is chosen **per specialist on capability**, never by folder location.
 
-- `source_namespace` — where the specialist markdown lives (`coding | security | content | sysmgmt | research | shared`). A **mailbox label only. It never chooses the model.**
+- `source_namespace` — where the specialist markdown lives (`coding | security | content | sysmgmt | research | shared`). A **role/specialist-location label. It is not the mailbox (see `compatibility_namespace` below) and never chooses the model.**
 - `compatibility_namespace` — which `departments/<namespace>/` mailbox stores the task packet.
 - `to_model` — which model/CLI vehicle executes the task, taken from the specialist's row in the runtime map. Each dispatch spawns a fresh CLI of that model; there are no persistent lane windows.
 - Folder location, namespace, and mailbox never determine model choice. Two specialists in the same namespace can run on different lanes; the same capability class can span namespaces.
@@ -22,7 +22,7 @@ Routing is chosen **per specialist on capability**, never by folder location.
 Every specialist row carries a full chain, resolved from the profile registry:
 
 - `primary_lane` + `primary_profile` — the best-fit lane for the work.
-- `backup_lane` + `backup_profile` — a genuine second-best, **cross-family** on capability (different provider from primary), available only for a manually authored operator/Chrono board redispatch after an operational failure.
+- `backup_lane` + `backup_profile` — a genuine second-best, **cross-family** on capability (different provider from primary).
 - `escalate_lane` + `escalate_profile` — the stronger variant/effort, engaged by `escalation_policy`.
 - `review_lane` + `review_profile` — a separate provider-family reviewer lane. Every `mandatory_review: true` packet must preserve `anti_affinity: author_family`; same-lane self-review never satisfies it.
 - `throughput_lane` + `throughput_profile` + `throughput_policy` — the bulk/downshift route, gated (see §5).
@@ -132,18 +132,19 @@ Explicit operator approval is required by policy for every `operator_gate` actio
 - Per-specialist rows: `shared/specialist-runtime-map.tsv` (machine source of truth).
 - Mode workflows: `shared/modes/*.md`.
 
-## 9. Dispatch shapes
+## 9. Dispatch shape
 
 - **Single:** one specialist, one lane, one task and artifact.
-- **Panel:** one lane coordinator asks multiple specialists to assess one objective; local members have no mailbox delivery identity.
-- **Fan-out:** one lane runs the same specialist over distinct assignments; it remains a panel variant and continues to coexist with swarm.
-- **Swarm:** the same specialist and objective are independently delivered to multiple model lanes. Each child has its own packet, claim, verification contract, artifact, sidecar, registry record, and response; a controller parent creates a deterministic agreement/divergence/lane-only diff.
 
-These are shapes, not modes: every one runs under `project` or `bounty`. There is no `shared/modes/panel.md` and there should not be — the panel/fan-out coordinator protocol is injected into the packet by `bin/send-task.sh` at dispatch time, and that injected block is its complete specification.
-
-Swarm is system-wide but requires a same-name adapter on every selected lane. It is read-only in v1, cannot nest with panel/fan-out, never majority-votes, and always remains `needs_review` until an explicit review settles the frozen swarm bundle. See `shared/finding-taxonomy.md`.
+Every board dispatch is a single packet with its own registry record, artifact, response, and verification
+contract. Cross-lane comparison is controller-authored as multiple ordinary single packets. When those packets
+must prove they answered the same frozen question, the controller may stamp the same general
+`swarm_spec_sha256` provenance pin on each; the pin creates no parent record, child transport, or synthetic diff.
 
 ## 10. Selection discipline (which specialist, not just which lane)
+
+After choosing the specialist, choose its execution lane by the ranked-availability rule owned by
+`chrono/CLAUDE.md` § Dispatch.
 
 The dispatcher enforces the map; the recurring failure is *selecting* the wrong specialist. These rules are canonical (the full task-shape table lives in `shared/specialists/triage.md`):
 

@@ -72,6 +72,7 @@ Generated from `shared/specialist-runtime-map.tsv`. The TSV is the routing sourc
 - `research` (source: `research`, review: `claude`, safety: `medium`)
 - `social-strategist` (source: `content`, review: `claude`, safety: `medium`)
 - `sound-designer` (source: `content`, review: `claude`, safety: `low`)
+- `vega` (source: `shared`, review: `gpt-codex`, safety: `medium`)
 - `video-director` (source: `content`, review: `claude`, safety: `medium`)
 - `video-editor` (source: `content`, review: `claude`, safety: `low`)
 - `voice-agent-builder` (source: `content`, review: `claude`, safety: `high`)
@@ -80,5 +81,6 @@ Generated from `shared/specialist-runtime-map.tsv`. The TSV is the routing sourc
 ## Kimi
 
 - `experimental-attacker` (source: `security`, review: `gpt-codex`, safety: `high`)
+- `kestrel` (source: `shared`, review: `gpt-codex`, safety: `medium`)
 - `large-context-analyst` (source: `research`, review: `gpt-codex`, safety: `medium`)
 - `summarizer` (source: `shared`, review: `gpt-codex`, safety: `low`)

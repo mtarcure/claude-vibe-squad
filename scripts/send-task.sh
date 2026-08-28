@@ -3,7 +3,11 @@
 #
 # Usage:
 #   REVIEW_TRIGGERS='[blast_radius]' bash scripts/send-task.sh \
-#       <source-namespace> <body-file> <specialist> [to-model]
+#       <source-namespace> <body-file> <specialist> [to-model] \
+#       --mode <project|bounty> [--dry-run]
+#
+#   --mode is required. The wrapper writes that exact operator-approved value
+#     into packet frontmatter and never supplies a default.
 #
 #   WRITE_SCOPE="path/a, path/b"  — extra writable paths, appended to the response
 #     artifact. Without this the wrapper could only ever author read-only packets,
@@ -29,10 +33,11 @@ RUNTIME_MAP="${VAULT_ROOT}/shared/specialist-runtime-map.tsv"
 source "${VAULT_ROOT}/shared/lead-windows.sh"
 
 if [[ $# -lt 3 ]]; then
-    echo "usage: $0 <source-namespace> <body-file> <specialist> [to-model]"
+    echo "usage: $0 <source-namespace> <body-file> <specialist> [to-model] --mode <project|bounty> [--dry-run]"
     echo "  source-namespace: ${COMPATIBILITY_NAMESPACES[*]}"
     echo "  body-file: path to markdown file containing task body"
     echo "  specialist: canonical specialist name, or none only when direct_lane_work_allowed is intentionally true"
+    echo "  --mode: required operator-approved packet mode; no default is supplied"
     exit 1
 fi
 
@@ -40,11 +45,61 @@ COMPAT_NAMESPACE="$1"
 SOURCE_NAMESPACE="$1"
 BODY_FILE="$2"
 SPECIALIST="$3"
-TO_MODEL="${4:-}"
+shift 3
+
+TO_MODEL=""
+MODE=""
+DRY_RUN="false"
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --mode)
+            [[ $# -ge 2 ]] || {
+                echo "ERROR: --mode requires project or bounty"
+                exit 1
+            }
+            [[ -z "${MODE}" ]] || {
+                echo "ERROR: --mode may be specified only once"
+                exit 1
+            }
+            MODE="$2"
+            shift 2
+            ;;
+        --dry-run)
+            DRY_RUN="true"
+            shift
+            ;;
+        --*)
+            echo "ERROR: unknown option: $1"
+            exit 1
+            ;;
+        *)
+            [[ -z "${TO_MODEL}" ]] || {
+                echo "ERROR: unexpected argument: $1"
+                exit 1
+            }
+            TO_MODEL="$1"
+            shift
+            ;;
+    esac
+done
+
+if [[ -z "${MODE}" ]]; then
+    echo "ERROR: missing required --mode <project|bounty>; the wrapper will not invent packet field 'mode'"
+    exit 1
+fi
+case "${MODE}" in
+    project|bounty) ;;
+    *)
+        echo "ERROR: invalid --mode '${MODE}'; expected project or bounty"
+        exit 1
+        ;;
+esac
+
 # An explicit 4th-arg lane must survive the runtime-map lookup below; without
 # this the documented [to-model] override was silently discarded (failover
 # to a backup lane was impossible from this wrapper).
-EXPLICIT_MODEL="${4:-}"
+EXPLICIT_MODEL="${TO_MODEL}"
 
 if [[ ! -f "${BODY_FILE}" ]]; then
     echo "ERROR: body file not found: ${BODY_FILE}"
@@ -112,10 +167,6 @@ if [[ "$review_triggers_compact" != "[]" ]]; then
     REVIEW_MODEL="$MAPPED_REVIEW_MODEL"
 fi
 
-# This convenience wrapper authors ordinary project packets. Bounty packets use
-# the prepared-packet path so their operator-approved contract stays explicit.
-MODE="project"
-
 if [[ ! -x "${HARDENED_DISPATCH}" ]]; then
     echo "ERROR: hardened dispatcher not executable: ${HARDENED_DISPATCH}"
     exit 1
@@ -181,7 +232,12 @@ EOF
 
 sync "${TASK_FILE}" 2>/dev/null || true
 
-VAULT_ROOT="${VAULT_ROOT}" "${HARDENED_DISPATCH}" "${TASK_FILE}"
+echo "  Packet mode: ${MODE}"
+DISPATCH_ARGS=("${TASK_FILE}")
+if [[ "${DRY_RUN}" == "true" ]]; then
+    DISPATCH_ARGS+=(--dry-run)
+fi
+VAULT_ROOT="${VAULT_ROOT}" "${HARDENED_DISPATCH}" "${DISPATCH_ARGS[@]}"
 
 echo "  File: ${VAULT_ROOT}/departments/${COMPAT_NAMESPACE}/inbox/${TASK_ID}.md"
 echo "  Reply expected at: ${VAULT_ROOT}/departments/${COMPAT_NAMESPACE}/outbox/${TASK_ID}-response.md"

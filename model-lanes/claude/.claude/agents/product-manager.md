@@ -4,7 +4,7 @@ description: "Product shape, requirements, scope, and acceptance criteria. Condu
 model: inherit
 # BEGIN SPECIALIST CAPABILITY PROJECTION
 capability_source: model-lanes/specialist-lane-capabilities.v1.json
-capability_source_sha256: 8896231493565c6530a07ba6ef536050aaa08b67ca03851ce6b8bde8feed4ca6
+capability_source_sha256: ca051c9cb4b7902b924dc72b7de6ae194f0b7ced70309de35c21b8afb1397bf1
 skills: ["code-review-loop","requirements-elicitation","review-severity-ladder","scope-decomposition","systematic-debugging","test-driven-development","verification-before-completion"]
 mcps: ["chrono-research-arsenal","chrono-vault","sequential-thinking"]
 # END SPECIALIST CAPABILITY PROJECTION

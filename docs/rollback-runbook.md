@@ -1,178 +1,9 @@
 # Rollback runbook (P11.7)
 
-**Re-measured 2026-08-11.** The evidence ledger below replaces the stale
-2026-08-09 snapshot. Each mutable claim is paired with the literal command and
-result used to check it. A live mutation still requires the applicable operator
-gate; the measurements in this revision were read-only.
-
 Rollback covers four independent surfaces: Git refs, launchd/runtime,
 repository-local state, and the private memory vault. Restore one surface at a
-time and verify it before proceeding to the next.
-
----
-
-## 0. Measurement ledger
-
-### Private Git refs
-
-Literal command (unpiped):
-
-```bash
-git tag --list
-```
-
-Result: exit 0 with 14 tags. Five of them are `rescue/TASK-…` tags naming private
-internal task identifiers; they are not rollback anchors, so their names are
-redacted here rather than reproduced. Run the command yourself to see them:
-
-```text
-archive/dispatch-smoke
-archive/mmrinv
-archive/v1-public
-pre-consolidation-2026-07-23
-rescue/TASK-<redacted>          (5 private rescue tags)
-v1.0-pre-1.1
-v1.1.0
-v1.1.1
-v3-final
-v4-baseline-2026-08-07
-```
-
-Literal command (unpiped):
-
-```bash
-git show-ref --verify refs/tags/v3-final
-```
-
-Result: exit 0:
-
-```text
-64cd32cba652481a88842a057df55756208afb0c refs/tags/v3-final
-```
-
-Literal commands (unpiped):
-
-```bash
-git rev-parse v4-baseline-2026-08-07
-git rev-parse v3-final
-```
-
-Results: exit 0, respectively:
-
-```text
-b0acdb8aff88192b14f4264ecf088b672f0c413b
-64cd32cba652481a88842a057df55756208afb0c
-```
-
-The earlier claims “13 tags” and “`v3-final` is missing” are false. There are
-14 private tags and both rollback anchors exist.
-
-### Public Git ref
-
-The public rollback anchor is `v1.1.1` at
-`53122e48fd2074ad988cdd59111f68bfe2f47437`; the earlier “zero public tags”
-claim is false. This worker could confirm that the live GitHub repository exists
-and that the local read-only `public/main` snapshot is exactly that commit, but
-the sandbox could not refresh the tag namespace directly:
-
-```bash
-git ls-remote --tags public
-```
-
-Result: exit 128, unpiped:
-
-```text
-fatal: unable to access 'https://github.com/mtarcure/claude-vibe-squad.git/': Could not resolve host: github.com
-```
-
-Because a remote lookup failed, do not rely on a copied claim during an actual
-rollback. First run this fail-closed preflight from a network-capable operator
-shell and require the expected ref/commit before changing a checkout:
-
-```bash
-git ls-remote --tags public refs/tags/v1.1.1 'refs/tags/v1.1.1^{}'
-```
-
-Expected lightweight-tag result:
-
-```text
-53122e48fd2074ad988cdd59111f68bfe2f47437	refs/tags/v1.1.1
-```
-
-If the command fails, returns no tag, or resolves the peeled tag to a different
-commit, stop. That is an unresolved remote-state discrepancy, not permission to
-create or move a public tag.
-
-### Installed and tracked launchd agents
-
-> **Partly superseded 2026-08-17.** Four labels named below no longer exist in
-> this repository — `com.vibesquad.weekly-review`,
-> `com.vibesquad.transcription-cache-ttl`, `com.vibesquad.chrono-remote` and
-> `com.chrono.chrono-vault-mcp` — because the jobs were deleted along with their
-> scripts and plists. Seven tracked plists remain in `launchd/`. Squad memory is
-> unaffected: it is spawned per session over stdio from
-> `plugins/chrono-vault/.claude-plugin/plugin.json` and never used that port.
-> The ledger below is left exactly as
-> measured on 2026-08-11: editing a recorded command result would fabricate a
-> measurement nobody took. Removing any still-loaded LaunchAgent from the live
-> session is a separate operator action, and this note records only the
-> repository side.
-
-Each command below was run directly, without a pipe:
-
-```bash
-launchctl print gui/$(id -u)/com.chrono.caffeinate
-launchctl print gui/$(id -u)/com.chrono.chrono-vault-mcp
-launchctl print gui/$(id -u)/com.chrono.dream
-launchctl print gui/$(id -u)/com.chrono.squad-monitor
-launchctl print gui/$(id -u)/com.claudevibesquad.nightly
-launchctl print gui/$(id -u)/com.vibesquad.chrome
-launchctl print gui/$(id -u)/com.vibesquad.chrono-remote
-launchctl print gui/$(id -u)/com.vibesquad.daemon
-launchctl print gui/$(id -u)/com.vibesquad.transcription-cache-ttl
-launchctl print gui/$(id -u)/com.vibesquad.weekly-review
-```
-
-Result: the nine commands other than `com.vibesquad.chrono-remote` exited 0 and
-named a plist under `~/Library/LaunchAgents`; `com.vibesquad.chrono-remote`
-exited 113 with “Could not find service”. The nine installed agents are:
-
-- `com.chrono.caffeinate`
-- `com.chrono.chrono-vault-mcp`
-- `com.chrono.dream`
-- `com.chrono.squad-monitor`
-- `com.claudevibesquad.nightly`
-- `com.vibesquad.chrome`
-- `com.vibesquad.daemon`
-- `com.vibesquad.transcription-cache-ttl`
-- `com.vibesquad.weekly-review`
-
-Literal command (unpiped):
-
-```bash
-git ls-files launchd
-```
-
-Result: exit 0 with a tracked plist for every label above, plus the tracked but
-not installed `com.vibesquad.chrono-remote.plist`. Therefore the prior “five of
-nine tracked / four untracked” claim is false: all nine installed agents are
-tracked, and the repository has ten plist files total.
-
-### Vault snapshot schedule
-
-Literal command (unpiped):
-
-```bash
-launchctl print gui/$(id -u)/com.claudevibesquad.nightly
-```
-
-Result: exit 0. The live event trigger reports `Hour = 3`, `Minute = 0`, and the
-installed program is `bin/run-nightly.sh`. Source inspection shows
-`bin/run-nightly.sh` invokes `bin/vault-snapshot.sh` as its first phase (line 79
-at measurement time). The prior “nothing schedules this” claim is false: the
-snapshot is scheduled daily at 03:00 through the loaded nightly agent. A
-schedule is not proof that every run succeeds; inspect the nightly and snapshot
-logs before depending on a particular archive.
+time and verify it before proceeding to the next. Every live mutation still
+requires the applicable operator gate.
 
 ---
 
@@ -187,7 +18,19 @@ Private rollback anchor:
 git -C ~/Obsidian-Claude-Vibe-Squad reset --hard v4-baseline-2026-08-07
 ```
 
-Public-checkout rollback anchor, only after the remote preflight above resolves
+The public checkout rolls back to the `v1.1.1` tag, but only after a live remote
+preflight resolves that tag to the commit you expect. A rollback must never
+trust a copied commit id: a remote ref can move, and a stale local snapshot can
+disagree with the live remote. Run this fail-closed preflight from a
+network-capable operator shell first:
+
+```bash
+git ls-remote --tags public refs/tags/v1.1.1 'refs/tags/v1.1.1^{}'
+```
+
+If the command fails, returns no tag, or resolves the peeled tag to a commit you
+do not expect, stop. That is an unresolved remote-state discrepancy, not
+permission to create or move a public tag. Only once the preflight resolves
 `v1.1.1` to the expected commit:
 
 ```bash
@@ -230,10 +73,12 @@ if this command still exits 0.
 
 ### Restore a tracked plist safely
 
-Repository plists are install templates. Nine of the ten tracked plists contain
-literal `__VAULT_ROOT__` and/or `__HOME__` tokens. Never copy a repository plist
-directly into `~/Library/LaunchAgents`; render it, reject every remaining token,
-lint it, install it atomically, then bootstrap it.
+Repository plists are install templates. List them with
+`git ls-files 'launchd/*.plist'`; most carry literal `__VAULT_ROOT__` and/or
+`__HOME__` tokens — check with `grep -lE '__[A-Z][A-Z0-9_]*__' launchd/*.plist` —
+and the render step below fails closed on any token that survives. Never copy a
+repository plist directly into `~/Library/LaunchAgents`; render it, reject every
+remaining token, lint it, install it atomically, then bootstrap it.
 
 Set `AGENT` to one tracked filename such as `com.vibesquad.daemon.plist`. This
 procedure refuses to overwrite an existing installed plist; preserve and review
@@ -322,11 +167,8 @@ Literal command (unpiped):
 git ls-files _state
 ```
 
-Result: exit 0 with exactly one tracked path:
-
-```text
-tools/export/identifier-denylist.txt
-```
+Result in a public clone: exit 0 with no output. Nothing under `_state/` is
+tracked; the whole directory is runtime state that publication excludes.
 
 Git rollback therefore does not restore the untracked runtime registry,
 receipts, campaign evidence, or other local state under `_state/`. Do not include
@@ -341,9 +183,9 @@ Create a new verified snapshot on demand with:
 bin/vault-snapshot.sh
 ```
 
-The loaded nightly agent also invokes this command daily at 03:00 as measured
-above. Confirm a usable archive exists before rollback; the schedule alone is
-not recovery evidence.
+The loaded nightly agent also invokes this command daily at 03:00. Confirm a
+usable archive exists before rollback; the schedule alone is not recovery
+evidence.
 
 For a restore to a different path, extract the archive and rebuild the FTS index
 because the index contains absolute note paths:
@@ -354,20 +196,19 @@ CHRONO_VAULT_ROOT=<target-parent>/Obsidian-Chrono .venv/bin/python -c \
   "import sys;sys.path.insert(0,'plugins/chrono-vault');import index;print(index.rebuild_index())"
 ```
 
-This packet did not browse the private vault or re-run a destructive restore;
-its memory aperture is `none`. Treat the restore as unverified until a separate,
-safe exercise measures both RPO and RTO against a scratch destination.
+Treat the restore as unverified until a separate, safe exercise measures both
+RPO and RTO against a scratch destination.
 
 ---
 
 ## Current status
 
-| surface | measured rollback status |
+| surface | rollback status |
 |---|---|
-| private Git refs | available: 14 tags; `v3-final` and `v4-baseline-2026-08-07` exist |
-| public Git ref | `v1.1.1` / `53122e48`; live remote resolution is a mandatory preflight because this worker's DNS lookup was blocked |
-| runtime config | all nine installed agents have tracked source plists; one additional tracked agent is not installed |
+| private Git refs | rollback anchors `v3-final` and `v4-baseline-2026-08-07` exist |
+| public Git ref | roll back to `v1.1.1`; a live remote preflight that resolves the tag to the commit you expect is mandatory before touching a public checkout |
+| runtime config | every tracked agent renders to an install path via §2; install state is host-specific, not a repository fact |
 | daemon shutdown | `bin/squad down` bootouts and verifies absence; raw tmux kill is explicitly tmux-only |
 | plist restore | template rendering, unresolved-token rejection, lint, atomic install, bootstrap, and load verification are required |
-| repository-local `_state/` | not restored by Git; only one path is tracked |
+| repository-local `_state/` | not restored by Git; a public clone tracks nothing under it |
 | memory vault | snapshot scheduled daily at 03:00; scratch restore/RTO/RPO validation remains separate |

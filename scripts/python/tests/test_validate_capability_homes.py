@@ -459,7 +459,7 @@ class CapabilityHomeTests(unittest.TestCase):
                 "required_tools: [scope-gate]\n"
                 "---\n\n"
                 f"{POINTER}\n\n"
-                "Use WebFetch with --subswarm-directive and swarm_diff.py:16-22.\n",
+                "Use WebFetch with --parallel-directive and result_diff.py:16-22.\n",
                 encoding="utf-8",
             )
             baseline = {
@@ -471,8 +471,8 @@ class CapabilityHomeTests(unittest.TestCase):
             ids = {issue["identifier"] for issue in issues}
             self.assertIn("scope-gate", ids)
             self.assertIn("WebFetch", ids)
-            self.assertIn("--subswarm-directive", ids)
-            self.assertIn("swarm_diff.py:16-22", ids)
+            self.assertIn("--parallel-directive", ids)
+            self.assertIn("result_diff.py:16-22", ids)
             self.assertNotIn("generic-adapter-pointer", ids)
             # The exempt requires_approval value must not create a second WebFetch hit.
             self.assertEqual(

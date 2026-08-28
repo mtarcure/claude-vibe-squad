@@ -606,13 +606,34 @@ return_artifact: <the return_artifact path>
 ```
 
 - `status` must be exactly one of `complete`, `needs_review`, `needs_human`, or `blocked` (the reconciler canonicalizes `completed`→`complete`). Nothing else settles. In escalation order:
-  - `complete` — finished **and verified**; nothing is owed.
-  - `needs_review` — finished, but a reviewer/Chrono must look before it counts. Use this when the packet sets `mandatory_review: true`, or when you are surfacing a `## NEEDS FROM CHRONO`.
+  - `complete` — finished **and verified**. A nonblocking coordination request may still be attached separately as described below.
+  - `needs_review` — finished, but the packet's trusted `mandatory_review: true` / non-empty `review_triggers` contract requires independent review before it counts. A worker-authored coordination request alone never selects this status.
   - `needs_human` — you **stopped pending an operator decision** (an approval, an operator gate, the no-delete rule below). Stronger than `needs_review`: it is a question, not a deliverable. Say exactly what decision you need.
   - `blocked` — you could not proceed and there is no usable result.
 - `cancelled` is **controller-only** — never author it. Chrono/the reconciler cancels a task; a worker does not cancel itself.
 - The reconciler matches on the `<id>-response.md` filename and reads `status` plus the summary body; the remaining fields are provenance.
-- **Members of a Panel or Fan-out BOARD DISPATCH do NOT write an envelope** — the coordinator writes the single outbox envelope for the parent task. This is about board dispatch shapes (\`shared/routing.md\` §9), **not** the subagents you spawn inside your own process: a solo worker that fans out internally is still a solo worker and always writes its own envelope.
+Specialists may use their model lane's native subagents for bounded parallel sub-work when the task
+warrants it; this does not authorize creating board tasks, running `send-task.sh`, or launching another
+model CLI. Every subagent inherits the packet's scope, target allowlist, dry_run status, and prohibitions;
+restate those rails in its instructions. Keep fan-out to single digits. Remain the sole writer: you are
+the only writer of artifacts and harness files. Kimi subagents do not inherit MCP, so perform MCP work
+in the lead and pass results as context. Report `subagents: N` plus each subagent's role in the response
+(`subagents: 0` when solo).
+
+### Request nonblocking coordination without changing completion
+
+Completion and coordination are separate facts. If your scoped deliverable is finished and
+verified but Chrono should schedule a follow-up, widen a later packet, run a canary, or route
+another specialist, keep `status: complete` and add this body section:
+
+```
+## COORDINATION REQUESTED
+- <the exact nonblocking follow-up Chrono should route>
+```
+
+Use `needs_human` only when an operator decision stopped this task from completing, and use
+`blocked` when no usable result could be produced. Never use `needs_review` merely to make a
+coordination request visible.
 
 ### Report any DECLARED tool you could not invoke (`needs_tool`)
 
@@ -660,13 +681,15 @@ cat <<'NODELETE'
 ---
 
 <!-- spec-1.5-no-delete-rule: do not remove this block -->
-## Hard constraint: no file deletion
+## Hard constraint: no unauthorized file deletion
 
-You may NOT delete existing files in your write scope or working directory
-without an explicit operator-approved instruction in this task's frontmatter.
+Delete no **tracked** file without an explicit operator-approved `authorized_delete_paths`
+manifest. Ignored build residue your own run generated — `__pycache__`, `.pyc`, empty scratch
+files — is not work product: clean it up silently, and never park on it.
 
 **What counts as a destructive op (requires operator approval):**
-- `rm`, `unlink`, or `os.remove` on any tracked or untracked file
+- `rm`, `unlink`, or `os.remove` on any tracked file, or on any untracked file not covered by
+  the own-run residue exception above
 - Overwriting a file wholesale where diff would show net loss of lines
 - Moving a file out of the repo tree (equivalent to deletion)
 - Running `git clean -f` or `git checkout -- .`
@@ -676,103 +699,23 @@ without an explicit operator-approved instruction in this task's frontmatter.
   operator, deleting it slows every subsequent build, and it is not recoverable from the repo. A
   lane ran `go clean -cache` and destroyed ~10 GB of host cache while believing the no-delete rule
   covered only files in the target tree. It does not — it covers **anything you did not create**.
-  Need disk space? Report it under `## NEEDS FROM CHRONO` and stop.
+  Need disk space? Stop with `status: needs_human` and report it under
+  `## OPERATOR DECISION REQUIRED`.
 
-**If your task appears to require deletion:**
+**If your task appears to require deletion outside that narrow exception:**
 1. Do NOT delete. Pause.
 2. Write to your outbox with `status: needs_human`
 3. Include: which files, why deletion seems required, proposed alternative
 4. Wait for operator approval before proceeding.
 
-This constraint fires even if files look like drafts, temp files, or
-prior-run artifacts. The operator decides what's ephemeral.
+This constraint fires for tracked files and all untracked files outside the own-run residue
+exception, even if they look like drafts, temp files, or prior-run artifacts. The operator decides
+what's ephemeral outside that narrow exception.
 
 Violation of this rule is treated as a task failure requiring immediate
 operator review. This constraint applies regardless of repository state or
 available recovery mechanisms.
 NODELETE
-
-# ── coordination rule: workers surface needs; Chrono orchestrates ─────────────
-# Appended to every dispatched brief. A worker never self-launches, spawns, or
-# coordinates with another specialist — it surfaces the need to Chrono (the sole
-# controller), who orchestrates. Prevents the exit-75 launch trap and preserves
-# the swarm's independent cross-model check.
-
-cat <<'ORCHESTRATE'
-
----
-
-<!-- orchestration-rule: do not remove this block -->
-## Coordination: you are a worker; Chrono is the orchestrator
-
-Do NOT create board tasks, launch a model CLI (`claude`/`codex`/`gemini`/`kimi`), run
-`send-task.sh`, or coordinate with another board worker directly. Your sandbox denies
-model-CLI exec, so the attempt fails your task; and cross-worker coordination is
-Chrono's job — you are one independent worker in a swarm Chrono controls.
-
-**That prohibition is about the BOARD, not about your own parallelism.** Inside your own
-process you are a full CLI and you should work like one: **use your native subagents, plan
-and fan out independent work, and batch parallel tool calls.** Reading four modules, running
-three analysers, or checking five call sites are independent operations — do them
-concurrently, not one at a time. Three lanes in one campaign reported that their specialist
-brief *required* fan-out while this block appeared to forbid it, and each worked serially as
-a result; that ambiguity is what this paragraph removes.
-
-The line is simple: **anything inside your process is yours; anything that reaches another
-board worker, another model CLI, or the registry is Chrono's.** This rule exists for exactly
-two reasons — it prevents the exit-75 launch trap (your sandbox denies model-CLI exec, so the
-attempt fails your whole task) and it preserves the swarm's independent cross-model check
-(Chrono chooses the opposing family; a worker picking its own destroys that). **Neither reason
-applies to your own subagents**, which cannot exec a CLI and do not change which model family
-you are.
-
-**When you do fan out internally, the packet's rails travel with it.** Every subagent you
-start inherits your scope, your target allowlist, your `dry_run` status and your prohibitions
-— restate them in the subagent's instructions rather than assuming they carry. A subagent that
-does not know the target list can act outside it, and that is your task's failure, not its own.
-
-One clarification, because it has cost real time: where a specialist brief says
-"multi-model" or "Codex AND Claude attempt independently", that describes **Chrono's dispatch
-pattern, not your job**. You are one side of it. Do not attempt to produce the other side.
-
-**Three limits, because in-process parallelism has real failure modes:**
-
-1. **Keep the fan-out small — single digits, not dozens.** The board's admission control counts
-   registry entries and **cannot see your subagents**, so several lanes each fanning out widely
-   multiplies host load invisibly. Disk and CPU are shared with every other running lane; a
-   campaign has already had every Go link fail for hours because the volume filled. If you need
-   heavy parallelism, say so under `## NEEDS FROM CHRONO` rather than taking it.
-2. **You are the only writer.** Subagents return their results to you; **you** write the artifact
-   and the harness files. Never let two processes append to the same file — you are told to write
-   incrementally, and concurrent incremental appends interleave into corruption. Give each
-   subagent a read task or a scratch path of its own, never the return artifact.
-3. **Kimi subagents do not inherit MCP.** On that lane, perform MCP work in the lead and pass the
-   result into the subagent as context. Claude, Codex and Gemini subagents do inherit it. Verify
-   in your own runtime rather than trusting this sentence.
-
-**Report what you actually used.** In your response envelope, state how many subagents you
-started and what each one did in a few words — or `subagents: 0` if you worked solo. Chrono
-cannot see inside your process; a count from you is the only accurate record of how wide the
-work went, and it is what tells us whether this permission is being used at all or quietly
-ignored.
-
-If your native subagent surface is absent or fails, say so under `## NEEDS FROM CHRONO` — do
-not substitute a model-CLI launch for it.
-
-**If mid-task you need something beyond your scope** — a live canary/probe that requires
-launching a CLI, another specialist's help, a wider write scope, a follow-up dispatch, or
-you are blocked on a dependency — do NOT attempt it. Instead, add this section to your
-response and let Chrono act:
-
-## NEEDS FROM CHRONO
-- <exactly what you need — e.g. "canary: run `claude -p --mcp-config … 'list mcp tools'`
-  to prove the guarded trio connects", "dispatch a reviewer for X", "widen write_scope to
-  include Y", "blocked on Z until …">
-
-Return `status: needs_review` (or `blocked` if you cannot proceed further). Chrono reads
-`## NEEDS FROM CHRONO` on every landed response and orchestrates it. Doing the work you
-CAN do and clearly surfacing the need always beats attempting an out-of-scope launch.
-ORCHESTRATE
 
 # ── mode block: mode-specific doctrine reaches ONLY the matching mode ─────────
 # Everything above this point ships to every packet. Everything below is gated on

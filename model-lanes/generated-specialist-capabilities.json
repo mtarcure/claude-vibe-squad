@@ -3554,6 +3554,79 @@
       "tools": []
     },
     {
+      "adapter": "model-lanes/claude/.claude/agents/kestrel.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "kestrel",
+      "surface_sha256": "c2f6d3fdb8a0c197810b8cedddc8603ac3ead10411becb15e8ab01e75c45eddc",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/kestrel.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "kestrel",
+      "surface_sha256": "c793d1e2cbbb805cd96be37740a98a8a6844b8b420bb44b352d7a8140993f9c5",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/kimi/.kimi/agents/kestrel.yaml",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "kimi",
+      "limitations": [
+        "MCP operations are lead-brokered and unavailable inside Kimi subagents; chrono-vault requires a Kimi-lead or Chrono handoff rather than a direct child tool call"
+      ],
+      "mcps": [
+        "lead:chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "lead:chrono-vault",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "kimi",
+          "requirement": "preferred",
+          "resolution": "local"
+        }
+      ],
+      "skills": [],
+      "specialist": "kestrel",
+      "surface_sha256": "8ef2d892b7cf1c024bfd3b39858f92eae55b1ed0e573c42477ed6dee0b8fc16f",
+      "tools": []
+    },
+    {
       "adapter": "model-lanes/claude/.claude/agents/knowledge-librarian.md",
       "coverage": "full",
       "known_unavailable": {
@@ -7949,6 +8022,77 @@
       ]
     },
     {
+      "adapter": "model-lanes/claude/.claude/agents/vega.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "vega",
+      "surface_sha256": "c2f6d3fdb8a0c197810b8cedddc8603ac3ead10411becb15e8ab01e75c45eddc",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gemini/.gemini/agents/vega.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gemini",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "gemini",
+          "requirement": "preferred",
+          "resolution": "local"
+        }
+      ],
+      "skills": [],
+      "specialist": "vega",
+      "surface_sha256": "8bc2068e2e42d437f6df5e4e38f7515f3a02341e7c0e265c1a7284b13132d4d3",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/vega.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "vega",
+      "surface_sha256": "c793d1e2cbbb805cd96be37740a98a8a6844b8b420bb44b352d7a8140993f9c5",
+      "tools": []
+    },
+    {
       "adapter": "model-lanes/claude/.claude/agents/vibecoding-check.md",
       "coverage": "partial",
       "known_unavailable": {
@@ -8445,6 +8589,6 @@
   "policy_sha256": "f17eac36e60fc01fbe4a029b4e1d829515c23a6ecb138aaf576ff2bd530c6da8",
   "schema": "specialist-adapter-capability-index/v2",
   "source": "model-lanes/specialist-lane-capabilities.v1.json",
-  "source_sha256": "8896231493565c6530a07ba6ef536050aaa08b67ca03851ce6b8bde8feed4ca6",
-  "surface_count": 111
+  "source_sha256": "ca051c9cb4b7902b924dc72b7de6ae194f0b7ced70309de35c21b8afb1397bf1",
+  "surface_count": 113
 }

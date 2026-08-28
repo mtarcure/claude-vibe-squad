@@ -18,8 +18,8 @@ gates. A **Capability** is one distinctive routine inside a mode, expressed as a
 `pack`, and `profile` are **retired** — web-app, game-production, image, authorized-red-team, and
 self-extension are all just Capabilities-with-protocols under their Mode.
 
-`panel` and `loop-operator` are **execution mechanisms**, not capabilities — either can be invoked inside
-any protocol step, but neither is a capability of its own.
+`loop-operator` is an **execution mechanism**, not a capability — it can be invoked inside
+any protocol step, but is not a capability of its own.
 
 Routing stays **per-specialist on capability** (`shared/routing.md §1/§7`). A capability selects the
 workflow/gates only; it **never** selects a model lead. `source_namespace`/folder never choose a model.

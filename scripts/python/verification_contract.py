@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 CONTRACT_VERSION = "verification-contract/v1"
-SUPPORTED_TYPED_MODES = frozenset({"project", "bounty", "advisory"})
+SUPPORTED_TYPED_MODES = frozenset({"project", "bounty"})
 REQUIRED_PHASE_IDS = tuple(f"S{i}" for i in range(8))
 LANE_TO_AUTHOR_FAMILY = {
     "claude": "claude",
@@ -24,6 +24,17 @@ LANE_TO_AUTHOR_FAMILY = {
 }
 
 _LOWER_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_TYPED_REVIEW_RESULT_TYPES = frozenset({"review", "verification"})
+_REVIEW_RECEIPT_STATES = frozenset({"approved", "complete"})
+_TYPED_REVIEW_FIELDS = frozenset(
+    {
+        "review_subject_sha256",
+        "review_subject_author_family",
+        "review_family",
+        "review_state",
+        "judged_state_mutation",
+    }
+)
 _VALID_GATES = frozenset(
     {
         "destructive_action",
@@ -248,7 +259,7 @@ def _gate_values(admission: Mapping[str, object]) -> list[str]:
     return sorted(gates)
 
 
-def _review_required(admission: Mapping[str, object], dispatch_kind: str) -> bool:
+def _review_required(admission: Mapping[str, object]) -> bool:
     """Whether the pinned contract records that a deliverable review is OWED.
 
     This is the on/off half of ``deliverable_review_policy``. Its sibling fields
@@ -262,15 +273,15 @@ def _review_required(admission: Mapping[str, object], dispatch_kind: str) -> boo
     said no review was owed) workers returned ``needs_review`` asking for a review
     Chrono never dispatches, and the task sat open forever.
 
-    ``swarm`` members are always reviewed -- ``bin/send-task.sh`` pins every member
-    packet ``mandatory_review: true`` -- so the field is forced ``True`` there
-    regardless of what the admission carried. That preserves the anti-tamper
-    invariant a swarm contract relies on: a member cannot be weakened to skip its
-    review, because re-derivation restores ``True`` and the validator's equality
-    check rejects any tampered ``False``.
+    A typed review or verification act is terminal rather than another review
+    subject only when its dispatcher-owned evidence freezes the reviewed
+    subject, proves author-family anti-affinity, records a satisfied receipt,
+    and explicitly says that the judged state was not mutated. This is work
+    typing, not a specialist allowlist: the same role remains reviewable when
+    any one of those conditions is absent.
 
-    For ``single``/``panel`` the value comes from the admission's
-    ``review_required``. It DEFAULTS to ``True`` only when the key is ABSENT, so
+    The value comes from the single-task admission's ``review_required``. It
+    DEFAULTS to ``True`` only when the key is ABSENT, so
     an un-wired producer and every already-pinned contract derive byte-identically
     to before this field existed -- the change is inert until a producer starts
     passing the trigger decision. Membership is tested rather than ``.get()``
@@ -279,14 +290,109 @@ def _review_required(admission: Mapping[str, object], dispatch_kind: str) -> boo
     the declared admission type says must be a boolean.
     """
 
-    if dispatch_kind == "swarm":
-        return True
+    if (admission.get("result_type") or "normal") in _TYPED_REVIEW_RESULT_TYPES:
+        # A typed claim either proves every terminal-verification condition or
+        # stays reviewable. It never inherits a producer's routine-work False.
+        return not _is_terminal_review_act(admission)
     if "review_required" not in admission:
         return True
     raw = admission["review_required"]
     if not isinstance(raw, bool):
         raise ContractError("review_required must be a boolean")
     return raw
+
+
+def _typed_review_evidence(
+    admission: Mapping[str, object], result_type: object
+) -> dict[str, object] | None:
+    """Validate and freeze the receipt for review/verification work.
+
+    The five fields are dispatcher inputs and become part of the hashed
+    verification contract. A mere ``result_type`` label is deliberately
+    insufficient: mutation-bearing work and same-family work remain ordinary
+    review subjects.
+    """
+
+    present = sorted(_TYPED_REVIEW_FIELDS.intersection(admission))
+    if result_type not in _TYPED_REVIEW_RESULT_TYPES:
+        if present:
+            raise ContractError(
+                "typed review evidence requires result_type review or verification"
+            )
+        return None
+
+    missing = sorted(_TYPED_REVIEW_FIELDS - set(admission))
+    if missing:
+        raise ContractError(
+            "typed review evidence is missing field: " + missing[0]
+        )
+    subject_sha256 = admission["review_subject_sha256"]
+    if not isinstance(subject_sha256, str) or not _LOWER_SHA256.fullmatch(
+        subject_sha256
+    ):
+        raise ContractError(
+            "review_subject_sha256 must be lowercase 64-hex"
+        )
+    valid_families = set(LANE_TO_AUTHOR_FAMILY.values())
+    subject_author_family = admission["review_subject_author_family"]
+    if subject_author_family not in valid_families:
+        raise ContractError("review_subject_author_family is invalid")
+    review_family = admission["review_family"]
+    if review_family not in valid_families:
+        raise ContractError("review_family is invalid")
+    review_state = admission["review_state"]
+    if review_state not in _REVIEW_RECEIPT_STATES:
+        raise ContractError("review_state must be approved or complete")
+    judged_state_mutation = admission["judged_state_mutation"]
+    if not isinstance(judged_state_mutation, bool):
+        raise ContractError("judged_state_mutation must be a boolean")
+    return {
+        "review_subject_sha256": subject_sha256,
+        "review_subject_author_family": subject_author_family,
+        "review_family": review_family,
+        "review_state": review_state,
+        "judged_state_mutation": judged_state_mutation,
+    }
+
+
+def _is_terminal_review_act(admission: Mapping[str, object]) -> bool:
+    result_type = admission.get("result_type") or "normal"
+    author_family = author_family_for_lane(admission.get("to_model"))
+    evidence = _typed_review_evidence(admission, result_type)
+    return bool(
+        evidence
+        and evidence["review_family"] == author_family
+        and evidence["review_subject_author_family"] != author_family
+        and evidence["judged_state_mutation"] is False
+    )
+
+
+def _plan_review_policy(
+    admission: Mapping[str, object],
+    *,
+    result_type: object,
+    legacy_plan_review_policy: bool | None,
+) -> dict[str, object]:
+    """Return the settled plan-review state for this contract.
+
+    Live ``send-task.sh`` admissions always carry ``review_required`` and derive
+    the settled ``required: false`` state. The legacy branch exists only to keep historical
+    v1 hashes and old admission fixtures readable; validation selects it solely
+    for an already-pinned, exact legacy policy object.
+    """
+
+    if legacy_plan_review_policy is None:
+        legacy_plan_review_policy = (
+            "review_required" not in admission
+            and result_type not in _TYPED_REVIEW_RESULT_TYPES
+        )
+    if legacy_plan_review_policy:
+        return {
+            "required": True,
+            "anti_affinity": "author_family",
+            "subject": "plan_sha256",
+        }
+    return {"required": False}
 
 
 def derive_verification_contract(admission: dict[str, object]) -> dict[str, object]:
@@ -303,16 +409,13 @@ def derive_verification_contract(admission: dict[str, object]) -> dict[str, obje
     # recover the value from the object it is checking.
     return validate_verification_contract(
         contract,
-        expected_review_required=_review_required(
-            admission, contract["dispatch_kind"]
-        ),
+        expected_review_required=_review_required(admission),
     )
 
 
 def _apply_authorized_delete_paths(
     contract: dict[str, object],
     authorized_delete_paths: list[str],
-    mode: object,
 ) -> None:
     """Attach the enumerated deletion authority, present iff non-empty.
 
@@ -326,8 +429,6 @@ def _apply_authorized_delete_paths(
 
     if not authorized_delete_paths:
         return
-    if mode == "advisory":
-        raise ContractError("advisory mode cannot authorize deletions")
     contract["authorized_delete_paths"] = authorized_delete_paths
 
 
@@ -356,6 +457,7 @@ def validate_verification_contract(
     if not isinstance(contract, dict):
         raise ContractError("verification contract must be an object")
     mode = contract.get("mode")
+    result_type = contract.get("result_type")
     required_keys = {
         "contract_version",
         "task_id",
@@ -372,16 +474,17 @@ def validate_verification_contract(
         "expected_gates",
         "external_delivery_policy",
     }
-    if mode != "advisory":
-        required_keys.update(
-            {
-                "deliverable_review_policy",
-                "artifact_policy",
-                "action_log_policy",
-                "iteration_policy",
-                "bounty_policy",
-            }
-        )
+    if result_type in _TYPED_REVIEW_RESULT_TYPES:
+        required_keys.update(_TYPED_REVIEW_FIELDS)
+    required_keys.update(
+        {
+            "deliverable_review_policy",
+            "artifact_policy",
+            "action_log_policy",
+            "iteration_policy",
+            "bounty_policy",
+        }
+    )
     if "authorized_delete_paths" in contract:
         # Optional-when-empty: only a delete-carrying contract has the key at
         # all. Its VALUE is still fully re-derived and equality-checked below,
@@ -396,7 +499,6 @@ def validate_verification_contract(
     if contract.get("contract_version") != CONTRACT_VERSION:
         raise ContractError("contract_version is not verification-contract/v1")
 
-    result_type = contract.get("result_type")
     author_family = contract.get("author_family")
     if author_family not in set(LANE_TO_AUTHOR_FAMILY.values()):
         raise ContractError("author_family is invalid")
@@ -415,6 +517,10 @@ def validate_verification_contract(
         "expected_gates": contract.get("expected_gates"),
         "authorized_delete_paths": contract.get("authorized_delete_paths"),
     }
+    if result_type in _TYPED_REVIEW_RESULT_TYPES:
+        admission.update(
+            {field: contract.get(field) for field in _TYPED_REVIEW_FIELDS}
+        )
     # `deliverable_review_policy.required` is a derived-from-admission value,
     # not a fixed constant. When the caller supplied the trusted expectation,
     # the re-derivation uses THAT -- recovering the value from the contract
@@ -422,17 +528,25 @@ def validate_verification_contract(
     # self-authenticating, which is the circularity the 2026-08-24 review
     # rejected. Recovery remains only for expectation-less callers, where it
     # keeps a legitimate `required: false` from failing its own equality
-    # check; those callers prove legitimacy elsewhere (see docstring). The
-    # swarm invariant holds on every path: `_review_required` forces True for
-    # a swarm contract regardless of the recovered OR expected value, so a
-    # member tampered down to `false` re-derives to True and the equality
-    # check rejects it (test_swarm_child_cannot_weaken_review...).
+    # check; those callers prove legitimacy elsewhere (see docstring).
     deliverable_policy = contract.get("deliverable_review_policy")
     if expected_review_required is not None:
         admission["review_required"] = expected_review_required
     elif isinstance(deliverable_policy, Mapping) and "required" in deliverable_policy:
         admission["review_required"] = deliverable_policy["required"]
-    expected = derive_verification_contract_unchecked(admission)
+    legacy_plan_review_policy = (
+        result_type not in _TYPED_REVIEW_RESULT_TYPES
+        and contract.get("plan_review_policy")
+        == {
+            "required": True,
+            "anti_affinity": "author_family",
+            "subject": "plan_sha256",
+        }
+    )
+    expected = derive_verification_contract_unchecked(
+        admission,
+        legacy_plan_review_policy=legacy_plan_review_policy,
+    )
     if contract != expected:
         # Name the fields. This function's contract is to identify the bad field
         # (F7), but a whole-object comparison collapsed every divergence into one
@@ -459,6 +573,8 @@ def validate_verification_contract(
 
 def derive_verification_contract_unchecked(
     admission: dict[str, object],
+    *,
+    legacy_plan_review_policy: bool | None = None,
 ) -> dict[str, object]:
     """Re-derive for validation without recursively invoking the validator."""
 
@@ -468,30 +584,40 @@ def derive_verification_contract_unchecked(
     task_id = _nonempty_string(admission.get("task_id"), "task_id")
     run_id = _nonempty_string(admission.get("run_id"), "run_id")
     result_type = admission.get("result_type") or "normal"
-    if mode == "project" and result_type != "normal":
-        raise ContractError("Project supports only result_type normal")
-    if mode == "bounty" and result_type not in {"normal", "dry_run"}:
-        raise ContractError("Bounty result_type must be normal or dry_run")
-    if mode == "advisory" and result_type != "normal":
-        raise ContractError("Advisory supports only result_type normal")
+    if mode == "project" and result_type not in {
+        "normal",
+        *_TYPED_REVIEW_RESULT_TYPES,
+    }:
+        raise ContractError(
+            "Project result_type must be normal, review, or verification"
+        )
+    if mode == "bounty" and result_type not in {
+        "normal",
+        "dry_run",
+        *_TYPED_REVIEW_RESULT_TYPES,
+    }:
+        raise ContractError(
+            "Bounty result_type must be normal, dry_run, review, or verification"
+        )
     dispatch_kind = admission.get("dispatch_kind", "single")
-    if dispatch_kind not in {"single", "panel", "swarm"}:
-        raise ContractError("dispatch_kind must be single, panel, or swarm")
+    if dispatch_kind != "single":
+        raise ContractError("dispatch_kind must be single")
     author_family = author_family_for_lane(admission.get("to_model"))
+    review_evidence = _typed_review_evidence(admission, result_type)
     capability = _capability_from_admission(admission)
     gates = _gate_values(admission)
-    review_required = _review_required(admission, dispatch_kind)
+    review_required = _review_required(admission)
     if mode == "project":
         verification_kinds = ["project_tests", "recipient_contract"]
         bounty_policy = None
         required_phase_ids = list(REQUIRED_PHASE_IDS)
         memory_policy = {"recall": "required", "record": "required"}
-        plan_review_policy = {
-            "required": True,
-            "anti_affinity": "author_family",
-            "subject": "plan_sha256",
-        }
-    elif mode == "bounty":
+        plan_review_policy = _plan_review_policy(
+            admission,
+            result_type=result_type,
+            legacy_plan_review_policy=legacy_plan_review_policy,
+        )
+    else:
         verification_kinds = (
             ["scope_gate", "no_self_inflicted", "negative_control"]
             if result_type == "dry_run"
@@ -524,17 +650,11 @@ def derive_verification_contract_unchecked(
         # stays required: writing findings biases nobody. If a lane does call recall, the
         # mode requires it to disclose verbatim what came back.
         memory_policy = {"recall": "optional", "record": "required"}
-        plan_review_policy = {
-            "required": True,
-            "anti_affinity": "author_family",
-            "subject": "plan_sha256",
-        }
-    else:
-        verification_kinds = ["artifact_written"]
-        bounty_policy = None
-        required_phase_ids = []
-        memory_policy = {"recall": "optional", "record": "optional"}
-        plan_review_policy = {"required": False}
+        plan_review_policy = _plan_review_policy(
+            admission,
+            result_type=result_type,
+            legacy_plan_review_policy=legacy_plan_review_policy,
+        )
     contract: dict[str, object] = {
         "contract_version": CONTRACT_VERSION,
         "task_id": task_id,
@@ -566,16 +686,9 @@ def derive_verification_contract_unchecked(
         "external_delivery_policy": {"allowed": False},
         "bounty_policy": bounty_policy,
     }
-    _apply_authorized_delete_paths(contract, _authorized_delete_paths(admission), mode)
-    if mode == "advisory":
-        for project_or_bounty_key in (
-            "deliverable_review_policy",
-            "artifact_policy",
-            "action_log_policy",
-            "iteration_policy",
-            "bounty_policy",
-        ):
-            contract.pop(project_or_bounty_key)
+    if review_evidence is not None:
+        contract.update(review_evidence)
+    _apply_authorized_delete_paths(contract, _authorized_delete_paths(admission))
     return contract
 
 

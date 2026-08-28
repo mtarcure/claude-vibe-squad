@@ -30,11 +30,12 @@ from lane_capability_enforcement import (  # noqa: E402
 from specialist_capability_source import load_source, role_surface_sha256  # noqa: E402
 from validate_capability_homes import routed_lanes, runtime_rows  # noqa: E402
 from dispatch_context_builder import (  # noqa: E402
+    DispatchContextError,
+    SYNTHESIZED_ENVELOPE_MARKER,
     assemble_trusted_launch_prompt,
-    build_board_fanout_members,
+    delivery_contract_note,
     prepare_worktree_outputs,
     publish_prepared_worktree_outputs,
-    schedule_board_batch,
 )
 from board_process_truth import atomic_write_json, observe_process, utc_now  # noqa: E402
 
@@ -168,7 +169,7 @@ Dry-run dispatch test only.
             )
             tmux.chmod(0o755)
 
-            completed = subprocess.run(
+            omitted_mode = subprocess.run(
                 [
                     "bash",
                     str(COMPAT_SEND_TASK),
@@ -190,7 +191,39 @@ Dry-run dispatch test only.
                 check=False,
                 timeout=10,
             )
+            self.assertEqual(omitted_mode.returncode, 1, omitted_mode.stderr)
+            self.assertIn("missing required --mode", omitted_mode.stdout)
+            self.assertFalse(packet_capture.exists())
+            self.assertFalse(argv_capture.exists())
+
+            completed = subprocess.run(
+                [
+                    "bash",
+                    str(COMPAT_SEND_TASK),
+                    "coding",
+                    str(body),
+                    "sol",
+                    "claude",
+                    "--mode",
+                    "project",
+                ],
+                env={
+                    **os.environ,
+                    "ARGV_CAPTURE": str(argv_capture),
+                    "PACKET_CAPTURE": str(packet_capture),
+                    "PATH": f"{tools}:/usr/bin:/bin",
+                    "TMUX_MARKER": str(tmux_marker),
+                    "VAULT_ROOT": str(vault),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=10,
+            )
             self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertTrue(
+                argv_capture.exists(), completed.stdout + completed.stderr
+            )
             self.assertEqual(
                 len(argv_capture.read_text(encoding="utf-8").splitlines()), 1
             )
@@ -204,7 +237,14 @@ Dry-run dispatch test only.
 
             triggered = subprocess.run(
                 [
-                    "bash", str(COMPAT_SEND_TASK), "coding", str(body), "sol", "claude"
+                    "bash",
+                    str(COMPAT_SEND_TASK),
+                    "coding",
+                    str(body),
+                    "sol",
+                    "claude",
+                    "--mode",
+                    "project",
                 ],
                 env={
                     **os.environ,
@@ -237,87 +277,6 @@ Dry-run dispatch test only.
             self.assertNotIn(f"Ctrl-b + {index}", text)
         self.assertNotIn("inbox-watcher.sh", text)
         self.assertNotIn('"scan-consumer"', text)
-
-    def test_board_batch_scheduler_admits_only_disjoint_scopes(self) -> None:
-        state_root = ROOT / "_state"
-        state_root.mkdir(parents=True, exist_ok=True)
-        with tempfile.TemporaryDirectory(dir=state_root) as directory:
-            root = Path(directory)
-            packets = []
-            for index, scope in enumerate(
-                ("_state/batch/a/", "_state/batch/b/", "_state/batch/a/")
-            ):
-                packet = root / f"packet-{index}.md"
-                packet.write_text(
-                    "---\n"
-                    f"id: TASK-2026-07-23-99{index}0-batch-member\n"
-                    f"write_scope: [{scope}]\n"
-                    "read_scope: []\n"
-                    "parallel_safe: true\n"
-                    "---\n",
-                    encoding="utf-8",
-                )
-                packets.append(packet)
-            result = schedule_board_batch(
-                ROOT,
-                packets,
-                concurrency=3,
-                logical_only=True,
-            )
-            self.assertEqual(len(result.run_now), 2)
-            self.assertEqual(len(result.must_wait), 1)
-            self.assertIn("scope collision", next(iter(result.reasons.values())))
-
-    def test_board_fanout_builds_twelve_unique_isolated_members(self) -> None:
-        task_id = "TASK-2026-07-23-9979-fanout-build"
-        state_root = ROOT / "_state"
-        state_root.mkdir(parents=True, exist_ok=True)
-        with tempfile.TemporaryDirectory(dir=state_root) as source_directory:
-            source = Path(source_directory) / "parent.md"
-            source.write_text(
-                "---\n"
-                f"id: {task_id}\n"
-                "to_model: gpt-codex\n"
-                "specialist: systems-engineer\n"
-                "source_namespace: coding\n"
-                "mode: project\n"
-                "run_id: PROJ-SWARM-READY-2026-07-19\n"
-                "write_scope: [_state/fanout-parent/]\n"
-                "return_artifact: _state/fanout-parent/result.md\n"
-                "---\n\nParent objective.\n",
-                encoding="utf-8",
-            )
-            # `_state/board-dispatch/` is untracked runtime state: it exists in the
-            # primary checkout but in no fresh clone and no board worktree, so
-            # anchoring a temp dir under it without creating it first is an
-            # unconditional FileNotFoundError for every board worker. The CI profile
-            # previously skipped this test, which is why the defect stayed invisible
-            # -- green in CI, red for everyone running the suite from a worktree.
-            dispatch_root = state_root / "board-dispatch"
-            dispatch_root.mkdir(parents=True, exist_ok=True)
-            with tempfile.TemporaryDirectory(dir=dispatch_root) as holder:
-                output = Path(holder) / "members"
-                packets = build_board_fanout_members(
-                    ROOT,
-                    source,
-                    output,
-                    [f"assignment {index}" for index in range(12)],
-                    verification_contract={
-                        "contract_version": "verification-contract/v1",
-                        "task_id": task_id,
-                        "run_id": "PROJ-SWARM-READY-2026-07-19",
-                        "mode": "project",
-                    },
-                )
-                self.assertEqual(len(packets), 12)
-                self.assertEqual(len({packet.name for packet in packets}), 12)
-                for index, packet in enumerate(packets, start=1):
-                    text = packet.read_text(encoding="utf-8")
-                    self.assertIn(f"fanout_member_id: member-{index}", text)
-                    self.assertIn(
-                        f"/member-{index}/]",
-                        text,
-                    )
 
     def test_board_completion_captures_memory_best_effort(self) -> None:
         builder = (
@@ -429,9 +388,11 @@ Dry-run dispatch test only.
         self.assertIn('MODE="${3:-unknown}"', toolkit)
         self.assertIn('case "$MODE" in', toolkit)
         sender = (ROOT / "bin" / "send-task.sh").read_text(encoding="utf-8")
-        self.assertIn('bash "$TOOLKIT" "$COMPAT_NAMESPACE" "$TO_MODEL" "$MODE"', sender)
-        self.assertIn('bash "$TOOLKIT" "$COMPAT_NAMESPACE" "$lane" "$MODE"', sender)
-        self.assertNotIn('bash "$TOOLKIT" "$COMPAT_NAMESPACE" "$TO_MODEL" >>', sender)
+        self.assertIn(
+            'bash "$TOOLKIT" "$MAILBOX_NAMESPACE" "$TO_MODEL" "$MODE" "$SPECIALIST"',
+            sender,
+        )
+        self.assertEqual(sender.count('bash "$TOOLKIT"'), 1)
 
     def test_phase_contract_is_target_agnostic(self) -> None:
         """The contract ships to every bounty lane regardless of target class,
@@ -520,8 +481,9 @@ Dry-run dispatch test only.
         UNIVERSAL = (
             "## Execution efficiency",
             "## Completion contract",
-            "## Hard constraint: no file deletion",
-            "## Coordination: you are a worker",
+            "## Hard constraint: no unauthorized file deletion",
+            "native subagents for bounded parallel sub-work",
+            "subagents: N",
         )
 
         def render(
@@ -671,43 +633,6 @@ Dry-run dispatch test only.
         sender = SEND_TASK.read_text(encoding="utf-8")
         # send-task must not carry a post-detach rm of the inbox packet
         self.assertNotIn('rm -f "$DEST"', sender)
-
-    def test_board_swarm_and_fanout_use_fresh_child_transport(self) -> None:
-        sender = SEND_TASK.read_text(encoding="utf-8")
-        self.assertIn("schedule-batch", sender)
-        self.assertIn('dispatch_admitted_child 1 "${INBOX}/${child_id}.md"', sender)
-        self.assertIn("BOARD_FANOUT_CHILD_IDS_CSV", sender)
-        self.assertIn("Board fan-out detached", sender)
-        self.assertIn("PANEL_LIMIT=12", sender)
-        self.assertIn('board_host_admit "${BOARD_FANOUT_PACKETS[@]}"', sender)
-        self.assertIn('board_host_admit "${BOARD_BATCH_TASKS[@]}"', sender)
-        self.assertNotIn("--requested-workers", sender)
-        self.assertIn("Board fan-out collected", sender)
-        self.assertIn("member-results.md", sender)
-        self.assertNotIn(
-            "&& { $PANEL_ENABLED || $SWARM_ENABLED || $SUBSWARM_ENABLED; }",
-            sender,
-        )
-        self.assertNotIn("SUBSWARM_", sender)
-        self.assertNotIn("subswarm_directive_sha256", sender)
-        self.assertIn(
-            'die "subswarm dispatch is unsupported; use board swarm or fan-out"',
-            sender,
-        )
-        builder = (
-            ROOT / "scripts" / "python" / "dispatch_context_builder.py"
-        ).read_text(encoding="utf-8")
-        # deadline is a safety backstop (30 min), not a short kill-deadline — Chrono
-        # supervises live and cancels stuck spawns instead of a premature timeout.
-        self.assertIn('"timeout_seconds": 2700', builder)
-        supervisor = SUPERVISOR.read_text(encoding="utf-8")
-        self.assertIn("worktree_cleanup_candidate=", supervisor)
-        self.assertIn("promotion-proof-unavailable", supervisor)
-        self.assertIn("-fanout-member-", supervisor)
-        detached = supervisor.split('if [[ "${1:-}" == "detached-launch" ]]', 1)[
-            1
-        ].split('if [[ "${1:-}" == "trusted-launch" ]]', 1)[0]
-        self.assertNotIn("worktree remove --force", detached)
 
     def test_detached_failure_is_captured_in_receipt_and_log(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1452,38 +1377,214 @@ Dry-run dispatch test only.
             self.assertEqual(receipt["status"], "complete")
 
 
+class SplitOutputEnvelopeTests(unittest.TestCase):
+    """Pin the shapes where `expected_result_path` != `expected_outbox_path`.
+
+    The bridge supports a lane-isolated `return_artifact` and a separate outbox
+    envelope as a generic output contract. Missing worker-authored envelopes are
+    synthesized only when a nonempty artifact proves useful work exists.
+    """
+
+    TASK_ID = "TASK-2026-08-26-1800-distinct-output"
+    RESULT_RELATIVE = (
+        "_state/distinct-output/TASK-2026-08-26-1800/artifact.md"
+    )
+
+    def _outbox_relative(self) -> str:
+        return f"departments/coding/outbox/{self.TASK_ID}-response.md"
+
+    def _authority(self) -> dict[str, object]:
+        return {
+            "task_id": self.TASK_ID,
+            "lane": "codex",
+            "write_paths": [self.RESULT_RELATIVE],
+            "expected_result_path": self.RESULT_RELATIVE,
+            "expected_outbox_path": self._outbox_relative(),
+        }
+
+    def _tree(self, root: Path, *, artifact: str | None) -> tuple[Path, Path]:
+        repo = root / "repo"
+        worker = root / "worker"
+        repo.mkdir()
+        worker.mkdir()
+        if artifact is not None:
+            target = worker / self.RESULT_RELATIVE
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(artifact, encoding="utf-8")
+        return repo, worker
+
+    def test_missing_envelope_is_synthesized_rather_than_discarding_the_work(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo, worker = self._tree(
+                Path(directory),
+                artifact=(
+                    "# Liveness canary\n\n"
+                    "HEAD is a1e1305b and python3 is 3.14.6.\n"
+                ),
+            )
+
+            prepared = prepare_worktree_outputs(repo, worker, self._authority())
+            receipt = publish_prepared_worktree_outputs(repo, prepared)
+
+            envelope = (repo / self._outbox_relative()).read_text(encoding="utf-8")
+            self.assertEqual(prepared.status, "needs_review")
+            self.assertEqual(receipt["status"], "needs_review")
+            self.assertIn("status: needs_review", envelope)
+            self.assertIn(SYNTHESIZED_ENVELOPE_MARKER, envelope)
+            # The excerpt skips the `#` heading and carries real prose, so the
+            # summary the reconciler surfaces says something about the work.
+            self.assertIn("HEAD is a1e1305b", envelope)
+            self.assertNotIn("# Liveness canary", envelope)
+            # The artifact is still promoted verbatim to its own declared path.
+            self.assertIn(
+                "HEAD is a1e1305b",
+                (repo / self.RESULT_RELATIVE).read_text(encoding="utf-8"),
+            )
+
+    def test_a_worker_authored_envelope_still_wins_over_synthesis(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo, worker = self._tree(Path(directory), artifact="worker artifact\n")
+            envelope_path = worker / self._outbox_relative()
+            envelope_path.parent.mkdir(parents=True, exist_ok=True)
+            envelope_path.write_text(
+                "---\n"
+                f"id: {self.TASK_ID}-response\n"
+                f"in_response_to: {self.TASK_ID}\n"
+                "from: gpt-codex\n"
+                "to: chrono\n"
+                "type: RESULT\n"
+                "status: complete\n"
+                f"return_artifact: {self.RESULT_RELATIVE}\n"
+                "---\n\n"
+                "Worker-authored summary.\n",
+                encoding="utf-8",
+            )
+
+            prepared = prepare_worktree_outputs(repo, worker, self._authority())
+
+            self.assertEqual(prepared.status, "complete")
+            envelope = prepared.envelope_bytes.decode("utf-8")
+            self.assertIn("Worker-authored summary.", envelope)
+            self.assertNotIn(SYNTHESIZED_ENVELOPE_MARKER, envelope)
+
+    def test_a_missing_artifact_still_blocks_in_the_split_shape(self) -> None:
+        """Synthesis must never manufacture a completion out of nothing."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            repo, worker = self._tree(Path(directory), artifact=None)
+
+            with self.assertRaises(DispatchContextError) as caught:
+                prepare_worktree_outputs(repo, worker, self._authority())
+
+            self.assertIn("return artifact is missing", str(caught.exception))
+
+    def test_an_empty_artifact_still_blocks_in_the_split_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo, worker = self._tree(Path(directory), artifact="")
+
+            with self.assertRaises(DispatchContextError):
+                prepare_worktree_outputs(repo, worker, self._authority())
+
+    def test_a_present_but_non_regular_envelope_still_blocks(self) -> None:
+        """Only an ABSENT envelope is synthesized; a symlink is tamper-shaped."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            repo, worker = self._tree(Path(directory), artifact="worker artifact\n")
+            envelope_path = worker / self._outbox_relative()
+            envelope_path.parent.mkdir(parents=True, exist_ok=True)
+            envelope_path.symlink_to(worker / self.RESULT_RELATIVE)
+
+            with self.assertRaises(DispatchContextError) as caught:
+                prepare_worktree_outputs(repo, worker, self._authority())
+
+            self.assertIn("response envelope", str(caught.exception))
+
+    def test_the_aliased_single_shape_is_unchanged(self) -> None:
+        """A standard packet's artifact IS its envelope; a missing one blocks."""
+
+        task_id = "TASK-2026-08-26-1900-aliased"
+        outbox = f"departments/coding/outbox/{task_id}-response.md"
+        authority = {
+            "task_id": task_id,
+            "lane": "codex",
+            "write_paths": [outbox],
+            "expected_result_path": outbox,
+            "expected_outbox_path": outbox,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo = root / "repo"
+            worker = root / "worker"
+            repo.mkdir()
+            worker.mkdir()
+
+            with self.assertRaises(DispatchContextError) as caught:
+                prepare_worktree_outputs(repo, worker, authority)
+
+            self.assertIn("return artifact is missing", str(caught.exception))
+
+    def test_delivery_contract_names_the_envelope_only_when_it_is_a_second_file(
+        self,
+    ) -> None:
+        outbox = self._outbox_relative()
+
+        split = delivery_contract_note(
+            self.RESULT_RELATIVE, [self.RESULT_RELATIVE], outbox_relative=outbox
+        )
+        aliased = delivery_contract_note(outbox, [outbox], outbox_relative=outbox)
+
+        # The split shape is where the lane cannot infer the envelope from its
+        # write scope, so the prompt must name the path and lift the prohibition.
+        self.assertIn(outbox, split)
+        self.assertIn("SECOND file", split)
+        self.assertIn(
+            "scope violation, because the controller excludes it from integration",
+            split,
+        )
+        self.assertIn("four ways", split)
+        # The aliased shape already lists the envelope as its write scope; adding
+        # a second item there would tell every single dispatch to write twice.
+        self.assertNotIn("SECOND file", aliased)
+        self.assertIn("three ways", aliased)
+
+    def test_the_launch_prompt_carries_the_split_output_envelope_path(self) -> None:
+        outbox = self._outbox_relative()
+
+        prompt = assemble_trusted_launch_prompt(
+            "---\nid: x\n---\n\nbody\n",
+            task_id=self.TASK_ID,
+            attempt_id="d-" + "0" * 32,
+            generation=1,
+            memory_aperture="none",
+            return_artifact=self.RESULT_RELATIVE,
+            write_scope=[self.RESULT_RELATIVE],
+            outbox_relative=outbox,
+        )
+
+        self.assertIn(outbox, prompt)
+        self.assertIn("SECOND file", prompt)
+
+
+
 if __name__ == "__main__":
     unittest.main()
 
 
-class NamespaceSetsStayInAgreementTests(unittest.TestCase):
-    """Pin the two namespace sets that deliberately differ by exactly `shared`.
+class UnifiedMailboxAgreementTests(unittest.TestCase):
+    """Pin the one live mailbox across Python and shell dispatch surfaces."""
 
-    They previously shared the name MAILBOX_NAMESPACES in two files with
-    disagreeing values and nothing enforcing the relation. Renaming the
-    dispatch-side set was only half the fix; this is the validator that makes
-    the remaining duplication legitimate under Hard Rule 10.
-    """
-
-    def test_dispatchable_is_mailbox_set_minus_shared(self) -> None:
-        import dispatch_context_builder as dcb
-        import registry_reconciler as rr
-
-        self.assertEqual(
-            set(dcb.DISPATCHABLE_NAMESPACES),
-            set(rr.MAILBOX_NAMESPACES) - {"shared"},
-            "dispatch_context_builder.DISPATCHABLE_NAMESPACES must equal "
-            "registry_reconciler.MAILBOX_NAMESPACES minus 'shared'. A namespace "
-            "added to one and not the other silently breaks dispatch or leaves a "
-            "mailbox unsettleable.",
+    def test_shell_sender_pins_the_same_mailbox_without_namespace_fallback(self) -> None:
+        local_root = Path(__file__).resolve().parents[3]
+        sender = (local_root / "bin" / "send-task.sh").read_text(encoding="utf-8")
+        builder = (local_root / "scripts/python/dispatch_context_builder.py").read_text(
+            encoding="utf-8"
         )
-
-    def test_shared_is_a_namespace_but_not_a_dispatch_target(self) -> None:
-        import dispatch_context_builder as dcb
-        import registry_reconciler as rr
-
-        # `shared` is a specialist-location namespace (shared/specialists/) whose
-        # mailbox still holds historical packets the reconciler must archive.
-        self.assertIn("shared", dcb.NAMESPACES)
-        self.assertIn("shared", rr.MAILBOX_NAMESPACES)
-        self.assertNotIn("shared", dcb.DISPATCHABLE_NAMESPACES)
+        reconciler = (local_root / "scripts/python/registry_reconciler.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('MAILBOX_NAMESPACE="coding"', sender)
+        self.assertIn('PurePosixPath("departments/coding")', builder)
+        self.assertIn("CANONICAL_MAILBOX_ROOT", reconciler)
+        self.assertNotIn("compat_namespace_for_model", sender)

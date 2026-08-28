@@ -263,7 +263,7 @@ class CapsuleFreshnessCanary(unittest.TestCase):
 
         The four below were reproduced as silently vanishing by the 0210 review:
         needs_human (SETTLEABLE_STATUSES), needs_rework (reopen target), timed_out
-        (swarm deadline), work-done-no-envelope (SETTLED_WITHOUT_ENVELOPE).
+        (terminal delivery outcome), work-done-no-envelope (SETTLED_WITHOUT_ENVELOPE).
         """
         for status in (
             "needs_human",

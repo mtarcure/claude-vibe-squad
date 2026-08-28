@@ -15,6 +15,17 @@ RUNBOOK = REPO / "docs" / "rollback-runbook.md"
 DAEMON_LABEL = "com.vibesquad.daemon"
 
 
+def _tracked_plist_templates(repo: Path = REPO) -> list[Path]:
+    result = subprocess.run(
+        ["git", "ls-files", "--", "launchd/*.plist"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return [repo / relative_path for relative_path in result.stdout.splitlines()]
+
+
 def _write_executable(path: Path, body: str) -> None:
     path.write_text(body)
     path.chmod(0o755)
@@ -25,6 +36,8 @@ def _fake_commands(tmp_path: Path) -> tuple[dict[str, str], Path, Path]:
     fake_bin.mkdir()
     state = tmp_path / "launchctl-state"
     state.write_text("loaded")
+    loaded_plist = tmp_path / "launchctl-loaded-plist"
+    loaded_plist.write_text("")
     log = tmp_path / "commands.log"
     log.write_text("")
 
@@ -37,6 +50,9 @@ case "${1:-}" in
     print)
         current="$(<"${SQUAD_TEST_STATE}")"
         if [[ "${current}" == "loaded" ]]; then
+            if [[ -s "${SQUAD_TEST_LOADED_PLIST}" ]]; then
+                printf '    path = %s\n' "$(<"${SQUAD_TEST_LOADED_PLIST}")"
+            fi
             exit 0
         fi
         if [[ "${current}" == "query-error" ]]; then
@@ -53,6 +69,7 @@ case "${1:-}" in
     bootstrap)
         if [[ "${SQUAD_TEST_BOOTSTRAP_LOADS:-1}" == "1" ]]; then
             printf 'loaded' > "${SQUAD_TEST_STATE}"
+            printf '%s' "${3:-}" > "${SQUAD_TEST_LOADED_PLIST}"
         fi
         exit "${SQUAD_TEST_BOOTSTRAP_RC:-0}"
         ;;
@@ -84,6 +101,7 @@ exit "${SQUAD_TEST_PLUTIL_RC:-0}"
             "VAULT_ROOT": str(REPO),
             "SQUAD_TEST_LOG": str(log),
             "SQUAD_TEST_STATE": str(state),
+            "SQUAD_TEST_LOADED_PLIST": str(loaded_plist),
             "SQUAD_DAEMON_VERIFY_ATTEMPTS": "1",
             "SQUAD_DAEMON_VERIFY_DELAY": "0",
         }
@@ -248,8 +266,7 @@ def _case_runbook_restore_renders_every_tracked_plist_before_bootstrap(
         }
     )
     script = _runbook_restore_script()
-    templates = sorted((REPO / "launchd").glob("*.plist"))
-    assert len(templates) == 10
+    templates = _tracked_plist_templates()
 
     for template in templates:
         run_env = env | {"AGENT": template.name}

@@ -147,10 +147,10 @@ this guide.
 Send a real packet through the shipped dispatch path (no daemon, no `curl`):
 
 ```bash
-scripts/send-task.sh <source-namespace> <body-file> my-specialist
+scripts/send-task.sh <source-namespace> <body-file> my-specialist --mode <operator-approved-mode>
 ```
 
-`scripts/send-task.sh` reads your row from the TSV, maps `primary_lane`/`review_lane` to task-packet model names, generates task frontmatter (`safety_level: high` → `mandatory_review: true`, namespace), and hands off to `bin/send-task.sh`. That writes the packet to `departments/<namespace>/inbox/TASK-*.md`, pins a verification contract to it, and hands delivery to a detached `bin/board-supervisor.sh`, which creates a git worktree and spawns a fresh CLI for your specialist. The response lands at `departments/<namespace>/outbox/TASK-*-response.md` and `bin/registry-reconciler.sh` settles it.
+`scripts/send-task.sh` requires the operator-approved `project|bounty` mode, reads your row from the TSV, maps `primary_lane`/`review_lane` to task-packet model names, generates task frontmatter (`safety_level: high` → `mandatory_review: true`, namespace), and hands off to `bin/send-task.sh`. It rejects an omitted mode instead of supplying one. The hardened dispatcher writes the packet to `departments/<namespace>/inbox/TASK-*.md`, pins a verification contract to it, and hands delivery to a detached `bin/board-supervisor.sh`, which creates a git worktree and spawns a fresh CLI for your specialist. The response lands at `departments/<namespace>/outbox/TASK-*-response.md` and `bin/registry-reconciler.sh` settles it.
 
 ## Safety & review
 

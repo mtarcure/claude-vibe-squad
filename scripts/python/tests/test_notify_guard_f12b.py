@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -99,6 +100,39 @@ class NotifyGuardTest(unittest.TestCase):
             rr.os.environ, {"CHRONO_CANONICAL_VAULT_ROOT": str(Path(tempfile.gettempdir()) / "no-such-vault-f12b")}
         ):
             self.assertTrue(rr.registered_in_canonical_registry(FIXTURE_TASK))
+
+
+class CoordinatorPresenceGuardTest(unittest.TestCase):
+    def test_nudge_does_not_send_or_write_receipt_without_coordinator(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            runs = [
+                # The tmux session exists, but the canonical helper reports
+                # that no coordinator process is present in the fixed pane.
+                subprocess.CompletedProcess(["tmux", "has-session"], 0),
+                subprocess.CompletedProcess(["/bin/bash", "presence"], 1),
+            ]
+            with (
+                mock.patch.dict(rr.os.environ, {rr.TEST_ISOLATION_ENV: "0"}),
+                mock.patch.object(
+                    rr, "CHRONO_NOTIFY_LOCKDIR", state / "notify.lockdir"
+                ),
+                mock.patch.object(
+                    rr,
+                    "CHRONO_NOTIFY_RECEIPTS_DIR",
+                    state / "notify-receipts",
+                ),
+                mock.patch.object(rr.subprocess, "run", side_effect=runs) as run,
+            ):
+                delivered = rr.nudge_chrono(
+                    "do not type this", "presence-guard-event"
+                )
+
+            self.assertFalse(delivered)
+            self.assertEqual(run.call_count, 2)
+            self.assertEqual(run.call_args_list[0].args[0][1], "has-session")
+            self.assertEqual(run.call_args_list[1].args[0][0], "/bin/bash")
+            self.assertFalse((state / "notify-receipts").exists())
 
 
 if __name__ == "__main__":

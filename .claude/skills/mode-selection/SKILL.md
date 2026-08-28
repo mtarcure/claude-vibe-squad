@@ -1,7 +1,7 @@
 ---
 name: mode-selection
 audience: chrono
-description: Use when deciding whether a dispatch runs `project` or `bounty` and naming that mode to the operator for approval before launch—approving the work is not approving the mode, and the convenience wrapper hardcodes `project`. This is the mode decision, not the packet's other frontmatter and not reviewer routing.
+description: Use when choosing the operator-approved `mode` (`project` versus `bounty`) before launch—approval of the work does not approve that workflow. Not for constructing fields or reviewer routing.
 ---
 
 # Mode Selection
@@ -16,15 +16,18 @@ scripts — do not trust this doc over the code.
   which mode the work will run under, and waiting for the operator to agree. Hard Rule 1 forbids a
   mode starting without explicit consent.
 - **Approving the work is not approving the mode.** Measured 2026-08-21: an operator approved a
-  bounty campaign and all 38 lanes dispatched as `mode: project` — nobody was told. Say the mode word
-  out loud; never infer it from "yes, go".
+  bounty campaign and 34 of 38 lanes dispatched as `mode: project` — nobody was told. Say the mode
+  word out loud; never infer it from "yes, go".
 
-## The convenience wrapper only ever authors `project`
-- `scripts/send-task.sh:117` hardcodes `MODE="project"`. A bounty packet sent through the wrapper
-  reaches the lane as project, silently, however the body reads.
-- Bounty (and any non-project typed mode) goes through the prepared-packet path: hand-author the
-  frontmatter and dispatch with `bin/send-task.sh <packet-file>`, which carries the packet's own
-  `mode` into the compiled contract (`MODE_VALUE` -> `"mode"`).
+## Both dispatch paths preserve an explicit choice
+- Generated packets use `scripts/send-task.sh ... --mode project|bounty`. The wrapper rejects an
+  omitted or invalid value, writes the exact choice into frontmatter, and never supplies a default.
+- Prepared packets carry `mode: project|bounty` in frontmatter and dispatch with
+  `bin/send-task.sh <packet-file>`, which carries the packet's own `mode` into the compiled contract
+  (`MODE_VALUE` -> `"mode"`).
+- The wrapper survives because it still assembles standard frontmatter, resolves lanes and review
+  metadata, and routes through the hardened dispatcher. Retire it only if those conveniences move
+  elsewhere; do not retain or reintroduce a mode default as its reason to exist.
 
 ## Verify the mode that LANDED, never the one you intended
 - The dispatch context carries the landed mode as a real field. Read it from the **exact attempt you
@@ -36,7 +39,9 @@ scripts — do not trust this doc over the code.
     print(p if p==m else f"MISMATCH profile={p} memory={m}")' <context_path>
   ```
   `mode_profile` and `memory_context.mode` must agree; if they disagree, stop — do not pick one.
-- `--dry-run` does NOT check `mode`. A green dry-run says nothing about which mode will land.
+- A wrapper `--dry-run` echoes `Packet mode: <mode>` and derives that mode's contract. It proves the
+  generated packet's choice but not a landed attempt; a green prepared-packet dry-run likewise does
+  not replace the exact-attempt check.
 - If the landed mode differs from what the operator approved, stop and say so before the lane works.
 
 ## The mode changes the contract, not just the wall

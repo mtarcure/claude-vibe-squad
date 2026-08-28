@@ -33,11 +33,13 @@ CHRONO_PANE="${SESSION}:chrono"
 
 STUCK_THRESHOLD=300    # 5 min in seconds
 STALE_THRESHOLD=1800   # 30 min in seconds
+PARKED_THRESHOLD=300   # 5 min: parked work owes a coordinator action
 THRASH_WINDOW=1800     # 30 min in seconds
 
 # Task-aware stall watchdog (Fix 1 + Fix 2). detect_stuck binds to the packet's
 # to_model executing lane, not the namespace default lead.
 REGISTRY="${VAULT_ROOT}/_state/active-tasks.json"
+PYTHON_DIR="${VAULT_ROOT}/scripts/python"
 MODEL_LANES_LIST=(gpt-codex claude gemini kimi)
 STALL_DIAG_LOG="${STATE_DIR}/stall-diagnostics.log"   # Fix 3: on-stall stop_reason capture
 # The watchdog is ALERT-ONLY: there is no auto-nudge path and no env toggle. A
@@ -138,6 +140,24 @@ task_idle_secs() {
 task_registry_status() {
     [[ -f "$REGISTRY" ]] || return
     jq -r --arg t "$1" '.[$t].status // empty' "$REGISTRY" 2>/dev/null
+}
+
+# One classification home for both operator surfaces. resume.py reads the
+# registry's current KNOWN_STATUSES at call time, so a concurrently-landed
+# coordination signal becomes visible here without a second shell case list.
+task_parked_cause() {
+    local status="${1:-}"
+    [[ -n "$status" ]] || return
+    PYTHONPATH="${PYTHON_DIR}${PYTHONPATH:+:${PYTHONPATH}}" \
+        python3 - "$status" <<'PY' 2>/dev/null
+import sys
+
+from chrono_state.resume import parked_cause
+
+cause = parked_cause(sys.argv[1])
+if cause:
+    print(cause)
+PY
 }
 
 # Completion evidence must match the live reconciliation rail, not an inferred
@@ -430,7 +450,8 @@ detect_stuck() {
 }
 
 # ── DETECTOR 2: stale active ─────────────────────────────────────────────────
-# Namespace task moved to active/ but has no response in >30m.
+# Namespace task moved to active/. Parked rows owe coordinator action after 5m;
+# genuinely active/unknown rows retain the existing 30m stale threshold.
 
 detect_stale_active() {
     local namespace="$1"
@@ -439,7 +460,7 @@ detect_stale_active() {
     while IFS= read -r task_file; do
         [[ -z "$task_file" ]] && continue
 
-        local task_name task_id status
+        local task_name task_id status cause threshold
         task_name=$(basename "$task_file")
         task_id="${task_name%.md}"
         local mtime
@@ -450,15 +471,11 @@ detect_stale_active() {
         mtime=$(stat -c '%Y' "$task_file" 2>/dev/null || stat -f '%m' "$task_file" 2>/dev/null || echo 0)
         local age=$(( now - mtime ))
 
-        [[ $age -lt $STALE_THRESHOLD ]] && continue
-
         status=$(task_registry_status "$task_id")
-        case "$status" in
-            needs_review|review-required)
-                echo "[$(date -u +%H:%M:%SZ)] INFO: ${namespace}/${task_name} awaiting review (${status}); not stale"
-                continue
-                ;;
-        esac
+        cause=$(task_parked_cause "$status" || true)
+        threshold=$STALE_THRESHOLD
+        [[ -n "$cause" ]] && threshold=$PARKED_THRESHOLD
+        [[ $age -lt $threshold ]] && continue
 
         local alerted_file="${STATE_DIR}/${namespace}-stale-${task_name}-alerted"
         [[ -f "$alerted_file" ]] && continue
@@ -467,7 +484,11 @@ detect_stale_active() {
         board_spawn_live "$task_id" && continue
 
         local age_min=$(( age / 60 ))
-        send_alert "${namespace} namespace has stale active task (${task_name}, ${age_min}m old)"
+        if [[ -n "$cause" ]]; then
+            send_alert "${cause}: ${namespace}/${task_name} parked ${age_min}m (${status}); coordinator action overdue"
+        else
+            send_alert "${namespace} namespace has stale active task (${task_name}, ${age_min}m old)"
+        fi
         touch "${alerted_file}"
     done < <(find "${active_dir}" -maxdepth 1 -name 'TASK-*.md' 2>/dev/null)
 }

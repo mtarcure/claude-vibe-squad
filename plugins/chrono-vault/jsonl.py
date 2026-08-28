@@ -37,6 +37,91 @@ class JsonlAppendError(RuntimeError):
     """The line could not be durably appended."""
 
 
+class JsonlReadError(RuntimeError):
+    """A JSONL source could not be read as bounded object records."""
+
+
+DEFAULT_MAX_READ_BYTES = 64 * 1024 * 1024
+
+
+def read_objects(
+    source: Path,
+    *,
+    max_bytes: int = DEFAULT_MAX_READ_BYTES,
+) -> list[dict[str, Any]]:
+    """Read a bounded regular JSONL file without following symlinks.
+
+    A spool reader has the same trust boundary as its writer: `_state/` is
+    writable runtime state and may contain a replaced path or a torn/manual
+    line. Fail the file closed instead of returning a partial history that a
+    caller could mistake for a complete scan.
+    """
+    source = Path(source)
+    if not isinstance(max_bytes, int) or isinstance(max_bytes, bool) or max_bytes < 1:
+        raise JsonlReadError("max_bytes must be a positive integer")
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    if nofollow is None:
+        raise JsonlReadError("O_NOFOLLOW is unavailable on this platform")
+    descriptor = -1
+    try:
+        descriptor = os.open(
+            source,
+            os.O_RDONLY | nofollow | getattr(os, "O_CLOEXEC", 0),
+        )
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode):
+            raise JsonlReadError(f"not a regular file: {source}")
+        if before.st_size > max_bytes:
+            raise JsonlReadError(f"file exceeds {max_bytes} bytes: {source}")
+        chunks: list[bytes] = []
+        remaining = max_bytes + 1
+        while remaining:
+            chunk = os.read(descriptor, min(65536, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        raw = b"".join(chunks)
+        after = os.fstat(descriptor)
+        if len(raw) > max_bytes or (
+            before.st_dev,
+            before.st_ino,
+            before.st_size,
+            before.st_mtime_ns,
+        ) != (
+            after.st_dev,
+            after.st_ino,
+            after.st_size,
+            after.st_mtime_ns,
+        ):
+            raise JsonlReadError(f"file changed while reading: {source}")
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise JsonlReadError(f"invalid UTF-8: {source}") from exc
+        rows: list[dict[str, Any]] = []
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise JsonlReadError(
+                    f"invalid JSON at {source}:{line_number}"
+                ) from exc
+            if not isinstance(row, dict):
+                raise JsonlReadError(f"non-object row at {source}:{line_number}")
+            rows.append(row)
+        return rows
+    except JsonlReadError:
+        raise
+    except OSError as exc:
+        raise JsonlReadError(str(exc)) from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
 def append_line(destination: Path, payload: dict[str, Any]) -> Path:
     """Append one JSON object as a line to `destination`, durably.
 

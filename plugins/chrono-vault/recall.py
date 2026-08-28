@@ -23,10 +23,10 @@ from query import TOKEN_PATTERN, build_fts_query
 from vaultroot import VaultRootError, resolve_vault_root
 
 
-DEFAULT_STATUSES = ("candidate", "verified")
-ALL_STATUSES = frozenset(
-    {"candidate", "verified", "superseded", "invalidated", "archived"}
-)
+ACTIVE_STATUSES = ("candidate", "verified")
+FOLDED_STATUSES = ("superseded", "invalidated", "archived")
+DEFAULT_STATUSES = ACTIVE_STATUSES
+ALL_STATUSES = frozenset((*ACTIVE_STATUSES, *FOLDED_STATUSES))
 NOTE_TYPES = frozenset({"attempt", "finding", "learning"})
 FILTER_FIELDS = frozenset(
     {
@@ -168,16 +168,32 @@ def _empty(
     *,
     audit_result: str,
     query_error: str | None = None,
+    tiers_searched: list[str] | None = None,
 ) -> dict[str, Any]:
     result: dict[str, Any] = {
         "recall_id": recall_id,
-        "tiers_searched": ["active"],
+        "tiers_searched": tiers_searched or ["active"],
         "results": [],
         "_audit_result": audit_result,
     }
     if query_error is not None:
         result["query_error"] = query_error
     return result
+
+
+def _status_tiers(statuses: tuple[str, ...]) -> list[str]:
+    """Name the lifecycle surfaces searched, without creating another tier.
+
+    Candidate and verified notes form the default active surface. The existing
+    terminal/replacement statuses are the recoverable folded surface: callers
+    can search it explicitly with the same ``status`` filter they already use.
+    """
+    tiers: list[str] = []
+    if any(status in ACTIVE_STATUSES for status in statuses):
+        tiers.append("active")
+    if any(status in FOLDED_STATUSES for status in statuses):
+        tiers.append("folded")
+    return tiers
 
 
 def _validate_limit(limit: int) -> int:
@@ -268,6 +284,15 @@ def _validate_filters(
 
 
 def _load_weights(connection: sqlite3.Connection) -> tuple[float, ...]:
+    # The per-column weight vector lives in the index config, authored from
+    # `index.BM25_WEIGHTS`. Its magnitudes have no measured derivation -- see
+    # the provenance note on `index.BM25_WEIGHTS` -- so treat them as a legacy
+    # baseline, not tuned constants. What the vector IS load-bearing for is the
+    # ordering "a query term in a label field (title/aliases/attack_class)
+    # outranks the same term in prose (body)"; that ordinal intent is pinned,
+    # with a baked-in flatten-the-vector negative control, by
+    # tests/test_recall_weight_ordinality.py. Do not adjust the magnitudes
+    # without the labeled relevance measurement that note describes.
     row = connection.execute(
         "SELECT value FROM config WHERE key='bm25_weights'"
     ).fetchone()
@@ -294,12 +319,20 @@ def _load_weights(connection: sqlite3.Connection) -> tuple[float, ...]:
 # Ranking bonuses. bm25() returns NEGATIVE relevance ordered ASC, so a
 # bonus is SUBTRACTED: a more-negative adjusted rank sorts earlier.
 #
-# Both bonuses are deliberately small relative to typical bm25 spread --
-# they break ties and nudge, they do not override relevance. A verified
-# note about the wrong thing must still lose to a candidate note about
-# the right thing.
-_VERIFIED_BONUS = 0.5   # makes promotion visible at retrieval (spec §4)
-_FINDING_BONUS = 0.25   # findings are ~9x more likely to be recalled (measured)
+# Provenance: both values entered in commit ec87bb48 (2026-08-17). The commit
+# establishes the qualitative reasons -- make promotion/type visible at equal
+# lexical relevance -- but contains no measurement supporting either magnitude.
+# Its "~9x" finding-frequency observation explains why type was considered, not
+# why 0.25 is the right coefficient. Preserve the values as the legacy baseline;
+# do not present them as tuned or validated constants.
+_VERIFIED_BONUS = 0.5
+_FINDING_BONUS = 0.25
+
+# One neutral pseudo-observation for each scored outcome is Laplace smoothing,
+# not a fitted parameter. It gives early feedback a bounded effect and makes
+# repeated independent outcomes add diminishing evidence. The signal's maximum
+# magnitude reuses (rather than exceeds) the two existing ranking nudges.
+_USAGE_PRIOR_OBSERVATIONS = 2.0
 
 
 def _rank_bonus_sql() -> str:
@@ -307,6 +340,22 @@ def _rank_bonus_sql() -> str:
     return (
         f"- (CASE WHEN m.status = 'verified' THEN {_VERIFIED_BONUS} ELSE 0 END)"
         f" - (CASE WHEN m.note_type = 'finding' THEN {_FINDING_BONUS} ELSE 0 END)"
+    )
+
+
+def _usage_signal_sql() -> str:
+    """Bounded support/demotion from recorded use and correctness outcomes.
+
+    ``not_useful`` is intentionally reported but not scored: it describes fit
+    for one recall context, not whether the reusable note is true. ``incorrect``
+    is correctness evidence and ``used`` is positive applicability evidence.
+    """
+    used = "COALESCE(u.used_count, 0)"
+    incorrect = "COALESCE(u.incorrect_count, 0)"
+    signal_cap = _VERIFIED_BONUS + _FINDING_BONUS
+    return (
+        f"({signal_cap} * (({used}) - ({incorrect})) / "
+        f"(({used}) + ({incorrect}) + {_USAGE_PRIOR_OBSERVATIONS}))"
     )
 
 
@@ -550,7 +599,7 @@ def _record_returns(
 
 
 def recall(query: str, filters: dict = None, limit: int = 8) -> dict[str, Any]:
-    """Return ranked, quoted note snippets from the active FTS5 tier.
+    """Return ranked, quoted note snippets from the lifecycle-filtered FTS5 index.
 
     The optional `max_sensitivity` filter narrows results to that tier and
     below (for example, recalling on behalf of an internal-tier destination).
@@ -558,8 +607,10 @@ def recall(query: str, filters: dict = None, limit: int = 8) -> dict[str, Any]:
 
     Each returned note carries `disputed` (bool): True when the note is left in
     an unreconciled contradiction that a later write flagged but never reconciled
-    (`_unreconciled_note_ids`). The reader is thereby told a note is contested
-    instead of receiving it as if settled.
+    (`_unreconciled_note_ids`), or when usage history contains an ``incorrect``
+    outcome. The reader is thereby told a demoted note is contested instead of
+    receiving it as if settled; scoring never removes the note from its lifecycle
+    surface.
 
     Every call emits exactly one audit event (best-effort, never gating). The
     event's `result` distinguishes a recall that matched nothing from one that
@@ -619,6 +670,7 @@ def _recall(
     fts_query = build_expanded_fts_query(query)
     validated_limit = _validate_limit(limit)
     structured, statuses, max_sensitivity = _validate_filters(filters)
+    tiers_searched = _status_tiers(statuses)
     if constraints is not None:
         # DERIVED, never taken on the caller's word, for the same reason
         # `lifecycle.record_usage` derives it: the launch prompt
@@ -643,11 +695,19 @@ def _recall(
         statuses = tuple(value for value in statuses if value in allowed_statuses)
         allowed_types = constraints["note_types"]
         if structured.get("type") not in {None, *allowed_types}:
-            return _empty(recall_id, audit_result=audit.FILTERED)
+            return _empty(
+                recall_id,
+                audit_result=audit.FILTERED,
+                tiers_searched=tiers_searched,
+            )
         focus = constraints["target"]
         if focus is not None:
             if structured.get("target") not in {None, focus}:
-                return _empty(recall_id, audit_result=audit.FILTERED)
+                return _empty(
+                    recall_id,
+                    audit_result=audit.FILTERED,
+                    tiers_searched=tiers_searched,
+                )
             structured["target"] = focus
         cutoff = constraints["written_before_ns"]
         if cutoff is not None:
@@ -656,7 +716,11 @@ def _recall(
                 int(structured.get("written_before_ns", cutoff)),
             )
     if not statuses:
-        return _empty(recall_id, audit_result=audit.FILTERED)
+        return _empty(
+            recall_id,
+            audit_result=audit.FILTERED,
+            tiers_searched=tiers_searched,
+        )
     clearance = lane_clearance()
     process_allowed = (
         ("internal", "restricted")
@@ -665,12 +729,20 @@ def _recall(
     )
     allowed_sensitivities = _narrow_sensitivities(process_allowed, max_sensitivity)
     if not allowed_sensitivities:
-        return _empty(recall_id, audit_result=audit.FILTERED)
+        return _empty(
+            recall_id,
+            audit_result=audit.FILTERED,
+            tiers_searched=tiers_searched,
+        )
 
     root = resolve_vault_root()
     with _read_index(root) as connection:
         if connection is None:
-            return _empty(recall_id, audit_result=audit.EMPTY_STORE)
+            return _empty(
+                recall_id,
+                audit_result=audit.EMPTY_STORE,
+                tiers_searched=tiers_searched,
+            )
 
         weights = _load_weights(connection)
         weight_sql = ",".join(format(value, ".17g") for value in weights)
@@ -715,10 +787,28 @@ def _recall(
         sql = f"""
             SELECT
                 m.id, m.path, m.status, m.sensitivity, m.content_hash,
-                m.mtime_ns, notes_fts.title, notes_fts.body,
-                bm25(notes_fts, {weight_sql}) {_rank_bonus_sql()} AS raw_rank
+                m.mtime_ns, m.note_type, notes_fts.title, notes_fts.body,
+                bm25(notes_fts, {weight_sql}) AS lexical_rank,
+                COALESCE(u.used_count, 0) AS used_count,
+                COALESCE(u.not_useful_count, 0) AS not_useful_count,
+                COALESCE(u.incorrect_count, 0) AS incorrect_count,
+                {_usage_signal_sql()} AS usage_signal,
+                bm25(notes_fts, {weight_sql}) {_rank_bonus_sql()}
+                    - {_usage_signal_sql()} AS raw_rank
             FROM notes_fts
             JOIN meta AS m ON m.docid = notes_fts.rowid
+            LEFT JOIN (
+                SELECT
+                    note_id,
+                    SUM(CASE WHEN outcome = 'used' THEN 1 ELSE 0 END)
+                        AS used_count,
+                    SUM(CASE WHEN outcome = 'not_useful' THEN 1 ELSE 0 END)
+                        AS not_useful_count,
+                    SUM(CASE WHEN outcome = 'incorrect' THEN 1 ELSE 0 END)
+                        AS incorrect_count
+                FROM usage
+                GROUP BY note_id
+            ) AS u ON u.note_id = m.id
             WHERE {' AND '.join(clauses)}
             ORDER BY raw_rank ASC, m.mtime_ns DESC, m.id ASC
             LIMIT ?
@@ -748,15 +838,28 @@ def _recall(
             if row["sensitivity"] not in allowed_sensitivities:
                 continue
             note_link = _note_link(root, row["path"])
-            raw_rank = float(row["raw_rank"])
-            score = -raw_rank
+            lexical_rank = float(row["lexical_rank"])
+            adjusted_rank = float(row["raw_rank"])
+            score = -adjusted_rank
+            verified_bonus = _VERIFIED_BONUS if row["status"] == "verified" else 0.0
+            finding_bonus = _FINDING_BONUS if row["note_type"] == "finding" else 0.0
+            usage = {
+                "used": int(row["used_count"]),
+                "not_useful": int(row["not_useful_count"]),
+                "incorrect": int(row["incorrect_count"]),
+                "signal": float(row["usage_signal"]),
+            }
             results.append(
                 {
                     "id": row["id"],
                     "score": score,
                     "score_components": {
-                        "bm25": score,
-                        "raw_bm25": raw_rank,
+                        "bm25": -lexical_rank,
+                        "raw_bm25": lexical_rank,
+                        "verified_bonus": verified_bonus,
+                        "finding_bonus": finding_bonus,
+                        "usage": usage,
+                        "adjusted_score": score,
                         "weights": weight_components,
                         "recency_tiebreak_ns": int(row["mtime_ns"]),
                     },
@@ -781,7 +884,10 @@ def _recall(
     # clean one) so a consumer can rely on the key.
     disputed_ids = _unreconciled_note_ids() if results else frozenset()
     for row in results:
-        row["disputed"] = row["id"] in disputed_ids
+        row["disputed"] = (
+            row["id"] in disputed_ids
+            or row["score_components"]["usage"]["incorrect"] > 0
+        )
 
     # Skipped when nothing was returned: an empty recall must never create
     # index storage (test_missing_index_returns_empty_without_creating_storage
@@ -799,7 +905,7 @@ def _recall(
 
     return {
         "recall_id": recall_id,
-        "tiers_searched": ["active"],
+        "tiers_searched": tiers_searched,
         "results": results,
         "_audit_result": audit.MATCHED if results else audit.NO_MATCH,
     }

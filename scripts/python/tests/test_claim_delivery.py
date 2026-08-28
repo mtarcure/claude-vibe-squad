@@ -248,14 +248,28 @@ class ClaimAndRedeliveryTests(DeliveryFixture):
         os.utime(own, (landed.timestamp(), landed.timestamp()))
         self.run_cli("--task-id", task)
         self.assertEqual(self.registry()[task]["status"], "review-required")
-        review = self.root / "departments/coding/outbox/REVIEW-delayed-response.md"
+        review_task = "TASK-delayed-review-verdict"
+        review_entry = self.entry(
+            review_task,
+            lane="gpt-codex",
+            at=landed.isoformat(),
+            attempt="d-review",
+        )
+        review_entry["reviews"] = task
+        self.run_cli(
+            "--register-task",
+            review_task,
+            "--entry-json",
+            json.dumps(review_entry),
+        )
+        review = self.root / f"departments/coding/outbox/{review_task}-response.md"
         review.write_text(
             f"---\nin_response_to: {task}\nfrom: gpt-codex\ntype: RESULT\nstatus: complete\n"
             "verdict: APPROVE\n---\n\nreviewed\n", encoding="utf-8",
         )
         self.run_cli(
             "--settle-review", task,
-            "--review-ref", "departments/coding/outbox/REVIEW-delayed-response.md",
+            "--review-ref", f"departments/coding/outbox/{review_task}-response.md",
         )
         self.assertEqual(self.registry()[task]["status"], "complete")
 

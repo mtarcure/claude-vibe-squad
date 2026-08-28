@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 
@@ -97,6 +98,68 @@ class LaneAdapterRegistryTests(unittest.TestCase):
         self.assertIn("chrono-vault", registry["gemini"].mcp_surface)
         self.assertIn("lead:chrono-vault", registry["kimi"].mcp_surface)
         self.assertEqual(registry["kimi"].child_mcp_policy, "lead-broker-only")
+
+    def test_kimi_prompt_guard_is_controlled_by_child_mcp_policy(self) -> None:
+        registry_path = ROOT / "model-lanes" / "lane-capabilities.tsv"
+        registry = registry_module.load_capability_registry(registry_path)
+        source_adapters = sorted(
+            path
+            for path in (ROOT / "model-lanes/kimi/.kimi/agents").glob("*.yaml")
+            if "../prompts/" in path.read_text(encoding="utf-8")
+        )
+        self.assertTrue(source_adapters, "no live Kimi native prompt adapter found")
+        source_adapter = source_adapters[0]
+        specialist = source_adapter.stem
+        boundary = "MCP tools are unavailable inside Kimi subagents"
+
+        with tempfile.TemporaryDirectory() as directory:
+            staged_root = Path(directory)
+            agents = staged_root / ".kimi" / "agents"
+            prompts = staged_root / ".kimi" / "prompts"
+            agents.mkdir(parents=True)
+            prompts.mkdir(parents=True)
+            adapter = agents / source_adapter.name
+            prompt = prompts / f"{specialist}.md"
+            shutil.copyfile(source_adapter, adapter)
+            shutil.copyfile(
+                ROOT / "model-lanes/kimi/.kimi/prompts" / prompt.name,
+                prompt,
+            )
+            original_prompt = prompt.read_text(encoding="utf-8")
+            self.assertIn(boundary, original_prompt)
+            prompt.write_text(
+                original_prompt.replace(boundary, "MCP tools are available"),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                registry_module.AdapterValidationError,
+                "lacks lead-broker MCP policy",
+            ):
+                registry_module.validate_adapter_file(
+                    ROOT, "kimi", adapter, registry["kimi"]
+                )
+
+            lines = registry_path.read_text(encoding="utf-8").splitlines()
+            header = lines[0].split("\t")
+            policy_index = header.index("child_mcp_policy")
+            inverted_lines = [lines[0]]
+            for line in lines[1:]:
+                fields = line.split("\t")
+                if fields[0] == "kimi":
+                    self.assertEqual(fields[policy_index], "lead-broker-only")
+                    fields[policy_index] = "inherit-full"
+                inverted_lines.append("\t".join(fields))
+            inverted_path = staged_root / "lane-capabilities.tsv"
+            inverted_path.write_text(
+                "\n".join(inverted_lines) + "\n",
+                encoding="utf-8",
+            )
+            inverted = registry_module.load_capability_registry(inverted_path)
+            self.assertEqual(inverted["kimi"].child_mcp_policy, "inherit-full")
+            registry_module.validate_adapter_file(
+                ROOT, "kimi", adapter, inverted["kimi"]
+            )
 
     def test_registry_rejects_adapter_tool_not_held_by_lane(self) -> None:
         registry = registry_module.load_capability_registry(

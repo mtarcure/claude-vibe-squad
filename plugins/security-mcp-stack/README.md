@@ -2,6 +2,26 @@
 
 This directory controls the restart-gated Claude and gpt-codex security MCP cutover. The project-local lane files are now populated, but no running lane has been restarted or activated by this work.
 
+> **Public distribution note.** This document describes a specific host's security-MCP
+> cutover. The lane configuration files, staged review mirrors, and stack inputs it refers
+> to as populated and retained are operator-provided and are **not part of the public
+> release** of this repository. On a public checkout the following paths are absent:
+>
+> - `model-lanes/claude/.mcp.json`
+> - `model-lanes/claude/.mcp.security-arsenal.staged.json`
+> - `model-lanes/gpt-codex/.codex/config.toml`
+> - `model-lanes/gpt-codex/.codex/security-arsenal.staged.toml`
+> - `plugins/security-mcp-stack/held-solodit.json`
+> - `plugins/security-mcp-stack/snyk-preactivation-targets.json`
+> - `plugins/security-mcp-stack/preactivate-security-stack.sh`
+>
+> Because those files are missing, `validate_staged.py` and the cutover steps below cannot
+> run as written from a public clone — `validate_staged.py` reads the lane configs directly
+> and errors on the first absent path rather than returning a result. Treat everything below
+> as a configuration template: to use this stack, supply your own lane configs and stack
+> inputs at the paths named. The files are withheld because they encode one host's wiring,
+> not because any single value is a secret.
+
 Run the fail-closed static check before review or activation:
 
 ```bash

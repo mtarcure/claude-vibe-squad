@@ -19,7 +19,7 @@ from typing import Any, Callable, Iterator
 
 from notes import record
 import jsonl
-from jsonl import JsonlAppendError
+from jsonl import JsonlAppendError, JsonlReadError
 from vaultroot import REPO_ROOT, VaultRootError, resolve_vault_root
 
 
@@ -160,6 +160,13 @@ PROVIDER_KEY_VARS = (
 # lookups that share `REPO_ROOT`.
 EPISODIC_SPOOL_DIR = Path("_state") / "episodic"
 EPISODIC_SPOOL_SCHEMA = 1
+EPISODIC_READER_MAX_ROWS = 50_000
+# A watcher startup currently replays ~1,500 responses. Reading the complete
+# spool and learning-note key set on every duplicate would turn one bounded
+# sweep into millions of file reads. Stable sharding gives each restart about
+# two dozen independent graduation attempts while keeping ordinary replay
+# duplicates cheap.
+EPISODIC_READER_REPLAY_SHARDS = 64
 
 # --- The write path's own health ----------------------------------------
 #
@@ -993,18 +1000,282 @@ def _find_duplicate(root: Path, source_task: str, artifact_hash: str) -> str | N
     return None
 
 
+def _semantic_keys(root: Path) -> set[tuple[str, str]]:
+    """Return every source key already searchable as a learning note."""
+    directory = root / "notes" / "learning"
+    if not directory.exists():
+        return set()
+    if directory.is_symlink() or not directory.is_dir():
+        raise CaptureError("dedupe_scan_failed")
+    keys: set[tuple[str, str]] = set()
+    with os.scandir(directory) as entries:
+        for entry in entries:
+            if not entry.name.endswith(".md") or not entry.is_file(
+                follow_symlinks=False
+            ):
+                continue
+            source_task, artifact_hash, _ = _canonical_key(Path(entry.path))
+            if source_task and artifact_hash:
+                keys.add((source_task, artifact_hash))
+    return keys
+
+
+def _spooled_rows() -> tuple[list[dict[str, Any]], int]:
+    """Read the episodic tier oldest-first, isolating malformed files.
+
+    The spool is raw audit material, so the reader never edits, acknowledges,
+    or removes a row. A malformed daily file is counted and skipped while
+    other days remain eligible for graduation.
+    """
+    directory = _episodic_root()
+    if not directory.exists():
+        return [], 0
+    if directory.is_symlink() or not directory.is_dir():
+        raise CaptureError("episodic_spool_read_failed")
+    paths: list[Path] = []
+    invalid_files = 0
+    with os.scandir(directory) as entries:
+        for entry in entries:
+            if not entry.name.endswith(".jsonl"):
+                continue
+            if not entry.is_file(follow_symlinks=False):
+                invalid_files += 1
+                continue
+            paths.append(Path(entry.path))
+    rows: list[dict[str, Any]] = []
+    for path in sorted(paths):
+        try:
+            rows.extend(jsonl.read_objects(path))
+        except JsonlReadError:
+            invalid_files += 1
+            continue
+        if len(rows) > EPISODIC_READER_MAX_ROWS:
+            raise CaptureError("episodic_spool_too_large")
+    return rows, invalid_files
+
+
+def _spooled_key(row: dict[str, Any]) -> tuple[str, str]:
+    """Validate one schema-v1 row and return its semantic dedupe key."""
+    if row.get("schema_version") != EPISODIC_SPOOL_SCHEMA:
+        raise CaptureError("invalid_spool_row")
+    required = (
+        "source_task",
+        "source_artifact_hash",
+        "response_path",
+        "specialist",
+        "status",
+        "mode",
+        "component",
+        "target",
+        "sensitivity",
+        "captured_at",
+        "raw_title",
+        "raw_body",
+    )
+    if any(not isinstance(row.get(field), str) for field in required):
+        raise CaptureError("invalid_spool_row")
+    source_task = str(row["source_task"])
+    artifact_hash = str(row["source_artifact_hash"])
+    if (
+        RESPONSE_NAME.fullmatch(f"{source_task}-response.md") is None
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", artifact_hash) is None
+        or row["sensitivity"] not in {"internal", "restricted"}
+        or len(str(row["raw_title"])) > MAX_TITLE_CHARS
+        or len(str(row["raw_body"])) > MAX_SUMMARY_CHARS
+    ):
+        raise CaptureError("invalid_spool_row")
+    try:
+        datetime.fromisoformat(str(row["captured_at"]).replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise CaptureError("invalid_spool_row") from exc
+    return source_task, artifact_hash
+
+
+def _spool_contains(source_task: str, artifact_hash: str) -> bool:
+    rows, _ = _spooled_rows()
+    for row in rows:
+        try:
+            if _spooled_key(row) == (source_task, artifact_hash):
+                return True
+        except CaptureError:
+            continue
+    return False
+
+
+def graduate_spooled_once(
+    *,
+    seed: str,
+    distiller: Callable[[dict[str, str], dict[str, str]], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Promote at most one eligible raw row through the existing note writer.
+
+    Production calls this on replay duplicates. The watcher replays every
+    response at startup, so distinct response paths provide stable scan
+    offsets and distribute retries across the backlog without a second daemon,
+    cursor, or queue. Deterministic refusals and invalid rows stay in the raw
+    audit tier; missing eligible rows are retried until one becomes a semantic
+    note, after which the canonical source key makes every later scan skip it.
+    """
+    try:
+        root = resolve_vault_root()
+        rows, invalid_files = _spooled_rows()
+        if not rows:
+            return {
+                "graduated": False,
+                "note_id": None,
+                "reason": "empty",
+                "invalid_files": invalid_files,
+            }
+        known = _semantic_keys(root)
+    except (CaptureError, VaultRootError):
+        return {
+            "graduated": False,
+            "note_id": None,
+            "reason": "reader_unavailable",
+        }
+
+    start = int.from_bytes(hashlib.sha256(seed.encode("utf-8")).digest()[:8]) % len(rows)
+    ordered = rows[start:] + rows[:start]
+    seen: set[tuple[str, str]] = set()
+    refused = 0
+    invalid_rows = 0
+    duplicates = 0
+    for row in ordered:
+        try:
+            key = _spooled_key(row)
+        except CaptureError:
+            invalid_rows += 1
+            continue
+        if key in seen:
+            duplicates += 1
+            continue
+        seen.add(key)
+        if key in known:
+            duplicates += 1
+            continue
+
+        specialist = str(row["specialist"])
+        title = str(row["raw_title"])
+        note_body = str(row["raw_body"])
+        screened = _without_artifacts(note_body)
+        try:
+            accepted = capture(role=specialist, title=title, body=screened)
+        except AutocaptureRefused:
+            refused += 1
+            continue
+
+        mode = str(row["mode"])
+        component = str(row["component"])
+        sensitivity = str(row["sensitivity"])
+        fallback_attack_class = _slug(f"{mode}-{specialist}", "task-outcome")
+        attack_class = fallback_attack_class
+        aliases: list[str] = []
+        keywords = [
+            f"specialist-{specialist}",
+            f"status-{str(row['status'])}",
+        ]
+        try:
+            if _distillation_enabled(sensitivity):
+                distilled = (distiller or distill)(
+                    accepted,
+                    {
+                        "role": specialist,
+                        "mode": mode,
+                        "namespace": component,
+                    },
+                )
+                title = distilled["title"]
+                note_body = distilled["body"]
+                aliases = distilled["aliases"]
+                attack_class = distilled["attack_class"] or fallback_attack_class
+                keywords.extend(
+                    keyword
+                    for keyword in distilled["keywords"]
+                    if keyword not in keywords
+                )
+        except DistillationFailed as exc:
+            _record_write_path_failure(
+                f"spool_graduation_failed:{exc}", str(row["response_path"])
+            )
+            return {
+                "graduated": False,
+                "note_id": None,
+                "reason": f"distillation_failed:{exc}",
+                "refused": refused,
+                "invalid_rows": invalid_rows,
+                "invalid_files": invalid_files,
+            }
+
+        try:
+            with _dedupe_lock(root):
+                duplicate = _find_duplicate(root, key[0], key[1])
+                if duplicate is not None:
+                    known.add(key)
+                    duplicates += 1
+                    continue
+                created = record(
+                    "learning",
+                    {
+                        "title": title,
+                        "body": note_body,
+                        "status": "candidate",
+                        "target": str(row["target"]),
+                        "component": component,
+                        "attack_class": attack_class,
+                        "sensitivity": sensitivity,
+                        "source_task": key[0],
+                        "source_artifact_hash": key[1],
+                        "aliases": aliases,
+                        "keywords": keywords,
+                    },
+                )
+        except Exception:  # best-effort reader must not gate watcher settlement
+            return {
+                "graduated": False,
+                "note_id": None,
+                "reason": "write_failed",
+                "refused": refused,
+                "invalid_rows": invalid_rows,
+                "invalid_files": invalid_files,
+            }
+        return {
+            "graduated": True,
+            "note_id": created["id"],
+            "reason": "graduated",
+            "refused": refused,
+            "duplicates": duplicates,
+            "invalid_rows": invalid_rows,
+            "invalid_files": invalid_files,
+        }
+    return {
+        "graduated": False,
+        "note_id": None,
+        "reason": "no_eligible_rows",
+        "refused": refused,
+        "duplicates": duplicates,
+        "invalid_rows": invalid_rows,
+        "invalid_files": invalid_files,
+    }
+
+
+def _spool_reader_due(seed: str) -> bool:
+    """Select a stable bounded subset of replay duplicates for backlog work."""
+    digest = hashlib.sha256(seed.encode("utf-8")).digest()
+    return int.from_bytes(digest[:8]) % EPISODIC_READER_REPLAY_SHARDS == 0
+
+
 def capture_response(
     response_path: str,
     *,
     distiller: Callable[[dict[str, str], dict[str, str]], dict[str, Any]] | None = None,
+    record_replay_event: bool = True,
 ) -> dict[str, bool | str | None]:
     """Capture one valid task response, or return a stable skip reason.
 
     Stages, in order (spec 12):
 
-    1. every capture is spooled raw to the episodic tier, unconditionally;
-    2. an already-captured response returns `duplicate` here, before any
-       cost is incurred -- the watcher replays every response on startup;
+    1. the production CLI rejects watcher replay duplicates before appending;
+    2. every new capture is spooled raw before anything can reject it;
     3. the mechanical filter refuses non-knowledge without a model call;
     4. survivors are distilled by a cheap fast lane into the high-weight
        retrieval fields.
@@ -1092,14 +1363,31 @@ def capture_response(
         note_body = summary
         screened = _without_artifacts(summary)
 
-        # Stage 3 first in execution order, deliberately: the raw material is
+        # The production CLI's replay is not a new event. Resolve the semantic
+        # key and inspect the raw tier before appending so watcher startup does
+        # not grow the spool. Direct library callers retain the old explicit
+        # raw-event behavior unless they opt into production semantics; this
+        # preserves the API's ability to record a genuine repeated event.
+        try:
+            root: Path | None = resolve_vault_root()
+        except VaultRootError:
+            root = None
+        already_spooled = False
+        if not record_replay_event:
+            if root is not None:
+                duplicate = _find_duplicate(root, source_task, artifact_hash)
+                if duplicate is not None:
+                    return _result(False, duplicate, "duplicate")
+            already_spooled = _spool_contains(source_task, artifact_hash)
+
+        # Stage 3 first for a new key, deliberately: the raw material is
         # durable before anything is allowed to reject it. This spool lives
         # under the repo's _state/, independent of CHRONO_VAULT_ROOT, so it
         # cannot be lost even when the vault itself is unreachable -- vault
         # resolution is deferred below, to just before the note write that
         # actually needs it.
-        _spool_episodic(
-            {
+        if not already_spooled:
+            _spool_episodic({
                 "schema_version": EPISODIC_SPOOL_SCHEMA,
                 "source_task": source_task,
                 "source_artifact_hash": artifact_hash,
@@ -1115,8 +1403,7 @@ def capture_response(
                 .replace("+00:00", "Z"),
                 "raw_title": title,
                 "raw_body": summary,
-            },
-        )
+            })
 
         # The duplicate check runs BEFORE anything expensive, and that
         # ordering is load-bearing. `bin/outbox-watcher.sh`'s
@@ -1136,10 +1423,6 @@ def capture_response(
         # above and stages 1-2 need no vault), and the authoritative check
         # is re-run under `_dedupe_lock` immediately before the write, so a
         # duplicate that lands in between is still caught.
-        try:
-            root: Path | None = resolve_vault_root()
-        except VaultRootError:
-            root = None
         if root is not None:
             duplicate = _find_duplicate(root, source_task, artifact_hash)
             if duplicate is not None:
@@ -1213,7 +1496,21 @@ def main(argv: list[str] | None = None) -> int:
     if len(arguments) != 1:
         print("usage: autocapture.py <TASK-...-response.md>", file=sys.stderr)
         return 64
-    result = capture_response(arguments[0])
+    result: dict[str, Any] = capture_response(
+        arguments[0], record_replay_event=False
+    )
+    if result["reason"] == "duplicate" and _spool_reader_due(arguments[0]):
+        # A watcher restart already has the vault open and replays every
+        # response. Use that production cadence to graduate one missing raw
+        # row per replay without adding another daemon or scheduler.
+        try:
+            result["spool_reader"] = graduate_spooled_once(seed=arguments[0])
+        except Exception:  # best-effort memory must never gate task settlement
+            result["spool_reader"] = {
+                "graduated": False,
+                "note_id": None,
+                "reason": "reader_failed",
+            }
     print(json.dumps(result, sort_keys=True))
     reason = str(result["reason"])
     if reason.startswith("distillation_failed:"):

@@ -43,6 +43,13 @@ _TASK_RE = re.compile(r"^TASK-[A-Za-z0-9][A-Za-z0-9._-]{3,127}$")
 _ATTEMPT_RE = re.compile(r"^d-[0-9a-f]{32}$")
 _UNSAFE_BRANCH_CHARS = re.compile(r"[\s~^:?*\[\\]")
 _OBJECT_ID_RE = re.compile(r"^[0-9a-f]{40,64}$")
+# ``integrate_worktree_commits`` is the last production call that still has the
+# authenticated write scope and bridge-owned exclusions. Register that bounded
+# contract for ``WorktreePool.release`` in the same supervisor process so the
+# release seam can sweep ignored outputs before deleting the worktree.
+_RELEASE_EVIDENCE_CONTRACTS: dict[
+    tuple[str, str], tuple[tuple[str, ...], tuple[str, ...]]
+] = {}
 
 
 class WorktreeIsolationError(RuntimeError):
@@ -412,6 +419,27 @@ class WorktreePool:
                 f"{handle.attempt_id}: forged, stale, or cross-pool handle rejected "
                 "before any mutation"
             )
+        release_contract = _RELEASE_EVIDENCE_CONTRACTS.get(key)
+        if release_contract is not None:
+            write_scope, bridge_outputs = release_contract
+            evidence = _preserve_attempt_evidence(
+                stored,
+                write_scope,
+                exclude_paths=bridge_outputs,
+                include_ignored_write_scope=True,
+            )
+            if evidence.snapshot_created or evidence.worktree_retained_required:
+                # The private branch now holds every bounded regular file found
+                # by the pre-release sweep. Retain this worktree for the
+                # terminal receipt funnel to publish the evidence location;
+                # retrying release later is safe because preservation is
+                # idempotent and the unmerged branch remains recoverable.
+                raise WorktreeIsolationError(
+                    "pre-release evidence sweep retained worker output: "
+                    f"snapshot_created={evidence.snapshot_created} "
+                    f"untracked={evidence.untracked_residue_count} "
+                    f"partial={evidence.worktree_retained_required}"
+                )
         args = ["worktree", "remove"]
         if force:
             args.append("--force")
@@ -423,6 +451,7 @@ class WorktreePool:
             )
         self._delete_merged_board_branch(stored)
         del self._handles[key]
+        _RELEASE_EVIDENCE_CONTRACTS.pop(key, None)
 
     def _delete_merged_board_branch(self, stored: WorktreeHandle) -> None:
         """Drop the board-owned branch once its work is merged. Best-effort.
@@ -971,6 +1000,8 @@ def _preserve_attempt_evidence(
     write_scope: Sequence[str],
     *,
     explicit_output_paths: Sequence[str] = (),
+    exclude_paths: Sequence[str] = (),
+    include_ignored_write_scope: bool = False,
     maximum_untracked_files: int = EVIDENCE_MAX_UNTRACKED_FILES,
     maximum_untracked_file_bytes: int = EVIDENCE_MAX_UNTRACKED_FILE_BYTES,
     maximum_untracked_total_bytes: int = EVIDENCE_MAX_UNTRACKED_TOTAL_BYTES,
@@ -986,8 +1017,10 @@ def _preserve_attempt_evidence(
 
     Selection is authority based. Every tracked change inside ``write_scope`` is
     evidence. Untracked files must additionally be visible to normal ``git
-    status`` (therefore project ignore rules discard build/cache residue), be a
-    regular file, and fit all three explicit bounds. The exact return artifact
+    status`` (therefore project ignore rules normally discard build/cache
+    residue), be a regular file, and fit all three explicit bounds. The release
+    seam may additionally enumerate ignored files only inside authenticated
+    write scope, excluding bridge-owned outputs. The exact return artifact
     and response envelope are privileged explicit outputs: they may be captured
     even when ignored, but remain subject to the same regular-file/byte bounds.
     Anything outside the scope or over a bound stays in the retained worktree and
@@ -1013,6 +1046,10 @@ def _preserve_attempt_evidence(
     scopes = tuple(
         _normalized_relative(item, label="evidence write scope")
         for item in write_scope
+    )
+    excluded = tuple(
+        _normalized_relative(item, label="excluded evidence path")
+        for item in exclude_paths
     )
     explicit = tuple(
         _normalized_relative(item, label="explicit evidence output")
@@ -1061,6 +1098,8 @@ def _preserve_attempt_evidence(
     untracked_candidates: dict[PurePosixPath, tuple[str, bool]] = {}
     out_of_scope: set[str] = set()
     for code, path in records:
+        if _is_contained(path, excluded) and path not in explicit_set:
+            continue
         selected = _is_contained(path, scopes) or path in explicit_set
         if not selected:
             out_of_scope.add(path.as_posix())
@@ -1080,6 +1119,35 @@ def _preserve_attempt_evidence(
             and os.path.lexists(worktree_root / path)
         ):
             untracked_candidates[path] = ("??", True)
+
+    if include_ignored_write_scope:
+        ignored = _run_git(
+            [
+                "ls-files",
+                "--others",
+                "--ignored",
+                "--exclude-standard",
+                "-z",
+                "--",
+                *(f":(literal){path.as_posix()}" for path in scopes),
+            ],
+            cwd=worktree_root,
+        )
+        if ignored.returncode != 0:
+            raise WorktreeIsolationError(
+                f"cannot sweep ignored write-scope evidence: {ignored.stderr.strip()}"
+            )
+        for raw_path in (item for item in ignored.stdout.split("\x00") if item):
+            path = _normalized_relative(
+                raw_path, label="ignored write-scope evidence"
+            )
+            if (
+                not _is_contained(path, scopes)
+                or _is_contained(path, excluded)
+                or path.as_posix() in already_promoted
+            ):
+                continue
+            untracked_candidates[path] = ("??", path in explicit_set)
 
     non_regular: set[str] = set()
     accepted_tracked: list[tuple[str, PurePosixPath]] = []
@@ -1483,6 +1551,10 @@ def integrate_worktree_commits(
     )
     if not scopes:
         raise WorktreeIsolationError("integration write scope is empty")
+    _RELEASE_EVIDENCE_CONTRACTS[(handle.task_id, handle.attempt_id)] = (
+        tuple(path.as_posix() for path in scopes),
+        tuple(path.as_posix() for path in excluded),
+    )
     if not handle.base_commit or _resolve_commit(repo_root, handle.base_commit) != handle.base_commit:
         raise WorktreeIsolationError("worktree handle has no valid immutable base commit")
     # Freeze the deletion capability against the immutable base BEFORE any

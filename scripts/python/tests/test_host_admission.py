@@ -514,28 +514,13 @@ class ProductionWiringTests(unittest.TestCase):
         self.assertIn('"workload_class": dispatcher_workload_class(root, specialist)', context_builder)
         self.assertNotIn('"workload_class": "cpu-light"', context_builder)
 
-    def test_single_fanout_and_swarm_use_whole_vector_without_public_recursion(self) -> None:
+    def test_single_dispatch_uses_one_admitted_candidate(self) -> None:
         sender = (ROOT / "bin" / "send-task.sh").read_text(encoding="utf-8")
-        self.assertIn('board_host_admit "$ACTUAL_TASK_FILE"', sender)
-        self.assertIn('board_host_admit "${BOARD_FANOUT_PACKETS[@]}"', sender)
-        self.assertIn('board_host_admit "${BOARD_BATCH_TASKS[@]}"', sender)
-        self.assertNotIn('bash "$0" "$member_packet"', sender)
-        self.assertNotIn('bash "$0" "${INBOX}/${child_id}.md"', sender)
-        self.assertIn('send_task_main "$packet"', sender)
-        self.assertEqual(sender.count('board_host_admit "${BOARD_FANOUT_PACKETS[@]}"'), 1)
-        self.assertEqual(sender.count('board_host_admit "${BOARD_BATCH_TASKS[@]}"'), 1)
-        helper = sender.split("dispatch_admitted_child() (", 1)[1].split("\n)\n", 1)[0]
-        self.assertNotIn("board_host_admit", helper)
-        self.assertLess(
-            sender.index('board_host_admit "${BOARD_BATCH_TASKS[@]}"'),
-            sender.index('--register-swarm "$TASK_ID"'),
-        )
-        self.assertLess(
-            sender.index('ln "$child_temp" "$child_dest"'),
-            sender.index('--register-swarm "$TASK_ID"'),
-        )
-        self.assertNotIn("mark-swarm-publication-failed", sender)
-
+        self.assertEqual(sender.count('board_host_admit "$ACTUAL_TASK_FILE"'), 1)
+        self.assertNotIn("BOARD_FANOUT", sender)
+        self.assertNotIn("BOARD_BATCH_TASKS", sender)
+        self.assertNotIn("dispatch_admitted_child", sender)
+        self.assertNotIn("--register-swarm", sender)
     def test_final_staging_bytes_are_admitted_immediately_before_publication(self) -> None:
         sender = (ROOT / "bin" / "send-task.sh").read_text(encoding="utf-8")
         publication = sender.split("# ── ITEM 4: inject toolkit", 1)[1]
@@ -543,58 +528,10 @@ class ProductionWiringTests(unittest.TestCase):
             publication.index('board_host_admit "$ACTUAL_TASK_FILE"'),
             publication.index('DEST="${INBOX}/${TASK_ID}.md"'),
         )
-        self.assertIn('prepare_admission_child "$member_packet"', sender)
-        self.assertLess(
-            sender.index('prepare_admission_child "$member_packet"'),
-            sender.index('board_host_admit "${BOARD_FANOUT_PACKETS[@]}"'),
-        )
         self.assertIn('cmp -s "$ACTUAL_TASK_FILE" "$INBOX_TEMP"', sender)
-        self.assertIn('cmp -s "$child_source" "$child_temp"', sender)
-        self.assertIn('cmp -s "$child_source" "$child_dest"', sender)
         self.assertIn("--candidate", sender)
         self.assertIn("--vector-sha256", sender)
-        self.assertIn('admitted_packet_bytes "$child_temp" "$swarm_publish_index"', sender)
-
-    def test_external_environment_and_argv_cannot_mark_a_batch_admitted(self) -> None:
-        sender = (ROOT / "bin" / "send-task.sh").read_text(encoding="utf-8")
-        reset = next(line for line in sender.splitlines() if "BOARD_BATCH_ADMITTED=0" in line)
-        completed = subprocess.run(
-            ["bash", "-c", reset + '\nprintf "%s\\n" "$BOARD_BATCH_ADMITTED"'],
-            env={"BOARD_BATCH_ADMITTED": "1", "PATH": "/usr/bin:/bin"},
-            capture_output=True, text=True, check=False,
-        )
-        self.assertEqual((completed.returncode, completed.stdout), (0, "0\n"))
-        arg_parser = sender.split("while [[ $# -gt 0 ]]", 1)[1].split("done", 1)[0]
-        self.assertNotIn("BATCH_ADMITTED", arg_parser)
-
-    def test_internal_child_is_subshell_isolated_and_propagates_failure(self) -> None:
-        sender = (ROOT / "bin" / "send-task.sh").read_text(encoding="utf-8")
-        start = sender.index("dispatch_admitted_child() (")
-        helper = sender[start:sender.index("\n)\n", start) + 3]
-        harness = f'''BOARD_BATCH_ADMITTED=0
-BOARD_PRE_REGISTERED=0
-BOARD_PACKET_FINAL=0
-parent_state=clean
-send_task_main() {{
-    printf 'child=%s:%s:%s:%s\n' "$BOARD_BATCH_ADMITTED" "$BOARD_PRE_REGISTERED" "$BOARD_PACKET_FINAL" "$1"
-    parent_state=changed
-    return 23
-}}
-{helper}
-dispatch_admitted_child 1 packet.md 0
-status=$?
-printf 'parent=%s:%s:%s:%s status=%s\n' "$BOARD_BATCH_ADMITTED" "$BOARD_PRE_REGISTERED" "$BOARD_PACKET_FINAL" "$parent_state" "$status"
-'''
-        completed = subprocess.run(
-            ["bash", "-c", harness], capture_output=True, text=True, check=False
-        )
-        self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertEqual(
-            completed.stdout.splitlines(),
-            ["child=1:1:1:packet.md", "parent=0:0:0:clean status=23"],
-        )
-
-    def test_child_reuses_main_without_reexecuting_top_level_setup(self) -> None:
+    def test_single_dispatch_main_reuses_top_level_setup(self) -> None:
         sender = (ROOT / "bin" / "send-task.sh").read_text(encoding="utf-8")
         prefix, main = sender.split("send_task_main() {", 1)
         self.assertIn("source ", prefix)
@@ -602,123 +539,16 @@ printf 'parent=%s:%s:%s:%s status=%s\n' "$BOARD_BATCH_ADMITTED" "$BOARD_PRE_REGI
         self.assertNotIn("repo-root.sh", main)
         self.assertNotIn("set -euo pipefail", main)
         self.assertNotIn("trap ", main)
-        self.assertLess(prefix.index("BOARD_BATCH_ADMITTED=0"), prefix.index("board_host_admit()"))
-
+        self.assertNotIn("BOARD_BATCH_ADMITTED", sender)
     def test_production_loc_caps(self) -> None:
         host_lines = (PYTHON_DIR / "host_admission.py").read_text(encoding="utf-8").splitlines()
-        # Ratchet follows the shrink: 475 -> 474 when clause 5 merged into clause 6.
         self.assertLessEqual(len(host_lines), 474)
-        sender = (ROOT / "bin" / "send-task.sh").read_text(encoding="utf-8")
-        # Measured 2026-08-11 after plan-item binding: 2,385 non-blank lines.
-        # The seventeen-line increase is the declaration half of the completion
-        # protocol -- one optional `plan_item_ids` frontmatter field, validated by
-        # the shared scripts/python/plan_item_binding.py and carried into the board
-        # dispatch descriptor, which is what lets a closed task mark a plan item.
-        # It had to land here because the consuming half (the receipt echo) is
-        # worthless without a declaration site. The prior 2,368 baseline came from
-        # review-class propagation; the 2,277 before it never described a real
-        # state.
-        #
-        # Measured 2026-08-15: 2,443. The fifty-eight-line increase is two
-        # dispatch-time refusals, both closing failures that were previously
-        # SILENT -- which is why they belong in the sender rather than downstream:
-        #   * structural write_scope. A packet naming .git or .githooks reads as
-        #     authorization but is a guaranteed total loss -- the isolation layer
-        #     refuses the worker's commit regardless of scope and discards the
-        #     WHOLE lane's output. Lane 6200 lost a complete documentation pass.
-        #     The segment set is imported from worktree_isolation, never restated.
-        #   * linked-worktree dispatch. `_state/` is gitignored, so running from a
-        #     worktree created a STUB registry and the write_scope conflict check
-        #     compared against one entry instead of ~1,900, reporting "no
-        #     conflicts" because it could no longer see any. Lane 6100 also died
-        #     at integration when its base branch was rebased underneath it.
-        # Roughly two-thirds of the increase is the explanatory comments above
-        # each guard; the executable additions are ~20 lines.
-        #
-        # Measured 2026-08-16: 2,447. The four-line increase replaces the
-        # ATTACH A WATCHER heredoc's single `[ "$s" != "in-flight" ]` test
-        # with a `case` classification block, plus `exit 3` on TIMEOUT. It
-        # belongs in the sender because that heredoc is printed as the
-        # operator's fallback wake channel for sessions with no board
-        # alert -- and the old test treated ANY registry read failure
-        # (malformed JSON mid-write, missing file, missing task key) as
-        # `!= in-flight`, so it printed "TERMINAL status=" and exited 0
-        # while the dispatched work was still live. The `case` block
-        # routes READ_FAILED/empty and in-flight to keep-waiting and only
-        # a genuinely-read terminal status to TERMINAL; `exit 3` on
-        # TIMEOUT makes a loop that ran out distinguishable from a real
-        # landing (previously both exited 0).
-        #
-        # Measured 2026-08-16 (later same day): 2,448. One-line increase.
-        # `map_field` is `awk '$1 == s {print $idx; exit}'`: on a row shorter
-        # than the requested column, awk prints an empty string and exits 0,
-        # so the exit code carries no dispatch-time signal at all. Field 21
-        # (operator_gate) read that empty string and silently defaulted to
-        # MAP_OPERATOR_GATE="[]" -- no operator approval required. Field 4
-        # (safety_level) read it and just failed the `== "high"` test at the
-        # mandatory_review gate -- review silently skipped. Both are
-        # dispatch-time security gates, so both belong in the sender, not a
-        # downstream consumer: `[[ -z "$MAP_MODEL" ]] && die` six lines above
-        # already used the fail-closed idiom for field 7 (primary_lane) and
-        # was never extended to the two security-relevant fields beside it.
-        # All 69 rows in shared/specialist-runtime-map.tsv carry 29 fields
-        # today, so this was latent -- live only the moment a new row lands
-        # truncated or hand-edited short. One die line lands per field: the
-        # operator_gate fallback becomes a die instead of a default, and one
-        # new die line covers safety_level, for a net +1 non-blank line.
-        #
-        # Measured 2026-08-17: 2,461. Thirteen-line increase. SQUAD_BASE_BRANCH
-        # used to fall back to a literal "v2" whenever `git branch
-        # --show-current` came back empty -- which happens on detached HEAD
-        # (prints empty, exits 0) and on a non-repo, not just "no branch
-        # exists". Because this is the only production caller of
-        # board-supervisor.sh, that fallback also meant board-supervisor's own
-        # detached-HEAD refusal (the `if [[ -z "${SQUAD_BASE_BRANCH:-}" ]]`
-        # guard a few hundred lines into that file) could never fire in
-        # practice: this script always exported a non-empty value first, v2 or
-        # otherwise. A worker dispatched from a detached-HEAD checkout would
-        # silently branch off whatever "v2" happened to point at -- a stale
-        # branch of that literal name, if one existed -- and land in a clean
-        # worktree holding somebody else's code, same failure class as the
-        # linked-worktree guard above. It belongs in the sender because that
-        # is where the checkout's actual branch is known and where every
-        # downstream consumer's fallback (board-supervisor.sh, the worktree
-        # pool, launch hygiene, worktree isolation) inherits the exported
-        # value instead of guessing on its own.
-        #
-        # Measured 2026-08-17 (later same day): 2,463. Two-line increase.
-        # warn_unpromoted_write_scope's python3 heredoc call was
-        # `2>/dev/null || true`. Every failure mode the heredoc's own code
-        # anticipates (unreadable task file, a failing `git check-ignore`)
-        # was already caught inside it; the outer `2>/dev/null` only ever
-        # discarded a crash of the heredoc itself -- and `|| true` meant that
-        # discarded failure never even surfaced as a nonzero exit. This is
-        # the warner *about* silent write-scope omissions, so when it failed,
-        # the operator got exactly the outcome it exists to warn about,
-        # silently. The redirect is removed so the warner's own stderr
-        # reaches the terminal; `|| true` stays; the check remains
-        # advisory-only under `set -e` and must not block dispatch. The two
-        # added lines are the comment recording why the redirect is gone.
-        # Measured 2026-08-18: 2,512. The trigger-policy increase replaces the
-        # specialist-wide high-safety review default with one validated packet
-        # field, its four-value enum, typed-class compatibility mappings, and
-        # registry propagation.
-        # Measured 2026-08-23: 2,517. The predispatch warner now subtracts paths
-        # declared in `evidence_outputs` before calling them omissions -- it was
-        # telling operators their declared, hashed, promoted evidence would be
-        # stranded, and following that advice cost six evidence bundles to
-        # worktree pruning in one campaign. Three lines read and diff the field;
-        # two are the comment recording why declared paths are not omissions.
-        # Measured 2026-08-24: 2,530. The producer half of the derived
-        # deliverable-review demand: three env exports plus the admission field
-        # and the comment recording why it exists. The contract hardcoded
-        # required=True for every dispatch while mandatory_review came from the
-        # four triggers and was usually false, so every worker asked for a
-        # review policy said was not owed and the task never closed -- 46 had
-        # accumulated. This is the half that makes the fix act in production.
-        # This remains an exact ratchet with no headroom.
-        self.assertLessEqual(sum(bool(line.strip()) for line in sender.splitlines()), 2530)
-
+        sender_lines = (ROOT / "bin" / "send-task.sh").read_text(
+            encoding="utf-8"
+        ).splitlines()
+        # Transport deletion removed 385 production/example lines overall; the
+        # hardened sender's current explicit-mode rails fit within 1,820 lines.
+        self.assertLessEqual(len(sender_lines), 1820)
 
 if __name__ == "__main__":
     unittest.main()

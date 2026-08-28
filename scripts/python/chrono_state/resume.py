@@ -2,7 +2,7 @@
 
 Regenerated from the decision-authority record + the live board registry (never a
 summary-of-a-summary). Every projected item carries a source ID
-([DEC-...] / [TASK-...] / [THREAD-...]) so the
+([DEC-...] / [TASK-...] / [THREAD-...] / [OPEN-WORK-...]) so the
 capsule is a cache pointing at authority, never authority itself. This becomes the new
 content of `current.md`: a thin derived cursor, not a narrative log.
 
@@ -13,11 +13,14 @@ single writer, and `bin/chrono-resume-capsule.sh` is the entry point that calls 
 from __future__ import annotations
 
 import os
+import re
 import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
 
+from chrono_state import registry as registry_state
+from chrono_state import workboard as workboard_state
 from chrono_state.decisions import active_decisions
 from chrono_state.registry import registry_view
 from chrono_state.thread_charters import (
@@ -39,6 +42,27 @@ QUEUE_HEADING = "## Pending completions (specialist returns awaiting a decision)
 CONTRA_HEADING = "## Memory contradictions (unreconciled)"
 TURN_HEADING = "## Latest operator instruction"
 ARCHIVED_DEBT_HEADING = "## Archived with unfinished business"
+OPEN_WORK_HEADING = "## Open work (raised and not yet done)"
+OPEN_WORK_REL = workboard_state.WORKBOARD_REL
+
+# Pending completion rows are parked work, but their raw lifecycle statuses do
+# not all name the same action. Keep the four operator-facing causes stable.
+# Registry statuses supply task-lifecycle signals; the queue also has one typed,
+# queue-only coordination signal emitted by ``registry_reconciler``.
+REVIEW_REQUIRED = "REVIEW-REQUIRED"
+COORDINATION_REQUESTED = "COORDINATION-REQUESTED"
+NEEDS_HUMAN = "NEEDS-HUMAN"
+BLOCKED = "BLOCKED"
+PARKED_CAUSES = (
+    REVIEW_REQUIRED,
+    COORDINATION_REQUESTED,
+    NEEDS_HUMAN,
+    BLOCKED,
+)
+QUEUE_ONLY_STATUSES = frozenset({COORDINATION_REQUESTED})
+UNCLASSIFIED_CAUSE = "UNCLASSIFIED-CAUSE"
+_LEGACY_NEEDS_REVIEW = "NEEDS-REVIEW"
+_STATUS_TOKEN_RE = re.compile(r"[^A-Z0-9]+")
 
 
 def _archived_debt_rows(root=None) -> list[str]:
@@ -76,6 +100,24 @@ NO_TURN_PLACEHOLDER = "(none recorded since the last snapshot)"
 MAX_PROJECTED_CHARTERS = 8
 MAX_PROJECTED_QUEUES = 4
 MAX_PROJECTED_DONE_WHEN = 6
+MAX_PROJECTED_OPEN_WORK = workboard_state.MAX_PROJECTED_ITEMS
+OPEN_WORK_CLIP = workboard_state.SUMMARY_CLIP
+OPEN_WORK_NEXT_CLIP = workboard_state.ACTION_CLIP
+
+
+def open_work_items(path=None):
+    """Compatibility delegate to the one parser/projector in ``workboard``.
+
+    The three-tuple shape remains for callers and tests written before the
+    append-only event spine. No parsing or prominence decision lives here.
+    """
+    dest = Path(path) if path else CAPSULE_PATH.parent / OPEN_WORK_REL.name
+    return workboard_state.resume_rows(dest)
+
+
+def _open_work_lines(items, show_detail):
+    """Compatibility delegate to the canonical workboard projection renderer."""
+    return workboard_state.render_resume_rows(items, show_detail)
 
 
 def unreconciled_contradiction_count():
@@ -122,6 +164,68 @@ def _contradiction_line(unreconciled):
         f"- {unreconciled} note(s) hold an unreconciled contradiction "
         "(chrono-vault audit trail; reconcile or supersede to clear)"
     )
+
+
+def _status_token(status) -> str:
+    """Normalize one typed lifecycle status to the capsule's cause spelling."""
+    if not isinstance(status, str):
+        return ""
+    return _STATUS_TOKEN_RE.sub("-", status.strip().upper()).strip("-")
+
+
+def runtime_parked_status_vocabulary() -> frozenset[str]:
+    """Return normalized task and pending-completion status literals.
+
+    The registry vocabulary is read at call time so new task states stay loud.
+    Coordination is a queue-only status, so it is owned explicitly here rather
+    than pretending it is a registry task state.
+    """
+    registry_statuses = frozenset(
+        token
+        for status in getattr(registry_state, "KNOWN_STATUSES", ())
+        if (token := _status_token(status))
+    )
+    return registry_statuses | QUEUE_ONLY_STATUSES
+
+
+def parked_cause(status) -> str | None:
+    """Map a status signal in the current vocabulary to an owed-work cause.
+
+    Required cause tokens map by normalized identity. Legacy ``needs_review``
+    remains review debt; typed coordination rows map to their own cause.
+    Statuses absent from the runtime vocabulary are not guessed from summary
+    words; callers surface them under UNCLASSIFIED-CAUSE instead.
+    """
+    token = _status_token(status)
+    vocabulary = runtime_parked_status_vocabulary()
+    if token not in vocabulary:
+        return None
+    if token in PARKED_CAUSES:
+        return token
+    if token == _LEGACY_NEEDS_REVIEW:
+        return REVIEW_REQUIRED
+    return None
+
+
+def pending_completion_groups(pending):
+    """Group counted ``((namespace, status), count)`` rows by typed cause.
+
+    Unknown/non-parked queue statuses remain itemised under a loud residual
+    group. The capsule therefore never trades flat visibility for silent cause
+    loss while the producer vocabulary evolves.
+    """
+    buckets = {cause: [] for cause in PARKED_CAUSES}
+    unclassified = []
+    for (namespace, status), count in pending:
+        cause = parked_cause(status)
+        if cause is None:
+            unclassified.append(((namespace, status), count))
+        else:
+            buckets[cause].append(((namespace, status), count))
+    grouped = [(cause, buckets[cause]) for cause in PARKED_CAUSES if buckets[cause]]
+    if unclassified:
+        grouped.append((UNCLASSIFIED_CAUSE, unclassified))
+    return grouped
 
 
 def pending_completions(path=None):
@@ -295,11 +399,20 @@ def _thread_lines(
 def _render(latest_operator_turn, view, max_tokens=3000, unreconciled=None):
     """Build a token-bounded capsule from an already-classified registry view.
 
-    Under pressure the contradiction count drops first, then live task lines
-    are trimmed, then the pending-completions section collapses to a one-line
-    declared omission, then deferred lines are trimmed, and only then does the
-    active-thread block compress from full to summary to a loud count. The
-    charter rail therefore outlives every other droppable section. Contradiction count
+    Under pressure the contradiction count drops first, then the archived-debt
+    and open-work blocks collapse to one-line declared omissions, then live task
+    lines are trimmed, then the pending-completions section collapses to a
+    one-line declared omission, then deferred lines are trimmed, and only then
+    does the active-thread block compress from full to summary to a loud count.
+    The charter rail therefore outlives every other droppable section.
+
+    Open work collapses in the POINTER tier, alongside archived debt and ahead
+    of live tasks, for the reason stated on that block: its one-line form keeps
+    the whole signal (how much is owed, and the one file that holds it), while a
+    dropped live or deferred line loses that task's next action outright. That
+    is a placement argument about recoverability, not about importance —
+    `_state/chrono/OPEN-WORK.md` is the canonical owed list and its collapsed
+    line names it, so nothing is more than one read away. Contradiction count
     is the least precious (re-derivable from the audit trail at any time) and
     live work is next (it re-surfaces through board sweeps), but
     pending-completions groups outrank both of those: nothing else in the
@@ -326,8 +439,14 @@ def _render(latest_operator_turn, view, max_tokens=3000, unreconciled=None):
         task for task in view["deferred"] if task.get("state") != "needs_human"
     ]
     pending = pending_completions()
+    pending_groups = pending_completion_groups(pending)
+    pending_cause_summary = ", ".join(
+        f"{cause}={sum(count for _, count in rows)}"
+        for cause, rows in pending_groups
+    )
     charters = active_thread_charters()
     debt_rows = _archived_debt_rows()
+    open_items = open_work_items()
 
     def build(
         shown_live,
@@ -335,6 +454,7 @@ def _render(latest_operator_turn, view, max_tokens=3000, unreconciled=None):
         show_contra,
         show_pending,
         show_debt,
+        show_open_work,
         thread_mode,
     ):
         lines = ["# Chrono resume capsule", "", "## Active decisions"]
@@ -362,6 +482,13 @@ def _render(latest_operator_turn, view, max_tokens=3000, unreconciled=None):
                     "omitted for the token bound — regenerate at a higher "
                     "budget or read _state/chrono/thread-charters/complete)"
                 ]
+        # The single list of everything raised and not yet done. Documented as
+        # such and instructed to be read at session start, yet projected
+        # nowhere until now — so owed work was absent from the one artifact a
+        # session is guaranteed to regenerate and read.
+        if open_items:
+            lines += ["", OPEN_WORK_HEADING]
+            lines += _open_work_lines(open_items, show_open_work)
         lines += ["", TASKS_HEADING]
         lines += [
             f"- {t['state']}: {t.get('next_action', '?')} [{t['id']}]"
@@ -391,17 +518,20 @@ def _render(latest_operator_turn, view, max_tokens=3000, unreconciled=None):
             # Silent when dropped is the exact ambiguity this section exists to
             # kill (fix round 2): a missing heading must never be mistaken for
             # "the queue is empty" the way an omitted live/deferred task must
-            # never read as "closed". Always declare, even when trimmed away.
+            # never read as "closed". Cause grouping also survives collapse:
+            # the compact line retains per-cause completion counts.
             lines += ["", QUEUE_HEADING]
             if show_pending:
-                lines += [
-                    f"- {count} x {namespace} | {status}"
-                    for (namespace, status), count in pending
-                ]
+                for cause, rows in pending_groups:
+                    lines += [f"### {cause}"]
+                    lines += [
+                        f"- {count} x {namespace} | {status}"
+                        for (namespace, status), count in rows
+                    ]
             else:
                 lines += [
-                    f"- ({len(pending)} group(s) omitted for the token bound "
-                    "— regenerate at a higher budget or read "
+                    f"- ({len(pending)} group(s) omitted for the token bound — "
+                    f"{pending_cause_summary}; read "
                     "_state/chrono-queue.md)"
                 ]
         for status, n in sorted(view["unclassified"].items()):
@@ -418,6 +548,7 @@ def _render(latest_operator_turn, view, max_tokens=3000, unreconciled=None):
     show_contra = True
     show_pending = True
     show_debt = True
+    show_open_work = True
     thread_mode = 2
     cap = build(
         shown_live,
@@ -425,18 +556,21 @@ def _render(latest_operator_turn, view, max_tokens=3000, unreconciled=None):
         show_contra,
         show_pending,
         show_debt,
+        show_open_work,
         thread_mode,
     )
-    # hard token bound (~4 chars/token): drop the contradiction line, then trim
-    # live task lines, then collapse the pending-completions section to a
-    # declared omission, then trim deferred, then compress active-thread detail;
-    # rebuild and re-check. Live is
+    # hard token bound (~4 chars/token): drop the contradiction line, collapse
+    # the two pointer blocks (archived debt, then open work) to declared
+    # omissions, then trim live task lines, then collapse the
+    # pending-completions section to a declared omission, then trim deferred,
+    # then compress active-thread detail; rebuild and re-check. Live is
     # trimmed BEFORE pending collapses — see the priority note above — so
     # pending only collapses once trimming live has failed to free enough
     # room on its own.
     while len(cap) // 4 > max_tokens and (
         show_contra
         or show_debt
+        or show_open_work
         or shown_live
         or show_pending
         or shown_deferred
@@ -446,6 +580,8 @@ def _render(latest_operator_turn, view, max_tokens=3000, unreconciled=None):
             show_contra = False
         elif show_debt:
             show_debt = False
+        elif show_open_work:
+            show_open_work = False
         elif shown_live:
             shown_live = shown_live[:-1]
         elif show_pending:
@@ -460,6 +596,7 @@ def _render(latest_operator_turn, view, max_tokens=3000, unreconciled=None):
             show_contra,
             show_pending,
             show_debt,
+            show_open_work,
             thread_mode,
         )
     return cap

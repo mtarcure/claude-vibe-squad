@@ -45,12 +45,11 @@ from chrono_state.registry import registry_view                # noqa: E402
 from chrono_state.decisions import active_decisions            # noqa: E402
 
 # ONE classification pass over the LIVE registry (_state/active-tasks.json).
-# Do NOT use load_active(): it reads the bounded _state/tasks/active.json, which was
-# populated once by the 2026-07-24 migration and has had no writer since — it returns
-# [] on the live board, which silently empties the blocker list below. registry_view()
-# partitions by the real vocabulary in registry.LIVE_STATUSES / DEFERRED_STATUSES;
-# never hand-write status literals here, or the gate filters on a status the board
-# does not emit and passes vacuously.
+# registry_view() is the current API for this gate. The dead bounded-registry helper
+# load_active() was removed; it read _state/tasks/active.json, which the live board
+# does not feed. registry_view() partitions by the real vocabulary in
+# registry.LIVE_STATUSES / DEFERRED_STATUSES; never hand-write status literals here,
+# or the gate filters on a status the board does not emit and passes vacuously.
 board = registry_view()
 
 advisory = should_compact(
@@ -102,8 +101,8 @@ trigger_native_compact()
 - Policy + snapshot helpers: `scripts/python/chrono_state/compaction.py` (`should_compact`, `snapshot`, `recover`)
 - Decision authority (separate from Vault): `scripts/python/chrono_state/decisions.py`
 - Live board partition: `scripts/python/chrono_state/registry.py` (`registry_view` — live /
-  deferred / unclassified; `LIVE_STATUSES` is the only status vocabulary. `load_active()` reads
-  the frozen bounded `active.json` and is NOT board truth)
+  deferred / unclassified; `LIVE_STATUSES` is the only status vocabulary. The dead bounded-file
+  helper `load_active()` was removed; `registry_view()` is the correct API for this blocker gate.)
 - Resume capsule generator: `scripts/python/chrono_state/resume.py`
 - Vault writer API: `record(note_type, fields)` — see `plugins/chrono-vault/README.md`
 - Resume canary (acceptance proof): `scripts/python/tests/test_resume_canary.py`

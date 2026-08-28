@@ -125,7 +125,7 @@ class PromotionEventTests(unittest.TestCase):
             f"{self._stamp(29)} | MEMORY-PROMOTION | coding/TASK-B | promoted 1 note(s)",
             f"{self._stamp(40)} | MEMORY-PROMOTION | coding/TASK-C | promoted 1 note(s)",
             f"{self._stamp(1)} | REVIEW-SETTLED | coding/TASK-D | settled",
-            f"{self._stamp(1)} | SWARM-REVIEW-SETTLED | coding/TASK-E | settled",
+            f"{self._stamp(1)} | MEMORY-PROMOTION-SKIPPED | coding/TASK-E | skipped",
         ])
         self.assertEqual(promotion_events(root, days=30), 2)
 

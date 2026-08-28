@@ -538,7 +538,7 @@ suite_inventory_rows() {
 ^moat/tests/phase4b-operational\.test\.mjs$|bin-test|moat/tests/phase4b-operational.test.mjs|PARTIAL by design: the fast tier runs four named tests, and the live-container test runs only in the full tier.
 ^moat/tests/[^/]+\.test\.mjs$|bin-test|moat/tests/*.test.mjs|node --test over every other moat suite.
 ^daemon/tests/test_dispatch_status_coercion\.py$|bin-test|daemon/tests/test_dispatch_status_coercion.py|Stdlib-only regression for closed status coercion. The fast guarded-subset suite runs it on every push/PR; the full daemon suite also covers it.
-^daemon/tests/test_[^/]+\.py$|bin-test-full|pytest daemon/tests|Full tier only. CI's panel-status-tests job separately runs test_panel_activity.py and test_vs_lane_status.py; the remaining files are manual/private-schedule only.
+^daemon/tests/test_[^/]+\.py$|bin-test-full|pytest daemon/tests|Full tier only; the daemon suite owns every remaining daemon test.
 ^tests/dispatch/test_no_autocommit\.sh$|bin-test|tests/dispatch/test_no_autocommit.sh|Runs the real dispatcher in a complete temporary clone and stubs only the external model-process boundary.
 ROWS
 }

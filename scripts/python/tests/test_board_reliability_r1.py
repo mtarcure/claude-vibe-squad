@@ -4,7 +4,7 @@
 Each class pins one root cause found by the 2026-07-26 repo audit:
 
 * ``PromotionPinEchoTests`` (CC-03) — output promotion rebuilt only seven
-  envelope fields, so the capability/swarm/worker pins the reconciler requires
+  envelope fields, so capability/question/worker pins the reconciler requires
   were discarded and completions were held open forever.
 * ``NeverLaunchedReleaseTests`` (F5) — a task that REGISTERED then failed before
   launch stayed ``in-flight`` holding its ``write_scope``.
@@ -63,7 +63,7 @@ import registry_reconciler as reconciler  # noqa: E402
 
 
 CAPABILITY_PIN = "c" * 64
-SWARM_PIN = "5" * 64
+QUESTION_PIN = "5" * 64
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -139,18 +139,16 @@ class PromotionPinEchoTests(unittest.TestCase):
             )
             self.assertEqual(reconciler.response_status(published), "complete")
 
-    def test_swarm_member_pin_survives_promotion(self) -> None:
-        entry = {
-            "dispatch_kind": "swarm",
-            "swarm_role": "member",
-            "swarm_spec_sha256": SWARM_PIN,
-        }
+    def test_question_pin_survives_promotion(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             published = self._promote(
                 Path(directory),
-                reconciliation_echo={"swarm_spec_sha256": SWARM_PIN},
+                reconciliation_echo={"swarm_spec_sha256": QUESTION_PIN},
             )
-            self.assertEqual(reconciler.swarm_response_issue(entry, published), "")
+            frontmatter = reconciler.strip_frontmatter(
+                published.read_text(encoding="utf-8")
+            )
+            self.assertEqual(frontmatter["swarm_spec_sha256"], QUESTION_PIN)
 
     def test_legacy_worker_fence_survives_promotion(self) -> None:
         expiry = datetime.now(timezone.utc) + timedelta(hours=1)
@@ -191,7 +189,6 @@ class PromotionPinEchoTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             published = self._promote(Path(directory), reconciliation_echo={})
             self.assertEqual(reconciler.capability_response_issue({}, published), "")
-            self.assertEqual(reconciler.swarm_response_issue({}, published), "")
             self.assertEqual(
                 reconciler.worker_response_issue(self.task_id, {}, published), ""
             )
@@ -228,31 +225,21 @@ class PromotionPinEchoTests(unittest.TestCase):
 
         fields = {
             "capability_card_sha256": CAPABILITY_PIN,
-            "dispatch_kind": "swarm",
-            "swarm_role": "member",
-            "swarm_spec_sha256": SWARM_PIN,
+            "swarm_spec_sha256": QUESTION_PIN,
         }
         echo = dcb.packet_reconciliation_echo(fields)
         self.assertEqual(
             echo,
             {
                 "capability_card_sha256": CAPABILITY_PIN,
-                "swarm_spec_sha256": SWARM_PIN,
+                "swarm_spec_sha256": QUESTION_PIN,
             },
         )
         self.assertEqual(dcb.packet_reconciliation_echo({}), {})
 
-    def test_swarm_pin_is_only_echoed_for_members(self) -> None:
-        """A swarm PARENT must not echo the member-only spec pin."""
-
-        echo = dcb.packet_reconciliation_echo(
-            {
-                "dispatch_kind": "swarm",
-                "swarm_role": "parent",
-                "swarm_spec_sha256": SWARM_PIN,
-            }
-        )
-        self.assertNotIn("swarm_spec_sha256", echo)
+    def test_malformed_question_pin_is_rejected(self) -> None:
+        with self.assertRaises(dcb.DispatchContextError):
+            dcb.packet_reconciliation_echo({"swarm_spec_sha256": "not-a-digest"})
 
 
 # ─────────────────────────────────────────────────────────────────────────────

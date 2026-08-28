@@ -87,6 +87,92 @@ EXPECTED_AUTHORITY_FIELDS = {
 
 
 class DispatchContextBuilderTests(unittest.TestCase):
+    def test_context_admission_requires_return_artifact_by_both_names(self) -> None:
+        base_fields = {
+            "source_namespace": "coding",
+            "run_id": "RUN-RETURN-ARTIFACT",
+            "mode": "project",
+        }
+        for raw in (None, "", "''", '\"\"'):
+            with self.subTest(raw=raw):
+                fields = dict(base_fields)
+                if raw is not None:
+                    fields["return_artifact"] = raw
+                with self.assertRaisesRegex(
+                    dcb.DispatchContextError,
+                    r"return_artifact.*expected_result_path",
+                ):
+                    dcb.require_packet_fields(fields)
+
+        dcb.require_packet_fields(
+            {**base_fields, "return_artifact": "_state/result.md"}
+        )
+
+    def test_send_task_dry_run_refuses_missing_or_empty_return_artifact(self) -> None:
+        task_id = "TASK-2026-08-27-2230-returnartifacttest"
+        artifact = f"departments/coding/outbox/{task_id}-response.md"
+
+        with tempfile.TemporaryDirectory() as directory:
+            fixture_root = Path(directory)
+            packet = fixture_root / "packet.md"
+
+            def dispatch(
+                return_artifact_row: str | None,
+            ) -> subprocess.CompletedProcess[str]:
+                rows = [
+                    "---",
+                    f"id: {task_id}",
+                    "run_id: RUN-RETURN-ARTIFACT-DRY-RUN",
+                    "to_model: gpt-codex",
+                    "specialist: none",
+                    "source_namespace: coding",
+                    "mode: project",
+                    "result_type: normal",
+                    f"write_scope: [{artifact}]",
+                    "parallel_safe: false",
+                    "direct_lane_work_allowed: true",
+                    "mandatory_review: false",
+                    "review_triggers: []",
+                    "review_model: none",
+                ]
+                if return_artifact_row is not None:
+                    rows.append(return_artifact_row)
+                rows.extend(("---", "", "Dry-run admission fixture.", ""))
+                packet.write_text("\n".join(rows), encoding="utf-8")
+                return subprocess.run(
+                    [
+                        "bash",
+                        str(ROOT / "bin" / "send-task.sh"),
+                        str(packet),
+                        "--dry-run",
+                    ],
+                    cwd=fixture_root,
+                    env={
+                        **os.environ,
+                        "VAULT_ROOT": str(fixture_root),
+                        "SQUAD_BASE_BRANCH": "v2",
+                        "SQUAD_DISPATCH_MODE": "board",
+                        "PYTHONDONTWRITEBYTECODE": "1",
+                    },
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+
+            for row in (None, "return_artifact:", 'return_artifact: ""'):
+                with self.subTest(row=row):
+                    refused = dispatch(row)
+                    output = refused.stdout + refused.stderr
+                    self.assertEqual(refused.returncode, 1, msg=output)
+                    self.assertIn("return_artifact", output, msg=output)
+                    self.assertIn("expected_result_path", output, msg=output)
+                    self.assertNotIn("invalid write_scope", output, msg=output)
+
+            admitted = dispatch(f"return_artifact: {artifact}")
+            output = admitted.stdout + admitted.stderr
+            self.assertEqual(admitted.returncode, 2, msg=output)
+            self.assertIn("[DRY RUN] Would validate", output, msg=output)
+
     def test_lane_network_scopes_report_the_truthful_auth_class(self) -> None:
         self.assertEqual(
             dcb.LANE_NETWORK_SCOPE,
@@ -216,10 +302,12 @@ class DispatchContextBuilderTests(unittest.TestCase):
         lane: str,
         model: str,
         specialist: str | None = None,
+        source_namespace: str = "coding",
+        mailbox_return_namespace: str | None = None,
     ) -> tuple[Path, Path]:
         root = base / lane
         specialist = specialist or f"{lane}-canary"
-        namespace = "coding"
+        namespace = source_namespace
         header = (
             (ROOT / "shared" / "specialist-runtime-map.tsv")
             .read_text(encoding="utf-8")
@@ -298,7 +386,15 @@ class DispatchContextBuilderTests(unittest.TestCase):
             f"{lane}-default\t{lane}\t{lane}-test-model\thigh\tnone\tprimary\n",
             encoding="utf-8",
         )
-        role = root / "departments" / namespace / "specialists" / f"{specialist}.md"
+        role = (
+            root / "shared" / "specialists" / f"{specialist}.md"
+            if namespace == "shared"
+            else root
+            / "departments"
+            / namespace
+            / "specialists"
+            / f"{specialist}.md"
+        )
         role.parent.mkdir(parents=True)
         role.write_text(f"# {specialist}\n", encoding="utf-8")
         adapter = {
@@ -338,6 +434,16 @@ class DispatchContextBuilderTests(unittest.TestCase):
         adapter.parent.mkdir(parents=True)
         adapter.write_text(f"name: {specialist}\n", encoding="utf-8")
         task_id = f"TASK-2026-07-23-998{len(lane)}-{lane}"
+        return_artifact = (
+            f"departments/{mailbox_return_namespace}/outbox/{task_id}-response.md"
+            if mailbox_return_namespace
+            else "_state/canary/result.md"
+        )
+        write_scope = (
+            f"[{return_artifact}]"
+            if mailbox_return_namespace
+            else "[_state/canary/]"
+        )
         contract = derive_verification_contract(
             {
                 "task_id": task_id,
@@ -352,7 +458,10 @@ class DispatchContextBuilderTests(unittest.TestCase):
         )
         contract_text = json.dumps(contract, sort_keys=True, separators=(",", ":"))
         contract_hash = hashlib.sha256(contract_text.encode("ascii")).hexdigest()
-        packet = root / "departments" / namespace / "inbox" / f"{task_id}.md"
+        packet = (
+            root
+            / dcb.canonical_mailbox_relative("inbox", task_id)
+        )
         packet.parent.mkdir(parents=True)
         packet.write_text(
             "---\n"
@@ -362,8 +471,8 @@ class DispatchContextBuilderTests(unittest.TestCase):
             f"source_namespace: {namespace}\n"
             "mode: project\n"
             "run_id: RUN-TEST\n"
-            "write_scope: [_state/canary/]\n"
-            "return_artifact: _state/canary/result.md\n"
+            f"write_scope: {write_scope}\n"
+            f"return_artifact: {return_artifact}\n"
             f"verification_contract: {contract_text}\n"
             f"verification_contract_sha256: {contract_hash}\n"
             "---\n\n"
@@ -423,6 +532,67 @@ class DispatchContextBuilderTests(unittest.TestCase):
         self.assertEqual(normalized.count(f"delivery_attempt_id: {attempt_id}\n"), 1)
         self.assertEqual(normalized.count("delivery_generation: 2\n"), 1)
         self.assertNotIn("delivery_worker_id:", normalized)
+
+    def test_shared_namespace_dispatch_uses_one_response_path(self) -> None:
+        attempt_id = "d-" + "6" * 32
+        with tempfile.TemporaryDirectory() as directory:
+            root, packet = self._fake_repo_for_lane(
+                Path(directory),
+                lane="codex",
+                model="gpt-codex",
+                specialist="shared-canary",
+                source_namespace="shared",
+                mailbox_return_namespace="shared",
+            )
+            with mock.patch.dict(dcb.LANE_CLI_PATHS, {"codex": Path("/bin/sh")}):
+                context = dcb.build_context(
+                    root,
+                    packet,
+                    attempt_id=attempt_id,
+                    generation=1,
+                    now=1_784_800_000,
+                    nonce="7" * 64,
+                )
+
+        canonical = dcb.canonical_mailbox_relative(
+            "outbox", context["authority"]["task_id"], response=True
+        )
+        self.assertEqual(context["authority"]["expected_result_path"], canonical)
+        self.assertEqual(context["authority"]["expected_outbox_path"], canonical)
+        self.assertNotIn("departments/shared/outbox/", context["task_prompt"])
+
+    def test_unified_mailbox_names_remain_task_unique(self) -> None:
+        first = dcb.canonical_mailbox_relative(
+            "outbox", "TASK-2026-08-26-0001-alpha", response=True
+        )
+        second = dcb.canonical_mailbox_relative(
+            "outbox", "TASK-2026-08-26-0002-alpha", response=True
+        )
+        self.assertNotEqual(first, second)
+        self.assertEqual(Path(first).name, "TASK-2026-08-26-0001-alpha-response.md")
+
+    def test_gitignored_undeclared_write_scope_is_refused_at_dispatch(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root, packet = self._fake_repo_for_lane(
+                Path(directory), lane="codex", model="gpt-codex"
+            )
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            (root / ".gitignore").write_text("_state/\n", encoding="utf-8")
+            with (
+                mock.patch.dict(dcb.LANE_CLI_PATHS, {"codex": Path("/bin/sh")}),
+                self.assertRaisesRegex(
+                    dcb.DispatchContextError,
+                    "undeclared git-ignored write_scope path.*_state/canary",
+                ),
+            ):
+                dcb.build_context(
+                    root,
+                    packet,
+                    attempt_id="d-" + "5" * 32,
+                    generation=1,
+                    now=1_784_800_000,
+                    nonce="9" * 64,
+                )
 
     def test_lane_policy_evidence_is_exact_and_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -767,30 +937,6 @@ class DispatchContextBuilderTests(unittest.TestCase):
             with self.assertRaises(dcb.DispatchContextError):
                 dcb.validate_verification_contract(fields)
 
-    def test_advisory_contract_accepts_empty_phase_array(self) -> None:
-        contract = derive_verification_contract(
-            {
-                "task_id": "TASK-2026-07-24-9997-advisory-context",
-                "run_id": "ADV-TEST",
-                "mode": "advisory",
-                "result_type": "normal",
-                "to_model": "gpt-codex",
-                "dispatch_kind": "single",
-                "capability": None,
-                "expected_gates": [],
-            }
-        )
-        contract_text = json.dumps(contract, sort_keys=True, separators=(",", ":"))
-        fields = {
-            "id": contract["task_id"],
-            "verification_contract": contract_text,
-            "verification_contract_sha256": hashlib.sha256(
-                contract_text.encode("ascii")
-            ).hexdigest(),
-        }
-
-        self.assertEqual(dcb.validate_verification_contract(fields), contract)
-
     def _review_contract_fields(
         self,
         *,
@@ -926,7 +1072,7 @@ class DispatchContextBuilderTests(unittest.TestCase):
         return registry
 
     def test_tampered_review_downgrade_is_rejected_at_dispatch_admission(self) -> None:
-        # The reviewer's BLOCKER, end to end: a single/panel contract admitted
+        # The reviewer's BLOCKER, end to end: a single contract admitted
         # with required=True, then edited to required=False with the
         # packet-local hash recomputed, must be refused by build_context. On
         # the pre-fix code this dispatch was ACCEPTED -- the schema validator
@@ -936,7 +1082,7 @@ class DispatchContextBuilderTests(unittest.TestCase):
 
         attempt_id = "d-" + "5" * 32
         with tempfile.TemporaryDirectory() as directory:
-            for dispatch_kind in ("single", "panel"):
+            for dispatch_kind in ("single",):
                 with self.subTest(dispatch_kind=dispatch_kind):
                     root, packet = self._fake_repo_for_lane(
                         Path(directory) / dispatch_kind,
@@ -1084,14 +1230,7 @@ class DispatchContextBuilderTests(unittest.TestCase):
                     dcb.parse_scope(raw, field="write_scope")
 
     def test_ordinary_packet_can_declare_evidence_outputs(self) -> None:
-        """Ordinary evidence is the majority case, not a swarm-only sidecar.
-
-        Selecting only `swarm_member_result` left every ordinary PoC, harness,
-        and log unprotected: TASK-2026-08-11-0180's evidence bundle was never
-        promoted, its worktree is pruned, and its declared bundle hash is now
-        permanently unverifiable. A packet declares exact files; nothing here
-        scans a worktree or infers evidence.
-        """
+        """A packet declares exact evidence files without scanning its worktree."""
 
         poc = "_state/v4-audit/example/poc.py"
         log = "_state/v4-audit/example/repro.log"
@@ -1104,23 +1243,6 @@ class DispatchContextBuilderTests(unittest.TestCase):
                 {"path": poc, "role": "declared-evidence", "declared_by": "evidence_outputs"},
                 {"path": log, "role": "declared-evidence", "declared_by": "evidence_outputs"},
             ),
-        )
-        # A swarm member may declare both its sidecar and ordinary evidence.
-        sidecar = "_state/swarm/TASK-example/claude/member-result.json"
-        self.assertEqual(
-            [
-                output["declared_by"]
-                for output in dcb.packet_evidence_outputs(
-                    {
-                        "dispatch_kind": "swarm",
-                        "swarm_role": "member",
-                        "swarm_member_result": sidecar,
-                        "evidence_outputs": f"[{poc}]",
-                    },
-                    ("_state/swarm/TASK-example/claude/", "_state/v4-audit/example/"),
-                )
-            ],
-            ["swarm_member_result", "evidence_outputs"],
         )
         for raw, scope, expected in (
             (f"[{poc}]", ("_state/other/",), "outside packet write_scope"),
@@ -1138,34 +1260,9 @@ class DispatchContextBuilderTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(dcb.DispatchContextError, "at most"):
             dcb.packet_evidence_outputs(
-                {"evidence_outputs": f"[{over_bound}]"}, ("_state/v4-audit/example/",)
+                {"evidence_outputs": f"[{over_bound}]"},
+                ("_state/v4-audit/example/",),
             )
-
-    def test_packet_evidence_selection_reuses_only_the_existing_swarm_sidecar(
-        self,
-    ) -> None:
-        relative = "_state/swarm/TASK-example/gpt-codex/member-result.json"
-        fields = {
-            "dispatch_kind": "swarm",
-            "swarm_role": "member",
-            "swarm_member_result": relative,
-        }
-        self.assertEqual(
-            dcb.packet_evidence_outputs(
-                fields, ("_state/swarm/TASK-example/gpt-codex/",)
-            ),
-            (
-                {
-                    "path": relative,
-                    "role": "swarm-member-result",
-                    "declared_by": "swarm_member_result",
-                },
-            ),
-        )
-        self.assertEqual(dcb.packet_evidence_outputs({}, ("_state/",)), ())
-        with self.assertRaisesRegex(dcb.DispatchContextError, "outside"):
-            dcb.packet_evidence_outputs(fields, ("_state/other/",))
-
 
 class OutputBridgeTests(unittest.TestCase):
     @staticmethod
@@ -1513,98 +1610,10 @@ class OutputBridgeTests(unittest.TestCase):
                 )
             self.assertEqual(destination.read_text(encoding="utf-8"), "existing\n")
 
-    def test_declared_evidence_is_promoted_with_creation_hash_and_provenance(
-        self,
-    ) -> None:
-        task_id = "TASK-2026-08-11-0301-evidence-bridge"
-        attempt_id = "d-" + "8" * 32
-        run_id = "V4-EVIDENCE-CREATION-TEST"
-        sidecar_relative = (
-            f"_state/swarm/{task_id}/gpt-codex/member-result.json"
-        )
-        original_sidecar = b'{"schema_version":"swarm-member-result/v1"}\n'
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory) / "main"
-            worktree = Path(directory) / "worktree"
-            (root / "departments" / "coding" / "outbox").mkdir(parents=True)
-            result = worktree / "_state" / "cutover-canary" / "ok.md"
-            result.parent.mkdir(parents=True)
-            result.write_text("OK\n", encoding="utf-8")
-            sidecar = worktree / sidecar_relative
-            sidecar.parent.mkdir(parents=True)
-            sidecar.write_bytes(original_sidecar)
-            envelope = (
-                worktree
-                / "departments"
-                / "coding"
-                / "outbox"
-                / f"{task_id}-response.md"
-            )
-            envelope.parent.mkdir(parents=True)
-            envelope.write_text(
-                "---\n"
-                f"id: {task_id}-response\n"
-                f"in_response_to: {task_id}\n"
-                "from: gpt-codex\n"
-                "to: chrono\n"
-                "type: RESULT\n"
-                "status: complete\n"
-                "return_artifact: _state/cutover-canary/ok.md\n"
-                "---\n\n"
-                "Evidence completed.\n",
-                encoding="utf-8",
-            )
-            authority = {
-                **self._authority(task_id),
-                "attempt_id": attempt_id,
-                "generation": 3,
-                "run_id": run_id,
-                "write_paths": [
-                    "_state/cutover-canary/ok.md",
-                    f"_state/swarm/{task_id}/gpt-codex/",
-                ],
-                "evidence_outputs": [
-                    {
-                        "path": sidecar_relative,
-                        "role": "swarm-member-result",
-                        "declared_by": "swarm_member_result",
-                    }
-                ],
-            }
-
-            prepared = dcb.prepare_worktree_outputs(root, worktree, authority)
-            # Publication must use the bytes captured and hashed at creation,
-            # not a later cleanup-time reread of a mutable worktree path.
-            sidecar.write_bytes(b'{"tampered_after_prepare":true}\n')
-            receipt = dcb.publish_prepared_worktree_outputs(root, prepared)
-
-            promoted = root / sidecar_relative
-            self.assertEqual(promoted.read_bytes(), original_sidecar)
-            self.assertEqual(len(receipt["artifact_promotions"]), 1)
-            promotion = receipt["artifact_promotions"][0]
-            self.assertEqual(promotion["schema"], "artifact-promotion/v1")
-            self.assertEqual(promotion["role"], "swarm-member-result")
-            self.assertEqual(promotion["declared_by"], "swarm_member_result")
-            self.assertEqual(promotion["source_path"], sidecar_relative)
-            self.assertEqual(promotion["destination_path"], sidecar_relative)
-            self.assertEqual(
-                promotion["content_sha256"], hashlib.sha256(original_sidecar).hexdigest()
-            )
-            self.assertEqual(promotion["size_bytes"], len(original_sidecar))
-            self.assertEqual(
-                promotion["producer"],
-                {
-                    "task_id": task_id,
-                    "attempt_id": attempt_id,
-                    "generation": 3,
-                    "run_id": run_id,
-                },
-            )
-
     def test_ordinary_packet_evidence_is_promoted_from_creation_bound_bytes(
         self,
     ) -> None:
-        """The full P3.5 path for an ordinary (non-swarm) packet.
+        """The full P3.5 path for an ordinary packet.
 
         The packet declares a PoC and a repro log; both are read and hashed at
         preparation, before integration or worktree cleanup can touch them, and
@@ -1751,7 +1760,7 @@ class OutputBridgeTests(unittest.TestCase):
     ) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            relative = "_state/swarm/race/member-result.json"
+            relative = "_state/evidence/race/result.json"
             barrier = threading.Barrier(2)
             original_safe_destination = dcb._safe_destination
 
@@ -1768,7 +1777,7 @@ class OutputBridgeTests(unittest.TestCase):
                             root,
                             relative,
                             data,
-                            label="swarm member record",
+                            label="evidence record",
                         ),
                     )
                 except Exception as exc:  # noqa: BLE001 - race result under test

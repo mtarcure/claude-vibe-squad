@@ -9,6 +9,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import runner_python  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[3]
 CHECKER = ROOT / "scripts" / "python" / "check_duplicate_blobs.py"
@@ -149,7 +151,10 @@ class DuplicateBlobGuardTests(unittest.TestCase):
         env = os.environ.copy()
         env.update(
             {
-                "PYTHON_BIN": os.path.realpath(sys.executable),
+                # bin/test blocks (exit 2) on any interpreter outside 3.13.x
+                # before it ever runs the checker, so handing it the interpreter
+                # running this suite would assert nothing about duplicates.
+                "PYTHON_BIN": runner_python.require_runner_python(self, ROOT),
                 "SQUAD_RUNNER_TEST_DUPLICATES": "1",
                 "SQUAD_DUPLICATE_CHECK_ROOT_UNDER_TEST": str(self.repo),
                 "SQUAD_DUPLICATE_ALLOWLIST_UNDER_TEST": str(self.registry),

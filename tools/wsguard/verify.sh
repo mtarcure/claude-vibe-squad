@@ -42,7 +42,7 @@ UNKNOWN=0
 
 # Run a fixture through the real dispatcher and echo only the guard's notice.
 guard_output() {
-    bash "$DISPATCH" "$1" --dry-run 2>&1 | grep -E 'predispatch notice|predispatch WARNING' || true
+    bash "$DISPATCH" "$1" --dry-run 2>&1 | grep -E 'predispatch notice|predispatch WARNING|predispatch error' || true
 }
 
 check_unknown() {
@@ -68,8 +68,8 @@ printf '\n=== C1  NEGATIVE CONTROL — gitignored write_scope path MUST warn ===
 printf '+ bash bin/send-task.sh %s --dry-run\n' "fixtures/negative-control-gitignored.md"
 OUT="$(guard_output "${FIX}/negative-control-gitignored.md")"
 printf '%s\n' "${OUT:-<no output>}"
-[[ "$OUT" == *gitignored* ]] && ok=yes || ok=no
-check "guard names the gitignored path" "a notice containing 'gitignored'" "$OUT" "$ok"
+[[ "$OUT" == *git-ignored* ]] && ok=yes || ok=no
+check "guard names the gitignored path" "a notice containing 'git-ignored'" "$OUT" "$ok"
 
 printf '\n=== C2  POSITIVE CONTROL — clean write_scope MUST stay silent ===\n'
 printf '+ bash bin/send-task.sh %s --dry-run\n' "fixtures/positive-control-clean.md"

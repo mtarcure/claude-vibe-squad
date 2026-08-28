@@ -4,6 +4,18 @@
 
 _Nothing yet._
 
+## v1.1.3
+
+The simplification release. Everything below shipped on top of v1.1.2 (`git tag v1.1.2`, 2026-08-22); the `v1.1.3` tag is applied to `main` after this work is pushed, so it never names an unpushed tree.
+
+- Removed the fan-out and swarm dispatch transports entirely — about 5,500 deletions across the registry reconciler, dispatch context builder, and send path, with no transport CLI flag left behind. Chrono dispatches parallel lanes directly and specialists already self-fan-out through their own subagents, so the second transport was machinery with no caller.
+- Dropped the `advisory` mode explored during this cycle; clearance, the verification contract, and the dispatch context builder stay closed to the two workflows, Project and Bounty.
+- Wired `child_mcp_policy` instead of leaving it declared and unread: adapter validation now enforces it, so a `lead-broker-only` capability actually requires the native Kimi prompt to carry the MCP-unavailability notice.
+- Consolidated work-state onto a single parser, projection, validator, and entry point, and migrated the live plan into one append-only workboard whose validator refuses any item that lacks a `why` and a `resume_action`.
+- Collapsed duplicate operator notifications on both the promoted-response and terminal-receipt paths.
+- Derived review-settlement provenance from the registry rather than trusting the reviewer's own frontmatter.
+- Pinned guards that were live but untested with mutation-proven tests: the anti-affinity cross-family review — which a bare `if False:` could have disabled while the whole suite stayed green — and the compact subagent safety rails.
+
 ## v1.1.2
 
 The board-native release (`git tag v1.1.2`, 2026-08-22). Everything below shipped on top of v1.1.1, whose own

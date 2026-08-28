@@ -40,7 +40,7 @@ parent_msg_id: none
 ---
 ```
 
-The dispatcher contains a temporary compatibility bridge for older local packets, but new V4 Markdown uses exactly `project` or `bounty`. Legacy packets carrying `content`, `maintenance`, `incident`, `research`, `triage`, `outreach`, `none`, or `advisory` remain V3 compatibility input only; acceptance by that bridge does not make them a V4 engagement.
+The dispatcher contains a temporary compatibility bridge for older local packets, but new V4 Markdown uses exactly `project` or `bounty`. Legacy packets carrying `content`, `maintenance`, `incident`, `research`, `triage`, `outreach`, or `none` remain V3 compatibility input only; acceptance by that bridge does not make them a V4 engagement.
 
 ### V4 engagement boundary
 
@@ -208,7 +208,7 @@ None of these is active today — treat them as the intended hardening roadmap, 
 ## Lifecycle
 
 1. Chrono writes a task body.
-2. `scripts/send-task.sh` adds frontmatter from the model map.
+2. `scripts/send-task.sh ... --mode <project|bounty>` requires the operator-approved mode and adds frontmatter from the model map; it rejects an omitted mode instead of inventing one.
 3. `bin/send-task.sh` validates safety and writes to `departments/<compatibility_namespace>/inbox/`.
 4. `bin/send-task.sh` registers the task under the shared registry lock, advances `delivery_state` to `in-progress`, builds a signed launch context with `scripts/python/dispatch_context_builder.py build`, and detaches `bin/board-supervisor.sh detached-launch`.
 5. The supervisor provisions a private git worktree under `_state/board-worktrees/<attempt-id>/` and execs a **fresh, capability-scoped CLI** for the packet's lane; that CLI reads the packet and the named specialist markdown.
@@ -250,7 +250,7 @@ For Project and Bounty, `bin/send-task.sh` owns `author_family`, `verification_c
 
 The exact object/hash pair is injected into every dispatched packet and persisted in the locked active registry. A `verification-run/v1` manifest must echo both. The checker trusts in this order: active registry identity under shared lock; registry object validation and recomputed hash; registry lane-to-author-family pin; all packet echoes; then the manifest echo and manifest/contract identities. A mismatch at any layer is `verification_contract_integrity` / `OPERATOR=3`. Same-task registration includes the contract hash in dispatch identity, so a changed contract cannot silently replace the original.
 
-The trace bundle must supply ordered S0–S7 evidence, current plan and canonical artifact-bundle hashes, required verification kinds, different-family plan/deliverable review records and their evidence-file frontmatter, memory recall/record receipts (usage receipts are optional telemetry), a complete action log, expected gate decisions, iteration invalidation records, and local delivery evidence. Reviews bind S2 to `plan.sha256` and S5 to `artifact_bundle_sha256`; changed subjects require fresh evidence. Project and Bounty are the only typed v1 **work** modes; `advisory` is also accepted by `SUPPORTED_TYPED_MODES` as a compatibility mode restricted to `result_type: normal`.
+The trace bundle must supply ordered S0–S7 evidence, current plan and canonical artifact-bundle hashes, required verification kinds, different-family plan/deliverable review records and their evidence-file frontmatter, memory recall/record receipts (usage receipts are optional telemetry), a complete action log, expected gate decisions, iteration invalidation records, and local delivery evidence. Reviews bind S2 to `plan.sha256` and S5 to `artifact_bundle_sha256`; changed subjects require fresh evidence. Project and Bounty are the only typed v1 work modes.
 
 This is a trusted single-user filesystem contract, not cryptographic attestation. The checker validates reviewer-family, memory, and verification records for schema, file hash, identity, and current-subject binding, but cannot prove which external reviewer or MCP authored the bytes. Live acceptance therefore uses actual independent reviews and actual `chrono-vault` returns. The reconciler preserves and settles task state; it does not independently enforce a completed run's verification spine.
 
@@ -315,7 +315,7 @@ assignment, or left any residue is never auto-cancelled.
 landed response (`response:<status>`), from a fenced board receipt
 (`_state/board-dispatch/<task-id>.<attempt-id>.receipt.json`, accepted only when its `task_id`, `attempt_id`,
 and generation match the registry entry — `terminal_board_receipt`), from the work-done-no-envelope backstop,
-from a legacy assigned-worker lease rejection, or from swarm cancellation. Mandatory-review semantics are
+or from a legacy assigned-worker lease rejection. Mandatory-review semantics are
 unchanged by any of these.
 
 ### Retired: pane-keystroke task dispatch
@@ -324,7 +324,7 @@ unchanged by any of these.
 The legacy nudge script, receipt sender, inbox watcher, and pane `tmux send-keys` **task-dispatch** path are
 removed. This does not remove the separate completion nudge: the reconciler and `bin/outbox-watcher.sh`
 still make best-effort `tmux send-keys` calls to the Chrono pane. Their narrower recipient contract is stated
-below. `bin/claim-task.sh` and legacy registry delivery fields remain compatibility data but have no pane
+below. Legacy registry delivery fields remain compatibility data but have no pane
 transport caller. The old scheduler, authorization/retry, and generation-advance commands are removed.
 Automatic failover redispatch is unsupported; a later backup packet requires an explicit operator/Chrono
 decision. `pane_delivery_attempted` and failover `accepted_at` are historical vocabulary only.
@@ -337,8 +337,8 @@ Lifecycle step 6 has **two** required outputs, not one. On finishing a task the 
 2. the **outbox completion envelope** at `departments/<compatibility_namespace>/outbox/<id>-response.md`.
 
 That means two logical outputs and, for ordinary prepared packets, two distinct files. The convenience
-wrapper `scripts/send-task.sh` is a compatibility exception: it authors `return_artifact` equal to the outbox
-envelope path (`scripts/send-task.sh:99-101`), so one physical envelope-shaped file serves both roles and no
+wrapper `scripts/send-task.sh ... --mode <project|bounty>` is a compatibility exception: it authors
+`return_artifact` equal to the outbox envelope path, so one physical envelope-shaped file serves both roles and no
 separate work artifact is delivered. The publisher writes both logical outputs to that same destination
 idempotently when their bytes match (`scripts/python/dispatch_context_builder.py:2341-2353`). Do not describe
 that wrapper as producing a separate artifact.
@@ -402,20 +402,15 @@ settlement and human/controller receipt are separate facts.
 | **Dispatching shell/session** | The send command returns after detaching the supervisor and prints a polling waiter that the caller may explicitly attach. It receives no completion callback merely because it launched the task. | If the caller does not run that waiter, consume `board-notify.sh`, inspect files, or attach to the pane, nothing re-enters or wakes the dispatching session. | `bin/send-task.sh:2495-2501,2548-2560` |
 | **Legacy `RESP-*` reply** | The outbox watcher can send its filename/path context to the Chrono pane on a filesystem event. | Unlike TASK events, it has no registry-driven queue append. If the pane is absent or unattended, only the reply file remains for an explicit later read. | `bin/outbox-watcher.sh:488-491,557-626` |
 
-These paths are complementary, not a fan-out guarantee. In particular, the pane path does not reach a
+These paths are complementary, not a broadcast guarantee. In particular, the pane path does not reach a
 headless controller, and the registry watcher does not inject into tmux, parse envelopes, queue a durable
 receipt, or settle tasks.
 Call a completion “delivered” only when the named consumer above actually receives it; otherwise name the
 weaker fact (`published`, `reconciled`, `queued`, `tmux accepted`, or `stdout emitted`).
 
-A swarm parent is an explicit exception to the ordinary worker-envelope row: the reconciler/controller writes
-the frozen parent artifact first and parent envelope second, without the worker output bridge
-(`scripts/python/registry_reconciler.py:2935-2957,3090-3091`). That records a parent review hold; it does not by
-itself promise a queue, pane, or headless event. Until an explicit consumer observes its file or registry state,
-the honest claim is “stored,” not “delivered.”
-
-The reconciler keys on the `<id>-response.md` filename and reads `status` (canonicalizing `completed`→`complete`) plus the summary body. **Panel/fan-out members never write the envelope — the coordinator
-is the sole outbox writer for the parent task.**
+The reconciler keys on the `<id>-response.md` filename and reads `status` (canonicalizing
+`completed`→`complete`) plus the summary body. Every dispatched packet writes and publishes its own envelope;
+there is no controller-authored parent envelope for a multi-packet comparison.
 
 #### The V3-compatible response status enum (one enum, four surfaces)
 
@@ -427,7 +422,7 @@ fails closed — the task stays open rather than settling on a guess.
 | status | who may author it | meaning |
 |---|---|---|
 | `complete` | worker | Finished **and verified** (Hard Rule 8). Nothing is owed. |
-| `needs_review` | worker | Finished, but a reviewer/Chrono must look before it counts. Required when the packet sets `mandatory_review: true`; also used to surface a `## NEEDS FROM CHRONO`. |
+| `needs_review` | worker | Finished, but a reviewer/Chrono must look before it counts — **only when the packet declares review** (`mandatory_review: true` or a non-empty `review_triggers`). A worker cannot manufacture review debt: an untriggered `needs_review` settles to `complete` with its coordination signal preserved (`registry_reconciler.py::resolve_worker_status`). Still the way to surface a `## NEEDS FROM CHRONO`. |
 | `needs_human` | worker | **Stopped pending an operator decision** — an approval, an operator gate, or the injected no-delete rule. Strictly stronger than `needs_review`: it is a question, not a deliverable. |
 | `blocked` | worker | Could not proceed; no usable result. |
 | `cancelled` | **controller only** | Chrono, or the reconciler's never-launched release, cancelled the task. A worker may never author this. |
@@ -460,10 +455,10 @@ For a capability-pinned task, the envelope must echo the exact dispatched
 `capability_card_sha256`; a missing or mismatched echo keeps the task open, including before cross-family review
 settlement. Reconciliation compares the current card hash separately and records/surfaces
 `capability_card_drift`, but drift does not rewrite the pinned ID, hash, derived state, or gates and does not by
-itself block a correctly pinned response. A swarm **member** must likewise echo `swarm_spec_sha256`, and a
-legacy assigned-worker task must echo its full delivery fence (`delivery_attempt_id`, `delivery_generation`,
-`delivery_worker_id`, `worker_epoch`, `lease_generation`, `delivery_lane`, plus `replica_index` / `member_id`
-when assigned).
+itself block a correctly pinned response. A single task carrying the optional frozen-question
+`swarm_spec_sha256` provenance pin must likewise echo it. A legacy assigned-worker task must echo its full
+delivery fence (`delivery_attempt_id`, `delivery_generation`, `delivery_worker_id`, `worker_epoch`,
+`lease_generation`, `delivery_lane`, plus `replica_index` / `member_id` when assigned).
 
 On the board rail a worker does not have to hand-write these. `dispatch_context_builder.py` snapshots every
 required pin/fence into the launch authority as `reconciliation_echo` — from the packet frontmatter and the
@@ -556,7 +551,7 @@ Packets make that judgment explicit with `review_triggers`, a single-line inline
 values are `blast_radius`, `adversarial_claim`, `deciding_measurement`, and `architecture`.
 `mandatory_review` is true exactly when that list is non-empty. `security-finding` and `factual`
 review classes are already typed evidence, so the dispatcher records their automatic mappings to
-`adversarial_claim` and `deciding_measurement`; swarm comparison remains independently review-held.
+`adversarial_claim` and `deciding_measurement`.
 The compatibility wrapper always emits the field. A legacy prepared packet without it is handled
 conservatively and with a warning, never by a silent safety-level default.
 
@@ -613,7 +608,10 @@ To prevent infinite review-of-review regress, a task may skip a second review on
 Reviewer dispatch is deliberately controller-authored: the reconciler only blocks settlement and surfaces `REVIEW-REQUIRED`; Chrono manually writes the ordinary board review packet.
 
 When `review_triggers: []` and the worker returns a contract-valid `status: complete`, the ordinary
-reconcile sweep accepts that task's own response and records `review_disposition: not-required`.
+reconcile sweep accepts that task's own response and records `review_disposition: not-required`. A
+worker cannot manufacture review debt absent a trusted packet trigger, so a returned `needs_review` on
+a no-trigger packet is resolved to `complete` with its coordination request preserved
+(`registry_reconciler.py::resolve_worker_status`) and takes the same no-review path.
 That is the no-review settlement path; `--settle-review` remains intentionally unable to treat an
 author's response as an independent review. `needs_human` never takes this path: it remains owed
 operator work and is pinned into the resume capsule's Active thread / Owed attention rail.

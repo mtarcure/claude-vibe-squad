@@ -26,6 +26,11 @@ if str(PYTHON_DIR) not in sys.path:
 
 import dispatch_context_builder as dcb  # noqa: E402
 import registry_reconciler as reconciler  # noqa: E402
+from chrono_state import resume  # noqa: E402
+
+# squad-monitor.sh thresholds, mirrored so the fixture can straddle them.
+STALE_AGE = 1860       # older than STALE_THRESHOLD (1800): stale by any rule
+PARKED_AGE_ONLY = 600  # past PARKED_THRESHOLD (300) but not yet stale
 
 
 class ModeAwareTimeoutTests(unittest.TestCase):
@@ -256,23 +261,40 @@ def _shell_function(source: str, name: str) -> str:
     return match.group(0)
 
 
-class AwaitingReviewMonitorTests(unittest.TestCase):
-    def _run_status(self, status: str) -> subprocess.CompletedProcess[str]:
+class ParkedCauseMonitorTests(unittest.TestCase):
+    """A parked task alerts under its typed cause; only unparked work is 'stale'.
+
+    b92a55f2 replaced the monitor's informational review-hold branch with
+    ``chrono_state.resume.parked_cause``: a status carrying an owed coordinator
+    action now alerts under that cause name and against the shorter
+    ``PARKED_THRESHOLD``, while a status with no cause keeps the generic stale
+    alert.  ``task_parked_cause`` is therefore load-bearing and must be injected
+    -- omitting it leaves ``cause`` empty for every status and silently collapses
+    all three branches into the generic one.
+    """
+
+    def _run_status(
+        self, status: str, age: int = STALE_AGE
+    ) -> subprocess.CompletedProcess[str]:
         monitor = (
             IMPLEMENTATION_ROOT / "bin" / "squad-monitor.sh"
         ).read_text(encoding="utf-8")
         shell = (
             "set -uo pipefail\n"
             + _shell_function(monitor, "task_registry_status")
+            + _shell_function(monitor, "task_parked_cause")
             + _shell_function(monitor, "detect_stale_active")
             + 'send_alert() { printf "ALERT:%s\\n" "$1"; }\n'
             + "board_spawn_live() { return 1; }\n"
-            + 'stat() { printf "%s\\n" "$((now - STALE_THRESHOLD - 60))"; }\n'
+            + 'stat() { printf "%s\\n" "$((now - AGE))"; }\n'
             + 'VAULT_ROOT="$1"\n'
             + 'REGISTRY="$2"\n'
             + 'STATE_DIR="$3"\n'
+            + 'PYTHON_DIR="$4"\n'
+            + 'AGE="$5"\n'
             + "now=1800000000\n"
             + "STALE_THRESHOLD=1800\n"
+            + "PARKED_THRESHOLD=300\n"
             + 'detect_stale_active "coding"\n'
         )
         with tempfile.TemporaryDirectory() as directory:
@@ -297,25 +319,54 @@ class AwaitingReviewMonitorTests(unittest.TestCase):
                     str(root),
                     str(registry),
                     str(state),
+                    str(IMPLEMENTATION_ROOT / "scripts" / "python"),
+                    str(age),
                 ],
                 capture_output=True,
                 text=True,
                 check=False,
             )
 
-    def test_review_holds_are_informational_but_active_tasks_stay_stale(self) -> None:
-        for status in ("needs_review", reconciler.REVIEW_REQUIRED):
+    def test_parked_statuses_alert_by_cause_and_active_tasks_stay_stale(self) -> None:
+        # Legacy `needs_review` still maps onto review debt; the typed registry
+        # state and the queue-only coordination state each own their own cause.
+        for status, cause in (
+            ("needs_review", resume.REVIEW_REQUIRED),
+            (reconciler.REVIEW_REQUIRED, resume.REVIEW_REQUIRED),
+            (reconciler.COORDINATION_REQUESTED, resume.COORDINATION_REQUESTED),
+        ):
             with self.subTest(status=status):
                 completed = self._run_status(status)
                 self.assertEqual(completed.returncode, 0, completed.stderr)
-                self.assertIn("INFO:", completed.stdout)
-                self.assertIn("awaiting review", completed.stdout)
-                self.assertNotIn("ALERT:", completed.stdout)
+                self.assertIn(f"ALERT:{cause}: coding/", completed.stdout)
+                self.assertIn("coordinator action overdue", completed.stdout)
+                self.assertIn(f"({status})", completed.stdout)
+                self.assertNotIn("stale active task", completed.stdout)
 
         active = self._run_status("in-flight")
         self.assertEqual(active.returncode, 0, active.stderr)
         self.assertIn("ALERT:", active.stdout)
         self.assertIn("stale active task", active.stdout)
+        self.assertNotIn("coordinator action overdue", active.stdout)
+
+    def test_a_parked_task_alerts_at_the_shorter_parked_threshold(self) -> None:
+        """The cause is not cosmetic: it also shortens the alerting deadline.
+
+        Without this control the suite would still pass if `parked_cause` were
+        used only to decorate the message, leaving parked work invisible for the
+        full 30-minute stale window.
+        """
+        for status, expected in (
+            (reconciler.REVIEW_REQUIRED, "ALERT:"),
+            ("in-flight", ""),
+        ):
+            with self.subTest(status=status):
+                completed = self._run_status(status, age=PARKED_AGE_ONLY)
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                if expected:
+                    self.assertIn(expected, completed.stdout)
+                else:
+                    self.assertEqual(completed.stdout, "", completed.stdout)
 
 
 if __name__ == "__main__":

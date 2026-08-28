@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
 from pathlib import Path
 
 TASKS_DIR = Path(os.environ.get("VAULT_ROOT", ".")) / "_state" / "tasks"
@@ -83,52 +82,6 @@ _DEFERRED_NEXT_ACTION = {
     "timed_out": "investigate timeout, redispatch",
     "work-done-no-envelope": "verify work, reconcile envelope",
 }
-
-
-def migrate_from_legacy(legacy_path):
-    """Return only the nonterminal live tasks from the legacy active-tasks.json,
-    translated to the bounded-registry record shape. Read-only on the legacy file."""
-    data = json.loads(Path(legacy_path).read_text())
-    items = data.items() if isinstance(data, dict) else [(r.get("id"), r) for r in data]
-    active = []
-    for tid, r in items:
-        if not isinstance(r, dict) or r.get("status") not in LEGACY_NONTERMINAL:
-            continue
-        active.append(
-            {
-                "id": tid,
-                "state": r["status"],
-                "specialist": r.get("specialist"),
-                "to_model": r.get("to_model"),
-                "next_action": _LEGACY_NEXT_ACTION.get(r["status"], "review"),
-            }
-        )
-    return active
-
-
-def write_active(records):
-    """Atomically write the new bounded active.json from a list of records."""
-    TASKS_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = tempfile.NamedTemporaryFile("w", dir=TASKS_DIR, delete=False)
-    json.dump(records, tmp, indent=2)
-    tmp.flush()
-    os.fsync(tmp.fileno())
-    tmp.close()
-    os.replace(tmp.name, TASKS_DIR / "active.json")
-
-
-def load_active():
-    """Return only nonterminal task records from the BOUNDED active.json.
-
-    This reads `TASKS_DIR/active.json`, which the live board does not feed — it was
-    populated once by `migrate_from_legacy` and is frozen. It is kept for
-    `write_active`/`archive_terminal`, which own that file's lifecycle. Anything that
-    needs current board truth (the resume capsule) must call `load_live_active`.
-    """
-    f = TASKS_DIR / "active.json"
-    if not f.exists():
-        return []
-    return [t for t in json.loads(f.read_text()) if t.get("state") not in TERMINAL]
 
 
 def _iter_registry(data):
@@ -214,42 +167,3 @@ def unclassified_statuses(path=None):
 def load_live_active(path=None):
     """Return only the LIVE records from the live board registry (see registry_view)."""
     return registry_view(path)["live"]
-
-
-def append_event(event):
-    """Append a typed lifecycle event to events.jsonl (atomic, fsync'd)."""
-    TASKS_DIR.mkdir(parents=True, exist_ok=True)
-    with open(TASKS_DIR / "events.jsonl", "a") as fh:
-        fh.write(json.dumps(event) + "\n")
-        fh.flush()
-        os.fsync(fh.fileno())
-
-
-def archive_terminal(now):
-    """Move terminal records out of active.json into archive/YYYY-MM.jsonl.
-
-    `now` is an ISO-8601 timestamp; its YYYY-MM prefix names the archive file.
-    Returns the count moved. active.json is rewritten atomically (temp + rename).
-    """
-    f = TASKS_DIR / "active.json"
-    if not f.exists():
-        return 0
-    rows = json.loads(f.read_text())
-    keep = [t for t in rows if t.get("state") not in TERMINAL]
-    gone = [t for t in rows if t.get("state") in TERMINAL]
-    if not gone:
-        return 0
-    arc = TASKS_DIR / "archive"
-    arc.mkdir(parents=True, exist_ok=True)
-    with open(arc / f"{now[:7]}.jsonl", "a") as fh:
-        for t in gone:
-            fh.write(json.dumps(t) + "\n")
-        fh.flush()
-        os.fsync(fh.fileno())
-    tmp = tempfile.NamedTemporaryFile("w", dir=TASKS_DIR, delete=False)
-    json.dump(keep, tmp)
-    tmp.flush()
-    os.fsync(tmp.fileno())
-    tmp.close()
-    os.replace(tmp.name, f)
-    return len(gone)
