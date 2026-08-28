@@ -18,10 +18,12 @@ the controller. The properties under test are, in order of importance:
 
 from __future__ import annotations
 
+import io
 from pathlib import Path, PurePosixPath
 import subprocess
 import sys
 import tempfile
+import tokenize
 import unittest
 import unittest.mock
 
@@ -45,6 +47,50 @@ BASE_ADMISSION = {
     "dispatch_kind": "single",
     "capability": None,
 }
+
+
+def _integration_call_sites(text: str) -> list[str]:
+    """Return each supervisor integration call as inspected by the guard."""
+    sites = []
+    cursor = 0
+    while True:
+        found = text.find("wti.integrate_worktree_commits(", cursor)
+        if found == -1:
+            return sites
+        source = text[found:]
+        line_offsets = [0]
+        for line in source.splitlines(keepends=True):
+            line_offsets.append(line_offsets[-1] + len(line))
+        depth = 0
+        opened = False
+        for token in tokenize.generate_tokens(io.StringIO(source).readline):
+            if token.type != tokenize.OP:
+                continue
+            if token.string == "(":
+                depth += 1
+                opened = True
+            elif token.string == ")" and opened:
+                depth -= 1
+                if depth == 0:
+                    end = found + line_offsets[token.end[0] - 1] + token.end[1]
+                    sites.append(text[found:end])
+                    cursor = end
+                    break
+        else:
+            raise AssertionError("unterminated wti.integrate_worktree_commits call")
+
+
+def _integration_authorization_errors(text: str) -> list[str]:
+    errors = []
+    for ordinal, call in enumerate(_integration_call_sites(text), start=1):
+        if "authorized_delete_paths=" not in call:
+            errors.append(f"call {ordinal} omits authorized_delete_paths")
+        elif (
+            "authorized_delete_paths=authorized_delete_paths" not in call
+            and "or ()" not in call
+        ):
+            errors.append(f"call {ordinal} does not preserve default refusal")
+    return errors
 
 
 def _git(args: list[str], *, cwd: Path) -> subprocess.CompletedProcess[str]:
@@ -1136,23 +1182,32 @@ class SupervisorThreadingTests(unittest.TestCase):
         checked only `text.index(...)` would have inspected whichever site
         happened to sit higher in the file while the other went unguarded.
         """
-        sites = []
-        cursor = 0
-        while True:
-            found = self.text.find("wti.integrate_worktree_commits(", cursor)
-            if found == -1:
-                break
-            end = self.text.index(")", self.text.index("target_branch=", found))
-            sites.append(self.text[found:end])
-            cursor = found + 1
-
+        sites = _integration_call_sites(self.text)
         self.assertGreaterEqual(len(sites), 2, "expected success and recovery call sites")
-        for call in sites:
-            self.assertIn("authorized_delete_paths=", call)
-            # The default must stay the categorical refusal. A site that omits
-            # the manifest gets an empty tuple, never the repo-wide latitude.
-            if "authorized_delete_paths=authorized_delete_paths" not in call:
-                self.assertIn("or ()", call)
+        self.assertEqual(_integration_authorization_errors(self.text), [])
+
+    def test_call_census_does_not_borrow_arguments_from_the_next_call(self) -> None:
+        safe_next_call = """
+wti.integrate_worktree_commits(
+    handle,
+    scope,
+    authorized_delete_paths=authorized_delete_paths,
+    target_branch="v2",
+)
+"""
+        mutations = {
+            "missing authorization": "wti.integrate_worktree_commits(handle, scope)\n",
+            "scope is not authorization": (
+                "wti.integrate_worktree_commits("
+                "handle, scope, authorized_delete_paths=scope)\n"
+            ),
+        }
+        for label, unsafe_call in mutations.items():
+            with self.subTest(label=label):
+                self.assertNotEqual(
+                    _integration_authorization_errors(unsafe_call + safe_next_call),
+                    [],
+                )
 
     def test_residue_commit_is_not_an_authorization_path(self) -> None:
         """`commit_worker_residue` is scope-limited evidence capture; the

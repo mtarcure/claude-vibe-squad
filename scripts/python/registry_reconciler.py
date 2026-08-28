@@ -1347,6 +1347,9 @@ RECEIPT_DIAGNOSTIC_FIELDS = (
     "evidence_worktree_location",
     "evidence_preserved_path_count",
     "evidence_worktree_retained_required",
+    "evidence_reason",
+    "evidence_out_of_scope_paths",
+    "evidence_out_of_scope_path_count",
     "work_recovery_status",
     "work_recovery_commit",
     "work_recovery_paths",
@@ -1359,6 +1362,7 @@ _EVIDENCE_STRING_FIELDS = (
     ("evidence_commit", "evidence_commit"),
     ("evidence_location", "evidence_location"),
     ("worktree_location", "evidence_worktree_location"),
+    ("reason", "evidence_reason"),
 )
 
 
@@ -1475,47 +1479,104 @@ def preserved_work_statement(
     commit = str(diagnostics.get("evidence_commit") or "")
     worktree = str(diagnostics.get("evidence_worktree_location") or "")
     count = diagnostics.get("evidence_preserved_path_count")
+    retained_required = diagnostics.get("evidence_worktree_retained_required") is True
+    preservation_reason = str(diagnostics.get("evidence_reason") or "")
+    out_of_scope_paths = diagnostics.get("evidence_out_of_scope_paths")
+    if not isinstance(out_of_scope_paths, list):
+        out_of_scope_paths = []
+    out_of_scope_count = diagnostics.get("evidence_out_of_scope_path_count")
+    if not isinstance(out_of_scope_count, int) or isinstance(out_of_scope_count, bool):
+        out_of_scope_count = len(out_of_scope_paths)
     scale = (
         f"{count} path(s)"
         if isinstance(count, int) and not isinstance(count, bool)
         else "work"
     )
-    if not status:
-        # Check the promoted artifact FIRST. It is gitignored, so no amount of
-        # git advice can surface it, and it is the usual reason a receipt has no
-        # evidence block: the work was promoted, not lost.
-        promoted = promoted_artifact_statement(entry)
-        conventional = attempt_evidence_ref(task_id, entry)
-        if promoted:
-            if conventional:
+
+    def preservation_statement() -> str:
+        if not status:
+            # Check the promoted artifact FIRST. It is gitignored, so no amount
+            # of git advice can surface it, and it is the usual reason a receipt
+            # has no evidence block: the work was promoted, not lost.
+            promoted = promoted_artifact_statement(entry)
+            conventional = attempt_evidence_ref(task_id, entry)
+            if promoted:
+                if conventional:
+                    return (
+                        f"{promoted}. This receipt attached no evidence block, which is "
+                        "expected for an artifact under gitignored `_state/`; read the "
+                        f"path above. `git log -1 {conventional}` covers only committed "
+                        "code and will not show it"
+                    )
                 return (
                     f"{promoted}. This receipt attached no evidence block, which is "
-                    "expected for an artifact under gitignored `_state/`; read the "
-                    f"path above. `git log -1 {conventional}` covers only committed "
-                    "code and will not show it"
+                    "expected for an artifact under gitignored `_state/`; read the path "
+                    "above"
+                )
+            if not conventional:
+                return (
+                    "PRESERVED WORK: NOT RECORDED by this receipt, this entry names no "
+                    "attempt id so no branch can be named, and no promoted artifact is "
+                    "on disk -- do not conclude nothing was produced"
                 )
             return (
-                f"{promoted}. This receipt attached no evidence block, which is "
-                "expected for an artifact under gitignored `_state/`; read the path "
-                "above"
+                "PRESERVED WORK: NOT RECORDED -- this receipt attached no evidence "
+                "block and no promoted artifact is on disk; check "
+                f"`git log -1 {conventional}` before concluding nothing was produced"
             )
-        if not conventional:
-            return (
-                "PRESERVED WORK: NOT RECORDED by this receipt, this entry names no "
-                "attempt id so no branch can be named, and no promoted artifact is "
-                "on disk -- do not conclude nothing was produced"
+
+        branch_preserved = status in {
+            "preserved",
+            "preserved_existing",
+            "preserved_partial",
+        }
+        if branch_preserved and ref and commit:
+            statement = (
+                f"PRESERVED WORK ({status}): {scale} on {ref}@{commit} -- recover "
+                f"with `git show {commit}:<path>`"
             )
-        return (
-            "PRESERVED WORK: NOT RECORDED -- this receipt attached no evidence "
-            "block and no promoted artifact is on disk; check "
-            f"`git log -1 {conventional}` before concluding nothing was produced"
+        elif worktree and (status != "none" or retained_required):
+            statement = (
+                f"PRESERVED WORK ({status}): {scale} is NOT on a branch; it is "
+                f"retained in the attempt worktree {worktree} -- do not prune it"
+            )
+        elif status == "none":
+            statement = (
+                "PRESERVED WORK (none): this receipt recorded no additional "
+                "unpromoted work"
+            )
+        else:
+            statement = (
+                f"PRESERVED WORK ({status}): recorded, but this receipt names "
+                "neither a ref nor a retained worktree"
+            )
+
+        if preservation_reason:
+            statement += f". Preservation detail: {preservation_reason}"
+
+        must_retain_worktree = (
+            retained_required
+            or status in {"preserved_partial", "error"}
+            or bool(out_of_scope_paths)
         )
-    # A block inside the return-path window now integrates the worker's committed
-    # code onto the base branch (V113-18). The receipt still reads `blocked`, so
-    # the preservation fields below are ALSO populated and would otherwise report
-    # the work as stranded in a worktree -- the exact opposite of the truth, and
-    # measured saying so on 2026-08-28 while the commit sat on `main`. Recovery
-    # outranks preservation: it describes the same work at a later point.
+        if out_of_scope_paths:
+            names = ", ".join(out_of_scope_paths)
+            location = worktree or "the retained attempt worktree"
+            statement += (
+                f". OUT-OF-SCOPE RESIDUE: {out_of_scope_count} path(s) ({names}) "
+                f"remain in {location} -- do not prune it"
+            )
+        elif must_retain_worktree and "do not prune" not in statement:
+            location = worktree or "the attempt worktree named by the receipt"
+            statement += (
+                f". Additional residue remains in {location} -- do not prune it"
+            )
+        return statement
+
+    # Recovery and preservation describe disjoint subsets and can coexist:
+    # recovery proves committed in-scope code landed, while preservation may
+    # still protect bridge-owned outputs or residue in the attempt worktree.
+    preservation = preservation_statement()
     recovery_status = str(diagnostics.get("work_recovery_status") or "")
     recovery_commit = str(diagnostics.get("work_recovery_commit") or "")
     if recovery_status == "integrated" and recovery_commit:
@@ -1527,25 +1588,11 @@ def preserved_work_statement(
         )
         return (
             f"RECOVERED WORK: this attempt blocked, but its committed code{where} "
-            f"was integrated onto the base branch as {recovery_commit} -- nothing "
-            "is stranded and no cherry-pick is needed. The task stays blocked "
-            "until it settles on its own merits"
+            f"was integrated onto the base branch as {recovery_commit}; no "
+            f"cherry-pick is needed for that recovered code. {preservation}. "
+            "The task stays blocked until it settles on its own merits"
         )
-
-    if status in {"preserved", "preserved_existing"} and ref and commit:
-        return (
-            f"PRESERVED WORK ({status}): {scale} on {ref}@{commit} -- recover with "
-            f"`git show {commit}:<path>`"
-        )
-    if worktree:
-        return (
-            f"PRESERVED WORK ({status}): {scale} is NOT on a branch; it is retained "
-            f"in the attempt worktree {worktree} -- do not prune it"
-        )
-    return (
-        f"PRESERVED WORK ({status}): recorded, but this receipt names neither a ref "
-        "nor a retained worktree"
-    )
+    return preservation
 
 
 def receipt_failure_diagnostics(receipt: Path) -> dict[str, Any]:
@@ -1595,6 +1642,20 @@ def receipt_failure_diagnostics(receipt: Path) -> dict[str, Any]:
         retained = evidence.get("worktree_retained_required")
         if isinstance(retained, bool):
             diagnostics["evidence_worktree_retained_required"] = retained
+        out_of_scope = evidence.get("out_of_scope_paths")
+        if isinstance(out_of_scope, list):
+            clean = [
+                " ".join(path.split())[:RECEIPT_DIAGNOSTIC_REASON_LIMIT]
+                for path in out_of_scope
+                if isinstance(path, str) and path.strip()
+            ][:32]
+            if clean:
+                diagnostics["evidence_out_of_scope_paths"] = clean
+        out_of_scope_count = evidence.get("out_of_scope_path_count")
+        if isinstance(out_of_scope_count, int) and not isinstance(
+            out_of_scope_count, bool
+        ):
+            diagnostics["evidence_out_of_scope_path_count"] = out_of_scope_count
     # `work_recovery` (V113-18) records a block whose committed code was
     # nonetheless integrated onto the base branch. It coexists with
     # `evidence_preservation`, so reading only the latter reports recovered

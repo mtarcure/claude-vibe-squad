@@ -1408,16 +1408,20 @@ class PreservedWorkSurfacingTests(unittest.TestCase):
         self.assertNotIn("terminal_receipt_evidence_ref", entry)
         self.assertEqual(entry["terminal_receipt_failure_class"], "launch")
 
-    def test_recovered_work_is_not_reported_as_stranded(self) -> None:
+    def test_recovered_code_and_retained_outputs_are_reported_compositionally(self) -> None:
         # Measured 2026-08-28 on TASK-2026-08-28-2140-recov1, a deliberate
         # no-envelope run: the receipt carried work_recovery.status=integrated
-        # and the commit was on `main`, while the nudge told the operator the
-        # work was "NOT on a branch ... do not prune it". Both records are
-        # written for the same blocked attempt, so reading only the
-        # preservation half inverts the truth.
-        payload = self._preserved_payload(worktree_location="/tmp/wt", status="retained")
-        payload["evidence_preservation"]["evidence_ref"] = ""
-        payload["evidence_preservation"]["evidence_commit"] = ""
+        # and the commit was on `main`, while a distinct response envelope was
+        # still present only in the attempt worktree. Both records are true for
+        # different subsets of the same blocked attempt.
+        payload = self._preserved_payload(
+            status="error",
+            evidence_ref="",
+            evidence_commit="",
+            worktree_location="/tmp/wt",
+            worktree_retained_required=True,
+            reason="explicit evidence outputs contain duplicates",
+        )
         payload["work_recovery"] = {
             "status": "integrated",
             "integration_commit": "d" * 40,
@@ -1428,8 +1432,40 @@ class PreservedWorkSurfacingTests(unittest.TestCase):
         self.assertIn("RECOVERED WORK", statement)
         self.assertIn("d" * 40, statement)
         self.assertIn("docs/probe-recovery-marker.md", statement)
-        self.assertNotIn("NOT on a branch", statement)
+        self.assertIn("PRESERVED WORK (error)", statement)
+        self.assertIn("explicit evidence outputs contain duplicates", statement)
+        self.assertIn("NOT on a branch", statement)
+        self.assertIn("/tmp/wt", statement)
+        self.assertIn("do not prune", statement)
+        self.assertNotIn("nothing is stranded", statement)
         # The rail: recovery must not read as settlement.
+        self.assertIn("stays blocked", statement)
+
+    def test_recovered_code_and_out_of_scope_residue_are_both_reported(self) -> None:
+        payload = self._preserved_payload(
+            status="preserved",
+            worktree_location="/tmp/wt-out-of-scope",
+            worktree_retained_required=True,
+            out_of_scope_paths=["notes/operator-draft.md"],
+            out_of_scope_path_count=1,
+        )
+        payload["work_recovery"] = {
+            "status": "integrated",
+            "integration_commit": "e" * 40,
+            "integrated_paths": ["scripts/python/thing.py"],
+        }
+        diagnostics = reconciler.receipt_failure_diagnostics(self._receipt(payload))
+        statement = reconciler.preserved_work_statement("TASK-X", {}, diagnostics)
+        self.assertIn("RECOVERED WORK", statement)
+        self.assertIn("scripts/python/thing.py", statement)
+        self.assertIn("e" * 40, statement)
+        self.assertIn("PRESERVED WORK (preserved)", statement)
+        self.assertIn(self.REF, statement)
+        self.assertIn(self.COMMIT, statement)
+        self.assertIn("notes/operator-draft.md", statement)
+        self.assertIn("/tmp/wt-out-of-scope", statement)
+        self.assertIn("do not prune", statement)
+        self.assertNotIn("nothing is stranded", statement)
         self.assertIn("stays blocked", statement)
 
     def test_statement_names_the_branch_and_how_to_read_it(self) -> None:

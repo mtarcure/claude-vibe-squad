@@ -67,6 +67,25 @@ def expected_mcp_surface() -> list[str]:
     return json.loads(declaration.removeprefix(prefix).strip("'"))
 
 
+def _codex_apps_measurement_errors(document: str) -> list[str]:
+    """Pin the measured override/control pair and its interpretation."""
+    marker = "## Per-server disable experiment"
+    if marker not in document:
+        return [marker]
+    section = document.split(marker, 1)[1].split("\n## ", 1)[0]
+    required = (
+        "Status: **MEASURED — the override suppresses the bridge.**",
+        "| with `-c 'mcp_servers.codex_apps="
+        "{enabled=false,command=\"/usr/bin/false\"}'` | **0** (`[]`) |",
+        "| **positive control** — same command, override removed | **125** |",
+        "an empty array means the existing override\nsuppresses the bridge.",
+    )
+    errors = [value for value in required if value not in section]
+    if "override does not suppress the bridge" in section:
+        errors.append("inverted suppression verdict")
+    return errors
+
+
 def run_canary(*args: str, root: Path | None = None) -> subprocess.CompletedProcess:
     """Invoke canary.sh with the live vault write path disabled."""
     env = dict(os.environ)
@@ -456,8 +475,31 @@ class McpSurfaceMeasuresTheWorkerNotConfig(unittest.TestCase):
         # The guard's point survives the flip: a suppression verdict is only
         # meaningful alongside the positive control, because an empty array is
         # equally consistent with a probe that never had the bridge at all.
-        self.assertIn("Status: **MEASURED", document)
-        self.assertIn("positive control", document)
+        self.assertEqual(_codex_apps_measurement_errors(document), [])
+
+    def test_document_guard_rejects_an_inverted_measurement(self) -> None:
+        document = MCP_SURFACE_DOC.read_text(encoding="utf-8")
+        mutated = document.replace(
+            "Status: **MEASURED — the override suppresses the bridge.**",
+            "Status: **MEASURED — the override does not suppress the bridge.**",
+            1,
+        ).replace(
+            "| with `-c 'mcp_servers.codex_apps="
+            "{enabled=false,command=\"/usr/bin/false\"}'` | **0** (`[]`) |",
+            "| with `-c 'mcp_servers.codex_apps="
+            "{enabled=false,command=\"/usr/bin/false\"}'` | **125** |",
+            1,
+        ).replace(
+            "| **positive control** — same command, override removed | **125** |",
+            "| **positive control** — same command, override removed | **0** (`[]`) |",
+            1,
+        ).replace(
+            "an empty array means the existing override\nsuppresses the bridge.",
+            "an empty array means the existing override\ndoes not suppress the bridge.",
+            1,
+        )
+        self.assertNotEqual(mutated, document, "measurement mutation did not apply")
+        self.assertNotEqual(_codex_apps_measurement_errors(mutated), [])
 
 
 class MemoryProbeFailsClosed(unittest.TestCase):
