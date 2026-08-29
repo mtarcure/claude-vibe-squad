@@ -7,6 +7,30 @@ source "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null 
 wrapper_path="$(vs_resolve_symlink "${BASH_SOURCE[0]}")" || exit 1
 implementation_root="$(cd -- "$(dirname -- "$wrapper_path")/.." && pwd -P)" || exit 1
 
+# Cancel and reap both preserve the attempt's committed work onto a private
+# branch, and preservation needs the checkout's base branch to derive its
+# comparison base. Neither entrypoint is reached through send-task.sh or
+# board-supervisor.sh, which are the two places that already derive and export
+# this, so before 2026-08-29 preservation fell through to a hardcoded "v2" and
+# failed on every repo not literally named that.
+#
+# Unlike send-task.sh, an underivable value does NOT abort here. Dispatching off
+# the wrong base silently hands a worker somebody else's code, so send-task.sh
+# must die; cancelling is the emergency stop for a live worker and must not be
+# blocked by a detached HEAD. worktree_isolation refuses to guess instead, which
+# surfaces a loud preservation error and keeps the work in the retained worktree.
+if [[ -z "${SQUAD_BASE_BRANCH:-}" ]]; then
+    SQUAD_BASE_BRANCH="$(git -C "$VAULT_ROOT" branch --show-current 2>/dev/null || true)"
+    if [[ -n "$SQUAD_BASE_BRANCH" ]]; then
+        export SQUAD_BASE_BRANCH
+    else
+        # Leave it genuinely unset rather than exporting "": worktree_isolation
+        # treats a blank value as no answer and derives from the checkout, and an
+        # exported empty string would be indistinguishable from a real one.
+        unset SQUAD_BASE_BRANCH
+    fi
+fi
+
 if [[ "$#" -eq 1 && "$1" == *.log ]]; then
     exec /usr/bin/python3 "$implementation_root/scripts/python/board_process_truth.py" \
         cancel "$VAULT_ROOT" "$@"

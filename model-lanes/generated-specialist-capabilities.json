@@ -1149,12 +1149,11 @@
         }
       ],
       "skills": [
-        "citation-audit",
         "claim-verification",
         "verification-before-completion"
       ],
       "specialist": "content-verifier",
-      "surface_sha256": "2a042414399fb7de534944821d25742595afb2f442c5c12fbf6626787dd10bfc",
+      "surface_sha256": "250afa05897d5908ad28cc98a4b0fc1ad58d4dea2d87ac1817c16e2764c5c48e",
       "tools": []
     },
     {
@@ -1203,12 +1202,11 @@
       ],
       "primary_plan": [],
       "skills": [
-        "citation-audit",
         "claim-verification",
         "verification-before-completion"
       ],
       "specialist": "content-verifier",
-      "surface_sha256": "f77c297f1167f2485bdc32e5ee0f21f2d648d3eaed8dfb8c12849774088f972f",
+      "surface_sha256": "1a7e0f76fd61034f11262cb20811907e6325d8bdebb453e20ec77e12ec008c71",
       "tools": []
     },
     {
@@ -3224,12 +3222,10 @@
         }
       ],
       "skills": [
-        "color-theory",
-        "composition-rules",
-        "visual-design-principles"
+        "color-theory"
       ],
       "specialist": "image-designer",
-      "surface_sha256": "3e16154bd7a139e7b9875f1dd25943e908df5e983c7bb416a3a908bd91768bd4",
+      "surface_sha256": "4920e6e65d6a0e251514b20579066c625bb935245f00d34fed9a04e63de58270",
       "tools": [
         "generate_image"
       ]
@@ -3254,12 +3250,10 @@
       ],
       "primary_plan": [],
       "skills": [
-        "color-theory",
-        "composition-rules",
-        "visual-design-principles"
+        "color-theory"
       ],
       "specialist": "image-designer",
-      "surface_sha256": "7733ccdf74d56a5358be6cc08a01d3be478067ec5d0c184391ceabb91b826bd4",
+      "surface_sha256": "6a23f9f3a451d7137013441c0dc8d51e02aad91fbcc836a8633441c2f4014152",
       "tools": [
         "generate_image"
       ]
@@ -4503,11 +4497,9 @@
           "resolution": "local"
         }
       ],
-      "skills": [
-        "sonic-branding"
-      ],
+      "skills": [],
       "specialist": "music-composer",
-      "surface_sha256": "1a95c49dbc7e83f8b0f4fba0f0313177d40dd161410f8d5e25785714abc1a16c",
+      "surface_sha256": "f05bd934e0b5e4b3490bcbc3033768a8ac1421adc6ff4f1d1d4c6c9bdac38a41",
       "tools": []
     },
     {
@@ -4542,11 +4534,9 @@
         "sequential-thinking"
       ],
       "primary_plan": [],
-      "skills": [
-        "sonic-branding"
-      ],
+      "skills": [],
       "specialist": "music-composer",
-      "surface_sha256": "a6a2a218bd106282a0c7c50612a9b2b518493333419769f5a1543d688fe275bd",
+      "surface_sha256": "844ef489f4bc46bcbc4112b204a8c01a0811b7f5bc4556f6ec97cc1ee2314c8c",
       "tools": []
     },
     {
@@ -7004,11 +6994,10 @@
         }
       ],
       "skills": [
-        "audio-layering-techniques",
         "sound-design-principles"
       ],
       "specialist": "sound-designer",
-      "surface_sha256": "45e617603af1112b61fe54c37638abdec44780d368b16f3d5667ba6e9d18d632",
+      "surface_sha256": "b2ad5c68c85d5db100c12afad9ded1fa90f05047dbaa565848ec756c967dc0d6",
       "tools": []
     },
     {
@@ -7038,11 +7027,10 @@
       ],
       "primary_plan": [],
       "skills": [
-        "audio-layering-techniques",
         "sound-design-principles"
       ],
       "specialist": "sound-designer",
-      "surface_sha256": "cb640651fa9eedb36a4de5b25faf4feff5881aaabf0942337b9907b6c994a40f",
+      "surface_sha256": "3cb7cb2e73a69c901c0783f27147a58035e3a59bada46bbbe5170a2e2ee604a5",
       "tools": []
     },
     {
@@ -8237,12 +8225,9 @@
           "resolution": "local"
         }
       ],
-      "skills": [
-        "narrative-pacing",
-        "video-production-principles"
-      ],
+      "skills": [],
       "specialist": "video-director",
-      "surface_sha256": "c3488d8112cbc0515f907b8b573cfefe347e57cf5f4ff2a0988b842599e18957",
+      "surface_sha256": "c511f581464904f650d92cf9eb9d175b7881dde64757d515cda11a964c7a3103",
       "tools": [
         "generate_video"
       ]
@@ -8266,12 +8251,9 @@
         "sequential-thinking"
       ],
       "primary_plan": [],
-      "skills": [
-        "narrative-pacing",
-        "video-production-principles"
-      ],
+      "skills": [],
       "specialist": "video-director",
-      "surface_sha256": "cec4039ef2c13f1c47140574d183151b3bacda008a718d6b590975d4b7986cde",
+      "surface_sha256": "d63b583dbb12fea3c5f709b4372a9e081660b6cdecfeb822508734c1fa3ebaf2",
       "tools": [
         "generate_video"
       ]
@@ -8333,12 +8315,11 @@
         }
       ],
       "skills": [
-        "color-grading-basics",
         "platform-compliance",
         "video-post-production"
       ],
       "specialist": "video-editor",
-      "surface_sha256": "15d6b8e364718fae2f941704a2aa0817619074908e8084fadf4dd20f4ca38201",
+      "surface_sha256": "0edf04906abc9f96157cb958113c67debce1530089dcf84b088a402e5fd4f771",
       "tools": []
     },
     {
@@ -8360,12 +8341,11 @@
       ],
       "primary_plan": [],
       "skills": [
-        "color-grading-basics",
         "platform-compliance",
         "video-post-production"
       ],
       "specialist": "video-editor",
-      "surface_sha256": "c9ec1488a0c2e6d638ff5f7e4f7b0a7b78bcc609adebbc0d18362f484e0b1299",
+      "surface_sha256": "928f7cd0aecb6f85774452c7c80202b1ba89a7a6ffc96697aa04df9045cda8d0",
       "tools": []
     },
     {
@@ -8586,9 +8566,9 @@
     }
   ],
   "generated": true,
-  "policy_sha256": "f17eac36e60fc01fbe4a029b4e1d829515c23a6ecb138aaf576ff2bd530c6da8",
+  "policy_sha256": "871719dbbd4dc5701e686bbb730ab2b822d405a6ae2eb31eafd96ad6a6e957cb",
   "schema": "specialist-adapter-capability-index/v2",
   "source": "model-lanes/specialist-lane-capabilities.v1.json",
-  "source_sha256": "ca051c9cb4b7902b924dc72b7de6ae194f0b7ced70309de35c21b8afb1397bf1",
+  "source_sha256": "1606f09d5a46440d38cd68e903a50c73a9cd8e651995a39567b0069d6be6bacd",
   "surface_count": 113
 }

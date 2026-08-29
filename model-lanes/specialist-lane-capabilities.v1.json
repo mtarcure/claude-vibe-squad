@@ -1305,12 +1305,6 @@
       "limitations": [],
       "skills": [
         {
-          "id": "citation-audit",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        },
-        {
           "id": "claim-verification",
           "requirement": "required",
           "availability": "available",
@@ -1383,12 +1377,6 @@
         "Claude plugin-cache skills verification-before-completion resolve only from ~/.claude/plugins/cache and have no shared-registry doc, so they do not resolve on this lane; recorded uninstalled rather than fabricated as available"
       ],
       "skills": [
-        {
-          "id": "citation-audit",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        },
         {
           "id": "claim-verification",
           "requirement": "required",
@@ -4832,18 +4820,6 @@
           "requirement": "required",
           "availability": "available",
           "evidence": "shared-registry:authored"
-        },
-        {
-          "id": "composition-rules",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        },
-        {
-          "id": "visual-design-principles",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
         }
       ],
       "tools": [
@@ -4887,18 +4863,6 @@
       "skills": [
         {
           "id": "color-theory",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        },
-        {
-          "id": "composition-rules",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        },
-        {
-          "id": "visual-design-principles",
           "requirement": "required",
           "availability": "available",
           "evidence": "shared-registry:authored"
@@ -6276,12 +6240,6 @@
           "requirement": "preferred",
           "availability": "superseded",
           "evidence": "superseded"
-        },
-        {
-          "id": "sonic-branding",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
         }
       ],
       "tools": [],
@@ -6326,12 +6284,6 @@
           "requirement": "preferred",
           "availability": "superseded",
           "evidence": "superseded"
-        },
-        {
-          "id": "sonic-branding",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
         }
       ],
       "tools": [],
@@ -9531,12 +9483,6 @@
       "limitations": [],
       "skills": [
         {
-          "id": "audio-layering-techniques",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        },
-        {
           "id": "audio-production-basics",
           "requirement": "preferred",
           "availability": "superseded",
@@ -9580,12 +9526,6 @@
         "authored from the codex lane inventory, shared registry, and host PATH — not codex-live-probed (board-supervisor exit-75 blocks a fresh codex CLI)"
       ],
       "skills": [
-        {
-          "id": "audio-layering-techniques",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        },
         {
           "id": "audio-production-basics",
           "requirement": "preferred",
@@ -10866,20 +10806,7 @@
       "lane": "gemini",
       "coverage": "full",
       "limitations": [],
-      "skills": [
-        {
-          "id": "narrative-pacing",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        },
-        {
-          "id": "video-production-principles",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        }
-      ],
+      "skills": [],
       "tools": [
         {
           "id": "generate_video",
@@ -10918,20 +10845,7 @@
         "best-effort non-primary route; required capabilities remain anchored to the primary execution plan",
         "authored from the codex lane inventory, shared registry, and host PATH — not codex-live-probed (board-supervisor exit-75 blocks a fresh codex CLI)"
       ],
-      "skills": [
-        {
-          "id": "narrative-pacing",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        },
-        {
-          "id": "video-production-principles",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        }
-      ],
+      "skills": [],
       "tools": [
         {
           "id": "generate_video",
@@ -10993,12 +10907,6 @@
       "limitations": [],
       "skills": [
         {
-          "id": "color-grading-basics",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        },
-        {
           "id": "platform-compliance",
           "requirement": "required",
           "availability": "available",
@@ -11036,12 +10944,6 @@
         "authored from the codex lane inventory, shared registry, and host PATH — not codex-live-probed (board-supervisor exit-75 blocks a fresh codex CLI)"
       ],
       "skills": [
-        {
-          "id": "color-grading-basics",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        },
         {
           "id": "platform-compliance",
           "requirement": "required",

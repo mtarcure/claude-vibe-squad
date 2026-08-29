@@ -357,6 +357,17 @@ def _terminal_evidence(context):
         return asdict(wti.preserve_terminal_evidence(authority))
     except Exception as exc:  # noqa: BLE001 - receipt publication must survive salvage
         reason = " ".join(str(exc).split())[:600]
+        # Say it on the terminal, not only inside the receipt. cancel/reap both
+        # exit 0 after terminalising the attempt, so an unpreservable worktree
+        # otherwise reads as an ordinary clean cancel until somebody re-reads the
+        # receipt or the reconciler's PRESERVED WORK line scrolls past. This is
+        # the one route where committed work is left sitting only in a worktree
+        # that later reclamation is entitled to remove.
+        print(
+            f"WARNING: could not preserve {task_id}/{attempt_id} onto a branch; "
+            f"its work is RETAINED ONLY IN {worktree} -- {reason}",
+            file=sys.stderr,
+        )
         return {
             "status": "error",
             "task_id": task_id,

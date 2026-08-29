@@ -545,6 +545,69 @@ class CapabilityHomeTests(unittest.TestCase):
         issues = module.migration_parity_diagnostics(rows, adapters, baseline)
         self.assertEqual(issues, [])
 
+    def test_migration_parity_retirement_is_dated_scoped_and_fail_closed(self) -> None:
+        reviewed = module.load_policy(ROOT)
+        self.assertEqual(
+            reviewed["migration_parity_retirements"],
+            [
+                {
+                    "specialist": "content-verifier",
+                    "kind": "skills",
+                    "identifier": "citation-audit",
+                    "retired_on": "2026-08-29",
+                    "source_task": "TASK-2026-08-29-1300-u15",
+                    "reason": "evidence-backed stale pointer retired from the capability source",
+                }
+            ],
+        )
+        rows = {
+            "content-verifier": row("content-verifier"),
+            "other-specialist": row("other-specialist"),
+        }
+        adapters = {
+            (specialist, "gpt-codex"): {
+                "adapter": f"{specialist}.toml",
+                "specialist": specialist,
+                "lane": "gpt-codex",
+                "skills": (),
+                "tools": (),
+                "mcps": (),
+            }
+            for specialist in rows
+        }
+        baseline = {
+            "content-verifier": {
+                "skills": {"citation-audit", "unacknowledged-skill"},
+                "tools": set(),
+                "mcps": set(),
+            },
+            "other-specialist": {
+                "skills": {"citation-audit"},
+                "tools": set(),
+                "mcps": set(),
+            },
+        }
+
+        issues = module.migration_parity_diagnostics(
+            rows,
+            adapters,
+            baseline,
+            retirements=module.migration_parity_retirement_keys(reviewed),
+        )
+        self.assertEqual(
+            [(issue["path"], issue["identifier"]) for issue in issues],
+            [
+                (
+                    "departments/coding/specialists/content-verifier.md",
+                    "unacknowledged-skill",
+                ),
+                (
+                    "departments/coding/specialists/other-specialist.md",
+                    "citation-audit",
+                ),
+            ],
+        )
+
     def test_tool_existence_checks_each_category_fail_closed(self) -> None:
         adapter = {
             "adapter": "model-lanes/gpt-codex/x.toml",

@@ -492,6 +492,40 @@ def _resolve_commit(repo_root: Path, value: str) -> str:
     return candidate
 
 
+def _resolve_base_branch(repo_root: Path, explicit: str | None = None) -> str:
+    """Name the integration base branch, or refuse -- never guess.
+
+    A hardcoded `"v2"` default is how this stayed invisible. `send-task.sh` and
+    `board-supervisor.sh` both derive SQUAD_BASE_BRANCH from the checkout and
+    refuse rather than guess, but the cancel/reap path reaches preservation
+    without either of them, so on any checkout not literally named `v2` the
+    default resolved nothing and the operator was told
+    `cannot resolve commit 'refs/heads/v2'` -- a true statement about a branch
+    nobody had asked for, which reads as a git problem rather than as the
+    missing derivation it actually is.
+
+    Precedence: the trusted caller argument, then the exported environment the
+    two shell entrypoints already derive, then the checkout itself. Refusing on
+    a detached HEAD is deliberate: `git branch --show-current` has already given
+    its authoritative answer, there is no second signal to check it against, and
+    a guess here silently snapshots work against somebody else's ref.
+    """
+
+    for candidate in (explicit, os.environ.get("SQUAD_BASE_BRANCH")):
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+    derived = _run_git(["branch", "--show-current"], cwd=repo_root)
+    # Prints empty and exits 0 on a detached HEAD; a non-repo exits nonzero.
+    name = derived.stdout.strip() if derived.returncode == 0 else ""
+    if not name:
+        raise WorktreeIsolationError(
+            "cannot resolve a base branch: SQUAD_BASE_BRANCH is unset and the "
+            f"checkout at {repo_root} names no current branch (detached HEAD or "
+            "non-repo); refusing to guess"
+        )
+    return name
+
+
 def _normalized_relative(value: str, *, label: str) -> PurePosixPath:
     if not isinstance(value, str) or not value or "\x00" in value:
         raise WorktreeIsolationError(f"{label} is empty or invalid")
@@ -1367,7 +1401,7 @@ def preserve_terminal_evidence(
     if canonical_worktree.parent != pool_root or canonical_worktree.name != attempt_id:
         raise WorktreeIsolationError("terminal evidence worktree identity is invalid")
     branch = _branch_name(task_id, attempt_id)
-    selected_base_branch = base_branch or os.environ.get("SQUAD_BASE_BRANCH", "v2")
+    selected_base_branch = _resolve_base_branch(repo_root, base_branch)
     target_commit = _resolve_commit(repo_root, f"refs/heads/{selected_base_branch}")
     worker_head = _resolve_commit(canonical_worktree, "HEAD")
     merge_base = _run_git(

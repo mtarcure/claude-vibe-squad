@@ -70,6 +70,40 @@ def _wait_until(predicate, timeout=5.0, interval=0.05) -> bool:
     return predicate()
 
 
+def _read_pid_when_written(pid_file: Path, timeout=5.0):
+    """Wait for a PID file to hold a COMPLETE integer, not merely to exist.
+
+    `echo $! > f` opens/truncates f when the redirection is set up and writes
+    a moment later, so waiting on `f.exists()` can return a file that is still
+    empty and hand `int()` an empty string -- the Linux-CI-only
+    `ValueError: invalid literal for int() with base 10: ''` this replaced.
+    Existence is not readiness for any file another process is mid-write on.
+
+    The trailing newline `echo` emits is the completeness marker: a read that
+    ends in "\\n" saw the whole write, so a short read can never be parsed as a
+    valid-but-wrong PID. Returns the PID, or None if it never became parseable
+    (callers assert on that rather than crashing on a partial read).
+    """
+    parsed = {}
+
+    def is_parseable() -> bool:
+        try:
+            raw = pid_file.read_text(encoding="utf-8")
+        except OSError:
+            return False
+        if not raw.endswith("\n"):
+            return False
+        text = raw.strip()
+        if not text.isdigit():
+            return False
+        parsed["pid"] = int(text)
+        return True
+
+    if not _wait_until(is_parseable, timeout=timeout):
+        return None
+    return parsed["pid"]
+
+
 def _pid_alive(pid: int) -> bool:
     """Liveness for a PID this test process is NOT the parent of (e.g. a
     grandchild reaped by init/launchd once orphaned). `os.kill(pid, 0)`
@@ -547,6 +581,53 @@ class ReapSurvivorGroupTests(unittest.TestCase):
                 proc.kill()
             proc.wait(timeout=5)
 
+    @staticmethod
+    def _spawn_leader_with_group_child(
+        child_pid_file: Path, pid_write_delay: float = 0.0
+    ) -> subprocess.Popen:
+        """A group leader that forks a child sharing its process group.
+
+        `pid_write_delay` widens the empty-PID-file window deterministically
+        by doing the truncation the redirection would do anyway, then stalling
+        before the write. It is the inverted control for
+        _read_pid_when_written(): the race is Linux-CI-only by luck, but with
+        the window held open it is reproducible anywhere.
+        """
+        write_pid = f'echo $! > "{child_pid_file}"'
+        if pid_write_delay:
+            write_pid = (
+                f': > "{child_pid_file}"; sleep {pid_write_delay}; ' + write_pid
+            )
+        return subprocess.Popen(
+            ["bash", "-c", f"sleep 30 & {write_pid}; wait"],
+            start_new_session=True,
+        )
+
+    def test_an_existing_pid_file_can_still_be_empty(self) -> None:
+        # Inverted control for the flake fix. Under a widened write window the
+        # replaced code -- wait for existence, then parse -- reads "" and
+        # raises the exact ValueError seen on Linux CI, while
+        # _read_pid_when_written() returns the real PID from the same file.
+        # Without this, the fix would be a change that only ever ran green.
+        work_dir = Path(tempfile.mkdtemp())
+        child_pid_file = work_dir / "child.pid"
+        proc = self._spawn_leader_with_group_child(child_pid_file, pid_write_delay=1.0)
+        try:
+            self.assertTrue(_wait_until(lambda: child_pid_file.exists()))
+            with self.assertRaises(ValueError):
+                # The replaced two lines, verbatim.
+                int(child_pid_file.read_text(encoding="utf-8").strip())
+
+            child_pid = _read_pid_when_written(child_pid_file)
+            self.assertIsNotNone(
+                child_pid, "content-wait must survive the widened write window"
+            )
+            self.assertTrue(_pid_alive(child_pid))
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait(timeout=5)
+
     def test_kill_reaches_the_whole_process_group_not_just_the_leader(self) -> None:
         # A specialist's own subprocess tree must go with it: spawn a group
         # leader that itself forks a child sharing its process group, write
@@ -554,13 +635,10 @@ class ReapSurvivorGroupTests(unittest.TestCase):
         # and confirm TERM aimed at the LEADER's PID kills both.
         work_dir = Path(tempfile.mkdtemp())
         child_pid_file = work_dir / "child.pid"
-        proc = subprocess.Popen(
-            ["bash", "-c", f'sleep 30 & echo $! > "{child_pid_file}"; wait'],
-            start_new_session=True,
-        )
+        proc = self._spawn_leader_with_group_child(child_pid_file)
         try:
-            self.assertTrue(_wait_until(lambda: child_pid_file.exists()))
-            child_pid = int(child_pid_file.read_text(encoding="utf-8").strip())
+            child_pid = _read_pid_when_written(child_pid_file)
+            self.assertIsNotNone(child_pid, "child never wrote a parseable PID")
             self.assertTrue(_pid_alive(child_pid), "child sleep must be running before the kill")
 
             self._run(f'reap_survivor_group {proc.pid} TERM')

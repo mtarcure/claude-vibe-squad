@@ -14,6 +14,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+SCRIPT_DIRECTORY = Path(__file__).resolve().parent
+if str(SCRIPT_DIRECTORY) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIRECTORY))
+
+from specialist_capability_source import (
+    CapabilitySourceError,
+    SOURCE_RELATIVE as SPECIALIST_CAPABILITY_SOURCE_RELATIVE,
+    is_usable_capability,
+    load_source,
+)
+
 
 REQUIRED_FRONTMATTER = (
     "id",
@@ -147,6 +158,488 @@ FIX_HINTS = {
     ),
 }
 REGISTRY_RELATIVE = Path("shared/registries/skill-tool-registry.tsv")
+REPO_SKILL_HOMES = (Path(".claude/skills"), Path(".agents/skills"))
+PLUGIN_CACHE_RELATIVE = Path(".claude/plugins/cache")
+INSTALLED_PLUGINS_RELATIVE = Path(".claude/plugins/installed_plugins.json")
+PLUGIN_SETTINGS_RELATIVES = (
+    Path(".claude/settings.json"),
+    Path(".claude/settings.local.json"),
+)
+# One owed capability is intentionally kept routed while its real skill is
+# authored. The acknowledgement is exact to both the id and the current
+# consumers: another absent id, or even one new consumer of this id, remains a
+# hard failure. Keep the original absent finding code in the report so the debt
+# stays visible rather than being recategorized as available.
+ABSENT_SKILL_ACKNOWLEDGEMENTS: dict[str, dict[str, object]] = {
+    "sandbox-provision-discipline": {
+        "acknowledged_on": "2026-08-29",
+        "source_task": "TASK-2026-08-29-1300-u15",
+        "consumers": (
+            "devops-engineer:gpt-codex",
+            "exploit-developer:gpt-codex",
+        ),
+        "reason": (
+            "the skill census classified this exact capability as OWED; keep its "
+            "two required routes visible while the real skill is authored"
+        ),
+    }
+}
+
+
+@dataclass(frozen=True)
+class SkillLocation:
+    """One physical skill identity and whether its containing home is enabled."""
+
+    identifier: str
+    skill_file: Path
+    home: Path
+    home_kind: str
+    enabled: bool
+    identity_source: str
+    plugin_ids: tuple[str, ...] = ()
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "identifier": self.identifier,
+            "skill_file": str(self.skill_file),
+            "home": str(self.home),
+            "home_kind": self.home_kind,
+            "enabled": self.enabled,
+            "identity_source": self.identity_source,
+            "plugin_ids": list(self.plugin_ids),
+        }
+
+
+@dataclass(frozen=True)
+class SkillResolution:
+    """Typed resolution for one routed skill id."""
+
+    identifier: str
+    state: str
+    locations: tuple[SkillLocation, ...]
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "identifier": self.identifier,
+            "state": self.state,
+            "locations": [location.as_dict() for location in self.locations],
+        }
+
+
+def default_plugin_settings_paths(root: Path, user_root: Path) -> tuple[Path, ...]:
+    """Return settings layers that can enable a cached Claude plugin.
+
+    User settings and the repository-root Claude settings apply to ordinary
+    sessions.  The Claude board lane has its own project cwd, so its project
+    settings are included as a final layer as well.  Maps are merged by plugin
+    id; a later explicit boolean wins for that id.
+    """
+    paths = [user_root / relative for relative in PLUGIN_SETTINGS_RELATIVES]
+    paths.extend(root / relative for relative in PLUGIN_SETTINGS_RELATIVES)
+    lane_root = root / "model-lanes/claude"
+    paths.extend(lane_root / relative for relative in PLUGIN_SETTINGS_RELATIVES)
+    return tuple(paths)
+
+
+def _normalized_path(path: Path) -> Path:
+    """Normalize a path lexically without requiring that it still exists."""
+    return Path(path).expanduser().absolute()
+
+
+def _json_object(path: Path) -> tuple[dict[str, object] | None, str | None]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None, None
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        return None, f"{path}: {exc}"
+    if not isinstance(payload, dict):
+        return None, f"{path}: top-level JSON value must be an object"
+    return payload, None
+
+
+def _skill_frontmatter_name(skill_file: Path) -> tuple[str | None, str | None]:
+    """Read only the top-level ``name`` scalar from skill frontmatter.
+
+    Plugin skills commonly use nested YAML for hooks and commands.  The
+    capability-card parser intentionally rejects that grammar, so reusing it
+    here would make unrelated nested fields look like identity failures.
+    """
+    try:
+        text = skill_file.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        return None, str(exc)
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return None, "no leading YAML frontmatter"
+    try:
+        end = next(index for index, line in enumerate(lines[1:], 1) if line.strip() == "---")
+    except StopIteration:
+        return None, "unclosed YAML frontmatter"
+    for line in lines[1:end]:
+        match = re.match(r'^name:\s*["\']?([^"\']+?)["\']?\s*$', line)
+        if match:
+            name = match.group(1).strip()
+            return (name or None), None
+    return None, None
+
+
+class SkillHomeResolver:
+    """Resolve skill ids across repo homes and exact-depth plugin cache homes.
+
+    Identity comes from ``SKILL.md`` frontmatter ``name`` when present.  A
+    directory name is only a fallback for a skill without a declared name; it
+    is not treated as an alias when the two differ.  Current homes expose no
+    explicit skill alias field, and plugin manifests enumerate paths rather
+    than alternate skill ids.
+    """
+
+    def __init__(
+        self,
+        root: Path,
+        *,
+        plugin_cache_root: Path | None = None,
+        settings_paths: Iterable[Path] | None = None,
+        installed_plugins_path: Path | None = None,
+        user_root: Path | None = None,
+    ) -> None:
+        self.root = root.resolve()
+        self.user_root = (user_root or Path.home()).resolve()
+        self.plugin_cache_root = _normalized_path(
+            plugin_cache_root or self.user_root / PLUGIN_CACHE_RELATIVE
+        )
+        self.settings_paths = tuple(
+            _normalized_path(path)
+            for path in (
+                settings_paths
+                if settings_paths is not None
+                else default_plugin_settings_paths(self.root, self.user_root)
+            )
+        )
+        self.installed_plugins_path = _normalized_path(
+            installed_plugins_path
+            or self.user_root / INSTALLED_PLUGINS_RELATIVE
+        )
+        self.diagnostics: list[str] = []
+        self.home_counts = {"repo": 0, "plugin_enabled": 0, "plugin_disabled": 0}
+        self._locations = self._discover()
+
+    def _enabled_plugins(self) -> dict[str, bool]:
+        enabled: dict[str, bool] = {}
+        for settings_path in self.settings_paths:
+            payload, error = _json_object(settings_path)
+            if error:
+                self.diagnostics.append(error)
+                continue
+            raw = payload.get("enabledPlugins", {}) if payload else {}
+            if raw is None:
+                continue
+            if not isinstance(raw, dict):
+                self.diagnostics.append(
+                    f"{settings_path}: enabledPlugins must be an object"
+                )
+                continue
+            for plugin_id, state in raw.items():
+                if isinstance(plugin_id, str) and isinstance(state, bool):
+                    enabled[plugin_id] = state
+                else:
+                    self.diagnostics.append(
+                        f"{settings_path}: enabledPlugins entries must be string:boolean"
+                    )
+        return enabled
+
+    def _installed_plugin_ids(self) -> dict[Path, set[str]]:
+        payload, error = _json_object(self.installed_plugins_path)
+        if error:
+            self.diagnostics.append(error)
+            return {}
+        if not payload:
+            return {}
+        raw_plugins = payload.get("plugins", payload)
+        if not isinstance(raw_plugins, dict):
+            self.diagnostics.append(
+                f"{self.installed_plugins_path}: plugins must be an object"
+            )
+            return {}
+        result: dict[Path, set[str]] = defaultdict(set)
+        for plugin_id, raw_installs in raw_plugins.items():
+            if not isinstance(plugin_id, str):
+                continue
+            installs = raw_installs if isinstance(raw_installs, list) else [raw_installs]
+            for install in installs:
+                if not isinstance(install, dict):
+                    continue
+                raw_path = install.get("installPath")
+                if isinstance(raw_path, str) and raw_path:
+                    result[_normalized_path(Path(raw_path))].add(plugin_id)
+        return result
+
+    def _plugin_roots(self) -> list[tuple[Path, Path, str, str]]:
+        """Return exact cache/<market>/<plugin>/<version>/skills homes."""
+        roots: list[tuple[Path, Path, str, str]] = []
+        cache = self.plugin_cache_root
+        if not cache.is_dir():
+            return roots
+        for marketplace in sorted(cache.iterdir(), key=lambda path: path.name.casefold()):
+            if not marketplace.is_dir():
+                continue
+            for plugin in sorted(marketplace.iterdir(), key=lambda path: path.name.casefold()):
+                if not plugin.is_dir():
+                    continue
+                for version in sorted(plugin.iterdir(), key=lambda path: path.name.casefold()):
+                    skills = version / "skills"
+                    if version.is_dir() and skills.is_dir():
+                        roots.append((version, skills, marketplace.name, plugin.name))
+        return roots
+
+    def _plugin_ids(
+        self,
+        plugin_root: Path,
+        marketplace: str,
+        plugin_directory: str,
+        installed: dict[Path, set[str]],
+    ) -> tuple[str, ...]:
+        candidates = set(installed.get(_normalized_path(plugin_root), set()))
+        candidates.add(f"{plugin_directory}@{marketplace}")
+        manifest_path = plugin_root / ".claude-plugin/plugin.json"
+        manifest, error = _json_object(manifest_path)
+        if error:
+            self.diagnostics.append(error)
+        manifest_name = manifest.get("name") if manifest else None
+        if isinstance(manifest_name, str) and manifest_name:
+            candidates.add(
+                manifest_name if "@" in manifest_name else f"{manifest_name}@{marketplace}"
+            )
+        return tuple(sorted(candidates, key=str.casefold))
+
+    def _index_home(
+        self,
+        result: dict[str, list[SkillLocation]],
+        home: Path,
+        *,
+        home_kind: str,
+        enabled: bool,
+        plugin_ids: tuple[str, ...] = (),
+    ) -> None:
+        try:
+            skill_directories = sorted(home.iterdir(), key=lambda path: path.name.casefold())
+        except OSError as exc:
+            self.diagnostics.append(f"{home}: {exc}")
+            return
+        for skill_directory in skill_directories:
+            if not skill_directory.is_dir():
+                continue
+            skill_file = skill_directory / "SKILL.md"
+            if not skill_file.is_file():
+                continue
+            declared_name, error = _skill_frontmatter_name(skill_file)
+            if error:
+                self.diagnostics.append(f"{skill_file}: {error}; using directory identity")
+            identifier = declared_name or skill_directory.name
+            identity_source = "frontmatter:name" if declared_name else "directory-fallback"
+            result[identifier].append(
+                SkillLocation(
+                    identifier=identifier,
+                    skill_file=skill_file,
+                    home=home,
+                    home_kind=home_kind,
+                    enabled=enabled,
+                    identity_source=identity_source,
+                    plugin_ids=plugin_ids,
+                )
+            )
+
+    def _discover(self) -> dict[str, tuple[SkillLocation, ...]]:
+        result: dict[str, list[SkillLocation]] = defaultdict(list)
+        for relative in REPO_SKILL_HOMES:
+            home = self.root / relative
+            if not home.is_dir():
+                continue
+            self.home_counts["repo"] += 1
+            self._index_home(result, home, home_kind=relative.as_posix(), enabled=True)
+
+        enabled_plugins = self._enabled_plugins()
+        installed = self._installed_plugin_ids()
+        for plugin_root, home, marketplace, plugin_directory in self._plugin_roots():
+            plugin_ids = self._plugin_ids(
+                plugin_root, marketplace, plugin_directory, installed
+            )
+            enabled = any(enabled_plugins.get(plugin_id) is True for plugin_id in plugin_ids)
+            count_key = "plugin_enabled" if enabled else "plugin_disabled"
+            self.home_counts[count_key] += 1
+            self._index_home(
+                result,
+                home,
+                home_kind="plugin-cache",
+                enabled=enabled,
+                plugin_ids=plugin_ids,
+            )
+        return {
+            identifier: tuple(sorted(locations, key=lambda item: str(item.skill_file)))
+            for identifier, locations in result.items()
+        }
+
+    @property
+    def identifiers(self) -> frozenset[str]:
+        return frozenset(self._locations)
+
+    def resolve(self, identifier: str) -> SkillResolution:
+        locations = self._locations.get(identifier, ())
+        if any(location.enabled for location in locations):
+            state = "enabled"
+        elif locations and all(location.home_kind == "plugin-cache" for location in locations):
+            state = "plugin-disabled"
+        else:
+            state = "absent"
+        return SkillResolution(identifier, state, locations)
+
+
+def validate_skill_reference_census(
+    root: Path,
+    *,
+    source_override: Path | None = None,
+    resolver: SkillHomeResolver | None = None,
+) -> dict[str, object]:
+    """Validate every projectable skill reference against enabled skill homes."""
+    display_path = (
+        source_override if source_override is not None else root / SPECIALIST_CAPABILITY_SOURCE_RELATIVE
+    )
+    try:
+        display_path = display_path.relative_to(root)
+    except ValueError:
+        pass
+    try:
+        entries, _payload = load_source(root, source_override)
+    except CapabilitySourceError as exc:
+        return {
+            "type": "skill-reference-census",
+            "file": str(display_path),
+            "status": "fail",
+            "errors": [
+                {
+                    "code": "skill-reference-source-invalid",
+                    "message": str(exc),
+                }
+            ],
+        }
+
+    references: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
+    tracked_unrouted: set[str] = set()
+    occurrence_count = 0
+    tracked_unrouted_occurrences = 0
+    for entry in entries.values():
+        for ref in entry["skills"]:
+            if is_usable_capability("skills", ref.availability):
+                references[ref.identifier].append(
+                    (entry["specialist"], entry["lane"], ref.availability)
+                )
+                occurrence_count += 1
+            else:
+                tracked_unrouted.add(ref.identifier)
+                tracked_unrouted_occurrences += 1
+
+    active_resolver = resolver or SkillHomeResolver(root)
+    errors: list[dict[str, object]] = []
+    reports: list[dict[str, object]] = []
+    state_counts = Counter()
+    for identifier in sorted(references, key=str.casefold):
+        resolution = active_resolver.resolve(identifier)
+        state_counts[resolution.state] += 1
+        if resolution.state == "enabled":
+            continue
+        consumers = sorted(
+            {f"{specialist}:{lane}" for specialist, lane, _availability in references[identifier]}
+        )
+        if resolution.state == "plugin-disabled":
+            plugin_ids = sorted(
+                {
+                    plugin_id
+                    for location in resolution.locations
+                    for plugin_id in location.plugin_ids
+                },
+                key=str.casefold,
+            )
+            # These routes are genuinely unreachable, but they are longstanding
+            # fleet-wide debt rather than a new-change gate. Report every one
+            # loudly without wedging unrelated commits on the full backlog.
+            reports.append(
+                {
+                    "code": "skill-reference-plugin-disabled",
+                    "skill_id": identifier,
+                    "resolution_state": resolution.state,
+                    "severity": "report",
+                    "message": (
+                        f"routed skill {identifier!r} exists only in cached plugin home(s) "
+                        f"whose plugin is not enabled; consumers={consumers}; "
+                        f"plugin_ids={plugin_ids}"
+                    ),
+                    "consumers": consumers,
+                    "plugin_ids": plugin_ids,
+                    "location_count": len(resolution.locations),
+                }
+            )
+        else:
+            finding = {
+                "code": "skill-reference-absent",
+                "skill_id": identifier,
+                "resolution_state": resolution.state,
+                "message": (
+                    f"routed skill {identifier!r} is absent from every repo skill home and "
+                    f"exact-depth plugin cache home; consumers={consumers}"
+                ),
+                "consumers": consumers,
+            }
+            acknowledgement = ABSENT_SKILL_ACKNOWLEDGEMENTS.get(identifier)
+            acknowledged_consumers = (
+                tuple(acknowledgement["consumers"])
+                if acknowledgement is not None
+                else ()
+            )
+            if acknowledgement is not None and tuple(consumers) == acknowledged_consumers:
+                reports.append(
+                    {
+                        **finding,
+                        "severity": "acknowledged",
+                        "acknowledgement": {
+                            key: value
+                            for key, value in acknowledgement.items()
+                            if key != "consumers"
+                        },
+                    }
+                )
+            else:
+                errors.append(finding)
+
+    for diagnostic in active_resolver.diagnostics:
+        errors.append(
+            {
+                "code": "skill-home-diagnostic",
+                "message": diagnostic,
+            }
+        )
+
+    return {
+        "type": "skill-reference-census",
+        "file": str(display_path),
+        "status": "fail" if errors else "pass",
+        "errors": errors,
+        "reports": reports,
+        "report_count": len(reports),
+        "routed_occurrences": occurrence_count,
+        "routed_distinct": len(references),
+        "enabled_distinct": state_counts["enabled"],
+        "plugin_disabled_distinct": state_counts["plugin-disabled"],
+        "absent_distinct": state_counts["absent"],
+        "blocking_absent_distinct": sum(
+            error.get("code") == "skill-reference-absent" for error in errors
+        ),
+        "acknowledged_absent_distinct": sum(
+            report.get("code") == "skill-reference-absent" for report in reports
+        ),
+        "tracked_unrouted_occurrences": tracked_unrouted_occurrences,
+        "tracked_unrouted_distinct": len(tracked_unrouted),
+        "home_counts": dict(active_resolver.home_counts),
+    }
 
 
 def registry_publication_state(root: Path) -> str:
@@ -1631,6 +2124,7 @@ def main() -> int:
     paths = resolve_paths(root, args.paths) if args.paths else discover(root)
     return emit_results(
         [
+            validate_skill_reference_census(root),
             validator.validate_catalog_registry(),
             *[validator.validate_path(path.resolve()) for path in paths],
         ],

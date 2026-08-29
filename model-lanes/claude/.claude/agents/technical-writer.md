@@ -4,7 +4,7 @@ description: "Code-derived documentation, changelogs, ADRs, and handoffs."
 model: inherit
 # BEGIN SPECIALIST CAPABILITY PROJECTION
 capability_source: model-lanes/specialist-lane-capabilities.v1.json
-capability_source_sha256: ca051c9cb4b7902b924dc72b7de6ae194f0b7ced70309de35c21b8afb1397bf1
+capability_source_sha256: 1606f09d5a46440d38cd68e903a50c73a9cd8e651995a39567b0069d6be6bacd
 skills: ["binary-doc-to-markdown","chrono-adr-authoring","chrono-changelog-generator","chrono-handoff-authoring","cite-properly","skill-description-trigger-authoring"]
 mcps: ["chrono-vault","sequential-thinking"]
 # END SPECIALIST CAPABILITY PROJECTION

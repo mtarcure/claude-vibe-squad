@@ -144,6 +144,43 @@ def load_policy(root: Path, policy_path: Path | None = None) -> dict[str, Any]:
             raise CapabilityHomeError(
                 f"policy parity_identifier_seeds.{field} must be a string list"
             )
+    retirement_keys: set[tuple[str, str, str]] = set()
+    retirement_records = policy.get("migration_parity_retirements", [])
+    if not isinstance(retirement_records, list):
+        raise CapabilityHomeError(
+            "policy migration_parity_retirements must be an array"
+        )
+    required_retirement_fields = (
+        "specialist",
+        "kind",
+        "identifier",
+        "retired_on",
+        "source_task",
+        "reason",
+    )
+    for index, record in enumerate(retirement_records):
+        if not isinstance(record, dict) or not all(
+            isinstance(record.get(field), str) and record[field].strip()
+            for field in required_retirement_fields
+        ):
+            raise CapabilityHomeError(
+                "policy migration_parity_retirements entries require non-empty "
+                "specialist/kind/identifier/retired_on/source_task/reason strings"
+            )
+        if record["kind"] not in {"skills", "tools"}:
+            raise CapabilityHomeError(
+                f"policy migration_parity_retirements[{index}].kind must be skills or tools"
+            )
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", record["retired_on"]):
+            raise CapabilityHomeError(
+                f"policy migration_parity_retirements[{index}].retired_on must be YYYY-MM-DD"
+            )
+        key = (record["specialist"], record["kind"], record["identifier"])
+        if key in retirement_keys:
+            raise CapabilityHomeError(
+                f"policy migration_parity_retirements contains duplicate {key!r}"
+            )
+        retirement_keys.add(key)
     contextual = policy.get("context_required_tool_seeds", [])
     if not isinstance(contextual, list) or not all(
         isinstance(item, str) and item for item in contextual
@@ -160,6 +197,16 @@ def load_policy(root: Path, policy_path: Path | None = None) -> dict[str, Any]:
             )
         re.compile(rule["pattern"])
     return policy
+
+
+def migration_parity_retirement_keys(
+    policy: dict[str, Any],
+) -> set[tuple[str, str, str]]:
+    """Return exact specialist/kind/id parity retirements from validated policy."""
+    return {
+        (record["specialist"], record["kind"], record["identifier"])
+        for record in policy.get("migration_parity_retirements", [])
+    }
 
 
 def _json_string_list(raw: Any, field: str, path: Path) -> tuple[str, ...]:
@@ -744,8 +791,10 @@ def migration_parity_diagnostics(
     adapters: dict[tuple[str, str], dict[str, Any]],
     baseline: dict[str, dict[str, set[str]]],
     source_entries: dict[tuple[str, str], dict[str, Any]] | None = None,
+    retirements: set[tuple[str, str, str]] | None = None,
 ) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
+    acknowledged_retirements = retirements or set()
     for specialist, row in sorted(rows.items()):
         lanes = routed_lanes(row)
         declared = {field: set() for field in CAPABILITY_FIELDS}
@@ -764,6 +813,8 @@ def migration_parity_diagnostics(
             for identifier in sorted(
                 baseline[specialist][kind], key=lambda item: item.lower()
             ):
+                if (specialist, kind, identifier) in acknowledged_retirements:
+                    continue
                 # A named MCP supersedes a same-id CLI/tool declaration. This is
                 # the intentional de-duplication path for capabilities such as
                 # Playwright; parity is about retained access, not preserving a
@@ -1728,7 +1779,11 @@ def validate_repository(
         )
         issues.extend(
             migration_parity_diagnostics(
-                parity_rows, adapters, baseline, source_entries
+                parity_rows,
+                adapters,
+                baseline,
+                source_entries,
+                migration_parity_retirement_keys(policy),
             )
         )
     if "existence" in enabled:

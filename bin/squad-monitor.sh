@@ -32,6 +32,7 @@ SESSION="squad"
 CHRONO_PANE="${SESSION}:chrono"
 
 STUCK_THRESHOLD=300    # 5 min in seconds
+BOARD_SPAWN_STALL_THRESHOLD=480  # 8 min: detached attempt-log silence
 STALE_THRESHOLD=1800   # 30 min in seconds
 PARKED_THRESHOLD=300   # 5 min: parked work owes a coordinator action
 THRASH_WINDOW=1800     # 30 min in seconds
@@ -215,7 +216,7 @@ task_has_completion_evidence() {
         then (.status // empty) else empty end
         ' "$receipt" 2>/dev/null)
     case "$receipt_status" in
-        complete|completed|blocked|failed|denied|needs_review|needs_human|cancelled)
+        complete|completed|blocked|failed|denied|launched|needs_review|needs_human|cancelled)
             return 0
             ;;
     esac
@@ -370,6 +371,38 @@ board_spawn_live() {
     return 1
 }
 
+# Print the shortest observed attempt-log idle time across live, receipt-less
+# board spawns for this task. The shortest interval is deliberately used: if
+# any live attempt is still writing, the task is active. Missing/unreadable log
+# evidence also fails quiet rather than turning uncertainty into a stall alert.
+board_spawn_log_idle_secs() {
+    local tid="$1" d base log_path mtime idle_secs freshest_idle="" live_seen=0
+    for d in "${VAULT_ROOT}/_state/board-dispatch/${tid}."*.dispatch.json; do
+        [[ -f "$d" ]] || continue
+        base="${d%.dispatch.json}"
+        # The alert's literal claim is "no receipt". Any receipt path suppresses
+        # this observation; task_has_completion_evidence validates terminal
+        # receipt identity and status again at the final alert boundary.
+        if [[ -e "${base}.receipt.json" || -L "${base}.receipt.json" ]]; then
+            continue
+        fi
+        board_dispatch_process_is_live "$d" || continue
+        live_seen=1
+        log_path="${base}.log"
+        [[ -f "$log_path" ]] || return 1
+        mtime=$(stat -c '%Y' "$log_path" 2>/dev/null \
+            || stat -f '%m' "$log_path" 2>/dev/null) || return 1
+        [[ "$mtime" =~ ^[0-9]+$ ]] || return 1
+        [[ $mtime -gt $now ]] && mtime="$now"
+        idle_secs=$(( now - mtime ))
+        if [[ -z "$freshest_idle" || $idle_secs -lt $freshest_idle ]]; then
+            freshest_idle="$idle_secs"
+        fi
+    done
+    [[ $live_seen -eq 1 && -n "$freshest_idle" ]] || return 1
+    printf '%s\n' "$freshest_idle"
+}
+
 detect_stuck() {
     # Task-aware stall detector. For each pending inbox packet in this namespace,
     # bind to the packet's to_model executing lane (NOT the namespace default lead)
@@ -398,16 +431,25 @@ detect_stuck() {
         [[ -z "$idle_secs" ]] && continue                 # task has no usable timestamp
         [[ $idle_secs -lt $STUCK_THRESHOLD ]] && continue # task still actively moving
 
-        # Dedup: at most one alert per task+lane episode (cleared on completion).
-        local alerted_file="${STATE_DIR}/stuck-task-${task_id}-${lane}-alerted"
-        [[ -f "$alerted_file" ]] && continue
-
         # Board-native guard: the task is running as a live DETACHED board spawn, not a
-        # stuck pane task — the board supervises it (and the dashboard shows live/idle).
-        # Skip the pane-era "idle N min / pending in inbox" false alert.
+        # stuck pane task. A fresh attempt log still suppresses the pane-era
+        # "pending in inbox" alert. A receipt-less log silent for the board-specific
+        # threshold falls through to the existing subagent guards and alert path.
+        local board_spawn_stall=false board_log_idle_secs=""
+        local alerted_file="${STATE_DIR}/stuck-task-${task_id}-${lane}-alerted"
         if board_spawn_live "$task_id"; then
-            continue
+            board_log_idle_secs=$(board_spawn_log_idle_secs "$task_id") || continue
+            [[ $board_log_idle_secs -lt $BOARD_SPAWN_STALL_THRESHOLD ]] && continue
+            idle_secs="$board_log_idle_secs"
+            board_spawn_stall=true
+            # A pre-spawn pane alert is a different episode and must not suppress
+            # the board-liveness observation. Completion cleanup already removes
+            # every stuck-task-${task_id}-*-alerted marker.
+            alerted_file="${STATE_DIR}/stuck-task-${task_id}-${lane}-board-alerted"
         fi
+
+        # Dedup: at most one alert per task+lane episode (cleared on completion).
+        [[ -f "$alerted_file" ]] && continue
 
         # Liveness guard 1: a subagent working THIS task is writing artifacts to
         # /tmp/cdp_dumps (<90s ago). Scoped to this task's id in the dump path --
@@ -436,7 +478,11 @@ detect_stuck() {
         task_has_completion_evidence "$task_id" && continue
 
         # ALERT-FIRST (always): correct lane + correct age, keyed by task id + lane.
-        send_alert "task ${task_id} → ${to_model} lane ($(runtime_display_name "$to_model")) idle ${idle_min}m, no response yet (dispatched ${age_min}m ago); pending in ${namespace}/inbox"
+        if $board_spawn_stall; then
+            send_alert "observed task ${task_id} → ${to_model} lane ($(runtime_display_name "$to_model")): live board spawn attempt log idle ${idle_secs}s, no receipt (threshold ${BOARD_SPAWN_STALL_THRESHOLD}s; dispatched ${age_min}m ago); a long model turn or tool call may still be healthy"
+        else
+            send_alert "task ${task_id} → ${to_model} lane ($(runtime_display_name "$to_model")) idle ${idle_min}m, no response yet (dispatched ${age_min}m ago); pending in ${namespace}/inbox"
+        fi
         touch "${alerted_file}"
 
         # Fix 3: capture the lane's last-turn stop_reason for post-hoc diagnosis.
