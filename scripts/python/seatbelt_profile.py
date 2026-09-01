@@ -137,11 +137,13 @@ def _account_home_from_effective_uid() -> Path:
 # their symlink chains can be audited separately from resolved executables.
 HOST_HOME = _account_home_from_effective_uid()
 LOCAL_BIN_ROOT = HOST_HOME / ".local" / "bin"
+GROK_BIN_ROOT = HOST_HOME / ".grok" / "bin"
 UV_ROOT = HOST_HOME / ".local" / "share" / "uv"
 UV_TOOLS_ROOT = UV_ROOT / "tools"
 UV_PYTHON_ROOT = UV_ROOT / "python"
 DEFAULT_LANE_PATH = os.pathsep.join(
     (
+        str(GROK_BIN_ROOT),
         str(LOCAL_BIN_ROOT),
         "/opt/homebrew/bin",
         "/usr/bin",
@@ -182,7 +184,10 @@ RUNTIME_READ_LITERALS = (Path("/"),)
 LANE_CLI_PATHS = {
     "claude": LOCAL_BIN_ROOT / "claude",
     "codex": Path("/opt/homebrew/bin/codex"),
-    "gemini": Path("/opt/homebrew/bin/gemini"),
+    # The routing identifier remains ``gemini``; Antigravity's native CLI is
+    # now the executable vehicle for that lane.
+    "gemini": LOCAL_BIN_ROOT / "agy",
+    "grok": GROK_BIN_ROOT / "grok",
     "kimi": LOCAL_BIN_ROOT / "kimi",
 }
 CODEX_NATIVE_EXECUTABLE = Path(
@@ -491,7 +496,7 @@ def installed_lane_cli_executable_paths(
     include_offline: bool = True,
     include_broker_relay: bool = False,
 ) -> tuple[Path, ...]:
-    """Return exact executable files needed for the four installed lane CLIs."""
+    """Return exact executable files needed for the five installed lane CLIs."""
 
     selected = set(LANE_CLI_PATHS if lanes is None else lanes)
     if not selected.issubset(LANE_CLI_PATHS):
@@ -548,13 +553,21 @@ def installed_lane_cli_executable_aliases(
         except OSError as exc:
             raise ProfileValidationError(f"required {lane} CLI alias is unavailable") from exc
         if (
-            not stat.S_ISLNK(before.st_mode)
-            or resolved not in allowed_targets
+            resolved not in allowed_targets
             or not stat.S_ISREG(target.st_mode)
             or target.st_mode & 0o022
             or not os.access(resolved, os.X_OK)
         ):
             raise PathIdentityError(f"required {lane} CLI alias is not bound to an audited executable")
+        # A lane path may itself be the audited native executable (``agy`` is
+        # installed this way). There is no lexical alias to grant in that case;
+        # retain the same regular-file, mode, and executable checks above.
+        if stat.S_ISREG(before.st_mode):
+            continue
+        if not stat.S_ISLNK(before.st_mode):
+            raise PathIdentityError(
+                f"required {lane} CLI path is neither a regular file nor a symlink"
+            )
         aliases.update(
             item for item in _symlink_chain(alias)
             if Path(os.path.realpath(item)) != item
@@ -675,7 +688,7 @@ def installed_lane_cli_library_grants(
     selected = set(LANE_CLI_PATHS if lanes is None else lanes)
     if not selected.issubset(LANE_CLI_PATHS):
         raise ProfileValidationError("unknown lane library selection")
-    if not selected.intersection({"codex", "gemini"}):
+    if "codex" not in selected:
         return (), (), ()
     node = Path(os.path.realpath(Path("/opt/homebrew/bin/node")))
     return _homebrew_native_dependencies(node)
@@ -698,7 +711,7 @@ def installed_lane_cli_read_paths(
         ),
         *dependency_reads,
     }
-    if selected.intersection({"codex", "gemini"}):
+    if "codex" in selected:
         reads.add(NODE_OPENSSL_CONFIG)
     for alias in LANE_CLI_PATHS.values():
         lane = next(name for name, value in LANE_CLI_PATHS.items() if value == alias)
@@ -1114,11 +1127,12 @@ def compile_profile(
         write_paths=writes,
         executable_paths=executables,
         executable_alias_paths=executable_aliases,
-        # Only the reviewed Node wrappers need to fork their exact native
-        # child. Ordinary profiles continue to honor their requested policy.
+        # Codex's reviewed Node wrapper, native agy, and Grok need to fork
+        # bounded child processes. Ordinary profiles continue to honor their
+        # requested policy.
         allow_fork=(
             spec.allow_fork
-            or bool(set(selected_lanes) & {"codex", "gemini"})
+            or bool(set(selected_lanes) & {"codex", "gemini", "grok"})
             or bool(selection and selection.broker_relay)
         ),
         allow_sysctl_read=spec.allow_sysctl_read,
@@ -1137,6 +1151,7 @@ __all__ = [
     "BROKER_RELAY_PYTHON",
     "CODEX_NATIVE_EXECUTABLE",
     "DEFAULT_LANE_PATH",
+    "GROK_BIN_ROOT",
     "HOST_HOME",
     "KNOWN_MACOS_BUILDS",
     "LANE_CLI_PATHS",

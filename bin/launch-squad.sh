@@ -1603,10 +1603,71 @@ PY
 # load-bearing over what workers may do (it is not; see README). Worker permissions
 # now live in scripts/python/dispatch_context_builder.py, which is where to look.
 
+# Block until the pane's shell provably consumes input, then prove it by making
+# a sentinel round-trip. Without this, the send-keys below land in the tty buffer
+# while zsh is still sourcing its rc files: characters drop and lines fuse (see
+# the `biusbash` and `CLEARANCE=restrictedROOT=` signatures in
+# _state/tmux-logs/chrono.log). The last send-keys is the one that execs claude,
+# so a mangled delivery leaves a coordinator-less squad -- and the launcher still
+# exits 0, which is why this failed silently three times on 2026-08-30.
+#
+# LIFE-03b: every command here is a tmux call in THIS process. Nothing is
+# inserted into the pane's own shell, so `bash vs-welcome.sh` still execs claude
+# as the pane shell's DIRECT child and the `$?` exit-capture contract holds.
+wait_for_pane_shell() {
+    local target="$1" timeout="${2:-30}" sentinel deadline hits
+    deadline=$(( $(date +%s) + timeout ))
+    while [ "$(date +%s)" -lt "$deadline" ]; do
+        # Fresh per round, so a match can only ever be THIS round's round-trip.
+        # A hoisted sentinel could be satisfied by an earlier round still in
+        # scrollback, which would prove nothing about the shell's current state.
+        sentinel="__vs_ready_$$_${RANDOM}__"
+        # Clear the line editor first. If a previous round's text landed but its
+        # C-m was dropped, the next round appends to that same input line:
+        #     printf '%s\n' SENT__printf '%s\n' SENT
+        # printf REUSES its format string for every remaining argument, so even
+        # that garbage prints a pristine `SENT` on its own line -- an exact-match
+        # check would pass on precisely the mangling this guard exists to catch.
+        # An empty input line makes that fusion impossible in the first place.
+        if ! tmux send-keys -t "${target}" C-u 2>/dev/null; then
+            echo "ERROR: pane ${target} is not addressable; cannot start the coordinator." >&2
+            return 1
+        fi
+        tmux send-keys -t "${target}" "printf '%s\\n' ${sentinel}" C-m 2>/dev/null
+        for _ in 1 2 3 4 5; do
+            sleep 0.2
+            # EXACTLY one bare-sentinel line. Belt to C-u's braces: any shape
+            # that echoes the sentinel more than once is corruption, not
+            # readiness, so "at least one" is the wrong test.
+            hits="$(tmux capture-pane -p -J -t "${target}" -S -40 2>/dev/null \
+                      | grep -cx "${sentinel}")"
+            if [ "${hits:-0}" -eq 1 ]; then
+                tmux send-keys -t "${target}" C-l 2>/dev/null
+                return 0
+            fi
+        done
+    done
+    echo "ERROR: pane ${target} shell never became ready within ${timeout}s; refusing to send startup commands." >&2
+    return 1
+}
+
 # Window 0: chrono (Coordinator — Claude Code, auto-loads chrono/CLAUDE.md).
 # The session + chrono window were already created above (before styling); here
 # we just wire up logging and launch the coordinator.
 tmux pipe-pane -t "${SESSION}:chrono" -o "cat >> ${TMUX_LOG_DIR}/chrono.log"
+if ! wait_for_pane_shell "${SESSION}:chrono" 30; then
+    echo "ERROR: coordinator pane never became ready; refusing to launch a squad without a coordinator." >&2
+    # Tear the session down rather than leaving it for the operator to retry
+    # into. Nothing of value exists in it yet, and a surviving session is worse
+    # than none: the retry path above hits `has-session`, and
+    # verify_session_windows only checks the window name, pane existence and
+    # `kill -0` -- all of which a bare shell satisfies. The operator would be
+    # attached to a coordinator-less squad with no error, which is exactly the
+    # silent failure this guard was added to end.
+    tmux kill-session -t "${SESSION}" 2>/dev/null || true
+    echo "Session '${SESSION}' was torn down. Re-run this script to try again." >&2
+    exit 1
+fi
 tmux send-keys -t "${SESSION}:chrono" "${PATH_PREFIX}" C-m
 # The coordinator keeps restricted clearance. Fresh board workers remain
 # fail-safe internal for sensitivity while board-supervisor projects their
@@ -1615,7 +1676,68 @@ tmux send-keys -t "${SESSION}:chrono" "${MEDIA_AUTH_PREFIX}" C-m
 tmux send-keys -t "${SESSION}:chrono" 'export CHRONO_VAULT_CLEARANCE=restricted' C-m
 # vs-welcome.sh clears, prints the coordinator greeting, then execs claude with
 # acceptEdits + opus + effort xhigh + --add-dir (keeps OPENAI_API_KEY for media).
-tmux send-keys -t "${SESSION}:chrono" "bash ${VAULT_ROOT}/bin/vs-welcome.sh" C-m
+#
+# LIFE-03b: record the coordinator's numeric exit CODE/SIGNAL. vs-welcome.sh
+# tees claude's stderr into a per-session capture file, but it `exec`s claude,
+# so nothing inside it waits on the result -- the exit code cannot be captured
+# there. The PANE SHELL is claude's real parent: `bash vs-welcome.sh` execs
+# claude in place, so when claude dies the pane shell's `$?` IS claude's own
+# exit status (128+signal on a signal death). We append that -- with a matching
+# header -- to the SAME per-session file vs-welcome wrote (found via the
+# coordinator pid it recorded in the pidfile), so both halves read as one
+# record. The recorder runs ONLY AFTER `bash vs-welcome.sh` returns, so it
+# inserts no process between the pane shell and claude: claude stays the pane
+# shell's DIRECT exec child and `pgrep -P` coordinator detection is unchanged.
+# It is fully FAIL-SAFE (any error is swallowed) so a broken capture can never
+# affect shutdown, and it makes no attempt to diagnose -- it records the raw
+# code, plus the signal number/name mechanically decoded when $? > 128.
+#
+# LIFE-03c: the SAME recorder also CLEARS the coordinator pidfile on the way out
+# -- the coordinator that died is exactly the one whose record survives it, so
+# this is where the stale record is removed too (no new hook/trap/file). It
+# clears ONLY a pidfile whose recorded process is provably GONE: the emitted
+# command carries byte-faithful copies of bin/squad-stop.sh's pid_start_time /
+# pid_identity_still_matches (the ONE identity scheme; the same `ps -o lstart=`
+# fingerprint vs-welcome.sh records with) and reuses that check rather than
+# inventing a second one. A pidfile pointing at a still-live, fingerprint-matched
+# coordinator is KEPT -- clearing another live coordinator's file would be far
+# worse than leaving a stale one -- as is a live PID we cannot fingerprint. It
+# clears when the recorded PID is dead, or alive but recycled onto a process with
+# a different start time (fingerprint mismatch). Discovery's behaviour on a stale
+# file is unchanged; this only makes the near-miss rarer. The clear is `find
+# ... -delete` inside the same swallow-all wrapper, so a failed clear -- an
+# unwritable dir, a racing writer -- can never affect the pane's clean exit.
+# Emit the SINGLE-LINE command the pane shell runs immediately after
+# `bash vs-welcome.sh` returns (its `$?` is claude's own exit status). Every
+# value is baked as a %q-safe literal because the fresh pane shell holds none
+# of this launcher's variables; the pane-evaluated tokens ($?, the pidfile
+# read, the glob, printf, the identity fingerprint) stay literal. Kept here as
+# the ONE home for this logic so scripts/python/tests/test_squad_stop_reaping.py
+# can extract it and drive the emitted command directly (it can never run
+# vs-welcome.sh, which execs claude, while board lanes are live). The whole body
+# is wrapped `{ ...; } 2>/dev/null || true` so ANY failure -- missing pidfile,
+# unwritable log, no capture file because vs-welcome took its fail-safe bare
+# exec, or a pidfile the clear could not remove -- leaves the pane to return
+# normally.
+build_coordinator_exit_capture() {
+    local exit_dir="$1" session="$2" pidfile="$3"
+    local qdir qses qpf
+    qdir="$(printf '%q' "${exit_dir}")"
+    qses="$(printf '%q' "${session}")"
+    qpf="$(printf '%q' "${pidfile}")"
+    # SC2016 intentional: the $-tokens below ($?, $__vspid, the awk-free read,
+    # printf, the identity helpers) must stay LITERAL for the pane shell to
+    # evaluate, not this launcher. The pid_start_time / pid_identity_still_matches
+    # bodies mirror bin/squad-stop.sh's (its `## LIFE-03c` note names it the home);
+    # test_squad_stop_reaping.py drives both and asserts the same verdict.
+    # shellcheck disable=SC2016
+    printf '%s' '__vsrc=$?; { __vsexd='"${qdir}"'; __vspf='"${qpf}"'; __vses='"${qses}"'; pid_start_time(){ ps -o lstart= -p "$1" 2>/dev/null | tr -s "[:space:]" " " | sed "s/^ //; s/ \$//"; }; pid_identity_still_matches(){ kill -0 "$1" 2>/dev/null || return 1; [ -n "$2" ] || return 1; __vscur="$(pid_start_time "$1")"; [ -n "$__vscur" ] || return 1; [ "$__vscur" = "$2" ]; }; __vspid=; __vsstart=; while read -r __vsk __vsv; do case "${__vsk:-}" in pid) __vspid="$__vsv";; start) __vsstart="$__vsv";; esac; done < "$__vspf" 2>/dev/null; case "${__vspid:-}" in ""|*[!0-9]*) __vspid=;; esac; if [ -n "${__vspid:-}" ]; then __vsf=$(ls -t "$__vsexd/$__vses-"*"-$__vspid.log" 2>/dev/null | head -n1); if [ -f "${__vsf:-}" ]; then __vsts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null); if [ "$__vsrc" -gt 128 ] 2>/dev/null; then __vssig=$((__vsrc-128)); __vssn=$(kill -l "$__vssig" 2>/dev/null); printf '"'"'\ncoordinator-session-exit %s\nexit-status %s\nexit-signal %s %s\n'"'"' "$__vsts" "$__vsrc" "$__vssig" "$__vssn" >> "$__vsf"; else printf '"'"'\ncoordinator-session-exit %s\nexit-status %s\nexit-signal none\n'"'"' "$__vsts" "$__vsrc" >> "$__vsf"; fi; fi; if pid_identity_still_matches "$__vspid" "${__vsstart:-}"; then :; elif [ -z "${__vsstart:-}" ] && kill -0 "$__vspid" 2>/dev/null; then :; else find "$__vspf" -maxdepth 0 -delete 2>/dev/null || true; fi; fi; } 2>/dev/null || true'
+}
+
+CX_EXIT_DIR="${CHRONO_COORDINATOR_EXIT_DIR:-${VAULT_ROOT}/_state/runtime/chrono-coordinator/exit}"
+CX_PIDFILE="${CHRONO_COORDINATOR_PIDFILE:-${VAULT_ROOT}/_state/runtime/chrono-coordinator/${SESSION}.pid}"
+COORDINATOR_EXIT_CAPTURE="$(build_coordinator_exit_capture "${CX_EXIT_DIR}" "${SESSION}" "${CX_PIDFILE}")"
+tmux send-keys -t "${SESSION}:chrono" "bash ${VAULT_ROOT}/bin/vs-welcome.sh; ${COORDINATOR_EXIT_CAPTURE}" C-m
 
 # Optional local convenience: pre-trust chrono MCP servers in Codex config so
 # the coding pane does not prompt for MCP approval mid-task. This mutates
@@ -1655,6 +1777,16 @@ bash "${VAULT_ROOT}/bin/sidebar.sh" >/dev/null 2>&1 || true
 # Switch back to chrono window for first attachment
 tmux select-window -t "${SESSION}:chrono"
 tmux select-pane -t "${SESSION}:chrono.0"
+
+# --- Chrono coordinator pidfile --------------------------------------------
+# LIFE-01: the pidfile that lets bin/squad-stop.sh DISCOVER the live coordinator
+# (instead of assuming this pane) is written by bin/vs-welcome.sh, NOT here. That
+# script is the coordinator's own startup and execs claude, so it records the
+# coordinator's REAL PID and start-time fingerprint -- a record squad-stop's
+# */claude* + fingerprint reader believes. This launcher used to plant it from
+# outside with the pane's SHELL pid, which that reader then rejected (it was not
+# claude), so the record was written and disbelieved; a cross-family review
+# rejected that. One writer, one home (CLAUDE.md rule 10): the coordinator itself.
 
 # Session creation is fully converged -- release LAUNCH_LOCK now, before the
 # interactive "Attach now?" prompt / `tmux attach` below, so a waiting

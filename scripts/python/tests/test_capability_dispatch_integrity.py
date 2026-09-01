@@ -245,6 +245,7 @@ cost_note: subscription
                     "direct_lane_work_allowed": "true",
                     "mandatory_review": "false",
                     "review_model": "none",
+                    "reviews": "none",
                     "return_artifact": "_state/result.md",
                 },
                 "Build the application.",
@@ -352,6 +353,7 @@ class VerificationContractDispatchTests(ManagedSupervisorTestCase):
             "direct_lane_work_allowed": "true",
             "mandatory_review": "false",
             "review_model": "none",
+            "reviews": "none",
             "return_artifact": "_state/result.md",
         }
         if run_id is not None:

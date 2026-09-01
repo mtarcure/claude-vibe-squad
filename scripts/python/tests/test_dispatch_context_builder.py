@@ -131,6 +131,7 @@ class DispatchContextBuilderTests(unittest.TestCase):
                     f"write_scope: [{artifact}]",
                     "parallel_safe: false",
                     "direct_lane_work_allowed: true",
+                    "reviews: none",
                     "mandatory_review: false",
                     "review_triggers: []",
                     "review_model: none",
@@ -180,13 +181,14 @@ class DispatchContextBuilderTests(unittest.TestCase):
                 "codex": "openai-subscription",
                 "claude": "anthropic-subscription",
                 "gemini": "gemini-api-key",
+                "grok": "xai-api-key",
                 "kimi": "moonshot-subscription",
             },
         )
 
     def test_every_lane_launches_its_selected_profile_model(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            for lane in ("codex", "claude", "gemini", "kimi"):
+            for lane in ("codex", "claude", "gemini", "grok", "kimi"):
                 with self.subTest(lane=lane):
                     root, _packet = self._fake_repo_for_lane(
                         Path(directory), lane=lane, model=lane
@@ -198,12 +200,65 @@ class DispatchContextBuilderTests(unittest.TestCase):
                         args[args.index("--model") + 1], f"{lane}-test-model"
                     )
 
+    def test_gemini_lane_uses_agy_launch_abi(self) -> None:
+        args = dcb._trusted_lane_args(
+            "gemini",
+            {"model_id": "gemini-test-model", "effort": "default"},
+        )
+        self.assertEqual(
+            args,
+            (
+                "--mode",
+                "accept-edits",
+                "--dangerously-skip-permissions",
+                "--model",
+                "gemini-test-model",
+            ),
+        )
+        self.assertFalse(
+            {"--prompt", "--approval-mode", "--skip-trust", "--yolo"}
+            & set(args)
+        )
+
+    def test_grok_lane_uses_single_prompt_launch_abi(self) -> None:
+        args = dcb._trusted_lane_args(
+            "grok",
+            {"model_id": "grok-4.6", "effort": "default"},
+        )
+        self.assertEqual(
+            args,
+            (
+                "--permission-mode",
+                "bypassPermissions",
+                "--no-subagents",
+                "--disable-web-search",
+                "--model",
+                "grok-4.6",
+            ),
+        )
+
+    def test_agy_external_mcp_budget_is_numeric_and_deny_by_default(self) -> None:
+        self.assertEqual(dcb.agy_external_mcp_max_calls({}), 0)
+        self.assertEqual(
+            dcb.agy_external_mcp_max_calls(
+                {dcb.AGY_EXTERNAL_MCP_MAX_CALLS_FIELD: "7"}
+            ),
+            7,
+        )
+        for raw in ("-1", "1.5", "unbounded", "10001"):
+            with self.subTest(raw=raw), self.assertRaises(
+                dcb.DispatchContextError
+            ):
+                dcb.agy_external_mcp_max_calls(
+                    {dcb.AGY_EXTERNAL_MCP_MAX_CALLS_FIELD: raw}
+                )
+
     def test_lane_inventory_uses_approved_paths_profiles_and_auth(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             approved = {
                 lane: base / "approved" / lane
-                for lane in ("claude", "codex", "gemini", "kimi")
+                for lane in ("claude", "codex", "gemini", "grok", "kimi")
             }
             calls = []
 
@@ -225,6 +280,7 @@ class DispatchContextBuilderTests(unittest.TestCase):
                 "claude": "subscription",
                 "codex": "subscription",
                 "gemini": "gemini-api-key",
+                "grok": "xai-api-key",
                 "kimi": "managed-login",
             },
         )
@@ -243,6 +299,9 @@ class DispatchContextBuilderTests(unittest.TestCase):
                 },
                 "codex": {"codex.sol.high", "codex.sol.ultra"},
                 "gemini": {"gemini.flash.default", "gemini.pro.deep"},
+                # Profiles are inventoried from live runtime-map selections;
+                # 4.5 is available for overrides but Smokey selects 4.6.
+                "grok": {"grok.4.6.default"},
                 "kimi": {
                     "kimi.k2.7.bulk",
                     "kimi.k3.256k",
@@ -292,7 +351,7 @@ class DispatchContextBuilderTests(unittest.TestCase):
             mock.patch("builtins.print") as output,
         ):
             self.assertEqual(dcb.main(["lane-inventory", "--repo-root", str(ROOT)]), 0)
-        self.assertEqual(output.call_count, 4)
+        self.assertEqual(output.call_count, 5)
         self.assertTrue(all("\t" in call.args[0] for call in output.call_args_list))
 
     def _fake_repo_for_lane(
@@ -421,6 +480,14 @@ class DispatchContextBuilderTests(unittest.TestCase):
                 / ".gemini"
                 / "agents"
                 / f"{specialist}.md"
+            ),
+            "grok": (
+                root
+                / "model-lanes"
+                / "grok"
+                / ".grok"
+                / "agents"
+                / f"{specialist}.yaml"
             ),
             "kimi": (
                 root
@@ -764,11 +831,12 @@ class DispatchContextBuilderTests(unittest.TestCase):
             self.assertIn(str(packet.relative_to(root)), authority["read_scope"])
             self.assertIn(packet.stem, context["task_prompt"])
 
-    def test_exact_authority_context_builds_for_all_four_lanes(self) -> None:
+    def test_exact_authority_context_builds_for_all_five_lanes(self) -> None:
         models = {
             "codex": "gpt-codex",
             "claude": "claude",
             "gemini": "gemini",
+            "grok": "grok",
             "kimi": "kimi",
         }
         with tempfile.TemporaryDirectory() as directory:
@@ -814,6 +882,18 @@ class DispatchContextBuilderTests(unittest.TestCase):
                         authority["budgets"]["timeout_seconds"],
                         2700,  # safety backstop, not a short deadline (all lanes)
                     )
+                    if lane == "gemini":
+                        self.assertEqual(
+                            authority["budgets"],
+                            {
+                                "timeout_seconds": 2700,
+                                dcb.AGY_EXTERNAL_MCP_MAX_CALLS_FIELD: 0,
+                            },
+                        )
+                    else:
+                        self.assertEqual(
+                            authority["budgets"], {"timeout_seconds": 2700}
+                        )
                     self.assertEqual(set(authority), EXPECTED_AUTHORITY_FIELDS)
                     self.assertEqual(
                         authority["profile_bundle_sha256"],
@@ -2036,6 +2116,109 @@ class OutputBridgeTests(unittest.TestCase):
         )
         self.assertEqual(dcb._coerce_status(""), "needs_review")
         self.assertEqual(dcb._coerce_status("wat"), "needs_review")
+
+
+class CandidateHealthCausationTests(unittest.TestCase):
+    """Whole-tree failures block only when absent from the admitted base."""
+
+    def _git(self, root: Path, *args: str) -> None:
+        completed = subprocess.run(
+            ("git", *args),
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+    def _repo(
+        self, directory: str, *, existing: str, introduced: str
+    ) -> tuple[Path, Path]:
+        root = Path(directory) / "repo"
+        root.mkdir()
+        self._git(root, "init", "-q")
+        self._git(root, "checkout", "-q", "-b", "v2")
+        self._git(root, "config", "user.name", "Candidate Health Test")
+        self._git(root, "config", "user.email", "health@example.invalid")
+        (root / "shared").mkdir()
+        (root / "shared/specialist-runtime-map.tsv").write_text(
+            "specialist\tprimary_lane\n", encoding="utf-8"
+        )
+        (root / "existing.txt").write_text(existing + "\n", encoding="utf-8")
+        (root / "introduced.txt").write_text(
+            introduced + "\n", encoding="utf-8"
+        )
+        (root / "unrelated.txt").write_text("base\n", encoding="utf-8")
+        self._git(root, "add", ".")
+        self._git(root, "commit", "-q", "-m", "admitted base")
+
+        verifier = Path(directory) / "health.sh"
+        verifier.write_text(
+            "#!/bin/bash\n"
+            "status=0\n"
+            "if [[ $(<\"${VAULT_ROOT}/existing.txt\") == red ]]; then\n"
+            "  echo 'existing.txt: FAIL' >&2\n"
+            "  status=1\n"
+            "fi\n"
+            "if [[ $(<\"${VAULT_ROOT}/introduced.txt\") == red ]]; then\n"
+            "  echo 'introduced.txt: FAIL' >&2\n"
+            "  status=1\n"
+            "fi\n"
+            "exit ${status}\n",
+            encoding="utf-8",
+        )
+        return root, verifier
+
+    def _verify(self, root: Path, verifier: Path, *write_paths: str) -> None:
+        with mock.patch.object(dcb, "RESIDUE_HEALTH_VERIFIER", verifier), mock.patch.dict(
+            os.environ, {"SQUAD_BASE_BRANCH": "v2"}, clear=False
+        ):
+            dcb._verify_candidate_tree_health(root, write_paths, ())
+
+    def test_inherited_failure_does_not_block_unrelated_diff(self) -> None:
+        """A diagnostic present at BASE is warned, not denied."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            root, verifier = self._repo(
+                directory, existing="red", introduced="green"
+            )
+            (root / "unrelated.txt").write_text("candidate\n", encoding="utf-8")
+
+            with mock.patch("sys.stderr") as stderr:
+                self._verify(root, verifier, "unrelated.txt")
+
+            self.assertTrue(stderr.write.called)
+
+    def test_new_failure_blocks_when_base_is_healthy(self) -> None:
+        """A candidate-only diagnostic still blocks residue promotion."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            root, verifier = self._repo(
+                directory, existing="green", introduced="green"
+            )
+            (root / "introduced.txt").write_text("red\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                dcb.DispatchContextError,
+                "candidate tree health check refused residue promotion",
+            ):
+                self._verify(root, verifier, "introduced.txt")
+
+    def test_new_failure_blocks_alongside_inherited_failure(self) -> None:
+        """An inherited failure cannot mask a second candidate-only failure."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            root, verifier = self._repo(
+                directory, existing="red", introduced="green"
+            )
+            (root / "introduced.txt").write_text("red\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                dcb.DispatchContextError,
+                "candidate tree health check refused residue promotion",
+            ):
+                self._verify(root, verifier, "introduced.txt")
 
 
 class AliasedOutputBridgeTests(unittest.TestCase):

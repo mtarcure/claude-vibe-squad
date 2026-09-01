@@ -5,7 +5,7 @@
 # Phases:
 #   0. Launch dependency parity — every command bin/launch-squad.sh hard-gates
 #      on, from the list both programs share (shared/launch-dependencies.sh)
-#   1. CLI presence on this HOME's PATH (Claude / Codex / Gemini / Kimi)
+#   1. CLI presence on this HOME's PATH (Claude / Codex / Gemini / Grok / Kimi)
 #      (presence ONLY; login/auth state is deliberately NOT verified — the
 #      program logs in to nothing and says so, see the auth note in Phase 1)
 #   2. MCP servers reachable from each CLI
@@ -53,12 +53,13 @@
 
 set -uo pipefail
 
-# launchd's spawn shell doesn't include ~/.local/bin (where claude + kimi live).
+# launchd's spawn shell doesn't include the user-local CLI directories.
 # Prepend it so CLI presence checks work the same as in operator's interactive shell.
-export PATH="${HOME}/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:${PATH}"
+export PATH="${HOME}/.grok/bin:${HOME}/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:${PATH}"
 
 # shellcheck source-path=SCRIPTDIR source=../shared/repo-root.sh disable=SC1091
 source "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")/.." && pwd -P)/shared/repo-root.sh"
+
 
 # Same interpreter bin/mcp-audit.sh uses: mcp_server.py needs the `mcp`
 # package, which lives in the repo venv, not system python3.
@@ -592,7 +593,7 @@ echo "" >> "${DOCTOR_LOG}"
 echo "Resolved on this HOME's PATH (HOME=${HOME:-<unset>})." >> "${DOCTOR_LOG}"
 
 # --- Auth probes -------------------------------------------------------------
-# For a system whose entire premise is four authenticated native CLIs, doctor
+# For a system whose entire premise is five authenticated native CLIs, doctor
 # verified auth for none of them: the single `could-not-run: 1` line below this
 # loop was a hardcoded note_unknown, not a check. "Not installed" and "installed
 # and logged out" produced the same green CLI section.
@@ -603,7 +604,7 @@ echo "Resolved on this HOME's PATH (HOME=${HOME:-<unset>})." >> "${DOCTOR_LOG}"
 #     claude auth status   -> {"loggedIn": true, "authMethod": ..., "apiKeySource": ...}
 #     codex login status   -> Logged in using ChatGPT
 #
-# `gemini` and `kimi` expose no such subcommand, so they get a credential-at-rest
+# `gemini`, `grok`, and `kimi` expose no such subcommand, so they get a credential-at-rest
 # check instead -- deliberately reported as a WEAKER claim (see below).
 #
 # WHY THE PROBE SHAPE IS A TABLE HERE AND THE POLICY IS NOT. The lane inventory
@@ -613,9 +614,9 @@ echo "Resolved on this HOME's PATH (HOME=${HOME:-<unset>})." >> "${DOCTOR_LOG}"
 # this probe observed, which is CLAUDE.md rule 9 applied to authentication. What
 # the inventory cannot supply is the probe COMMAND: `claude auth status` versus
 # `codex login status` is a fact about each vendor's CLI surface, recorded
-# nowhere in this repository. That, and only that, is what these four cases name.
+# nowhere in this repository. That, and only that, is what these five cases name.
 #
-# Bounded at 5s each, not the 10s the version probe uses: four lanes share one
+# Bounded at 5s each, not the 10s the version probe uses: five lanes share one
 # 45s launch gate, and an auth endpoint is likelier to hang than `--version`.
 # Timeout is UNKNOWN, never "not logged in" -- doctor did not establish either.
 LANE_AUTH_OBSERVED=()
@@ -645,7 +646,7 @@ CLI_PROBE_OUT="$(mktemp "${TMPDIR:-/tmp}/vs-doctor-cli.XXXXXXXX" 2>/dev/null)" \
     || CLI_PROBE_OUT=""
 AUTH_PROBE_OUT="$(mktemp "${TMPDIR:-/tmp}/vs-doctor-auth.XXXXXXXX" 2>/dev/null)" \
     || AUTH_PROBE_OUT=""
-for lane in claude codex gemini kimi; do
+for lane in claude codex gemini grok kimi; do
     lane_path="$(command -v "${lane}" 2>/dev/null || true)"
     if [[ -z "${lane_path}" ]]; then
         # Not installed is a setup step, not a fault: a clean install has none
@@ -749,6 +750,18 @@ for lane in claude codex gemini kimi; do
                     note_unknown "codex auth state could not be read" \
                         "codex: \`codex login status\` exited 0 but its answer was not recognisable as a login state — UNKNOWN, not logged out. First line: ${AUTH_FIRST_LINE:-none}"
                 fi
+            fi
+            ;;
+        grok)
+            GROK_SECRET_FILE="${HOME}/.config/shell/secrets.zsh"
+            if [[ -r "${GROK_SECRET_FILE}" ]] \
+                && grep -Eq '^[[:space:]]*(export[[:space:]]+)?XAI_API_KEY=' "${GROK_SECRET_FILE}" 2>/dev/null; then
+                LANE_AUTH_OBSERVED+=("grok=api-key-secret-file")
+                note_unknown "grok login state not verifiable; XAI_API_KEY is declared in the secret store" \
+                    "grok: XAI_API_KEY is declared by .config/shell/secrets.zsh (name presence only — its value is never read or logged). Grok exposes no zero-token authentication status, so key validity is UNDETERMINED."
+            else
+                note_warn "grok has no XAI_API_KEY declaration" \
+                    "grok: XAI_API_KEY is not declared in .config/shell/secrets.zsh, so unattended Grok dispatches cannot authenticate."
             fi
             ;;
         gemini|kimi)
@@ -2631,10 +2644,10 @@ if [[ "${PS_USABLE}" != true ]]; then
     note_unknown "process audit could not run: ${PS_DENIED_REASON}" \
         "Process audit COULD NOT RUN — ${PS_DENIED_REASON}. Long-running CLI processes, extra non-squad CLI roots, and runaway-CPU processes are ALL UNDETERMINED. None of them were found absent; none of them were looked for."
 else
-    # Long-running claude/codex/gemini/kimi processes are expected for the daily
+    # Long-running claude/codex/gemini/grok/kimi processes are expected for the daily
     # driver, but extra interactive CLIs outside the squad pane roots can leave
     # MCP children around. Report them separately; never kill them here.
-    long_procs=$(ps -eo pid,ppid,etime,pcpu,comm | awk '$5 ~ /(claude|codex|gemini|kimi)/ && $3 ~ /^[0-9]+-[0-9]+/ {print}' | head -10)
+    long_procs=$(ps -eo pid,ppid,etime,pcpu,comm | awk '$5 ~ /(claude|codex|gemini|grok|kimi)/ && $3 ~ /^[0-9]+-[0-9]+/ {print}' | head -10)
     if [[ -n "${long_procs}" ]]; then
         note_info "Long-running CLI processes (>1 day; may be active non-squad sessions):"
         echo "${long_procs}" | sed 's/^/  /' >> "${DOCTOR_LOG}"
@@ -2644,7 +2657,7 @@ else
     fi
 
     # WHY THIS CHANGED (2026-08-17). The old check matched
-    # /(claude|codex|gemini|kimi)( |$)/ against the WHOLE command line: exactly
+    # /(claude|codex|gemini|grok|kimi)( |$)/ against the WHOLE command line: exactly
     # the unanchored argv substring matching shared/process-identity.sh exists
     # to forbid, and it produced the failure that file predicts. Measured on the
     # maintainer's tree, its four "extra non-squad CLI sessions" were three
@@ -2692,7 +2705,7 @@ else
             function leaf(path,   parts, n) { n = split(path, parts, "/"); return parts[n] }
             function is_lane(name) {
                 return name == "claude" || name == "codex" \
-                    || name == "gemini" || name == "kimi"
+                    || name == "gemini" || name == "grok" || name == "kimi"
             }
             function is_interpreter(name) {
                 return name == "node" || name == "python" || name == "python3" \
@@ -2736,7 +2749,7 @@ else
     fi
 
     # Pathology: high-CPU CLI processes (likely retry storm or runaway loop)
-    runaway=$(ps -eo pid,etime,pcpu,comm | awk '$4 ~ /(claude|codex|gemini|kimi)/ && $3+0 > 80 {print}' | head -3)
+    runaway=$(ps -eo pid,etime,pcpu,comm | awk '$4 ~ /(claude|codex|gemini|grok|kimi)/ && $3+0 > 80 {print}' | head -3)
     if [[ -n "${runaway}" ]]; then
         note_issue "CLI process consuming >80% CPU — kill if stuck in retry loop" \
             "High-CPU CLI processes (>80% CPU — possible runaway):"

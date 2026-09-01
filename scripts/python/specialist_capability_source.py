@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import tempfile
 from typing import Any, NamedTuple
 
@@ -15,7 +16,8 @@ SOURCE_RELATIVE = Path("model-lanes/specialist-lane-capabilities.v1.json")
 SOURCE_SCHEMA = "specialist-lane-capabilities/v1"
 SURFACE_SCHEMA = "capability-surface/v1"
 CAPABILITY_FIELDS = ("skills", "tools", "mcps")
-LANES = ("gpt-codex", "claude", "gemini", "kimi")
+LANES = ("gpt-codex", "claude", "gemini", "grok", "kimi")
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 # Availability states, with their semantics. The single most damaging legacy
 # defect was one undifferentiated ``uninstalled`` bucket that conflated "not yet
 # installed", "unwritten markdown stub", "Python stdlib", "OS-impossible", and
@@ -128,6 +130,23 @@ def source_sha256(root: Path, override: Path | None = None) -> str:
     return hashlib.sha256(source_path(root, override).read_bytes()).hexdigest()
 
 
+def accepted_source_sha256s(
+    root: Path,
+    payload: dict[str, Any],
+    override: Path | None = None,
+) -> frozenset[str]:
+    """Return source hashes permitted on semantically current adapters.
+
+    A source edit changes the file-wide digest even when most per-role
+    projections are byte-for-byte unchanged.  Explicit compatibility hashes
+    let those unchanged projections migrate without rewriting every adapter;
+    validators must still compare each projected array with the current source.
+    """
+
+    compatible = payload.get("projection_compatible_source_sha256s", [])
+    return frozenset((source_sha256(root, override), *compatible))
+
+
 def _string_list(raw: Any, label: str) -> tuple[str, ...]:
     if not isinstance(raw, list) or not all(isinstance(item, str) and item for item in raw):
         raise CapabilitySourceError(f"{label} must be a list of non-empty strings")
@@ -146,6 +165,18 @@ def load_source(
         raise CapabilitySourceError(f"cannot load capability source {path}: {exc}") from exc
     if payload.get("schema") != SOURCE_SCHEMA or payload.get("version") != 1:
         raise CapabilitySourceError("capability source schema/version mismatch")
+    compatible_hashes = _string_list(
+        payload.get("projection_compatible_source_sha256s", []),
+        "capability source projection_compatible_source_sha256s",
+    )
+    if any(SHA256_RE.fullmatch(value) is None for value in compatible_hashes):
+        raise CapabilitySourceError(
+            "capability source projection compatibility hashes must be lowercase SHA-256"
+        )
+    if list(compatible_hashes) != sorted(compatible_hashes):
+        raise CapabilitySourceError(
+            "capability source projection compatibility hashes must be sorted"
+        )
     raw_servers = payload.get("servers", [])
     if not isinstance(raw_servers, list):
         raise CapabilitySourceError("capability source servers must be a list")

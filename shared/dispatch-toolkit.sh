@@ -558,6 +558,16 @@ Gemini lane is expected to have native Gemini grounding, `chrono-research-arsena
 This is an expected surface, not proof of live availability. Verify the tool exists in your current runtime before using it. If missing, report `capability_gap` and use the task-approved fallback.
 EOF
         ;;
+    grok)
+        cat <<'EOF'
+
+## Expected Model Lane Tool Surface
+
+Grok lane is expected to have repo shell/file capabilities permitted by the task and `chrono-vault` for durable task memory. Its CLI discovers persistent MCP configuration globally, so discovery is availability evidence only; the sealed launch context and task packet remain the authority ceiling.
+
+This is an expected surface, not proof of live availability. Verify the tool exists in your current runtime before using it. If missing, report `capability_gap` and use the task-approved fallback.
+EOF
+        ;;
     kimi)
         cat <<'EOF'
 
@@ -601,7 +611,7 @@ The envelope is markdown — this frontmatter, then a short summary body (its fi
 ---
 id: <id>-response
 in_response_to: <id>
-from: <lane>          # gpt-codex | claude | gemini | kimi
+from: <lane>          # gpt-codex | claude | gemini | grok | kimi
 to: chrono
 type: RESULT
 status: complete      # complete | needs_review | needs_human | blocked

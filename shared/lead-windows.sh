@@ -9,7 +9,7 @@
 # shellcheck disable=SC1091
 source "${BASH_SOURCE[0]%/*}/namespaces.sh"
 
-MODEL_LANES=(gpt-codex claude gemini kimi)
+MODEL_LANES=(gpt-codex claude gemini grok kimi)
 # Backward-compatible name for callers that treated source namespaces as
 # mailbox namespaces before the compatibility/source distinction was explicit.
 SOURCE_NAMESPACES=("${COMPATIBILITY_NAMESPACES[@]}")
@@ -19,6 +19,7 @@ runtime_window_name() {
         codex|gpt-codex) echo "gpt-codex" ;;
         claude) echo "claude" ;;
         gemini) echo "gemini" ;;
+        grok) echo "grok" ;;
         kimi) echo "kimi" ;;
         chrono)   echo "chrono" ;;
         watchers) echo "watchers/status" ;;
@@ -31,6 +32,7 @@ runtime_display_name() {
         codex|gpt-codex) echo "GPT/Codex" ;;
         claude) echo "Claude" ;;
         gemini) echo "Gemini" ;;
+        grok) echo "Grok" ;;
         kimi) echo "Kimi" ;;
         chrono)   echo "Chrono Coordinator" ;;
         *)        echo "$1" ;;
@@ -42,6 +44,7 @@ runtime_tagline() {
         codex|gpt-codex) echo "implementation + tests" ;;
         claude) echo "judgment + safety" ;;
         gemini) echo "media + grounding" ;;
+        grok) echo "independent advice" ;;
         kimi) echo "long-context analysis" ;;
         chrono) echo "coordinator" ;;
         *) echo "specialist execution" ;;
@@ -53,6 +56,7 @@ runtime_short_name() {
         codex|gpt-codex) echo "CODEX" ;;
         claude) echo "CLAUDE" ;;
         gemini) echo "GEMINI" ;;
+        grok) echo "GROK" ;;
         kimi) echo "KIMI" ;;
         chrono) echo "CHRONO" ;;
         watchers) echo "WATCH" ;;
@@ -65,6 +69,7 @@ runtime_accent_color() {
         codex|gpt-codex) echo "214" ;; # amber
         claude) echo "203" ;;         # coral
         gemini) echo "141" ;;         # violet
+        grok) echo "208" ;;           # orange
         kimi) echo "45" ;;            # cyan
         chrono) echo "39" ;;
         *) echo "250" ;;
@@ -76,6 +81,7 @@ runtime_terminal_color() {
         codex|gpt-codex) echo "33" ;; # yellow
         claude) echo "31" ;;          # red/coral
         gemini) echo "35" ;;          # magenta
+        grok) echo "33" ;;            # yellow
         kimi) echo "36" ;;            # cyan
         chrono) echo "34" ;;
         *) echo "37" ;;

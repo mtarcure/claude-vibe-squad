@@ -25,6 +25,9 @@ import unittest
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from ci_host_independence import (  # noqa: E402
+    skip_if_trusted_lane_executable_missing,
+)
 from dispatch_checkout import normal_checkout_root  # noqa: E402
 
 # send-task.sh refuses to dispatch from a linked worktree, and that refusal runs
@@ -57,7 +60,7 @@ VERDICT_ROLES = {
     "security-analyst": ("gpt-codex", "security"),
     # skeptic lives in the `shared` namespace, which has no mailbox of its own;
     # send-task lets a shared-mapped specialist route through any real mailbox.
-    "skeptic": ("claude", "security"),
+    "skeptic": ("claude", "shared"),
 }
 # Keep both high- and medium-safety verdict roles in the fixture. Their dispatch
 # behavior must now be identical when the packet carries no trigger.
@@ -65,7 +68,8 @@ HIGH_SAFETY_VERDICT_ROLES = frozenset({"code-reviewer", "security-analyst"})
 MEDIUM_SAFETY_VERDICT_ROLES = frozenset({"skeptic"})
 # A high-safety role that is NOT a verdict producer: the control proving role
 # safety alone no longer creates review work.
-HIGH_SAFETY_IMPLEMENTER = ("content-verifier", "claude", "content")
+HIGH_SAFETY_IMPLEMENTER = ("content-verifier", "gemini", "content")
+REVIEW_TARGET = "TASK-2026-07-26-0099-held"
 
 
 def gated_verdict_roles() -> list[tuple[str, tuple[str, str]]]:
@@ -105,6 +109,7 @@ def packet(
     review_triggers: str = "[]",
     mandatory_review: str = "false",
     review_model: str = "none",
+    reviews: str = "none",
 ) -> str:
     fields = {
         "id": task_id,
@@ -122,6 +127,7 @@ def packet(
         "mandatory_review": mandatory_review,
         "review_triggers": review_triggers,
         "review_model": review_model,
+        "reviews": reviews,
         "return_artifact": "_state/reviewer-recursion/out.md",
         "success_criteria": "[]",
         "out_of_scope": "[]",
@@ -216,6 +222,7 @@ class TriggerReviewGateTests(unittest.TestCase):
         review_triggers: str = "[]",
         mandatory_review: str = "false",
         review_model: str = "none",
+        reviews: str = "none",
         vault: Path | None = None,
     ) -> subprocess.CompletedProcess:
         directory = Path(tempfile.mkdtemp(prefix="reviewer-recursion-"))
@@ -231,6 +238,7 @@ class TriggerReviewGateTests(unittest.TestCase):
                 review_triggers=review_triggers,
                 mandatory_review=mandatory_review,
                 review_model=review_model,
+                reviews=reviews,
             ),
             encoding="utf-8",
         )
@@ -241,13 +249,14 @@ class TriggerReviewGateTests(unittest.TestCase):
             # one; supply it explicitly. `REPO` (the `or` fallback above) is
             # the real checkout and derives its actual branch unaided.
             env["SQUAD_BASE_BRANCH"] = "v2"
-        return subprocess.run(
+        completed = subprocess.run(
             [str(SEND_TASK), str(task_file), "--dry-run"],
             env=env,
             capture_output=True,
             text=True,
             timeout=180,
         )
+        return skip_if_trusted_lane_executable_missing(completed)
 
     def output(self, completed: subprocess.CompletedProcess) -> str:
         return completed.stdout + completed.stderr
@@ -261,6 +270,7 @@ class TriggerReviewGateTests(unittest.TestCase):
                     to_model=lane,
                     source_namespace=namespace,
                     write_scope="[]",
+                    reviews=REVIEW_TARGET,
                 )
                 output = self.output(completed)
                 self.assertEqual(completed.returncode, DRY_RUN_ADMITTED, msg=output)
@@ -278,6 +288,7 @@ class TriggerReviewGateTests(unittest.TestCase):
                     to_model=lane,
                     source_namespace=namespace,
                     write_scope="[]",
+                    reviews=REVIEW_TARGET,
                 )
                 output = self.output(completed)
                 self.assertEqual(completed.returncode, DRY_RUN_ADMITTED, msg=output)
@@ -289,7 +300,7 @@ class TriggerReviewGateTests(unittest.TestCase):
     def test_high_safety_implementer_without_a_trigger_is_trivial(self) -> None:
         specialist, lane, namespace = HIGH_SAFETY_IMPLEMENTER
         for label, write_scope in (
-            ("with-scope", "[_state/reviewer-recursion/]"),
+            ("with-scope", "[_state/reviewer-recursion/out.md]"),
             # Empty scope does not itself create a review trigger.
             ("empty-scope", "[]"),
         ):
@@ -312,7 +323,7 @@ class TriggerReviewGateTests(unittest.TestCase):
                     specialist=specialist,
                     to_model=lane,
                     source_namespace=namespace,
-                    write_scope="[_state/reviewer-recursion/]",
+                    write_scope="[_state/reviewer-recursion/out.md]",
                 )
                 output = self.output(completed)
                 self.assertEqual(completed.returncode, DRY_RUN_ADMITTED, msg=output)
@@ -361,10 +372,11 @@ class TriggerReviewGateTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, root, ignore_errors=True)
         vault = root / "vault"
         vault.mkdir()
-        for name in ("shared", "model-lanes", "bin", "plugins"):
+        for name in ("shared", "bin", "plugins"):
             source = REPO / name
             if source.exists():
                 (vault / name).symlink_to(source)
+        shutil.copytree(REPO / "model-lanes", vault / "model-lanes", symlinks=True)
         # `departments` is COPIED, not linked: send-task.sh locates a specialist
         # with `find "$VAULT_ROOT/departments" ... -type f`, which neither
         # descends a symlinked start point nor matches a symlinked leaf. Copying
@@ -387,6 +399,7 @@ class TriggerReviewGateTests(unittest.TestCase):
             to_model="gpt-codex",
             source_namespace="coding",
             write_scope="[]",
+            reviews=REVIEW_TARGET,
             vault=vault,
         )
         output = self.output(completed)

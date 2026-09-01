@@ -149,6 +149,7 @@ class SendTaskTailsTests(unittest.TestCase):
             "run_id": "TAILS-MODELESS-FIXTURE",
             "parallel_safe": "true",
             "direct_lane_work_allowed": "true",
+            "reviews": "none",
             "write_scope": "[_state/tails/out.md]",
             "return_artifact": "_state/tails/out.md",
         }

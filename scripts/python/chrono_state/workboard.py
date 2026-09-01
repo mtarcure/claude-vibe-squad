@@ -4,7 +4,8 @@
 structured list item each::
 
     - workboard-event/v1 event_id=EV-1 at=2026-08-27T00:00:00Z \
-      kind=start item_id=CASE-1 summary='Validate CASE-1' \
+      kind=start work_id=W-0123456789abcdef0123456789abcdef alias=CASE-1 \
+      summary='Validate CASE-1' \
       next_action='run the scalar oracle'
 
 The format deliberately separates facts from prose: ``next_action`` is a named
@@ -20,6 +21,7 @@ this parser so it does not create a second authority.
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
@@ -45,8 +47,19 @@ ACTIVE_MARKER = "**IN PROGRESS — Chrono**"
 # A context boundary, restart, or compaction is deliberately absent.
 TERMINAL_KINDS = frozenset({"complete", "archive", "drop"})
 COMPACTION_KIND = "compact"
+ADOPTION_KIND = "adopt"
 NONTERMINAL_KINDS = frozenset(
-    {"start", "queue", "fold", "switch", "advance", "block", "restart", COMPACTION_KIND}
+    {
+        "start",
+        "queue",
+        "fold",
+        "switch",
+        "advance",
+        "block",
+        "restart",
+        COMPACTION_KIND,
+        ADOPTION_KIND,
+    }
 )
 EVENT_KINDS = TERMINAL_KINDS | NONTERMINAL_KINDS
 
@@ -100,11 +113,10 @@ HEADER_CONTRACT_REPLACEMENTS = (
     ),
 )
 
-_LEGACY_ITEM_RE = re.compile(
-    r"^- \[(?P<state>[ xX])\]\s+(?P<body>\S.*?)\s*$"
-)
+_LEGACY_ITEM_RE = re.compile(r"^- \[(?P<state>[ xX])\]\s+(?P<body>\S.*?)\s*$")
 _LEGACY_NEXT_RE = re.compile(r"[;.]\s*next:\s*", re.IGNORECASE)
 _ITEM_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+_WORK_ID_RE = re.compile(r"^W-[0-9a-f]{32}$")
 _MIGRATABLE_LEGACY_RE = re.compile(
     r"^- \[(?P<state>[ x])\] "
     r"(?P<item_id>[A-Za-z0-9][A-Za-z0-9._-]*) \| (?P<text>.*)$"
@@ -119,18 +131,42 @@ _MIGRATION_MARKER_RE = re.compile(
 _HEX_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 MAX_ID_CHARS = 64
 
-_REQUIRED_FIELDS = {
-    "start": frozenset({"item_id", "summary", "why", "next_action"}),
-    "queue": frozenset({"item_id", "summary", "why", "resume_action"}),
-    "fold": frozenset({"request_id", "target_id", "summary", "why", "next_action"}),
-    "drop": frozenset({"request_id", "summary", "why"}),
-    "switch": frozenset({"item_id", "next_action"}),
-    "advance": frozenset({"item_id", "next_action"}),
-    "block": frozenset({"item_id", "resume_action"}),
-    "complete": frozenset({"item_id"}),
-    "archive": frozenset({"item_id"}),
-    "restart": frozenset(),
-    COMPACTION_KIND: frozenset(),
+_REQUIRED_FIELD_VARIANTS = {
+    # ``item_id`` variants are the immutable migration pre-image. New writes
+    # carry an opaque identity plus a searchable human alias.
+    "start": (
+        frozenset({"work_id", "alias", "summary", "why", "next_action"}),
+        frozenset({"item_id", "summary", "why", "next_action"}),
+    ),
+    "queue": (
+        frozenset({"work_id", "alias", "summary", "why", "resume_action"}),
+        frozenset({"item_id", "summary", "why", "resume_action"}),
+    ),
+    "fold": (
+        frozenset({"request_id", "target_work_id", "summary", "why", "next_action"}),
+        frozenset({"request_id", "target_id", "summary", "why", "next_action"}),
+    ),
+    "drop": (
+        frozenset({"work_id", "summary", "why"}),
+        frozenset({"request_id", "summary", "why"}),
+    ),
+    "switch": (
+        frozenset({"work_id", "next_action"}),
+        frozenset({"item_id", "next_action"}),
+    ),
+    "advance": (
+        frozenset({"work_id", "next_action"}),
+        frozenset({"item_id", "next_action"}),
+    ),
+    "block": (
+        frozenset({"work_id", "resume_action"}),
+        frozenset({"item_id", "resume_action"}),
+    ),
+    "complete": (frozenset({"work_id"}), frozenset({"item_id"})),
+    "archive": (frozenset({"work_id"}), frozenset({"item_id"})),
+    "restart": (frozenset(),),
+    COMPACTION_KIND: (frozenset(),),
+    ADOPTION_KIND: (frozenset({"source_event_id", "work_id", "alias"}),),
 }
 
 
@@ -172,9 +208,15 @@ class LegacyItem:
 
 @dataclass(frozen=True)
 class WorkItem:
-    """One nonterminal item in the projected workboard."""
+    """One nonterminal item in the projected workboard.
 
-    item_id: str
+    Legacy openings resolve through their human alias only. Their projected
+    ``legacy-...`` work IDs are internal compatibility values and must never be
+    supplied as ``work_id`` to an appended transition.
+    """
+
+    work_id: str
+    alias: str
     summary: str
     why: str | None
     resume_action: str | None
@@ -182,6 +224,11 @@ class WorkItem:
     disposition: str
     last_event_id: str
     last_index: int
+
+    @property
+    def item_id(self) -> str:
+        """Compatibility display name; identity is always ``work_id``."""
+        return self.alias
 
 
 @dataclass(frozen=True)
@@ -201,9 +248,12 @@ class WorkboardProjection:
     document: WorkboardDocument
     items: tuple[WorkItem, ...]
     prominent_items: tuple[WorkItem, ...]
+    active_work_id: str | None
     active_item_id: str | None
     next_action: str | None
+    terminal_work_ids: frozenset[str]
     terminal_ids: frozenset[str]
+    known_work_ids: frozenset[str]
     transition_issues: tuple[str, ...]
     issues: tuple[str, ...] = ()
 
@@ -370,19 +420,43 @@ def parse_workboard(path: Path | str | None = None) -> WorkboardDocument:
     return _parse_workboard_text(source, text)
 
 
-def _legacy_projection_id(record: LegacyItem) -> str:
+def _legacy_work_id(alias: str) -> str:
+    """Return a namespaced compatibility identity for a pre-work-id alias."""
+    digest = hashlib.sha256(
+        b"workboard-legacy-work-id/v1\0" + alias.encode("utf-8")
+    ).hexdigest()
+    return f"legacy-{digest[:32]}"
+
+
+def _legacy_projection_alias(record: LegacyItem) -> str:
     if record.item_id is not None:
         return record.item_id
     digest = hashlib.sha256(record.source_text.encode("utf-8")).hexdigest()[:16]
     return f"legacy-anon-{digest}"
 
 
+def generate_work_id(existing: frozenset[str] | set[str] = frozenset()) -> str:
+    """Generate a fresh opaque identity, retrying the in-document collision check."""
+    while True:
+        candidate = f"W-{secrets.token_hex(16)}"
+        if candidate not in existing:
+            return candidate
+
+
 def _event_schema_issues(event: WorkEvent) -> list[str]:
     issues: list[str] = []
     if event.kind not in EVENT_KINDS:
         return [f"line {event.line_number}: unknown event kind {event.kind!r}"]
-    required = _REQUIRED_FIELDS[event.kind]
+    variants = _REQUIRED_FIELD_VARIANTS[event.kind]
     present = frozenset(event.fields)
+    required = min(
+        variants,
+        key=lambda fields: (
+            len(fields - present) + len(present - fields),
+            len(fields - present),
+            sorted(fields),
+        ),
+    )
     missing = sorted(required - present)
     extra = sorted(present - required)
     blank = sorted(
@@ -400,11 +474,17 @@ def _event_schema_issues(event: WorkEvent) -> list[str]:
         issues.append(
             f"line {event.line_number}: {event.kind} has blank fact(s): {', '.join(blank)}"
         )
-    for key in ("item_id", "request_id", "target_id"):
+    for key in ("item_id", "request_id", "target_id", "alias"):
         value = event.fields.get(key)
         if value and (len(value) > MAX_ID_CHARS or not _ITEM_ID_RE.fullmatch(value)):
             issues.append(
-                f"line {event.line_number}: {key} is not a stable work id: {value!r}"
+                f"line {event.line_number}: {key} is not a valid work alias: {value!r}"
+            )
+    for key in ("work_id", "target_work_id"):
+        value = event.fields.get(key)
+        if value and not _WORK_ID_RE.fullmatch(value):
+            issues.append(
+                f"line {event.line_number}: {key} is not an opaque work id: {value!r}"
             )
     try:
         parsed = datetime.fromisoformat(event.at.replace("Z", "+00:00"))
@@ -420,25 +500,51 @@ def _event_schema_issues(event: WorkEvent) -> list[str]:
 def project_workboard(document: WorkboardDocument) -> WorkboardProjection:
     """Fold all records once and decide current state plus prominence."""
     items: dict[str, WorkItem] = {}
-    terminal_ids: set[str] = set()
+    terminal_work_ids: set[str] = set()
+    terminal_aliases: set[str] = set()
+    known_work_ids: set[str] = set()
     disposed_requests: set[str] = set()
+    aliases_by_work_id: dict[str, str] = {}
+    rejected_openings: dict[str, tuple[WorkEvent, str, str, str]] = {}
     seen_events: set[str] = set()
     issues: list[str] = []
 
     def transition_issue(record, message: str) -> None:
         issues.append(f"line {record.line_number}: {message}")
 
+    def opening_identity(record: WorkEvent) -> tuple[str, str, str]:
+        if "work_id" in record.fields:
+            return (
+                record.fields["work_id"],
+                record.fields["alias"],
+                record.fields["work_id"],
+            )
+        alias = record.fields["item_id"]
+        return _legacy_work_id(alias), alias, alias
+
+    def target_identity(fields: Mapping[str, str]) -> tuple[str, str]:
+        if "work_id" in fields:
+            work_id = fields["work_id"]
+            return work_id, aliases_by_work_id.get(work_id, work_id)
+        alias = fields["item_id"]
+        return _legacy_work_id(alias), alias
+
     for index, record in enumerate(document.records):
         if isinstance(record, LegacyItem):
-            item_id = _legacy_projection_id(record)
-            if item_id in items or item_id in terminal_ids:
-                transition_issue(record, f"duplicate open item {item_id}")
+            alias = _legacy_projection_alias(record)
+            work_id = _legacy_work_id(alias)
+            if work_id in items or work_id in terminal_work_ids:
+                transition_issue(record, f"duplicate open item {alias}")
                 continue
+            known_work_ids.add(work_id)
+            aliases_by_work_id[work_id] = alias
             if record.checked:
-                terminal_ids.add(item_id)
+                terminal_work_ids.add(work_id)
+                terminal_aliases.add(alias)
                 continue
-            items[item_id] = WorkItem(
-                item_id=item_id,
+            items[work_id] = WorkItem(
+                work_id=work_id,
+                alias=alias,
                 summary=record.summary,
                 why=None,
                 resume_action=record.resume_action,
@@ -461,12 +567,17 @@ def project_workboard(document: WorkboardDocument) -> WorkboardProjection:
         fields = record.fields
 
         if kind == "start":
-            item_id = fields["item_id"]
-            if item_id in items or item_id in terminal_ids:
-                transition_issue(record, f"start reuses work id {item_id}")
+            work_id, alias, display_id = opening_identity(record)
+            if work_id in known_work_ids:
+                issue = f"line {record.line_number}: start reuses work id {display_id}"
+                issues.append(issue)
+                rejected_openings[record.event_id] = (record, work_id, alias, issue)
                 continue
-            items[item_id] = WorkItem(
-                item_id=item_id,
+            known_work_ids.add(work_id)
+            aliases_by_work_id[work_id] = alias
+            items[work_id] = WorkItem(
+                work_id=work_id,
+                alias=alias,
                 summary=fields["summary"],
                 why=fields["why"],
                 resume_action=fields["next_action"],
@@ -476,17 +587,18 @@ def project_workboard(document: WorkboardDocument) -> WorkboardProjection:
                 last_index=index,
             )
         elif kind == "queue":
-            item_id = fields["item_id"]
-            if (
-                item_id in items
-                or item_id in terminal_ids
-                or item_id in disposed_requests
-            ):
-                transition_issue(record, f"queue reuses work id {item_id}")
+            work_id, alias, display_id = opening_identity(record)
+            if work_id in known_work_ids or work_id in disposed_requests:
+                issue = f"line {record.line_number}: queue reuses work id {display_id}"
+                issues.append(issue)
+                rejected_openings[record.event_id] = (record, work_id, alias, issue)
                 continue
-            disposed_requests.add(item_id)
-            items[item_id] = WorkItem(
-                item_id=item_id,
+            known_work_ids.add(work_id)
+            disposed_requests.add(work_id)
+            aliases_by_work_id[work_id] = alias
+            items[work_id] = WorkItem(
+                work_id=work_id,
+                alias=alias,
                 summary=fields["summary"],
                 why=fields["why"],
                 resume_action=fields["resume_action"],
@@ -496,18 +608,26 @@ def project_workboard(document: WorkboardDocument) -> WorkboardProjection:
                 last_index=index,
             )
         elif kind == "fold":
-            request_id = fields["request_id"]
-            target = fields["target_id"]
+            request_alias = fields["request_id"]
+            request_id = _legacy_work_id(request_alias)
+            if "target_work_id" in fields:
+                target = fields["target_work_id"]
+                target_display = aliases_by_work_id.get(target, target)
+            else:
+                target_display = fields["target_id"]
+                target = _legacy_work_id(target_display)
             if (
                 request_id in items
-                or request_id in terminal_ids
+                or request_id in terminal_work_ids
                 or request_id in disposed_requests
             ):
-                transition_issue(record, f"fold reuses request id {request_id}")
+                transition_issue(record, f"fold reuses request id {request_alias}")
                 continue
             item = items.get(target)
             if item is None or item.state != "active":
-                transition_issue(record, f"fold target {target} is not the active item")
+                transition_issue(
+                    record, f"fold target {target_display} is not the active item"
+                )
                 continue
             disposed_requests.add(request_id)
             items[target] = replace(
@@ -517,23 +637,32 @@ def project_workboard(document: WorkboardDocument) -> WorkboardProjection:
                 last_index=index,
             )
         elif kind == "drop":
-            request_id = fields["request_id"]
+            if "work_id" in fields:
+                request_id = fields["work_id"]
+                request_alias = aliases_by_work_id.get(request_id, request_id)
+            else:
+                request_alias = fields["request_id"]
+                request_id = _legacy_work_id(request_alias)
             if request_id in items:
                 # DROP may be the initial disposition or a later terminal
                 # disposition for a previously queued interruption.
                 del items[request_id]
-                terminal_ids.add(request_id)
+                terminal_work_ids.add(request_id)
+                terminal_aliases.add(request_alias)
                 continue
-            if request_id in terminal_ids or request_id in disposed_requests:
-                transition_issue(record, f"drop reuses work id {request_id}")
+            if request_id in terminal_work_ids or request_id in disposed_requests:
+                transition_issue(record, f"drop reuses work id {request_alias}")
                 continue
+            known_work_ids.add(request_id)
+            aliases_by_work_id[request_id] = request_alias
             disposed_requests.add(request_id)
-            terminal_ids.add(request_id)
+            terminal_work_ids.add(request_id)
+            terminal_aliases.add(request_alias)
         elif kind == "switch":
-            target = fields["item_id"]
+            target, target_display = target_identity(fields)
             item = items.get(target)
             if item is None:
-                transition_issue(record, f"switch target {target} is not open")
+                transition_issue(record, f"switch target {target_display} is not open")
                 continue
             for active_id, active in tuple(items.items()):
                 if active.state == "active" and active_id != target:
@@ -546,10 +675,12 @@ def project_workboard(document: WorkboardDocument) -> WorkboardProjection:
                 last_index=index,
             )
         elif kind == "advance":
-            target = fields["item_id"]
+            target, target_display = target_identity(fields)
             item = items.get(target)
             if item is None or item.state != "active":
-                transition_issue(record, f"advance target {target} is not active")
+                transition_issue(
+                    record, f"advance target {target_display} is not active"
+                )
                 continue
             items[target] = replace(
                 item,
@@ -558,10 +689,10 @@ def project_workboard(document: WorkboardDocument) -> WorkboardProjection:
                 last_index=index,
             )
         elif kind == "block":
-            target = fields["item_id"]
+            target, target_display = target_identity(fields)
             item = items.get(target)
             if item is None:
-                transition_issue(record, f"block target {target} is not open")
+                transition_issue(record, f"block target {target_display} is not open")
                 continue
             items[target] = replace(
                 item,
@@ -571,12 +702,55 @@ def project_workboard(document: WorkboardDocument) -> WorkboardProjection:
                 last_index=index,
             )
         elif kind in {"complete", "archive"}:
-            target = fields["item_id"]
+            target, target_display = target_identity(fields)
             if target not in items:
-                transition_issue(record, f"{kind} target {target} is not open")
+                transition_issue(record, f"{kind} target {target_display} is not open")
                 continue
+            terminal_aliases.add(items[target].alias)
             del items[target]
-            terminal_ids.add(target)
+            terminal_work_ids.add(target)
+        elif kind == ADOPTION_KIND:
+            source_event_id = fields["source_event_id"]
+            rejected = rejected_openings.get(source_event_id)
+            if rejected is None:
+                transition_issue(
+                    record,
+                    f"adopt source {source_event_id} is not an unresolved opening collision",
+                )
+                continue
+            source, _rejected_id, source_alias, source_issue = rejected
+            work_id = fields["work_id"]
+            alias = fields["alias"]
+            if alias != source_alias:
+                transition_issue(
+                    record,
+                    f"adopt alias {alias} does not match source alias {source_alias}",
+                )
+                continue
+            if work_id in known_work_ids or work_id in disposed_requests:
+                transition_issue(record, f"adopt reuses work id {work_id}")
+                continue
+            source_fields = source.fields
+            source_kind = source.kind
+            known_work_ids.add(work_id)
+            aliases_by_work_id[work_id] = alias
+            if source_kind == "queue":
+                disposed_requests.add(work_id)
+            items[work_id] = WorkItem(
+                work_id=work_id,
+                alias=alias,
+                summary=source_fields["summary"],
+                why=source_fields["why"],
+                resume_action=source_fields[
+                    "next_action" if source_kind == "start" else "resume_action"
+                ],
+                state="active" if source_kind == "start" else "queued",
+                disposition=ADOPTION_KIND,
+                last_event_id=record.event_id,
+                last_index=index,
+            )
+            issues.remove(source_issue)
+            del rejected_openings[source_event_id]
         elif kind in {"restart", COMPACTION_KIND}:
             # Context boundaries are recorded facts, never state transitions.
             continue
@@ -590,15 +764,19 @@ def project_workboard(document: WorkboardDocument) -> WorkboardProjection:
         )
     )
     active = [item for item in source_order if item.state == "active"]
-    active_id = active[0].item_id if len(active) == 1 else None
+    active_work_id = active[0].work_id if len(active) == 1 else None
+    active_id = active[0].alias if len(active) == 1 else None
     next_action = active[0].resume_action if len(active) == 1 else None
     return WorkboardProjection(
         document=document,
         items=source_order,
         prominent_items=prominent,
+        active_work_id=active_work_id,
         active_item_id=active_id,
         next_action=next_action,
-        terminal_ids=frozenset(terminal_ids),
+        terminal_work_ids=frozenset(terminal_work_ids),
+        terminal_ids=frozenset(terminal_aliases),
+        known_work_ids=frozenset(known_work_ids),
         transition_issues=tuple(issues),
     )
 
@@ -635,10 +813,10 @@ def validate_workboard(
         elif not view.next_action.strip():
             issues.append("projected next_action must not be blank")
         for item in view.items:
-            if item.item_id in view.terminal_ids:
-                issues.append(f"terminal item {item.item_id} also appears open")
+            if item.work_id in view.terminal_work_ids:
+                issues.append(f"terminal item {item.alias} also appears open")
             if not item.resume_action:
-                issues.append(f"open item {item.item_id} has no literal resume action")
+                issues.append(f"open item {item.alias} has no literal resume action")
 
     return tuple(dict.fromkeys(issues))
 
@@ -672,6 +850,8 @@ def item_census(document: WorkboardDocument) -> ItemCensus:
     text: dict[str, str] = {}
     anonymous: list[str] = []
     issues: list[str] = []
+    census_key_by_work_id: dict[str, str] = {}
+    rejected_openings: dict[str, tuple[WorkEvent, str]] = {}
 
     for record in document.records:
         if isinstance(record, LegacyItem):
@@ -691,12 +871,12 @@ def item_census(document: WorkboardDocument) -> ItemCensus:
                 continue
             if record.item_id in checked:
                 issues.append(
-                    f"line {record.line_number}: duplicate census item "
-                    f"{record.item_id}"
+                    f"line {record.line_number}: duplicate census item {record.item_id}"
                 )
                 continue
             checked[record.item_id] = record.checked
             text[record.item_id] = record.source_text
+            census_key_by_work_id[_legacy_work_id(record.item_id)] = record.item_id
             continue
 
         schema_issues = _event_schema_issues(record)
@@ -704,29 +884,65 @@ def item_census(document: WorkboardDocument) -> ItemCensus:
             issues.extend(schema_issues)
             continue
         if record.kind in {"start", "queue"}:
-            item_id = record.fields["item_id"]
-            if item_id in checked:
+            if "work_id" in record.fields:
+                work_id = record.fields["work_id"]
+                census_key = work_id
+                display = record.fields["alias"]
+            else:
+                display = record.fields["item_id"]
+                work_id = _legacy_work_id(display)
+                census_key = display
+            if census_key in checked or work_id in census_key_by_work_id:
+                issue = f"line {record.line_number}: duplicate census item {display}"
+                issues.append(issue)
+                rejected_openings[record.event_id] = (record, issue)
+                continue
+            checked[census_key] = False
+            text[census_key] = record.fields["summary"]
+            census_key_by_work_id[work_id] = census_key
+        elif record.kind == ADOPTION_KIND:
+            rejected = rejected_openings.get(record.fields["source_event_id"])
+            if rejected is None:
                 issues.append(
-                    f"line {record.line_number}: duplicate census item {item_id}"
+                    f"line {record.line_number}: adopt has no rejected census source "
+                    f"for {record.fields['source_event_id']}"
                 )
                 continue
-            checked[item_id] = False
-            text[item_id] = record.fields["summary"]
+            source, source_issue = rejected
+            work_id = record.fields["work_id"]
+            if work_id in census_key_by_work_id:
+                issues.append(
+                    f"line {record.line_number}: duplicate census work id {work_id}"
+                )
+                continue
+            checked[work_id] = False
+            text[work_id] = source.fields["summary"]
+            census_key_by_work_id[work_id] = work_id
+            issues.remove(source_issue)
+            del rejected_openings[record.fields["source_event_id"]]
         elif record.kind in {"complete", "archive"}:
-            item_id = record.fields["item_id"]
-            if item_id not in checked:
+            if "work_id" in record.fields:
+                work_id = record.fields["work_id"]
+            else:
+                work_id = _legacy_work_id(record.fields["item_id"])
+            census_key = census_key_by_work_id.get(work_id)
+            if census_key is None:
                 issues.append(
                     f"line {record.line_number}: {record.kind} has no census source "
-                    f"for {item_id}"
+                    f"for {record.fields.get('item_id', work_id)}"
                 )
                 continue
-            checked[item_id] = True
+            checked[census_key] = True
         elif record.kind == "drop":
             # A drop can either close a queued item or dispose of a request that
             # never became an item. Only the former belongs in an item census.
-            item_id = record.fields["request_id"]
-            if item_id in checked:
-                checked[item_id] = True
+            if "work_id" in record.fields:
+                work_id = record.fields["work_id"]
+            else:
+                work_id = _legacy_work_id(record.fields["request_id"])
+            census_key = census_key_by_work_id.get(work_id)
+            if census_key is not None:
+                checked[census_key] = True
 
     return ItemCensus(
         checked=checked,
@@ -785,10 +1001,7 @@ def compare_item_censuses(
         "text_ok": text_ok,
         "state_preserved": state_preserved,
         "anonymous_ok": anonymous_ok,
-        "ok": identity_ok
-        and text_ok
-        and anonymous_ok
-        and not census_issues,
+        "ok": identity_ok and text_ok and anonymous_ok and not census_issues,
     }
 
 
@@ -842,6 +1055,189 @@ def format_event(
     return line + "\n"
 
 
+def _declared_work_ids(
+    document: WorkboardDocument, projection: WorkboardProjection
+) -> set[str]:
+    """Include invalid declarations so a future generator never recycles them."""
+    declared = set(projection.known_work_ids)
+    for record in document.records:
+        if isinstance(record, WorkEvent):
+            work_id = record.fields.get("work_id")
+            if work_id:
+                declared.add(work_id)
+    return declared
+
+
+def _open_work_id_for_alias(projection: WorkboardProjection, alias: str) -> str | None:
+    matches = [item.work_id for item in projection.items if item.alias == alias]
+    if len(matches) > 1:
+        raise WorkboardConsistencyError(
+            f"work alias {alias!r} is ambiguous across {len(matches)} open work ids; "
+            "pass work_id explicitly"
+        )
+    return matches[0] if matches else None
+
+
+def _normalize_append_facts(
+    kind: str,
+    facts: Mapping[str, str],
+    document: WorkboardDocument,
+    projection: WorkboardProjection,
+) -> dict[str, str]:
+    """Resolve compatibility aliases and allocate identities under the write lock."""
+    normalized = dict(facts)
+    declared = _declared_work_ids(document, projection)
+
+    if kind in {"start", "queue"}:
+        legacy_alias = normalized.pop("item_id", None)
+        alias = normalized.get("alias")
+        if alias is not None and legacy_alias is not None and alias != legacy_alias:
+            raise WorkboardConsistencyError(
+                f"item_id {legacy_alias!r} and alias {alias!r} disagree"
+            )
+        if alias is None and legacy_alias is not None:
+            alias = legacy_alias
+            normalized["alias"] = alias
+        if alias is not None:
+            matches = tuple(
+                item.work_id for item in projection.items if item.alias == alias
+            )
+            if matches:
+                noun = "item" if len(matches) == 1 else "items"
+                raise WorkboardConsistencyError(
+                    f"cannot {kind} alias {alias!r}: it already belongs to "
+                    f"{len(matches)} open {noun}; {kind} is an opening event, "
+                    "so use an existing-item transition instead"
+                )
+        if "work_id" not in normalized:
+            normalized["work_id"] = generate_work_id(declared)
+        return normalized
+
+    if kind == ADOPTION_KIND:
+        source_event_id = normalized.get("source_event_id")
+        source = next(
+            (
+                record
+                for record in document.records
+                if isinstance(record, WorkEvent)
+                and record.event_id == source_event_id
+                and record.kind in {"start", "queue"}
+            ),
+            None,
+        )
+        if source is None:
+            raise WorkboardConsistencyError(
+                f"adopt source {source_event_id!r} is not a prior opening event"
+            )
+        source_alias = source.fields.get("alias") or source.fields.get("item_id")
+        supplied_alias = normalized.get("alias")
+        if supplied_alias is not None and supplied_alias != source_alias:
+            raise WorkboardConsistencyError(
+                f"adopt alias {supplied_alias!r} does not match source alias "
+                f"{source_alias!r}"
+            )
+        normalized["alias"] = source_alias
+        if "work_id" not in normalized:
+            normalized["work_id"] = generate_work_id(declared)
+        return normalized
+
+    if kind in {"switch", "advance", "block", "complete", "archive"}:
+        alias = normalized.get("item_id")
+        if alias is not None:
+            if "work_id" in normalized:
+                raise WorkboardConsistencyError(
+                    "pass either item_id as an alias or work_id, not both"
+                )
+            work_id = _open_work_id_for_alias(projection, alias)
+            if work_id is not None and _WORK_ID_RE.fullmatch(work_id):
+                del normalized["item_id"]
+                normalized["work_id"] = work_id
+        return normalized
+
+    if kind == "fold" and "target_id" in normalized:
+        target = _open_work_id_for_alias(projection, normalized["target_id"])
+        if target is not None and _WORK_ID_RE.fullmatch(target):
+            del normalized["target_id"]
+            normalized["target_work_id"] = target
+        return normalized
+
+    if kind == "drop" and "request_id" in normalized:
+        target = _open_work_id_for_alias(projection, normalized["request_id"])
+        if target is not None and _WORK_ID_RE.fullmatch(target):
+            del normalized["request_id"]
+            normalized["work_id"] = target
+        return normalized
+
+    return normalized
+
+
+def _event_target_work_id(event: WorkEvent) -> str | None:
+    fields = event.fields
+    if event.kind in {"start", "queue", ADOPTION_KIND}:
+        return fields.get("work_id") or _legacy_work_id(fields["item_id"])
+    if event.kind == "fold":
+        return fields.get("target_work_id") or _legacy_work_id(fields["target_id"])
+    if event.kind == "drop":
+        return fields.get("work_id") or _legacy_work_id(fields["request_id"])
+    if event.kind in {"switch", "advance", "block", "complete", "archive"}:
+        return fields.get("work_id") or _legacy_work_id(fields["item_id"])
+    return None
+
+
+def _event_is_reflected(
+    before: WorkboardProjection,
+    after: WorkboardProjection,
+    event: WorkEvent,
+) -> bool:
+    """Prove the candidate changed the projection according to its event kind."""
+    prior_event_ids = {
+        record.event_id
+        for record in before.document.records
+        if isinstance(record, WorkEvent)
+    }
+    if event.event_id in prior_event_ids:
+        return False
+    if event.kind in {"restart", COMPACTION_KIND}:
+        return True
+
+    target = _event_target_work_id(event)
+    if target is None:
+        return False
+    before_item = next((item for item in before.items if item.work_id == target), None)
+    after_item = next((item for item in after.items if item.work_id == target), None)
+
+    if event.kind in {
+        "start",
+        "queue",
+        ADOPTION_KIND,
+        "switch",
+        "advance",
+        "block",
+        "fold",
+    }:
+        return after_item is not None and after_item.last_event_id == event.event_id
+    if event.kind in {"complete", "archive"}:
+        return (
+            before_item is not None
+            and after_item is None
+            and target in after.terminal_work_ids
+        )
+    if event.kind == "drop":
+        return after_item is None and target in after.terminal_work_ids
+    return False
+
+
+def _added_issues(before: tuple[str, ...], after: tuple[str, ...]) -> tuple[str, ...]:
+    remaining = Counter(before)
+    added: list[str] = []
+    for issue in after:
+        if remaining[issue]:
+            remaining[issue] -= 1
+        else:
+            added.append(issue)
+    return tuple(added)
+
+
 @contextmanager
 def _locked_workboard_registry(dest: Path, *, create_parent: bool = True):
     """Hold the stable registry lock shared by append, apply, and rollback.
@@ -879,20 +1275,90 @@ def append_event(
     at: str | None = None,
     **facts: str,
 ) -> WorkEvent:
-    """Append one event with a process lock and fsync; never rewrite prior bytes."""
+    """Append only after a locked simulation proves the event is not discarded.
+
+    Legacy openings resolve through ``item_id`` as an alias only. Their
+    projected ``legacy-...`` IDs are internal compatibility values and are
+    never valid ``work_id`` arguments.
+    """
     dest = Path(path) if path is not None else WORKBOARD_PATH
-    line = format_event(kind, event_id=event_id, at=at, **facts)
     with _locked_workboard_registry(dest):
-        fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+        fd: int | None = None
         try:
-            fcntl.flock(fd, fcntl.LOCK_EX)
+            if dest.exists():
+                fd = os.open(dest, os.O_RDWR | os.O_APPEND)
+                fcntl.flock(fd, fcntl.LOCK_EX)
+                os.lseek(fd, 0, os.SEEK_SET)
+                chunks: list[bytes] = []
+                while True:
+                    chunk = os.read(fd, 1024 * 1024)
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                existing = b"".join(chunks)
+            else:
+                existing = b""
+            try:
+                current_text = existing.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise WorkboardConsistencyError(
+                    f"{dest} is not valid UTF-8; refusing append ({exc})"
+                ) from exc
+
+            before_document = _parse_workboard_text(dest, current_text)
+            before_projection = project_workboard(before_document)
+            before_issues = validate_workboard(before_document, before_projection)
+            normalized_kind = kind.lower()
+            normalized_facts = _normalize_append_facts(
+                normalized_kind, facts, before_document, before_projection
+            )
+            line = format_event(
+                normalized_kind,
+                event_id=event_id,
+                at=at,
+                **normalized_facts,
+            )
+            rendered_event, rendered_issues = _parse_event_line(line.rstrip("\n"), 1)
+            if rendered_event is None or rendered_issues:
+                raise AssertionError("formatted event did not round-trip")
             header = ""
-            if os.fstat(fd).st_size == 0:
+            if not existing:
                 header = (
                     "# Open Work\n\n"
                     "Append-only machine facts. Add state only through "
                     "`chrono_state.workboard.append_event`.\n\n"
                 )
+            candidate_text = current_text + header + line
+            after_document = _parse_workboard_text(dest, candidate_text)
+            after_projection = project_workboard(after_document)
+            after_issues = validate_workboard(after_document, after_projection)
+            candidate = next(
+                (
+                    record
+                    for record in reversed(after_document.records)
+                    if isinstance(record, WorkEvent)
+                    and record.event_id == rendered_event.event_id
+                ),
+                None,
+            )
+            if candidate is None:
+                raise WorkboardConsistencyError(
+                    "append rejected: candidate event did not parse from the simulated document"
+                )
+            if not _event_is_reflected(before_projection, after_projection, candidate):
+                added = _added_issues(before_issues, after_issues)
+                detail = "; ".join(added) or "projection postcondition failed"
+                raise WorkboardConsistencyError(
+                    f"append rejected: {candidate.event_id} was not reflected as "
+                    f"{candidate.kind}; added issue(s): {detail}"
+                )
+            if fd is None:
+                fd = os.open(
+                    dest,
+                    os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_APPEND,
+                    0o644,
+                )
+                fcntl.flock(fd, fcntl.LOCK_EX)
             payload = (header + line).encode("utf-8")
             offset = 0
             while offset < len(payload):
@@ -902,15 +1368,12 @@ def append_event(
                 offset += written
             os.fsync(fd)
         finally:
-            try:
-                fcntl.flock(fd, fcntl.LOCK_UN)
-            finally:
-                os.close(fd)
-
-    event, issues = _parse_event_line(line.rstrip("\n"), 1)
-    if event is None or issues:  # format_event already proved this; keep typing honest.
-        raise AssertionError("appended event did not round-trip")
-    return event
+            if fd is not None:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+                finally:
+                    os.close(fd)
+    return candidate
 
 
 def _sha256_bytes(payload: bytes) -> str:
@@ -1038,9 +1501,7 @@ def _legacy_migration_rows(
             item_id=item_id,
             text=item_text,
             checked=match.group("state") == "x",
-            active=bool(
-                re.search(r"\*\*IN PROGRESS\s+—\s+[^*]+\*\*", item_text, re.I)
-            ),
+            active=bool(re.search(r"\*\*IN PROGRESS\s+—\s+[^*]+\*\*", item_text, re.I)),
         )
 
     if not rows:
@@ -1264,9 +1725,7 @@ def _restore_migration_source(
             restored.append(line)
             index += 1
             continue
-        if event.kind not in {"start", "queue"} or not event.event_id.endswith(
-            "-OPEN"
-        ):
+        if event.kind not in {"start", "queue"} or not event.event_id.endswith("-OPEN"):
             raise WorkboardMigrationError(
                 f"line {index + 1}: unexpected migration event {event.event_id}"
             )
@@ -1345,9 +1804,7 @@ def _build_rollback_plan(
     )
 
 
-def _apply_migration_plan(
-    path: Path, plan: WorkboardMigrationPlan, mode: int
-) -> None:
+def _apply_migration_plan(path: Path, plan: WorkboardMigrationPlan, mode: int) -> None:
     try:
         _atomic_replace_bytes(path, plan.target_bytes, mode)
     except Exception as exc:
@@ -1396,9 +1853,7 @@ def _audit_migration_bytes(
     report: dict[str, object] = {
         "schema": MIGRATION_SCHEMA,
         "action": "census",
-        "outcome": "pass"
-        if census["ok"] and not validation_issues
-        else "fail",
+        "outcome": "pass" if census["ok"] and not validation_issues else "fail",
         "plan_sha256": migration_id,
         "migration_id": migration_id,
         "source_sha256": metadata["source_sha256"],
@@ -1424,12 +1879,8 @@ def migrate_workboard(
 
     if apply_plan_sha256 and not _HEX_SHA256_RE.fullmatch(apply_plan_sha256):
         raise WorkboardMigrationError("apply plan SHA-256 must be lowercase 64-hex")
-    if rollback_migration_id and not _HEX_SHA256_RE.fullmatch(
-        rollback_migration_id
-    ):
-        raise WorkboardMigrationError(
-            "rollback migration ID must be lowercase 64-hex"
-        )
+    if rollback_migration_id and not _HEX_SHA256_RE.fullmatch(rollback_migration_id):
+        raise WorkboardMigrationError("rollback migration ID must be lowercase 64-hex")
     if not dry_run and not apply_plan_sha256:
         raise WorkboardMigrationError(
             "apply requires a plan SHA-256 from a preceding locked dry-run"

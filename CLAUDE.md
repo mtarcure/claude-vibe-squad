@@ -3,7 +3,7 @@
 Vibe Squad is markdown-first:
 
 ```text
-Operator -> Chrono -> gpt-codex | claude | gemini | kimi -> specialists
+Operator -> Chrono -> gpt-codex | claude | gemini | kimi | grok -> specialists
 ```
 
 Chrono is the only controller and the only operator-facing voice. Model leads execute scoped markdown task packets. Source namespaces under `departments/` locate specialist/role markdown only; they do not determine model choice.
@@ -26,8 +26,8 @@ Generated adapters, stale handoffs, old specs, and runtime logs are not source o
 
 Confusing these is the single most common source of "is this doc out of date?" in this repo.
 
-- **`V1.1.3` is the current release version.** Git tags `v1.1.0`, `v1.1.1`, `v1.1.2`, `v1.1.3`; the next
-  upgrade would be `V1.1.4`. This is the version of the system as a product.
+- **`V1.1.4` is the current release version.** Git tags `v1.1.0` through `v1.1.4`; the next
+  upgrade would be `V1.1.5`. This is the version of the system as a product.
 - **`V3` / `V4` are architecture generations**, not old release numbers. Git tags `v3-final` and
   `v4-baseline-2026-08-07`. The dispatcher still runs a **live V3 compatibility bridge**, so
   `shared/protocol.md` saying "the staged V4 boundary" is current, not stale. Renaming these to

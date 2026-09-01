@@ -231,8 +231,8 @@ class LaunchDependencyListHasOneHomeTest(unittest.TestCase):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         quickstart = readme.split("## Quickstart", 1)[1][:1200]
         for command in doctor_fixture.launch_dependencies(ROOT):
-            if command in ("claude", "codex", "gemini", "kimi"):
-                continue  # named as products ("Claude, Codex, Gemini, Kimi")
+            if command in ("claude", "codex", "gemini", "grok", "kimi"):
+                continue  # named as model-lane products rather than shell commands
             with self.subTest(command=command):
                 self.assertIn(command, quickstart)
 

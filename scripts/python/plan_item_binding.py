@@ -76,6 +76,7 @@ LANE_AUTHOR_FAMILY = {
     "codex": "openai",
     "claude": "anthropic",
     "gemini": "google",
+    "grok": "xai",
     "kimi": "moonshot",
 }
 

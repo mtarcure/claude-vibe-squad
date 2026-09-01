@@ -3,10 +3,28 @@
 These are the two modules the orphaned `compact-now` skill imported but that never
 existed (`coordinator_compaction_policy` / `coordinator_compaction_snapshot`).
 
-- should_compact() is the proactive-compaction predicate: fire before the hard ceiling,
-  but never while work is in flight.
 - snapshot()/recover() externalize/restore the load-bearing state around a native
   /compact, so compaction is recoverable rather than lossy.
+
+Removed 2026-08-31: should_compact(), a nine-line predicate computing
+`token_estimate >= ceiling * threshold and not in_flight`. It was deleted rather
+than repaired because all three of its parts were broken and none was worth
+fixing:
+
+- No production caller. Only its own tests invoked it; the sole non-test importer
+  of this module (bin/chrono-resume-capsule.sh:47) calls recover(), never it.
+- No obtainable input. There is no token-counting code anywhere in the repo, so
+  nothing could compute `token_estimate`. Per shared/lifecycle.md rule 9 there are
+  deliberately no per-model token counters, only proxy signals.
+- Wrong number. Its `ceiling=200000, threshold=0.72` contradicted
+  shared/lifecycle.md's "60% of model max", and the hardcoded ceiling tracked no
+  actual model.
+
+The rule it encoded now lives once, in prose, in shared/lifecycle.md § 8 — where
+Chrono reads and applies it by judgment. This is a markdown-first repo; a
+threshold comparison is not machinery worth keeping. The live-work check it also
+performed is a real data lookup and survives in the compact-now skill via
+registry_view().
 """
 
 from __future__ import annotations
@@ -19,18 +37,6 @@ from pathlib import Path
 SNAP_DIR = (
     Path(os.environ.get("VAULT_ROOT", ".")) / "_state" / "chrono" / "compaction"
 )
-
-
-def should_compact(token_estimate, in_flight, ceiling=200000, threshold=0.72):
-    """Return {compact, blockers, ...}. Compact only when over threshold AND clear."""
-    blockers = list(in_flight or [])
-    over = token_estimate >= ceiling * threshold
-    return {
-        "compact": bool(over and not blockers),
-        "blockers": blockers,
-        "token_estimate": token_estimate,
-        "threshold_tokens": int(ceiling * threshold),
-    }
 
 
 def snapshot(session_id, state):

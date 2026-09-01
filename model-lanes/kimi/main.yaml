@@ -16,6 +16,3 @@ agent:
     summarizer:
       path: ./.kimi/agents/summarizer.yaml
       description: "Registry-generated thin specialist adapter."
-    large-context-analyst:
-      path: ./.kimi/agents/large-context-analyst.yaml
-      description: "Operator-ratified 2026-07 K3 256k primary for deep large-corpus synthesis; retrieval and fetch remain lead-brokered."

@@ -117,7 +117,19 @@ saved = 0
 out = pathlib.Path(rescue_dir)
 for wt, task, _ in rescue:
     for f in wt.rglob("*.md"):
-        if "_state" not in f.parts:
+        # Test the path RELATIVE to the worktree, not the absolute one.
+        #
+        # Board worktrees live at `_state/board-worktrees/d-<attempt>/`, so every
+        # absolute path inside one already contains `_state` and the intended
+        # filter matched EVERY markdown file in the checkout. The rescue then
+        # copied the whole repo per task: measured 2026-08-31, 92 MB holding
+        # 2,047 copies of SKILL.md and 415 of README.md, with each task folder
+        # opening on CODE_OF_CONDUCT.md rather than the worker's output.
+        #
+        # It failed safe -- copying everything meant the real artifact was in
+        # there -- but it buried the thing being rescued, which is nearly as bad
+        # as losing it when someone is trying to recover work by hand.
+        if "_state" not in f.relative_to(wt).parts:
             continue
         dest = out / task / f.relative_to(wt)
         dest.parent.mkdir(parents=True, exist_ok=True)

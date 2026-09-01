@@ -21,6 +21,7 @@ sys.path.insert(0, str(PYTHON_DIR))
 from held_action_gate import HELD_CATEGORIES  # noqa: E402
 
 from lane_capability_enforcement import (  # noqa: E402
+    AGY_GLOBAL_CHRONO_MCPS,
     MCP_HEALTH_INSPECTED_LANES,
     CapabilityDenied,
     KimiLocalHostArtifacts,
@@ -73,6 +74,17 @@ class LaneCapabilityEnforcementTests(unittest.TestCase):
             "CHRONO_VAULT_ROOT": "/private/chrono-vault",
             "CHRONO_VAULT_CONTEXT": context,
         }
+
+    @staticmethod
+    def _agy_configured(
+        **extra: dict[str, object],
+    ) -> dict[str, dict[str, object]]:
+        configured = {
+            name: {"command": "/usr/bin/false"}
+            for name in AGY_GLOBAL_CHRONO_MCPS
+        }
+        configured.update(extra)
+        return configured
 
     def _supervisor_denial_record(
         self,
@@ -279,13 +291,39 @@ class LaneCapabilityEnforcementTests(unittest.TestCase):
         gemini = parse_live_mcp_listing(
             lane="gemini",
             output=(
-                "Configured MCP servers:\n"
-                "✓ chrono-vault: /bin/tool (stdio) - Connected\n"
-                "✓ stitch (from Stitch): https://example.invalid/mcp (http) - Connected\n"
+                "NAME          TYPE   STATUS    COMMAND/URL\n"
+                "chrono-vault  stdio  enabled   /bin/tool\n"
+                "stitch        http   enabled   https://example.invalid/mcp\n"
+                "disabled-one  stdio  disabled  /bin/false\n"
             ),
         )
         self.assertEqual(set(gemini), {"chrono-vault", "stitch"})
         self.assertEqual(gemini["stitch"]["live_name"], "stitch")
+
+        grok = parse_live_mcp_listing(
+            lane="grok",
+            output=(
+                "  MCP Servers (3)\n"
+                "  └ chrono-vault (stdio) plugin: chrono-vault\n"
+                "  └ context7 (http) plugin: context7\n"
+                "  └ sequential-thinking (stdio) ~/.claude.json [claude]\n"
+                "\n  LSP Servers (0)\n"
+            ),
+        )
+        self.assertEqual(
+            set(grok), {"chrono-vault", "context7", "sequential-thinking"}
+        )
+
+    def test_grok_inventory_rejects_count_drift(self) -> None:
+        with self.assertRaisesRegex(CapabilityDenied, "count does not match"):
+            parse_live_mcp_listing(
+                lane="grok",
+                output=(
+                    "  MCP Servers (2)\n"
+                    "  └ chrono-vault (stdio) plugin: chrono-vault\n"
+                    "\n  LSP Servers (0)\n"
+                ),
+            )
 
     def test_claude_live_inventory_rejects_ambiguous_plugin_names(self) -> None:
         with self.assertRaisesRegex(CapabilityDenied, "ambiguous"):
@@ -338,7 +376,7 @@ class LaneCapabilityEnforcementTests(unittest.TestCase):
         with self.assertRaisesRegex(CapabilityDenied, "header is missing"):
             parse_live_mcp_listing(
                 lane="gemini",
-                output="✓ chrono-vault: /bin/tool (stdio) - Connected\n",
+                output="chrono-vault  stdio  enabled  /bin/tool\n",
             )
         with self.assertRaisesRegex(CapabilityDenied, "unparseable row"):
             parse_live_mcp_listing(
@@ -685,7 +723,7 @@ class LaneCapabilityEnforcementTests(unittest.TestCase):
         # is why `research` ran twice on gemini and failed its first claude
         # dispatch. One predicate now decides, and the lanes differ only in
         # whether they collect a status at all.
-        self.assertEqual(MCP_HEALTH_INSPECTED_LANES, frozenset({"claude", "gemini"}))
+        self.assertEqual(MCP_HEALTH_INSPECTED_LANES, frozenset({"claude"}))
         for lane in ("claude", "gemini", "codex", "kimi"):
             with self.subTest(lane=lane):
                 self.assertEqual(
@@ -726,12 +764,14 @@ class LaneCapabilityEnforcementTests(unittest.TestCase):
                 "sources": [],
                 "schema": "role-capability-projection/v1",
             },
-            configured_servers={"playwright": {"status": "Connected"}},
+            configured_servers=self._agy_configured(
+                playwright={"status": "Connected"}
+            ),
         )
         self.assertEqual(plan.unhealthy_mcps, ())
         self.assertEqual(plan.unhealthy_mcp_status, ())
 
-    def test_gemini_emits_native_allowed_server_array(self) -> None:
+    def test_agy_global_exposure_emits_no_rejected_scope_flags(self) -> None:
         projection = {
             "lane": "gemini",
             "specialist": "ui-engineer",
@@ -742,33 +782,27 @@ class LaneCapabilityEnforcementTests(unittest.TestCase):
             "sources": [],
             "schema": "role-capability-projection/v1",
         }
-        configured = {
-            "playwright": {"command": "/usr/bin/false"},
-            "chrome-devtools": {"command": "/usr/bin/false"},
-            "unrelated": {"command": "/usr/bin/false"},
-        }
+        configured = self._agy_configured(
+            playwright={"command": "/usr/bin/false"},
+            **{
+                "chrome-devtools": {"command": "/usr/bin/false"},
+                "unrelated": {"command": "/usr/bin/false"},
+            },
+        )
         plan = plan_lane(
             lane="gemini",
             projection=projection,
             configured_servers=configured,
         )
+        self.assertEqual(plan.cli_args, ())
+        self.assertEqual(plan.authorized_mcps, tuple(sorted(configured)))
+        self.assertEqual(plan.disabled_mcps, ())
         self.assertEqual(
-            plan.cli_args,
-            (
-                "--allowed-mcp-server-names",
-                "chrome-devtools",
-                "playwright",
-                "--allowed-tools",
-                "read_file",
-            ),
-        )
-        self.assertEqual(plan.disabled_mcps, ("unrelated",))
-        self.assertEqual(
-            plan.capability_enforcement, "gemini-cli-allowed-mcp-names/v1"
+            plan.capability_enforcement, "agy-cli-global-mcp-exposure/v1"
         )
         self.assertEqual(plan.available_tools, ("read_file",))
 
-    def test_gemini_project_server_stays_native_and_cli_scoped(self) -> None:
+    def test_agy_global_config_does_not_materialize_role_config(self) -> None:
         projection = {
             "lane": "gemini",
             "specialist": "ui-engineer",
@@ -783,18 +817,41 @@ class LaneCapabilityEnforcementTests(unittest.TestCase):
         plan = plan_lane(
             lane="gemini",
             projection=projection,
-            configured_servers={
-                "playwright": {
+            configured_servers=self._agy_configured(
+                playwright={
                     "live_name": "playwright",
-                    "status": "Connected",
                     "project_config": server_config,
-                }
-            },
+                },
+            ),
         )
         self.assertIsNone(plan.role_config_json)
+        self.assertEqual(plan.cli_args, ())
+
+    def test_grok_global_exposure_is_reported_without_fictitious_scope_args(self) -> None:
+        configured = {
+            "chrono-vault": {"live_name": "chrono-vault"},
+            "context7": {"live_name": "context7"},
+        }
+        plan = plan_lane(
+            lane="grok",
+            projection={
+                "lane": "grok",
+                "specialist": "smokey",
+                "mcps": ["chrono-vault"],
+                "brokered_mcps": [],
+                "tools": [],
+                "skills": [],
+                "sources": [],
+                "schema": "role-capability-projection/v1",
+            },
+            configured_servers=configured,
+        )
+        self.assertEqual(plan.authorized_mcps, ("chrono-vault", "context7"))
+        self.assertEqual(plan.disabled_mcps, ())
+        self.assertEqual(plan.cli_args, ())
+        self.assertIsNone(plan.role_config_json)
         self.assertEqual(
-            plan.cli_args,
-            ("--allowed-mcp-server-names", "playwright"),
+            plan.capability_enforcement, "grok-cli-global-mcp-exposure/v1"
         )
 
     def test_kimi_uses_only_exact_local_templates_and_ignores_host_config(self) -> None:
@@ -1242,7 +1299,7 @@ class LaneCapabilityEnforcementTests(unittest.TestCase):
         lane: str,
         executable: Path,
         adapter_root: Path,
-        project_config_path: Path,
+        project_config_path: Path | None,
     ) -> None:
         completed = subprocess.run(
             [str(executable), "mcp", "list"],
@@ -1272,9 +1329,13 @@ class LaneCapabilityEnforcementTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         configured = parse_live_mcp_listing(
             lane=lane,
-            output=completed.stdout if lane == "claude" else completed.stderr,
+            output=completed.stdout,
         )
-        project_servers = load_json_mcp_servers(project_config_path)
+        project_servers = (
+            load_json_mcp_servers(project_config_path)
+            if project_config_path is not None
+            else {}
+        )
         self.assertFalse(set(project_servers) - set(configured))
         for name, config in project_servers.items():
             configured[name]["project_config"] = config
@@ -1357,22 +1418,14 @@ class LaneCapabilityEnforcementTests(unittest.TestCase):
         )
 
     @skip_in_host_independent_ci(
-        "runs installed Gemini CLI against live MCP/plugin inventory"
+        "runs installed agy CLI against its persistent global MCP inventory"
     )
     def test_all_real_gemini_adapters_plan_from_live_inventory(self) -> None:
-        gemini_project_config = ROOT / "model-lanes/gemini/.gemini/settings.json"
-        if not gemini_project_config.is_file():
-            # This host-local, gitignored inventory is absent from fresh clones
-            # and board worktrees. Its absence skips only Gemini; Claude's
-            # independently testable inventory remains a separate subject.
-            self.skipTest(
-                "SKIP: gemini adapter inventory not present in this tree"
-            )
         self._assert_all_real_adapters_plan_from_live_inventory(
             lane="gemini",
-            executable=Path("/opt/homebrew/bin/gemini"),
+            executable=Path(seatbelt_profile.LANE_CLI_PATHS["gemini"]),
             adapter_root=ROOT / "model-lanes/gemini/.gemini/agents",
-            project_config_path=gemini_project_config,
+            project_config_path=None,
         )
 
 

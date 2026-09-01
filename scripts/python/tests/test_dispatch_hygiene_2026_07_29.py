@@ -409,6 +409,7 @@ class StructuralWriteScopeRefusalTest(unittest.TestCase):
             "compatibility_namespace: content\n"
             "review_model: gpt-codex\n"
             "mandatory_review: false\n"
+            "reviews: none\n"
             "review_class: standard\n"
             "mode: project\n"
             "result_type: normal\n"

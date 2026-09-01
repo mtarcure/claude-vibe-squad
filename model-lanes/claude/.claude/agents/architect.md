@@ -4,8 +4,8 @@ description: "System design and tradeoff judgment; Codex reviews implementation 
 model: inherit
 # BEGIN SPECIALIST CAPABILITY PROJECTION
 capability_source: model-lanes/specialist-lane-capabilities.v1.json
-capability_source_sha256: 1606f09d5a46440d38cd68e903a50c73a9cd8e651995a39567b0069d6be6bacd
-skills: ["boundary-design","c4-model-authoring","data-flow-trace","data-model-contract","dependency-cycle-audit","interface-ambiguity-check"]
+capability_source_sha256: b5693bab7ccdccf6ab1c1e1018fb93e3153a9fd1883e97f1f31c4fa4aee26e53
+skills: ["data-flow-trace","dependency-cycle-audit","interface-ambiguity-check"]
 mcps: ["chrono-research-arsenal","chrono-vault","context7","sequential-thinking"]
 # END SPECIALIST CAPABILITY PROJECTION
 ---

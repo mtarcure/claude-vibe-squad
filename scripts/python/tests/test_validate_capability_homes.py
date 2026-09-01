@@ -9,6 +9,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from datetime import date as _date
 from unittest import mock
 
 
@@ -198,7 +199,14 @@ class CapabilityHomeTests(unittest.TestCase):
                 "primary_requirements": (),
             }
         }
-        with mock.patch.object(module, "source_sha256", return_value="expected-sha"):
+        # adapter_source_sync_diagnostics delegates accepted-hash policy to
+        # accepted_source_sha256s.  Patch that active seam so this fixture
+        # isolates MCP-array drift; source-pointer drift has its own diagnostic.
+        with mock.patch.object(
+            module,
+            "accepted_source_sha256s",
+            return_value=frozenset({"expected-sha"}),
+        ):
             issues = module.adapter_source_sync_diagnostics(
                 Path("."),
                 {("example", "gemini"): adapter},
@@ -207,6 +215,26 @@ class CapabilityHomeTests(unittest.TestCase):
         self.assertEqual(
             [(issue["identifier"], issue["kind"]) for issue in issues],
             [("example:gemini:mcps", "mcps")],
+        )
+
+        source_drift_adapter = {
+            **adapter,
+            "mcps": ("chrono-vault",),
+            "capability_source_sha256": "stale-sha",
+        }
+        with mock.patch.object(
+            module,
+            "accepted_source_sha256s",
+            return_value=frozenset({"expected-sha"}),
+        ):
+            source_issues = module.adapter_source_sync_diagnostics(
+                Path("."),
+                {("example", "gemini"): source_drift_adapter},
+                source,
+            )
+        self.assertEqual(
+            [(issue["identifier"], issue["kind"]) for issue in source_issues],
+            [("example:gemini:source", "schema")],
         )
 
     def test_gemini_comment_projection_rejects_malformed_sentinel(self) -> None:
@@ -547,19 +575,71 @@ class CapabilityHomeTests(unittest.TestCase):
 
     def test_migration_parity_retirement_is_dated_scoped_and_fail_closed(self) -> None:
         reviewed = module.load_policy(ROOT)
-        self.assertEqual(
-            reviewed["migration_parity_retirements"],
-            [
-                {
-                    "specialist": "content-verifier",
-                    "kind": "skills",
-                    "identifier": "citation-audit",
-                    "retired_on": "2026-08-29",
-                    "source_task": "TASK-2026-08-29-1300-u15",
-                    "reason": "evidence-backed stale pointer retired from the capability source",
-                }
-            ],
+        retirements = reviewed["migration_parity_retirements"]
+        # Assert the CONTRACT each record must satisfy, not a literal list. The
+        # previous exact-list assertion pinned a single record and went red the
+        # moment SKL-08 added eleven more -- a stale expectation, not a product
+        # defect, but a red required test all the same.
+        self.assertGreaterEqual(len(retirements), 1)
+        for record in retirements:
+            self.assertEqual(
+                set(record),
+                {"specialist", "kind", "identifier", "retired_on", "source_task", "reason"},
+            )
+            # Semantics, not string shape. A regex accepts 2026-02-30; parsing
+            # does not. A prefix match accepts "TASK-...-9999-" with no slug.
+            self.assertEqual(
+                _date.fromisoformat(record["retired_on"]).isoformat(),
+                record["retired_on"],
+            )
+            self.assertRegex(
+                record["source_task"], r"^TASK-\d{4}-\d{2}-\d{2}-\d{4}-\S+$"
+            )
+            self.assertTrue(record["specialist"] and record["identifier"] and record["reason"])
+        # The original record stays present; retirement is append-only.
+        self.assertIn(
+            {
+                "specialist": "content-verifier",
+                "kind": "skills",
+                "identifier": "citation-audit",
+                "retired_on": "2026-08-29",
+                "source_task": "TASK-2026-08-29-1300-u15",
+                "reason": "evidence-backed stale pointer retired from the capability source",
+            },
+            retirements,
         )
+        # Must-fail matrix, driven through the PRODUCTION load_policy path so the
+        # standalone validator is proven too -- not just this unit test. Each
+        # malformed record must be rejected; a survivor means the contract went
+        # back to checking string shape instead of meaning.
+        import copy
+        import json as _json
+        import tempfile
+
+        base = dict(retirements[0])
+        for label, mutation in (
+            ("calendar-invalid date", {"retired_on": "2026-02-30"}),
+            ("truncated source task", {"source_task": "TASK-2026-08-29-9999-"}),
+            ("non-ISO date", {"retired_on": "29-08-2026"}),
+            ("blank reason", {"reason": "   "}),
+            ("empty source_task", {"source_task": ""}),
+        ):
+            with self.subTest(malformed=label):
+                bad = copy.deepcopy(reviewed)
+                record = dict(base)
+                record.update(mutation)
+                bad["migration_parity_retirements"] = [record]
+                with tempfile.TemporaryDirectory() as tmp:
+                    bad_path = Path(tmp) / "policy.json"
+                    bad_path.write_text(_json.dumps(bad), encoding="utf-8")
+                    with self.assertRaises(module.CapabilityHomeError):
+                        module.load_policy(ROOT, policy_path=bad_path)
+        # Positive control: the SAME harness must accept the unmutated policy, or
+        # the matrix above proves nothing (it would pass on any error at all).
+        with tempfile.TemporaryDirectory() as tmp:
+            good_path = Path(tmp) / "policy.json"
+            good_path.write_text(_json.dumps(reviewed), encoding="utf-8")
+            module.load_policy(ROOT, policy_path=good_path)
         rows = {
             "content-verifier": row("content-verifier"),
             "other-specialist": row("other-specialist"),
@@ -827,6 +907,72 @@ class CapabilityHomeTests(unittest.TestCase):
 
             self.assertEqual(issues, [])
             self.assertEqual(probes, [])
+
+    def test_pending_reprobe_evidence_blocks_available_projection(self) -> None:
+        payload = json.loads(
+            (ROOT / module.SOURCE_RELATIVE).read_text(encoding="utf-8")
+        )
+        target = next(
+            item
+            for entry in payload["entries"]
+            if entry["specialist"] == "experimental-attacker"
+            and entry["lane"] == "gpt-codex"
+            for item in entry["tools"]
+            if item["id"] == "amass"
+        )
+        self.assertEqual(
+            (target["availability"], target["evidence"]),
+            ("probe-failed", "pending-reprobe"),
+        )
+        target["availability"] = "available"
+
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / module.SOURCE_RELATIVE.name
+            source.write_text(json.dumps(payload), encoding="utf-8")
+            entries, _ = module.load_source(ROOT, source)
+
+        # The generic loader still parses the authored record. The projection
+        # acceptance boundary must reject the one-field reactivation.
+        self.assertIn(
+            "amass",
+            module.available_arrays(
+                entries, "experimental-attacker", "gpt-codex"
+            )["tools"],
+        )
+        with self.assertRaisesRegex(
+            module.CapabilityHomeError,
+            "availability 'available' cannot retain evidence 'pending-reprobe'",
+        ):
+            module.projection_arrays(
+                entries, "experimental-attacker", "gpt-codex"
+            )
+
+    def test_refreshed_reprobe_evidence_allows_available_projection(self) -> None:
+        payload = json.loads(
+            (ROOT / module.SOURCE_RELATIVE).read_text(encoding="utf-8")
+        )
+        target = next(
+            item
+            for entry in payload["entries"]
+            if entry["specialist"] == "experimental-attacker"
+            and entry["lane"] == "gpt-codex"
+            for item in entry["tools"]
+            if item["id"] == "amass"
+        )
+        target["availability"] = "available"
+        target["evidence"] = "host-PATH"
+
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / module.SOURCE_RELATIVE.name
+            source.write_text(json.dumps(payload), encoding="utf-8")
+            entries, _ = module.load_source(ROOT, source)
+
+        self.assertIn(
+            "amass",
+            module.projection_arrays(
+                entries, "experimental-attacker", "gpt-codex"
+            )["tools"],
+        )
 
     def test_registry_accepts_pipe_delimited_multi_lane_records(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1122,6 +1268,34 @@ class BaselineAcquisitionTests(unittest.TestCase):
                 )
         self.assertNotEqual(code, 2)
         self.assertNotIn("baseline commit", stderr.getvalue())
+
+
+class ClaudeSkillHomeVisibilityTests(unittest.TestCase):
+    """The claude lane's skill home must be the one that actually holds skills.
+
+    `actual_skill_names()` listed `model-lanes/claude/.claude/skills`, which does
+    not exist. The lane's only other home is `~/.claude/plugins/cache`, so the
+    gate saw 321 cached plugin skills and 67 of the repo's 95 `.claude/skills`
+    were invisible to it -- it reported pass on a set it could not see.
+
+    validate_skill_wiring.py:5-14 already names `.claude/skills` (repo root) as
+    the corrected model and calls the old path out as wrong; this pins the same
+    truth in the validator that was still using it.
+    """
+
+    def test_repo_claude_skills_are_visible_to_the_gate(self) -> None:
+        skills_dir = ROOT / ".claude" / "skills"
+        if not skills_dir.is_dir():
+            self.skipTest("repo has no .claude/skills")
+        on_disk = {p.name for p in skills_dir.iterdir() if p.is_dir()}
+        self.assertTrue(on_disk, "no skills on disk to check")
+        seen = module.actual_skill_names(ROOT, "claude")
+        missing = on_disk - seen
+        self.assertFalse(
+            missing,
+            f"{len(missing)} of {len(on_disk)} repo skills are invisible to the "
+            f"claude capability-home gate: {sorted(missing)[:5]}",
+        )
 
 
 if __name__ == "__main__":

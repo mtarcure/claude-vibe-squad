@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Plan D Task 4: doctor verifies that the four lane CLIs are authenticated.
+"""Plan D Task 4: doctor verifies that the five lane CLIs are authenticated.
 
-For a system whose entire premise is four authenticated native CLIs, doctor
+For a system whose entire premise is five authenticated native CLIs, doctor
 verified auth for none of them. The whole check was one hardcoded line --
 "CLI authentication state is not verified by doctor" -- so an installed-and-
 logged-out lane and a working one produced the same green CLI section, and the
 first evidence of a logged-out lane was a failed dispatch.
 
-Two lanes answer a zero-token status subcommand; two expose none and get a
+Two lanes answer a zero-token status subcommand; three expose none and get a
 credential-at-rest check that is deliberately reported as the WEAKER claim it is
 (UNKNOWN, never OK).
 
@@ -16,7 +16,7 @@ SAFETY, read before touching anything here
 No test in this file runs a real CLI, reaches a network, or reads a real
 credential. Doctor prepends ``$HOME/.local/bin`` to PATH, so the lane stubs
 placed there WIN over the operator's real ``claude``/``codex``/``gemini``/
-``kimi``, and every credential file a test looks at is one the test just wrote
+``grok``/``kimi``, and every credential file a test looks at is one the test just wrote
 inside its own temporary HOME.
 
 ``test_api_key_value_never_reaches_the_report`` is the one that matters most
@@ -107,7 +107,7 @@ def write_credential(path: Path, body: str) -> None:
 
 
 class DoctorAuthRunner(unittest.TestCase):
-    """Runs a real bin/doctor.sh whose four lane CLIs are stubs."""
+    """Runs a real bin/doctor.sh whose five lane CLIs are stubs."""
 
     def run_doctor(
         self,
@@ -128,11 +128,18 @@ class DoctorAuthRunner(unittest.TestCase):
             local_bin = home / ".local" / "bin"
             doctor_fixture.write_stub(local_bin, "ps", doctor_fixture.EMPTY_PS)
             doctor_fixture.stub_launch_dependencies(local_bin, ROOT)
-            for lane in ("claude", "codex", "gemini", "kimi"):
+            for lane in ("claude", "codex", "gemini", "grok", "kimi"):
                 doctor_fixture.write_stub(local_bin, lane, LANE_CLI_WITH_AUTH)
             if credentials:
                 write_credential(gemini_credential(home), CREDENTIAL_WITH_REFRESH)
                 write_credential(kimi_credential(home), CREDENTIAL_WITH_REFRESH)
+                grok_secrets = home / ".config" / "shell" / "secrets.zsh"
+                grok_secrets.parent.mkdir(parents=True, exist_ok=True)
+                grok_secrets.write_text(
+                    "export XAI_API_KEY=fixture-xai-key-never-log\n",
+                    encoding="utf-8",
+                )
+                grok_secrets.chmod(0o600)
 
             environment = {
                 **os.environ,
@@ -286,7 +293,7 @@ class CodexAuthProbeTest(DoctorAuthRunner):
 
 
 class CredentialFileLaneTest(DoctorAuthRunner):
-    """gemini and kimi expose no zero-token status subcommand."""
+    """gemini, grok, and kimi expose no zero-token status subcommand."""
 
     def test_refresh_credential_is_unknown_never_a_pass(self):
         """A credential at rest is not a login result, and must not read as one."""
@@ -301,6 +308,15 @@ class CredentialFileLaneTest(DoctorAuthRunner):
             )
         self.assertIn(".gemini/oauth_creds.json", report)
         self.assertIn(".kimi/credentials/kimi-code.json", report)
+        self.assertTrue(
+            any(
+                "grok login state not verifiable" in unknown
+                and "XAI_API_KEY" in unknown
+                for unknown in summary["unknowns"]
+            ),
+            summary["unknowns"],
+        )
+        self.assertNotIn("fixture-xai-key-never-log", report)
 
     def test_missing_credential_is_a_warning_naming_the_fix(self):
         _result, summary, _report = self.run_doctor(credentials=False)

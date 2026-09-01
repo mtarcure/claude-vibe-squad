@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import errno
 import json
 import os
 from pathlib import Path
+import select
+import signal
 import subprocess
 import sys
 import tempfile
@@ -10,18 +13,25 @@ import textwrap
 import time
 from types import MappingProxyType
 import unittest
+from unittest import mock
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from ci_host_independence import (  # noqa: E402
+    skip_if_trusted_lane_executable_missing,
+)
 from dispatch_checkout import normal_checkout_root  # noqa: E402
 
 # See dispatch_checkout: send-task.sh refuses to dispatch from a linked
 # worktree, which would make this suite checkout-dependent rather than
 # behaviour-dependent.
 ROOT = normal_checkout_root(Path(__file__).resolve().parents[3])
+IMPLEMENTATION_ROOT = Path(__file__).resolve().parents[3]
+IMPLEMENTATION_SUPERVISOR = IMPLEMENTATION_ROOT / "bin" / "board-supervisor.sh"
 sys.path.insert(0, str(ROOT / "scripts" / "python"))
 from lane_capability_enforcement import (  # noqa: E402
     CapabilityDenied,
+    RESEARCH_API_KEY_NAMES,
     adapter_path_for,
     load_projection,
     parse_live_mcp_listing,
@@ -42,6 +52,8 @@ from board_process_truth import atomic_write_json, observe_process, utc_now  # n
 SEND_TASK = ROOT / "bin" / "send-task.sh"
 SUPERVISOR = ROOT / "bin" / "board-supervisor.sh"
 COMPAT_SEND_TASK = ROOT / "scripts" / "send-task.sh"
+IMPLEMENTATION_SEND_TASK = IMPLEMENTATION_ROOT / "bin" / "send-task.sh"
+IMPLEMENTATION_COMPAT_SEND_TASK = IMPLEMENTATION_ROOT / "scripts" / "send-task.sh"
 LAUNCH_SQUAD = ROOT / "bin" / "launch-squad.sh"
 
 
@@ -60,7 +72,7 @@ def _success_path_integration_offset(text: str) -> int:
 
 class BoardDispatchShellTests(unittest.TestCase):
     def test_shell_entrypoints_are_syntax_valid(self) -> None:
-        for script in (SEND_TASK, SUPERVISOR):
+        for script in (IMPLEMENTATION_SEND_TASK, IMPLEMENTATION_COMPAT_SEND_TASK, SUPERVISOR):
             with self.subTest(script=script.name):
                 completed = subprocess.run(
                     ["bash", "-n", str(script)],
@@ -69,6 +81,129 @@ class BoardDispatchShellTests(unittest.TestCase):
                     check=False,
                 )
                 self.assertEqual(completed.returncode, 0, completed.stderr)
+
+    def test_trusted_launcher_wall_covers_root_and_inherited_pipe_lifetime(self) -> None:
+        source = IMPLEMENTATION_SUPERVISOR.read_text(encoding="utf-8")
+        start = source.index("    def trusted_real_launcher(")
+        end = source.index("\n    selected_launcher =", start)
+        launcher_source = textwrap.dedent(source[start:end])
+
+        class OwnedGroupReaper:
+            """Test double that signals only PGIDs registered by this launcher."""
+
+            def __init__(self) -> None:
+                self.groups: set[int] = set()
+
+            def register(self, pgid: int) -> None:
+                self.groups.add(pgid)
+
+            def unregister(self, pgid: int) -> None:
+                self.groups.discard(pgid)
+
+            def terminate(self, pgid: int) -> None:
+                if pgid not in self.groups:
+                    raise AssertionError("launcher tried to terminate an unowned group")
+                os.killpg(pgid, signal.SIGTERM)
+
+        prepared = type(
+            "Prepared",
+            (),
+            {"canary": type("Canary", (), {"passed": True})()},
+        )()
+        namespace = {
+            "GEMINI_LANE_CWD_RELATIVE": "model-lanes/gemini",
+            "ProcessGroupReaper": OwnedGroupReaper,
+            "ProcessTruthError": RuntimeError,
+            "_board_stdout_streamed": [False],
+            "execution_kind": "lane",
+            "handle": type("Handle", (), {"worktree_root": IMPLEMENTATION_ROOT})(),
+            "lane": "codex",
+            "os": os,
+            "prepared": prepared,
+            "select": select,
+            "subprocess": subprocess,
+            "sys": sys,
+            "threading": __import__("threading"),
+            "time": time,
+            "trusted_environment": dict(os.environ),
+        }
+        exec(
+            compile(launcher_source, "bin/board-supervisor.sh", "exec"),
+            namespace,
+        )
+        launcher = namespace["trusted_real_launcher"]
+        canary = lambda: prepared
+
+        completed = launcher(
+            canary,
+            (
+                sys.executable,
+                "-c",
+                "import sys; print('stdout'); print('stderr', file=sys.stderr); sys.exit(7)",
+            ),
+            timeout=1.0,
+        )
+        self.assertEqual(completed.returncode, 7)
+        self.assertEqual(completed.stdout, "stdout\n")
+        self.assertEqual(completed.stderr, "stderr\n")
+
+        killed = launcher(
+            canary,
+            (
+                sys.executable,
+                "-c",
+                "import os, signal; os.kill(os.getpid(), signal.SIGKILL)",
+            ),
+            timeout=1.0,
+        )
+        self.assertEqual(killed.returncode, -signal.SIGKILL)
+
+        signalled = launcher(
+            canary,
+            (
+                sys.executable,
+                "-c",
+                "import os, signal; os.kill(os.getpid(), signal.SIGTERM)",
+            ),
+            timeout=1.0,
+        )
+        self.assertEqual(signalled.returncode, -signal.SIGTERM)
+
+        with self.assertRaises(FileNotFoundError):
+            launcher(canary, ("/definitely/missing/vs-cli",), timeout=1.0)
+        with self.assertRaises(PermissionError):
+            launcher(canary, (str(IMPLEMENTATION_ROOT),), timeout=1.0)
+
+        quiet_started = time.monotonic()
+        quiet = launcher(
+            canary,
+            (sys.executable, "-c", "import time; time.sleep(0.05)"),
+            timeout=0.5,
+        )
+        self.assertEqual(quiet.returncode, 0)
+        self.assertLess(time.monotonic() - quiet_started, 0.5)
+
+        with self.assertRaises(subprocess.TimeoutExpired):
+            launcher(
+                canary,
+                (sys.executable, "-c", "import time; time.sleep(2)"),
+                timeout=0.10,
+            )
+
+        inherited_pipe_started = time.monotonic()
+        with self.assertRaises(subprocess.TimeoutExpired):
+            launcher(
+                canary,
+                (
+                    sys.executable,
+                    "-c",
+                    "import subprocess,sys; "
+                    "subprocess.Popen([sys.executable,'-c','import time; time.sleep(2)']); "
+                    "print('root-exited', flush=True)",
+                ),
+                timeout=0.10,
+            )
+        self.assertLess(time.monotonic() - inherited_pipe_started, 1.0)
 
     def test_explicit_pane_mode_is_rejected_before_dispatch(self) -> None:
         packet = """---
@@ -147,6 +282,8 @@ Dry-run dispatch test only.
             body.write_text("Do the bounded project task.\n", encoding="utf-8")
             packet_capture = vault / "packet.md"
             argv_capture = vault / "argv.txt"
+            dispatcher_marker = vault / "dispatcher-called"
+            uuid_marker = vault / "uuid-created"
             tmux_marker = vault / "tmux-called"
             (vault / "shared" / "lead-windows.sh").write_text(
                 "COMPATIBILITY_NAMESPACES=(coding security content sysmgmt research)\n"
@@ -164,6 +301,7 @@ Dry-run dispatch test only.
             hardened = vault / "bin" / "send-task.sh"
             hardened.write_text(
                 "#!/bin/bash\n"
+                'touch "$DISPATCH_MARKER"\n'
                 'printf \'%s\\n\' "$@" > "$ARGV_CAPTURE"\n'
                 'cp "$1" "$PACKET_CAPTURE"\n',
                 encoding="utf-8",
@@ -171,7 +309,9 @@ Dry-run dispatch test only.
             hardened.chmod(0o755)
             uuidgen = tools / "uuidgen"
             uuidgen.write_text(
-                "#!/bin/sh\nprintf '12345678-1234-1234-1234-123456789abc\\n'\n",
+                "#!/bin/sh\n"
+                'touch "$UUID_MARKER"\n'
+                "printf '12345678-1234-1234-1234-123456789abc\\n'\n",
                 encoding="utf-8",
             )
             uuidgen.chmod(0o755)
@@ -185,7 +325,7 @@ Dry-run dispatch test only.
             omitted_mode = subprocess.run(
                 [
                     "bash",
-                    str(COMPAT_SEND_TASK),
+                    str(IMPLEMENTATION_COMPAT_SEND_TASK),
                     "coding",
                     str(body),
                     "sol",
@@ -194,9 +334,11 @@ Dry-run dispatch test only.
                 env={
                     **os.environ,
                     "ARGV_CAPTURE": str(argv_capture),
+                    "DISPATCH_MARKER": str(dispatcher_marker),
                     "PACKET_CAPTURE": str(packet_capture),
                     "PATH": f"{tools}:/usr/bin:/bin",
                     "TMUX_MARKER": str(tmux_marker),
+                    "UUID_MARKER": str(uuid_marker),
                     "VAULT_ROOT": str(vault),
                 },
                 capture_output=True,
@@ -209,10 +351,10 @@ Dry-run dispatch test only.
             self.assertFalse(packet_capture.exists())
             self.assertFalse(argv_capture.exists())
 
-            completed = subprocess.run(
+            missing_reviews = subprocess.run(
                 [
                     "bash",
-                    str(COMPAT_SEND_TASK),
+                    str(IMPLEMENTATION_COMPAT_SEND_TASK),
                     "coding",
                     str(body),
                     "sol",
@@ -223,9 +365,80 @@ Dry-run dispatch test only.
                 env={
                     **os.environ,
                     "ARGV_CAPTURE": str(argv_capture),
+                    "DISPATCH_MARKER": str(dispatcher_marker),
                     "PACKET_CAPTURE": str(packet_capture),
                     "PATH": f"{tools}:/usr/bin:/bin",
                     "TMUX_MARKER": str(tmux_marker),
+                    "UUID_MARKER": str(uuid_marker),
+                    "VAULT_ROOT": str(vault),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=10,
+            )
+            self.assertEqual(missing_reviews.returncode, 1, missing_reviews.stderr)
+            self.assertIn("missing required REVIEWS declaration", missing_reviews.stdout)
+            self.assertFalse(dispatcher_marker.exists())
+            self.assertFalse(uuid_marker.exists())
+
+            for declaration, expected in (
+                ("", "empty REVIEWS declaration"),
+                ("TASK-not-canonical", "invalid REVIEWS declaration"),
+            ):
+                with self.subTest(declaration=declaration):
+                    refused = subprocess.run(
+                        [
+                            "bash",
+                            str(IMPLEMENTATION_COMPAT_SEND_TASK),
+                            "coding",
+                            str(body),
+                            "sol",
+                            "claude",
+                            "--mode",
+                            "project",
+                        ],
+                        env={
+                            **os.environ,
+                            "ARGV_CAPTURE": str(argv_capture),
+                            "DISPATCH_MARKER": str(dispatcher_marker),
+                            "PACKET_CAPTURE": str(packet_capture),
+                            "PATH": f"{tools}:/usr/bin:/bin",
+                            "REVIEWS": declaration,
+                            "TMUX_MARKER": str(tmux_marker),
+                            "UUID_MARKER": str(uuid_marker),
+                            "VAULT_ROOT": str(vault),
+                        },
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                        timeout=10,
+                    )
+                    self.assertEqual(refused.returncode, 1, refused.stderr)
+                    self.assertIn(expected, refused.stdout)
+                    self.assertFalse(dispatcher_marker.exists())
+                    self.assertFalse(uuid_marker.exists())
+
+            completed = subprocess.run(
+                [
+                    "bash",
+                    str(IMPLEMENTATION_COMPAT_SEND_TASK),
+                    "coding",
+                    str(body),
+                    "sol",
+                    "claude",
+                    "--mode",
+                    "project",
+                ],
+                env={
+                    **os.environ,
+                    "ARGV_CAPTURE": str(argv_capture),
+                    "DISPATCH_MARKER": str(dispatcher_marker),
+                    "PACKET_CAPTURE": str(packet_capture),
+                    "PATH": f"{tools}:/usr/bin:/bin",
+                    "REVIEWS": "none",
+                    "TMUX_MARKER": str(tmux_marker),
+                    "UUID_MARKER": str(uuid_marker),
                     "VAULT_ROOT": str(vault),
                 },
                 capture_output=True,
@@ -245,13 +458,16 @@ Dry-run dispatch test only.
             self.assertIn("review_triggers: []\n", packet)
             self.assertIn("mandatory_review: false\n", packet)
             self.assertIn("review_model: none\n", packet)
+            self.assertIn("reviews: none\n", packet)
             self.assertNotIn("mode: advisory", packet)
             self.assertFalse(tmux_marker.exists(), "compatibility wrapper invoked tmux")
+            self.assertTrue(dispatcher_marker.exists())
+            self.assertTrue(uuid_marker.exists())
 
             triggered = subprocess.run(
                 [
                     "bash",
-                    str(COMPAT_SEND_TASK),
+                    str(IMPLEMENTATION_COMPAT_SEND_TASK),
                     "coding",
                     str(body),
                     "sol",
@@ -262,10 +478,13 @@ Dry-run dispatch test only.
                 env={
                     **os.environ,
                     "ARGV_CAPTURE": str(argv_capture),
+                    "DISPATCH_MARKER": str(dispatcher_marker),
                     "PACKET_CAPTURE": str(packet_capture),
                     "PATH": f"{tools}:/usr/bin:/bin",
                     "REVIEW_TRIGGERS": "[architecture]",
+                    "REVIEWS": "none",
                     "TMUX_MARKER": str(tmux_marker),
+                    "UUID_MARKER": str(uuid_marker),
                     "VAULT_ROOT": str(vault),
                 },
                 capture_output=True,
@@ -278,6 +497,236 @@ Dry-run dispatch test only.
             self.assertIn("review_triggers: [architecture]\n", triggered_packet)
             self.assertIn("mandatory_review: true\n", triggered_packet)
             self.assertIn("review_model: gpt-codex\n", triggered_packet)
+
+            review_target = "TASK-2026-08-30-0000-review-target"
+            review_dispatch = subprocess.run(
+                [
+                    "bash",
+                    str(IMPLEMENTATION_COMPAT_SEND_TASK),
+                    "coding",
+                    str(body),
+                    "sol",
+                    "claude",
+                    "--mode",
+                    "project",
+                    "--dry-run",
+                ],
+                env={
+                    **os.environ,
+                    "ARGV_CAPTURE": str(argv_capture),
+                    "DISPATCH_MARKER": str(dispatcher_marker),
+                    "PACKET_CAPTURE": str(packet_capture),
+                    "PATH": f"{tools}:/usr/bin:/bin",
+                    "REVIEWS": review_target,
+                    "TMUX_MARKER": str(tmux_marker),
+                    "UUID_MARKER": str(uuid_marker),
+                    "VAULT_ROOT": str(vault),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=10,
+            )
+            self.assertEqual(review_dispatch.returncode, 0, review_dispatch.stderr)
+            self.assertEqual(
+                argv_capture.read_text(encoding="utf-8").splitlines()[1:],
+                ["--dry-run"],
+            )
+            self.assertIn(
+                f"reviews: {review_target}\n",
+                packet_capture.read_text(encoding="utf-8"),
+            )
+
+    def test_hardened_dispatch_requires_the_typed_reviews_declaration(self) -> None:
+        task_id = "TASK-2026-08-30-0000-prepared-review"
+        cases = {
+            "missing": (None, "missing required reviews declaration"),
+            "empty": ("", "empty reviews declaration"),
+            "malformed": ("TASK-not-canonical", "invalid reviews declaration"),
+            "self-target": (task_id, "review task may not target itself"),
+        }
+        with tempfile.TemporaryDirectory(prefix="prepared-reviews-admission-") as raw:
+            root = Path(raw)
+            for label, (declaration, expected) in cases.items():
+                with self.subTest(label=label):
+                    declaration_row = (
+                        "" if declaration is None else f"reviews: {declaration}\n"
+                    )
+                    packet = root / f"{label}.md"
+                    packet.write_text(
+                        "---\n"
+                        f"id: {task_id}\n"
+                        f"{declaration_row}"
+                        "---\n\n"
+                        "Admission control.\n",
+                        encoding="utf-8",
+                    )
+                    refused = subprocess.run(
+                        [
+                            "bash",
+                            str(IMPLEMENTATION_SEND_TASK),
+                            str(packet),
+                            "--dry-run",
+                        ],
+                        env={
+                            **os.environ,
+                            "PYTHONDONTWRITEBYTECODE": "1",
+                            "SQUAD_BASE_BRANCH": "main",
+                            "VAULT_ROOT": str(ROOT),
+                        },
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                        timeout=30,
+                    )
+                    self.assertEqual(refused.returncode, 1, refused.stderr)
+                    self.assertIn(expected, refused.stderr)
+                    self.assertNotIn("[DRY RUN] Would validate", refused.stdout)
+                    self.assertNotIn("Active-task registry updated", refused.stdout)
+
+        source = IMPLEMENTATION_SEND_TASK.read_text(encoding="utf-8")
+        check = source.index("if ! $REVIEWS_PRESENT")
+        self.assertLess(check, source.index('mkdir -p "$INBOX"'))
+        self.assertLess(check, source.index('    --register-task "$TASK_ID"'))
+
+    def test_prepared_ordinary_and_review_packets_reach_hardened_dry_run(self) -> None:
+        def packet_text(task_id: str, declaration: str) -> str:
+            artifact = f"departments/coding/outbox/{task_id}-response.md"
+            return (
+                "---\n"
+                f"id: {task_id}\n"
+                "run_id: none\n"
+                "from: chrono\n"
+                "mode: modeless\n"
+                "phase: none\n"
+                "type: TASK\n"
+                "priority: normal\n"
+                "status: new\n"
+                f"write_scope: [{artifact}]\n"
+                "authorized_delete_paths: []\n"
+                f"reviews: {declaration}\n"
+                f"return_artifact: {artifact}\n"
+                "compatibility_namespace: coding\n"
+                "specialist: devops-engineer\n"
+                "to_model: gpt-codex\n"
+                "model_override_reason: none\n"
+                "source_namespace: coding\n"
+                "review_model: none\n"
+                "mandatory_review: false\n"
+                "review_triggers: []\n"
+                "parallel_safe: false\n"
+                "direct_lane_work_allowed: false\n"
+                "operator_approved: true\n"
+                "---\n\n"
+                "Hardened dry-run control.\n"
+            )
+
+        with tempfile.TemporaryDirectory(prefix="prepared-reviews-dryrun-") as raw:
+            root = Path(raw)
+            for label, declaration in (
+                ("ordinary", "none"),
+                ("review", "TASK-2026-08-30-0000-held-target"),
+            ):
+                with self.subTest(label=label):
+                    task_id = f"TASK-2026-08-30-0000-{label}-packet"
+                    packet = root / f"{label}.md"
+                    packet.write_text(
+                        packet_text(task_id, declaration), encoding="utf-8"
+                    )
+                    completed = subprocess.run(
+                        [
+                            "bash",
+                            str(IMPLEMENTATION_SEND_TASK),
+                            str(packet),
+                            "--dry-run",
+                        ],
+                        env={
+                            **os.environ,
+                            "PYTHONDONTWRITEBYTECODE": "1",
+                            "SQUAD_BASE_BRANCH": "main",
+                            "VAULT_ROOT": str(ROOT),
+                        },
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                        timeout=60,
+                    )
+                    skip_if_trusted_lane_executable_missing(completed)
+                    self.assertEqual(completed.returncode, 2, completed.stderr)
+                    self.assertIn("[DRY RUN] Would validate", completed.stdout)
+                    self.assertIn(
+                        f"[DRY RUN] reviews={declaration}", completed.stdout
+                    )
+
+    def test_registration_projects_only_the_canonical_review_target(self) -> None:
+        review_task = "TASK-2026-08-30-0000-registration-review"
+        held_task = "TASK-2026-08-30-0000-registration-held"
+        with tempfile.TemporaryDirectory(prefix="review-registration-") as raw:
+            vault = Path(raw)
+            packet = (
+                vault
+                / "departments"
+                / "coding"
+                / "inbox"
+                / f"{review_task}.md"
+            )
+            packet.parent.mkdir(parents=True)
+            packet.write_text(
+                "---\n"
+                f"id: {review_task}\n"
+                f"reviews: {held_task}\n"
+                "---\n\n"
+                "Review registration control.\n",
+                encoding="utf-8",
+            )
+            state = vault / "_state"
+            state.mkdir()
+            entry = {
+                "specialist": "devops-engineer",
+                "to_model": "gpt-codex",
+                "source_namespace": "coding",
+                "return_artifact": (
+                    f"departments/coding/outbox/{review_task}-response.md"
+                ),
+                "write_scope": [],
+                "review_model": "none",
+                "mandatory_review": "false",
+                "review_triggers": [],
+                "parallel_safe": "false",
+                "direct_lane_work_allowed": "false",
+                "status": "in-flight",
+            }
+            registered = subprocess.run(
+                [
+                    sys.executable,
+                    str(
+                        IMPLEMENTATION_ROOT
+                        / "scripts"
+                        / "python"
+                        / "registry_reconciler.py"
+                    ),
+                    "--register-task",
+                    review_task,
+                    "--entry-json",
+                    json.dumps(entry),
+                ],
+                env={
+                    **os.environ,
+                    "PYTHONDONTWRITEBYTECODE": "1",
+                    "SQUAD_TEST_ISOLATION": "1",
+                    "STATE_DIR": str(state),
+                    "VAULT_ROOT": str(vault),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=30,
+            )
+            self.assertEqual(registered.returncode, 0, registered.stderr)
+            registry = json.loads(
+                (state / "active-tasks.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(registry[review_task]["reviews"], held_task)
 
     def test_public_launch_command_is_unchanged_without_retired_inbox_workers(
         self,
@@ -648,6 +1097,32 @@ Dry-run dispatch test only.
         self.assertNotIn('rm -f "$DEST"', sender)
 
     def test_detached_failure_is_captured_in_receipt_and_log(self) -> None:
+        if not Path(f"/proc/{os.getpid()}/stat").is_file():
+            try:
+                subprocess.run(
+                    [
+                        "/bin/ps",
+                        "-ww",
+                        "-p",
+                        str(os.getpid()),
+                        "-o",
+                        "state=",
+                        "-o",
+                        "lstart=",
+                        "-o",
+                        "command=",
+                    ],
+                    stdin=subprocess.DEVNULL,
+                    capture_output=True,
+                    check=False,
+                    env={"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LC_ALL": "C"},
+                )
+            except PermissionError as exc:
+                if exc.errno != errno.EPERM:
+                    raise
+                self.skipTest(
+                    "macOS sandbox denies /bin/ps required by observe_process (EPERM)"
+                )
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             task = "TASK-2026-07-23-9993-capture-failure"
@@ -840,23 +1315,53 @@ Dry-run dispatch test only.
     def test_trusted_worker_keeps_keychain_identity_not_api_keys(self) -> None:
         text = SUPERVISOR.read_text(encoding="utf-8")
         environment = text.index("def trusted_worker_environment(worker_lane):")
-        projection = text.index("capability_projection = {", environment)
-        body = text[environment:projection]
+        environment_end = text.index("\n\nmemory_context_value =", environment)
+        body = text[environment:environment_end]
         self.assertNotIn("resolve_vault_root", body)
         self.assertIn('"CHRONO_VAULT_ROOT", "OBSIDIAN_VAULT_ROOT"', body)
         self.assertIn('"USER", "LOGNAME"', body)
-        self.assertIn('if worker_lane == "gemini":', body)
-        self.assertIn(
-            'environment["GEMINI_API_KEY"] = load_gemini_api_key()',
-            body,
-        )
-        self.assertIn('"ANTHROPIC_API_KEY"', body)
-        self.assertIn('"OPENAI_API_KEY"', body)
-        self.assertIn('"GOOGLE_API_KEY"', body)
+        self.assertNotIn("load_gemini_api_key", body)
+        for provider_key in (
+            "ANTHROPIC_API_KEY",
+            "OPENAI_API_KEY",
+            "GEMINI_API_KEY",
+            "GOOGLE_API_KEY",
+        ):
+            self.assertIn(f'"{provider_key}"', body)
         self.assertIn("environment.pop(key, None)", body)
-        self.assertNotIn('environment["ANTHROPIC_API_KEY"] =', body)
-        self.assertNotIn('environment["OPENAI_API_KEY"] =', body)
-        self.assertNotIn('environment["GOOGLE_API_KEY"] =', body)
+        self.assertNotIn('environment["GEMINI_API_KEY"] =', body)
+
+        namespace = {
+            "Path": Path,
+            "_validated_trusted_host_path": lambda: "/trusted/bin",
+            "attempt_id": None,
+            "os": os,
+        }
+        exec(compile(body, "board-supervisor.sh", "exec"), namespace)
+        ambient = {
+            "HOME": "/synthetic/home",
+            "CODEX_HOME": "/synthetic/codex-home",
+            "USER": "synthetic-user",
+            "LOGNAME": "synthetic-login",
+            "ANTHROPIC_API_KEY": "ambient-anthropic",
+            "OPENAI_API_KEY": "ambient-openai",
+            "GEMINI_API_KEY": "ambient-gemini",
+            "GOOGLE_API_KEY": "ambient-google",
+        }
+        with mock.patch.dict(os.environ, ambient, clear=True):
+            projected = namespace["trusted_worker_environment"]("gemini")
+        self.assertEqual(projected["HOME"], "/synthetic/home")
+        self.assertEqual(projected["CODEX_HOME"], "/synthetic/codex-home")
+        self.assertEqual(projected["USER"], "synthetic-user")
+        self.assertEqual(projected["LOGNAME"], "synthetic-login")
+        self.assertEqual(projected["PATH"], "/trusted/bin")
+        for provider_key in (
+            "ANTHROPIC_API_KEY",
+            "OPENAI_API_KEY",
+            "GEMINI_API_KEY",
+            "GOOGLE_API_KEY",
+        ):
+            self.assertNotIn(provider_key, projected)
         self.assertIn(
             'trusted_environment["CHRONO_VAULT_CONTEXT"] = json.dumps(',
             text,
@@ -890,6 +1395,7 @@ Dry-run dispatch test only.
 
         namespace = {
             "MappingProxyType": MappingProxyType,
+            "RESEARCH_API_KEY_NAMES": RESEARCH_API_KEY_NAMES,
             "load_solodit_api_key": load_solodit_api_key,
             "load_research_api_keys": load_research_api_keys,
             "load_github_mcp_token": load_github_mcp_token,
@@ -923,7 +1429,7 @@ Dry-run dispatch test only.
             },
         )
         self.assertEqual(calls, ["research"])
-        self.assertEqual(missing, ())
+        self.assertEqual(missing, ("FIRECRAWL_API_KEY",))
         calls.clear()
 
         # A credential the secret store did not supply is REPORTED, not fatal:
@@ -971,16 +1477,43 @@ Dry-run dispatch test only.
             "PERPLEXITY_API_KEY": "ambient-perplexity",
             "GITHUB_PERSONAL_ACCESS_TOKEN": "ambient-github",
         }
-        for worker_lane, authorized in (
-            ("claude", ["lead:guarded-solodit", "lead:chrono-research-arsenal"]),
-            ("kimi", ["lead:chrono-research-arsenal"]),
-            ("gemini", ["guarded-solodit", "chrono-research-arsenal", "github"]),
-        ):
-            with self.subTest(lane=worker_lane):
-                empty, empty_missing = load(worker_lane, authorized)
-                self.assertEqual(project(ambient, empty), base)
-                self.assertEqual(empty_missing, ())
+        empty, empty_missing = load("claude", [])
+        self.assertEqual(project(ambient, empty), base)
+        self.assertEqual(empty_missing, ())
         self.assertEqual(calls, [])
+
+        kimi_snapshot, kimi_missing = load(
+            "kimi", ["chrono-research-arsenal"]
+        )
+        self.assertEqual(
+            project(ambient, kimi_snapshot),
+            {
+                **base,
+                "XAI_API_KEY": "synthetic-xai",
+                "PERPLEXITY_API_KEY": "synthetic-perplexity",
+            },
+        )
+        self.assertEqual(calls, ["research"])
+        self.assertEqual(kimi_missing, ("FIRECRAWL_API_KEY",))
+        calls.clear()
+
+        gemini_snapshot, gemini_missing = load(
+            "gemini", ["guarded-solodit", "chrono-research-arsenal", "github"]
+        )
+        self.assertEqual(
+            project(ambient, gemini_snapshot),
+            {
+                **base,
+                "SOLODIT_API_KEY": "synthetic-solodit",
+                "XAI_API_KEY": "synthetic-xai",
+                "PERPLEXITY_API_KEY": "synthetic-perplexity",
+            },
+        )
+        self.assertEqual(calls, ["solodit", "research", "github"])
+        self.assertEqual(
+            gemini_missing,
+            ("FIRECRAWL_API_KEY", "GITHUB_PERSONAL_ACCESS_TOKEN"),
+        )
         self.assertEqual(base, {"PATH": "/usr/bin:/bin"})
 
     def test_health_probe_and_launcher_share_one_credential_snapshot(self) -> None:
@@ -1127,34 +1660,51 @@ Dry-run dispatch test only.
         parsed = parse_live_mcp_listing(
             lane="gemini",
             output=(
-                "Configured MCP servers:\n"
                 "Error authenticating with Gemini API\n"
-                "✓ perplexity: uvx perplexity-mcp (stdio) - Connected\n"
-                "✗ optional: uvx optional-mcp (stdio) - Disconnected\n"
+                "NAME                     TYPE   STATUS    COMMAND/URL\n"
+                "chrono-media-studio      stdio  enabled   /bin/media\n"
+                "chrono-obsidian          stdio  enabled   /bin/obsidian\n"
+                "chrono-research-arsenal  stdio  enabled   /bin/research\n"
+                "chrono-vault             stdio  enabled   /bin/vault\n"
+                "perplexity               http   enabled   https://example.invalid/mcp\n"
+                "optional                 stdio  disabled  /bin/optional\n"
             ),
         )
-        self.assertEqual(set(parsed), {"perplexity", "optional"})
-        self.assertEqual(parsed["optional"]["status"], "Disconnected")
-        degraded = plan_lane(
+        expected = {
+            "chrono-media-studio",
+            "chrono-obsidian",
+            "chrono-research-arsenal",
+            "chrono-vault",
+            "perplexity",
+        }
+        self.assertEqual(set(parsed), expected)
+        self.assertNotIn("optional", parsed)
+        self.assertEqual(parsed["perplexity"], {"live_name": "perplexity"})
+        global_plan = plan_lane(
             lane="gemini",
             projection={
-                "mcps": ["optional"],
+                "mcps": ["perplexity"],
                 "brokered_mcps": [],
                 "tools": [],
             },
             configured_servers=parsed,
         )
-        self.assertEqual(degraded.unhealthy_mcps, ("optional",))
+        self.assertEqual(global_plan.authorized_mcps, tuple(sorted(expected)))
+        self.assertEqual(global_plan.configured_mcps, tuple(sorted(expected)))
+        self.assertEqual(global_plan.disabled_mcps, ())
+        self.assertEqual(global_plan.unhealthy_mcps, ())
+        self.assertEqual(global_plan.unhealthy_mcp_status, ())
         self.assertEqual(
-            degraded.unhealthy_mcp_status, (("optional", "Disconnected"),)
+            global_plan.capability_enforcement,
+            "agy-cli-global-mcp-exposure/v1",
         )
         with self.assertRaisesRegex(CapabilityDenied, "unparseable row"):
             parse_live_mcp_listing(
                 lane="gemini",
                 output=(
-                    "Configured MCP servers:\n"
+                    "NAME          TYPE   STATUS   COMMAND/URL\n"
                     "unexpected diagnostic\n"
-                    "✓ perplexity: uvx perplexity-mcp (stdio) - Connected\n"
+                    "chrono-vault  stdio  enabled  /bin/vault\n"
                 ),
             )
 
@@ -1170,7 +1720,6 @@ Dry-run dispatch test only.
             'str(handle.worktree_root / "model-lanes" / "kimi" / "main.yaml")',
             supervisor,
         )
-        self.assertIn('"--add-dir",\n            str(handle.worktree_root)', supervisor)
         self.assertIn("def kimi_role_launcher(", supervisor)
         self.assertIn("kimi_vault_environment=(", supervisor)
         self.assertIn('("CHRONO_VAULT_ROOT", "CHRONO_VAULT_CONTEXT")', supervisor)
@@ -1194,16 +1743,41 @@ Dry-run dispatch test only.
         guarded_write = supervisor.index("run_with_restored_prompt(", final_command)
         self.assertLess(prompt_contract, final_command)
         self.assertLess(final_command, guarded_write)
-        self.assertIn("def gemini_ordered_launcher(", supervisor)
-        self.assertIn("base_gemini_prompt.rstrip()", supervisor)
-        self.assertIn('"--output-format",\n            "stream-json"', supervisor)
-        self.assertIn('"--print",\n            "--output-format"', supervisor)
+        gemini_launcher = supervisor.index("    def gemini_ordered_launcher(")
+        gemini_end = supervisor.index("\n    def kimi_role_launcher(", gemini_launcher)
+        gemini_body = supervisor[gemini_launcher:gemini_end]
+        self.assertIn("agent_system_context.rstrip()", gemini_body)
+        self.assertNotIn("base_gemini_prompt", gemini_body)
         self.assertIn(
-            '30 <= budgets["timeout_seconds"] <= 2700',
-            supervisor,
+            'expected_tail = tuple(capability_lane_args) + tuple(authority["lane_args"])',
+            gemini_body,
         )
         self.assertIn(
-            '"--include-directories",\n            str(handle.worktree_root)',
+            '"--add-dir",\n            str(handle.worktree_root)', gemini_body
+        )
+        self.assertIn(
+            '"--output-format",\n            "text",\n            "--print",\n            concise_prompt',
+            gemini_body,
+        )
+        self.assertIn("AGY_EXTERNAL_MCP_MAX_CALLS_FIELD", gemini_body)
+        self.assertIn("## Agy global MCP and metered-spend contract", gemini_body)
+        for retired_flag in (
+            "--allowed-mcp-server-names",
+            "--allowed-tools",
+            "--approval-mode",
+            "--include-directories",
+            "--skip-trust",
+        ):
+            self.assertNotIn(retired_flag, gemini_body)
+        mcp_contract = gemini_body.index("mcp_contract = (")
+        prompt = gemini_body.index("concise_prompt = (", mcp_contract)
+        agy_command = gemini_body.index("agy_command = (", prompt)
+        launch = gemini_body.index("return selected_launcher(", agy_command)
+        self.assertLess(mcp_contract, prompt)
+        self.assertLess(prompt, agy_command)
+        self.assertLess(agy_command, launch)
+        self.assertIn(
+            '30 <= budgets["timeout_seconds"] <= 2700',
             supervisor,
         )
         kimi_docs = (ROOT / "model-lanes" / "kimi" / "KIMI.md").read_text()
@@ -1326,8 +1900,13 @@ Dry-run dispatch test only.
         self.assertIn("publish_prepared_worktree_outputs(", text)
         prevalidate_offset = text.index("prepare_worktree_outputs(")
         integration_offset = _success_path_integration_offset(text)
+        # The transport-failure quarantine has its own earlier bridge call.
+        # This assertion is about the success path: select the bridge that
+        # follows that path's integration boundary instead of comparing two
+        # unrelated branches by their first textual occurrences.
         bridge_offset = text.index(
-            "bridge_receipt = publish_prepared_worktree_outputs("
+            "bridge_receipt = publish_prepared_worktree_outputs(",
+            integration_offset,
         )
         receipt_offset = text.index(
             '"status": "launched"',

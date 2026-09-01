@@ -356,6 +356,7 @@ direct_lane_work_allowed: true
 mandatory_review: false
 review_model: none
 review_triggers: []
+reviews: none
 return_artifact: departments/coding/outbox/{task_id}-response.md
 ---
 
@@ -459,6 +460,7 @@ Exercise the prepared-packet modeless path.
                 **os.environ,
                 "PACKET_CAPTURE": str(packet_capture),
                 "PATH": f"{tools}:/usr/bin:/bin",
+                "REVIEWS": "none",
                 "VAULT_ROOT": str(root),
             }
             command = [
@@ -494,6 +496,134 @@ Exercise the prepared-packet modeless path.
             self.assertIn(
                 "mode: modeless\n", packet_capture.read_text(encoding="utf-8")
             )
+
+
+class ModelessPreflightAdmissionTests(unittest.TestCase):
+    """dispatch_preflight.py: the real-dispatch admission gate agrees with --dry-run.
+
+    bin/send-task.sh runs this preflight BINARY on the prepared packet at host
+    admission (`python3 scripts/python/dispatch_preflight.py --repo-root ... --packet ...`).
+    The prepared-packet dispatcher already translates an omitted `mode` to
+    `modeless`, and the --dry-run path (returning before admission) derives the
+    modeless contract -- but --dry-run never reaches this binary. So a packet
+    that OMITS `mode` must be ADMITTED here too, or it passes --dry-run and dies
+    only on the live attempt (workboard DISP-01). These tests drive the real
+    binary against the real repo, exactly as the board does.
+
+    The negative controls are the load-bearing half: an explicitly empty `mode:`
+    or an unknown token must STILL be refused. The translation is key-presence,
+    not a value default -- the same boundary bin/send-task.sh reads verbatim when
+    the field is PRESENT, which also guards deletion authorization.
+    """
+
+    # `architect` is a coding-namespace specialist whose primary lane is claude,
+    # so `to_model: claude` needs no model_override_reason.
+    SPECIALIST = "architect"
+    NAMESPACE = "coding"
+    TO_MODEL = "claude"
+    TASK_ID = "TASK-2026-08-29-0145-preflight-modeless"
+    RUN_ID = "MODELESS-PREFLIGHT-TEST"
+
+    def _packet(self, mode_line: object) -> str:
+        artifact = f"departments/coding/outbox/{self.TASK_ID}-response.md"
+        contract = derive_verification_contract(
+            {
+                "task_id": self.TASK_ID,
+                "run_id": self.RUN_ID,
+                "mode": "modeless",
+                "result_type": "normal",
+                "to_model": self.TO_MODEL,
+                "dispatch_kind": "single",
+                "capability": None,
+                "runtime_map_gates": [],
+                "review_required": False,
+            }
+        )
+        contract_json = json.dumps(contract, separators=(",", ":"), ensure_ascii=False)
+        contract_sha = verification_contract_sha256(contract)
+        lines = [
+            "---",
+            f"id: {self.TASK_ID}",
+            f"run_id: {self.RUN_ID}",
+            f"to_model: {self.TO_MODEL}",
+            f"specialist: {self.SPECIALIST}",
+            f"source_namespace: {self.NAMESPACE}",
+        ]
+        # `None` models a packet with NO `mode` line at all (true absence); a
+        # string models an explicit `mode:` row (present key, possibly empty).
+        if mode_line is not None:
+            lines.append(mode_line)
+        lines += [
+            "mandatory_review: false",
+            "review_model: none",
+            "review_triggers: []",
+            "parallel_safe: true",
+            f"return_artifact: {artifact}",
+            f'write_scope: ["{artifact}"]',
+            f"verification_contract: {contract_json}",
+            f"verification_contract_sha256: {contract_sha}",
+            "---",
+            "",
+            "Exercise the real-dispatch preflight modeless admission path.",
+            "",
+        ]
+        return "\n".join(lines)
+
+    def _preflight(self, mode_line: object) -> tuple[int, dict[str, object]]:
+        with tempfile.TemporaryDirectory(prefix="modeless-preflight-") as directory:
+            packet = Path(directory) / "packet.md"
+            packet.write_text(self._packet(mode_line), encoding="utf-8")
+            result = subprocess.run(
+                [
+                    "python3",
+                    str(ROOT / "scripts/python/dispatch_preflight.py"),
+                    "--repo-root",
+                    str(ROOT),
+                    "--packet",
+                    str(packet),
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=30,
+            )
+        self.assertTrue(result.stdout, result.stderr)
+        return result.returncode, json.loads(result.stdout)
+
+    def test_absent_mode_is_admitted_as_modeless(self) -> None:
+        # The DISP-01 fix. A truly-absent mode is translated to modeless and the
+        # packet is ADMITTED -- the same modeless the --dry-run path derives.
+        code, verdict = self._preflight(None)
+        self.assertEqual(verdict["decision"], "allow", verdict)
+        self.assertEqual(code, 0, verdict)
+        self.assertEqual(verdict["refusals"], [])
+
+    def test_empty_mode_is_still_refused(self) -> None:
+        # Negative control: an explicitly empty `mode:` is a PRESENT key with an
+        # empty value, not absence, so it stays on the fail-closed path.
+        code, verdict = self._preflight("mode:")
+        self.assertEqual(verdict["decision"], "deny", verdict)
+        self.assertEqual(code, 3, verdict)
+        self.assertIn(
+            "missing required frontmatter field(s): mode",
+            verdict["refusals"][0]["message"],
+        )
+
+    def test_unknown_mode_is_still_refused(self) -> None:
+        # Negative control: a present but unsupported token is never modeless. No
+        # pinned contract can satisfy the mode match, so admission refuses it --
+        # proving the absent-mode acceptance did not weaken the present-value path.
+        code, verdict = self._preflight("mode: research")
+        self.assertEqual(verdict["decision"], "deny", verdict)
+        self.assertEqual(code, 3, verdict)
+
+    def test_explicit_modeless_is_admitted(self) -> None:
+        # The mirror of the absent case: the token spelled out is admitted too,
+        # so absent-mode acceptance is the modeless path, not a blanket relaxation.
+        code, verdict = self._preflight("mode: modeless")
+        self.assertEqual(verdict["decision"], "allow", verdict)
+        self.assertEqual(code, 0, verdict)
 
 
 class ModelessSupervisorBudgetTests(unittest.TestCase):

@@ -9,11 +9,12 @@ Every dispatch is a markdown file. Scripts validate, route, and deliver; they do
 id: TASK-YYYY-MM-DD-HHMM-<hash>
 run_id: none
 from: chrono
-to_model: gpt-codex | claude | gemini | kimi
+to_model: gpt-codex | claude | gemini | kimi | grok
 specialist: <canonical-specialist>
 source_namespace: coding | security | content | sysmgmt | research | shared
 compatibility_namespace: coding | security | content | sysmgmt | research
-review_model: gpt-codex | claude | gemini | kimi | none
+review_model: gpt-codex | claude | gemini | kimi | grok | none
+reviews: none | TASK-YYYY-MM-DD-HHMM-<suffix>
 mandatory_review: true | false
 mode: bounty | project | modeless | <field absent → modeless>
 memory_aperture: rich | focused | default | cold | pool_blind | none
@@ -47,6 +48,15 @@ or malformed field is not absence. The generating wrapper cannot express field a
 `--mode project`, `--mode bounty`, or `--mode modeless` and writes that exact choice. The dispatcher retains a
 temporary compatibility bridge for older local packets carrying `content`, `maintenance`, `incident`,
 `research`, `triage`, `outreach`, or `none`; acceptance by that bridge does not make them a V4 engagement.
+
+Review provenance is a required explicit union on both dispatch paths. Set `reviews: none` for deliberate
+ordinary work, or set `reviews: <canonical TASK-ID>` when the packet is the separately dispatched review of
+that held task. Unset, empty, malformed, and self-targeting declarations are refused before registration or
+launch; the compatibility wrapper applies the same rule through `REVIEWS=none|TASK-...` before it creates a
+task ID or stages a packet. The `none` sentinel is consumed after admission and is never granted review-target
+authority. Only a canonical task ID remains in the assembled packet and is projected into the locked registry
+and launch reconciliation echo. Packet prose, specialist names, and worker-authored response paths never fill
+or retarget this controller-owned fact.
 
 ### V4 engagement boundary
 
@@ -214,8 +224,8 @@ None of these is active today — treat them as the intended hardening roadmap, 
 ## Lifecycle
 
 1. Chrono writes a task body.
-2. `scripts/send-task.sh ... --mode <project|bounty|modeless>` requires an explicit operator-approved choice and adds frontmatter from the model map; it rejects an omitted option instead of inventing a packet field.
-3. `bin/send-task.sh` translates an absent prepared-packet `mode` field to `modeless`, validates safety, derives the verification contract, and writes to `departments/<compatibility_namespace>/inbox/`.
+2. `REVIEWS=none|TASK-... scripts/send-task.sh ... --mode <project|bounty|modeless>` requires explicit review intent plus an explicit operator-approved mode and adds frontmatter from the model map; it rejects either omission instead of inventing a packet fact.
+3. `bin/send-task.sh` requires the same `reviews: none|TASK-...` union on prepared packets, translates an absent prepared-packet `mode` field to `modeless`, validates safety, derives the verification contract, and writes to `departments/<compatibility_namespace>/inbox/`.
 4. `bin/send-task.sh` registers the task under the shared registry lock, advances `delivery_state` to `in-progress`, builds a signed launch context with `scripts/python/dispatch_context_builder.py build`, and detaches `bin/board-supervisor.sh detached-launch`.
 5. The supervisor provisions a private git worktree under `_state/board-worktrees/<attempt-id>/` and execs a **fresh, capability-scoped CLI** for the packet's lane; that CLI reads the packet and the named specialist markdown.
 6. The CLI writes the return artifact and the outbox completion envelope **inside its worktree**. The supervisor validates both, publishes the artifact first and the envelope last into the repo, and runs `scripts/python/registry_reconciler.py` to settle the registry.
@@ -381,16 +391,39 @@ Envelope schema — frontmatter, then a summary body whose first paragraph the r
 ---
 id: <id>-response
 in_response_to: <id>
-from: gpt-codex | claude | gemini | kimi
+from: gpt-codex | claude | gemini | kimi | grok
 to: chrono
 type: RESULT
 status: complete | needs_review | needs_human | blocked
 return_artifact: <the return_artifact path>
 capability_card_sha256: <exact dispatched hash> # required only when the packet carries a capability snapshot
+artifact_bundle_sha256: <64-hex canonical artifact-list digest> # optional explicit bundle declaration
 ---
 
 One-paragraph summary of what you did (the reconciler surfaces this first paragraph).
 ```
+
+`artifact_bundle_sha256` is the envelope's only artifact-bundle declaration. Its value is one scalar containing
+exactly 64 hexadecimal characters (letter case is normalized). When present and valid, reconciliation keeps the
+task `in-flight` unless a reachable `*manifest*.json` or `*artifact-list*.json` under the task's
+`return_artifact` / `write_scope` territory declares the same digest. The hold's consequence is unchanged: it
+preserves the response and artifact and clears when the manifest lands or the explicit field is removed.
+
+Body prose never declares an artifact bundle. A 64-hex commit, checksum, tool-output line, quoted command, or
+even the words `artifact bundle` next to a digest in the summary/body do not activate the hold. This deliberately
+breaks the legacy prose-declaration convention: any producer that wants the hold must migrate the digest into
+the `artifact_bundle_sha256` frontmatter field. Invalid or absent field values are not bundle declarations.
+
+This declaration is opt-in and lightly used, **not latent**: it has a live producer — workers that copy their
+run-manifest digest into the envelope — and a periodic audit finds it in a small minority of responses (48 of
+2,091 `departments/*/outbox/*-response.md` on 2026-08-30). Re-measure with the reconciler's own
+`declared_bundle_hashes()` over that response corpus; do **not** infer usage from the runtime envelope's
+`artifact_bundle_sha256`, which `scripts/python/runtime_envelope.py` defaults empty and which is empty in every
+dispatcher envelope — reading that always-empty field is the known way to wrongly conclude "nothing emits this."
+Every declaring task to date settled terminal with a resolvable or empty-list digest, so the hold is currently
+between triggers, not dead code; its fire/clear/inert behaviour reproduces end-to-end against the real
+reconciler. Treat it as an active, rarely-triggered guard: do not re-file it as unproduced or latent, and do not
+add a check asserting the field's absence — that would pin a low-usage accident as a contract.
 
 ### Completion recipient contract
 
@@ -503,6 +536,142 @@ report (a capability-degradation **field**, not a status — see above): when on
 declared tool, set the status by what happened to the deliverable and attach **both** the two-blocker evidence
 and the `## needs_tool` entry.
 
+### Finding evidence contract — the replay/control pair
+
+**This section is the one home for what a returned finding must carry as proof, and what the coordinator does
+with it.** It is universal, not bounty-only: a specialist in **every canonical `source_namespace` (including
+`shared`)** that returns a *claim about program behaviour* — a defect, an exploit, a measured behaviour, a
+"this is broken" / "this works" verdict — ships the pair below. The universal set is **program-behaviour
+claims**, not arbitrary factual prose; the bug-hunting skills add domain shape (a Forge PoC, a `curl`, a unit
+test), never a separate rule.
+
+A finding is a claim, and a claim reproduces or it does not. Every finding therefore carries a
+**replay/control pair**, one per finding:
+
+1. **Replay command** — the literal command that demonstrates the claim. Run verbatim it makes the claimed
+   thing happen. **Expected outcome: it SUCCEEDS (exit 0).** For a smart-contract finding this is a Forge test
+   at a pinned fork block that passes because the exploit fires; for web work a `curl`/script whose output
+   carries the claimed marker; for an ordinary code bug a test that reproduces it. The finding states the
+   command *and* the exit status/output that counts as success.
+2. **Negative control** — a second command that **must FAIL (exit ≠ 0)**. It is the replay with the *one
+   enabling condition removed*: the guard restored, the patch applied, the attacker's control taken away, the
+   malicious input neutralised. If the finding is real this command does **not** reproduce the claim, so it
+   fails. The finding states the command, its expected failure, *and* the single condition it removed.
+
+**Why both, and why the control is not optional.** A replay alone proves the command exits 0; it does not prove
+the command exits 0 *because of the defect*. A PoC can pass from a setup bug, a mis-pinned block, or a
+tautological assertion — and pass identically against patched code. The negative control is the RED that a
+passing replay needs to mean anything: same harness, one condition flipped, the opposite outcome required. This
+is the standing positive-control discipline (root `CLAUDE.md` Hard Rule 8; the deny-fires positive/negative
+control at `scripts/python/tests/test_golive_integration.py:312-342` is the same shape applied to an admission
+check) written down for findings.
+
+**Where the pair lives — in the finding artifact, never in the settlement envelope.** The pair and its binding
+live in the **returned finding artifact** (the packet's `return_artifact`), and never in the `<id>-response.md`
+settlement envelope. This keeps finding evidence in the deliverable that a reviewer opens. The envelope does
+not set `artifact_bundle_sha256` merely because the artifact contains a commit or checksum: that optional
+frontmatter field is reserved for deliberately declaring the canonical artifact-list digest and activating
+the manifest-backed hold described in the Completion Contract. Bundle-like body prose and quoted commands are
+ordinary evidence and never activate that hold.
+
+**Binding the pair to reproducible bytes.** A digest is not a thing you can check out: `artifact_bundle_sha256`
+is `hash_canonical(sorted({path, sha256, role}))` over an artifact list (`scripts/python/vibecoding_check.py:363-378`)
+— a hash of a *manifest*, not a Git object. And the normal success path **releases the attempt worktree** after
+integration (`bin/board-supervisor.sh:3671-3699`), so a coordinator reading a landed finding cannot assume that
+tree still exists. The binding therefore names, in the finding artifact, three things the coordinator can act on
+from the document alone:
+
+- `manifest:` — a repo-relative path to a reachable run-manifest / artifact-list JSON: the file that lists
+  `artifacts: [{path, sha256, role}]` and carries their `artifact_bundle_sha256`.
+- `commit:` — a full (40- or 64-hex) Git commit SHA, pinned **separately** from the manifest, that the
+  coordinator checks out to materialise the bytes. Where the reproduction target is not a Git object,
+  `fixture:` names an immutable fixture identity instead (one of `commit` or `fixture` is required).
+- `workdir:` — the directory, relative to the checkout root, where both commands run.
+
+Both commands quote **artifact-relative paths** and pin every reproduction input (fork block, target commit,
+fixture). The finding also records the author's **observed** exit codes (`observed_exit`) and a short output
+excerpt (`observed`) for each command, so the coordinator sees what the author saw before re-running.
+
+**The finding-artifact shape.** The finding artifact carries a `## replay-control` section, one block per
+finding:
+
+```
+## replay-control
+- finding: <one line: what is claimed>
+  binding:
+    manifest: <repo-relative path to the run-manifest / artifact-list JSON>
+    commit: <full git commit SHA to check out>   # OR  fixture: <immutable fixture id>
+    workdir: <directory, relative to the checkout root, where the commands run>
+  replay:
+    command: <literal command; artifact-relative paths; pinned inputs>
+    expect: pass          # exit 0 == claim reproduces
+    observed_exit: 0      # what the author saw (must be 0)
+    observed: <short output excerpt>
+  control:
+    command: <literal command; the replay with ONE enabling condition removed>
+    expect: fail          # exit != 0 == claim does NOT reproduce without that condition
+    observed_exit: <nonzero>
+    observed: <short output excerpt>
+    removed_condition: <the single thing taken away, e.g. "restored require(msg.sender==owner)">
+```
+
+**What this is NOT.** It is not success@k, best-of-N, or sampling — the board runs one packet per dispatch,
+there is no k and no selection function (`shared/routing.md` § Dispatch shape; `verification_contract.py`
+rejects any `dispatch_kind` other than `single`). It does not add a gate: a finding that ships no validated
+pair is **incomplete evidence**, handled like any other coordination need (below), never a blocked, failed, or
+held task. Our v2 carried 24 gates and 49 kill mechanisms and produced zero submissions across five audits;
+this is a response contract, not a 25th gate. `scripts/python/tests/test_replay_control_contract.py` proves the
+non-gate property directly against the **real reconciler**: a `complete` task still settles `complete` for a
+missing block, a malformed block, a replay that exits nonzero, and a control that exits zero — only the finding
+evidence is marked incomplete, never the task.
+
+**Shape is not execution.** That same test checks the *shape* of a block — both commands present, replay
+expects and observed pass, control expects and observed fail, the two commands differ, the removed condition is
+named, and the binding names a manifest, a full-hex commit (or a fixture) and a workdir. That is the same kind
+of check `vibecoding_check.py` already runs on records — names, hashes, statuses (`check_verification_coverage`,
+~`:324-349`) — and **neither runs Forge, Echidna, LiteSVM, or the command.** Running the two commands is the
+coordinator's manual step below. A well-formed pair that nobody executes validates no behaviour.
+
+#### The coordinator executes the pair — manual procedure
+
+The coordinator (Chrono, outside the worker sandbox) is the executor. This is deliberately **manual**: no
+automation is wired into the dispatch rail, and the finding is not gated on it. Work from the **finding
+artifact** named by the envelope's `return_artifact`; the settlement envelope carries none of this. For each
+finding-bearing response that lands:
+
+1. **Read** the finding artifact's `## replay-control` block. If it is missing or malformed (the shape test
+   would reject it), the finding is **incomplete evidence**: treat it as a `## NEEDS FROM CHRONO`-style
+   coordination item — ask the specialist for the pair, do not surface the finding as proven. Do not block,
+   fail, or kill it.
+2. **Materialise the bound bytes** — do not assume the attempt worktree still exists; the normal success path
+   released it (`bin/board-supervisor.sh:3671-3699`):
+   1. Open `binding.manifest`. Verify it: recompute the canonical bundle digest from its
+      `artifacts: [{path, sha256, role}]` list — `hash_canonical(sorted(list, key=path))`, the algorithm at
+      `vibecoding_check.py:363-378` — and confirm it equals the manifest's own `artifact_bundle_sha256`. A
+      manifest that does not verify is unsound → incomplete evidence.
+   2. Check out `binding.commit` into a scratch checkout you control (`git worktree add <scratch> <commit>`, or
+      read each file with `git show <commit>:<path>`). The commit is a real Git object; the bundle digest is
+      not, so never try to "check out the digest".
+   3. Materialise each artifact the manifest lists from that commit and confirm each file's SHA-256 equals the
+      manifest's per-artifact `sha256`. That set of files *is* the bundle.
+   4. `cd` into `binding.workdir` under the checkout; run both commands from there.
+3. **Run the replay command verbatim.** Capture its **exit code** and a **short output excerpt**. Expect exit 0.
+4. **Run the control command verbatim.** Capture its **exit code** and a **short output excerpt**. Expect exit ≠ 0.
+5. **Record** both runs — the literal command, the observed exit code, the output excerpt, and the PASS/FAIL
+   verdict — on the **landed finding artifact** (not the settlement envelope, which must stay free of
+   bundle-digest prose), under an `observed-by-coordinator:` note with a timestamp. That appended note is the
+   evidence of record; nothing settles a finding as *verified* without it (root `CLAUDE.md` Hard Rule 8: verify
+   before claiming done). Quote the literal exit codes — a "pair holds" that does not quote the two exit codes
+   is not a verdict.
+6. **Verdict:**
+   - **replay exit 0 AND control exit ≠ 0 → pair holds.** The finding carries a real, discriminating
+     demonstration. Surface it.
+   - **replay exit ≠ 0 → the claim does not even reproduce.** Incomplete evidence; return to the author for a
+     working replay. Not a kill — the finding may be real with a broken command.
+   - **control exit 0 → false twin.** The demonstration passes with the enabling condition *removed*, so it
+     proves nothing about the defect. Incomplete evidence; return to the author for a control that
+     discriminates. Not a kill — but the current proof is worthless.
+
 ## Memory Apply Citations
 
 **This section is the home of the apply-feedback rule.** `chrono/CLAUDE.md` and
@@ -524,6 +693,40 @@ Senders do not block on lane-to-lane work. If a response is required, track the 
 
 The staged V4 state model keeps questions separate from process status. Until P7 wires a real consumer,
 `needs_human` and `## NEEDS FROM CHRONO` remain the live V3 compatibility surface described above.
+
+## Boundary-Blocking Doctrine
+
+**This section is the sole NORMATIVE home for the rule that governs when a check may block a
+dispatch or settlement boundary** (root `CLAUDE.md` rule 10). Other documents point here rather than
+restate it. Immutable historical records — append-only workboard events under `_state/chrono/` —
+may quote the rule as evidence of when it was adopted; those are dated events, never a second
+authority, and this section wins on any difference.
+
+`shared/modes/bounty.md` records the mode-local ancestor: bounty v2 carried 24 gates and produced
+zero submissions across five audits, and its v3 fix replaced them with one written test. That rule
+stays distinct and mode-local — it asks whether a check moves a finding toward submission, not
+whether a lifecycle boundary owns a condition. It was applied only to bounty mode while the
+dispatch/settlement layer repeated the same accumulation, until the 2026-08-31 settlement outage
+blocked five consecutive finished tasks on host and PATH state no worker could influence.
+
+> A check may block a boundary only when the current attempt can have caused the condition, the
+> condition threatens the exact state crossing that boundary, and the blocked owner can clear it
+> there. Otherwise it must queue, warn, or run at the boundary that owns it.
+
+For **settlement** specifically, the kernel is an allowlist, not another open-ended validator. A
+finished attempt settles on exactly these four questions:
+
+1. Is this the current admitted attempt?
+2. Is the declared artifact present, bounded, and readable?
+3. Is the integrated diff wholly authorized, with deletion separately authorized?
+4. Is an explicitly owed review or mode-exit proof still outstanding?
+
+No host inventory, plugin census, repository-wide suite, CI health, or unrelated capability state
+belongs in that kernel. Question 4's owed-review case is `## Mandatory Review Behavior`, below.
+
+A proposed **new** blocking condition must cite **at least two prior incidents of the exact failure**
+and identify why this boundary — rather than dispatch, CI, or release — is the first place that can
+prevent the harm. If it cannot, it starts as telemetry, not denial.
 
 ## Mandatory Review Behavior
 
@@ -609,9 +812,17 @@ For a pending task, automatic behavior is deliberately limited to **flag, hold, 
 
   The review path is audit provenance only. The command requires an existing in-vault mailbox response, a held cross-family task, and a landed subject response in `complete` or `needs_review`; it is lock-serialized, idempotent for the same task/reference, rejects conflicting references, records `review_settled_by: chrono-explicit`, and emits one `REVIEW-SETTLED` audit line. Task lanes must not invoke this controller capability themselves. If a review is blocked, incomplete, malformed, or ambiguous, Chrono does not run the command and the task stays open.
 
+  Verdict resolution is bounded to the promoted review bundle. Settlement reads the response verdict first;
+  when the review task's locked registry row names a distinct regular in-root `return_artifact`, it strictly
+  parses that artifact's flat frontmatter as the fallback. A response-declared path never selects the artifact
+  and conflicts with the registry path are refused. If both locations carry verdicts, their normalized values
+  must match exactly. Missing, malformed, `REJECT`, or any value other than `APPROVE` remains refused without
+  an explicit controller `--force`. Target/lane/family validators—including author-family anti-affinity—run
+  before this outcome lookup, so an artifact `APPROVE` cannot make a same-family review admissible.
+
 To prevent infinite review-of-review regress, a task may skip a second review only after its mandatory-review binding has already passed distinct-family anti-affinity and `write_scope` is the explicit empty list with specialist `code-reviewer`, `security-analyst`, or `skeptic`. Reviewer-role tasks with an equal/missing review lane or malformed/non-empty scope remain gated. Existing lock-serialized registration is unchanged. The `work-done-no-envelope` backstop remains available only when no response candidate exists; a candidate still inside its quiescence window suppresses the backstop, and a candidate arriving after provisional settlement reopens the task until its status can be classified.
 
-Reviewer dispatch is deliberately controller-authored: the reconciler only blocks settlement and surfaces `REVIEW-REQUIRED`; Chrono manually writes the ordinary board review packet.
+Reviewer dispatch is deliberately controller-authored: the reconciler only blocks settlement and surfaces `REVIEW-REQUIRED`; Chrono manually writes the ordinary board review packet with `REVIEWS=<held TASK-ID>`. Every non-review dispatch uses `REVIEWS=none`; omission is never interpreted as ordinary work.
 
 When `review_triggers: []` and the worker returns a contract-valid `status: complete`, the ordinary
 reconcile sweep accepts that task's own response and records `review_disposition: not-required`. A

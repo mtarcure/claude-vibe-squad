@@ -17,6 +17,14 @@ set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 VALIDATION_ROOT="${VAULT_ROOT:-${REPO_ROOT}}"
+
+# Name the interpreter that will actually run. The 2026-08-31 settlement outage
+# cost five tasks partly because nothing said WHICH python3 ran, so a failure
+# that was really "the caller gave us macOS 3.9" read as "the repository is
+# unhealthy". One line, and it makes that class of failure self-describing.
+_vs_python="$(command -v python3 2>/dev/null || echo '<none>')"
+echo "INFO: python3 -> ${_vs_python} ($("${_vs_python}" -V 2>&1))" >&2
+
 python3 "${REPO_ROOT}/scripts/python/validate_specialists.py" \
     --root "${VALIDATION_ROOT}" "$@"
 specialist_status=$?

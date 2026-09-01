@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Deterministic per-role capability projection and native lane enforcement.
+"""Deterministic role capability projection and native lane enforcement.
 
-This module contains no model calls and grants no capabilities.  It filters a
-lane's already-configured MCP servers to the exact set declared by the native
-specialist adapter plus its authenticated overlay, and emits only the native
-CLI restriction mechanism for that lane.
+This module contains no model calls and grants no capabilities. It filters a
+lane's already-configured MCP servers where the native CLI can enforce that
+boundary. The agy-backed ``gemini`` and native ``grok`` lanes are explicit
+exceptions: their discovered MCPs are global configuration, so each plan
+records the whole enabled inventory and emits no fictitious restriction flag.
 """
 
 from __future__ import annotations
@@ -38,9 +39,28 @@ CLAUDE_FIRST_PARTY_SERVERS = {
 TOOL_NAME_RE = re.compile(r"^[A-Za-z0-9._+-]+$")
 ROLE_CONFIG_MARKER = "__ROLE_MCP_CONFIG__"
 CHRONO_VAULT_SERVER = "chrono-vault"
+AGY_GLOBAL_CHRONO_MCPS = frozenset(
+    {
+        "chrono-media-studio",
+        "chrono-obsidian",
+        "chrono-research-arsenal",
+        "chrono-vault",
+    }
+)
 BROKER_TOKEN_ENV = "CHRONO_VAULT_BROKER_TOKEN"
 BROKER_TOKEN_RE = re.compile(r"^[0-9a-f]{64}$")
-LANES = frozenset({"codex", "claude", "gemini", "kimi"})
+RESEARCH_ARSENAL_SERVER = "chrono-research-arsenal"
+# The one home for the research-arsenal credential NAMES. `board-supervisor.sh`
+# imports this tuple instead of restating it: the same three names choose which
+# secrets are loaded, which are reported missing, which Codex forwards through
+# `env_vars`, and which are bound into Kimi's per-server `env`. Two lists would
+# drift, and the drift would look like a silent auth failure at call time.
+RESEARCH_API_KEY_NAMES = (
+    "XAI_API_KEY",
+    "PERPLEXITY_API_KEY",
+    "FIRECRAWL_API_KEY",
+)
+LANES = frozenset({"codex", "claude", "gemini", "grok", "kimi"})
 KIMI_LOCAL_SERVER_SCRIPTS = {
     name: Path("plugins") / name / "mcp_server.py"
     for name in ("chrono-vault", "chrono-dedup", "chrono-research-arsenal")
@@ -100,11 +120,11 @@ PATH_RESOLVABLE_EVIDENCE = frozenset({"host-PATH"})
 # `available` now means exactly one thing on every lane -- see `mcp_health()`.
 # The lanes differ only in whether they COLLECT health at all, and that is
 # stated here rather than left implicit in where the probe happens to be
-# called: `claude` and `gemini` run a live `<cli> mcp list` that reports a
-# per-server status, while `codex` and `kimi` enumerate configuration only and
-# every record therefore carries no status. A status-less record is `unknown`
-# health, not healthy and not unhealthy -- we simply did not look.
-MCP_HEALTH_INSPECTED_LANES = frozenset({"claude", "gemini"})
+# called: Claude's live inventory reports connection health. Agy's table
+# reports only persistent enabled/disabled configuration state, not a probe;
+# Codex and Kimi likewise enumerate configuration only. Their records carry no
+# health status, which means `unknown`, not healthy or unhealthy.
+MCP_HEALTH_INSPECTED_LANES = frozenset({"claude"})
 MCP_HEALTHY_STATUS_RE = re.compile(r"^[✔✓]?\s*Connected\b")
 MCP_STATUS_MAX_LENGTH = 512
 
@@ -220,6 +240,11 @@ def adapter_path_for(*, repo_root: Path, lane: str, specialist: str) -> Path:
             repo_root / "model-lanes" / "gemini" / ".gemini" / "agents"
             / f"{specialist}.md",
         )
+    elif lane == "grok":
+        candidates = (
+            repo_root / "model-lanes" / "grok" / ".grok" / "agents"
+            / f"{specialist}.yaml",
+        )
     else:
         root = repo_root / "model-lanes" / "kimi"
         candidates = (
@@ -321,32 +346,30 @@ def parse_live_mcp_listing(
 ) -> dict[str, dict[str, object]]:
     """Parse one native CLI's live MCP inventory into adapter-facing names."""
 
-    if lane not in {"claude", "gemini"}:
+    if lane not in {"claude", "gemini", "grok"}:
         raise CapabilityDenied(f"{lane} does not have a text MCP inventory parser")
     if not isinstance(output, str) or "\x00" in output:
         raise CapabilityDenied("live MCP inventory output is invalid")
 
-    # Strip SGR colour codes before matching. The row patterns anchor on the
-    # status glyph, and `gemini mcp list` emits colour even when its output is
-    # captured rather than shown on a terminal, so every row arrives as
-    # "\x1b[32m✓\x1b[39m name: ..." and fails the anchor. Measured 2026-08-16:
-    # 12 of 12 live rows rejected with "unparseable row" on a host whose
-    # inventory was entirely healthy.
-    #
-    # This is stripped HERE rather than at each call site so a second caller
-    # cannot reintroduce the bug, and it is deliberately narrow: only SGR
-    # sequences, so a genuinely malformed row still fails closed.
+    # Strip SGR colour codes before matching Claude rows. This is deliberately
+    # narrow: a genuinely malformed row still fails closed.
     output = _SGR_RE.sub("", output)
 
     lines = output.splitlines()
-    header = (
-        "Checking MCP server health…"
-        if lane == "claude"
-        else "Configured MCP servers:"
-    )
     try:
         header_index = next(
-            index for index, line in enumerate(lines) if line.strip() == header
+            index
+            for index, line in enumerate(lines)
+            if (
+                line.strip() == "Checking MCP server health…"
+                if lane == "claude"
+                else (
+                    line.split() == ["NAME", "TYPE", "STATUS", "COMMAND/URL"]
+                    if lane == "gemini"
+                    else re.fullmatch(r"\s*MCP Servers\s+\([0-9]+\)\s*", line)
+                    is not None
+                )
+            )
         )
     except StopIteration as exc:
         raise CapabilityDenied(
@@ -357,16 +380,6 @@ def parse_live_mcp_listing(
     for raw_line in lines[header_index + 1 :]:
         line = raw_line.strip()
         if not line:
-            continue
-        if lane == "gemini" and (
-            line.startswith("Error authenticating")
-            or line.startswith("Authentication required")
-            or line.startswith("Please set GEMINI_API_KEY")
-        ):
-            # Older Gemini CLI builds could leave a non-inventory auth
-            # diagnostic on stderr even after printing a usable MCP listing.
-            # Ignore only these known diagnostics; every other residual row
-            # remains fail-closed.
             continue
         if lane == "claude":
             live_name, name_separator, remainder = line.partition(": ")
@@ -386,20 +399,37 @@ def parse_live_mcp_listing(
                 raise CapabilityDenied(
                     "Claude live MCP inventory contains an unsafe server name"
                 )
+        elif lane == "gemini":
+            columns = line.split(None, 3)
+            if (
+                len(columns) != 4
+                or SERVER_NAME_RE.fullmatch(columns[0]) is None
+                or columns[1] not in {"stdio", "http"}
+                or columns[2] not in {"enabled", "disabled"}
+                or not columns[3].strip()
+            ):
+                raise CapabilityDenied(
+                    "agy live MCP inventory contains an unparseable row"
+                )
+            canonical_name = columns[0]
+            # A disabled persistent entry is not available to the worker and is
+            # therefore absent from the configured/enabled surface.
+            if columns[2] == "disabled":
+                continue
+            live_name = canonical_name
+            status = None
         else:
-            match = re.match(
-                r"^(?P<glyph>[✓✔✗✘])\s+(?P<name>[A-Za-z0-9_-]+)"
-                r"(?:\s+\(from\s+[^)]+\))?:\s+.*\s+-\s+"
-                r"(?P<status>Connected|Disconnected|Failed(?:\s+.*)?)$",
-                line,
+            match = re.fullmatch(
+                r"\s*[├└](?:─+)?\s+([A-Za-z0-9_-]+)\s+\((stdio|http)\)(?:\s+.*)?",
+                raw_line,
             )
             if match is None:
-                raise CapabilityDenied(
-                    "Gemini live MCP inventory contains an unparseable row"
-                )
-            canonical_name = match.group("name")
+                if result and raw_line and not raw_line[0].isspace():
+                    break
+                continue
+            canonical_name = match.group(1)
             live_name = canonical_name
-            status = match.group("status")
+            status = None
 
         if not SERVER_NAME_RE.fullmatch(canonical_name):
             raise CapabilityDenied(
@@ -423,15 +453,22 @@ def parse_live_mcp_listing(
                     )
         result[canonical_name] = {
             "live_name": live_name,
-            "status": status,
             **(
-                {"tool_namespace": tool_namespace}
+                {"status": status, "tool_namespace": tool_namespace}
                 if lane == "claude"
                 else {}
             ),
         }
     if not result:
         raise CapabilityDenied(f"{lane} live MCP inventory is empty or unparseable")
+    if lane == "grok":
+        declared_count = int(
+            re.search(r"\(([0-9]+)\)", lines[header_index]).group(1)  # type: ignore[union-attr]
+        )
+        if len(result) != declared_count:
+            raise CapabilityDenied(
+                "grok live MCP inventory count does not match its inspect header"
+            )
     return result
 
 
@@ -658,9 +695,9 @@ def broker_chrono_vault_plan(
     # materializer then rejected it because no ROLE_CONFIG_MARKER was present.
     # Keep this typed and closed until the supervisor has a proven config-home
     # injection mechanism.
-    if plan.lane == "gemini":
+    if plan.lane in {"gemini", "grok"}:
         raise CapabilityDenied(
-            "Gemini chrono-vault relay config injection is not implemented"
+            f"{plan.lane} chrono-vault relay config injection is not implemented"
         )
 
     selected: dict[str, object] = {}
@@ -725,6 +762,7 @@ def _kimi_local_server_templates(
     repo_root: Path | None,
     authorized: tuple[str, ...],
     vault_environment: Mapping[str, str] | None = None,
+    research_environment: Mapping[str, str] | None = None,
     host_artifacts: KimiLocalHostArtifacts | None = None,
 ) -> dict[str, dict[str, object]]:
     """Build selected Kimi MCP config from controller-owned local paths only."""
@@ -779,6 +817,44 @@ def _kimi_local_server_templates(
             name: vault_environment[name] for name in sorted(required)
         }
 
+    # Kimi's installed MCP client hands a stdio child only HOME/LOGNAME/PATH/
+    # SHELL/TERM/USER plus whatever the server record's own `env` says. The
+    # research arsenal reads its three provider keys from ITS OWN environment,
+    # so widening the Kimi CLI's parent environment (what
+    # `project_worker_credentials` does) never reached the process making the
+    # HTTP call -- measured as three live `"<KEY> missing"` errors on
+    # `large-context-analyst@kimi`. Binding the already-loaded snapshot here is
+    # the only seam that delivers them, and it mirrors what the Codex path
+    # already does with `mcp_servers.<name>.env_vars`.
+    #
+    # BEST-EFFORT, like the loader: a key the secret store did not supply is
+    # simply absent, and the tool degrades to its own "key missing" error while
+    # the launch receipt names it under `credential_missing`. An empty mapping
+    # therefore writes no `env` at all rather than an empty one.
+    bound_research_environment: dict[str, str] = {}
+    if research_environment is not None:
+        if not isinstance(research_environment, Mapping) or set(
+            research_environment
+        ) - set(RESEARCH_API_KEY_NAMES):
+            raise CapabilityDenied("Kimi research environment is not exactly bound")
+        for name in RESEARCH_API_KEY_NAMES:
+            if name not in research_environment:
+                continue
+            value = research_environment[name]
+            if (
+                not isinstance(value, str)
+                or not value
+                or "\x00" in value
+                or "\n" in value
+                or len(value.encode("utf-8")) > 16384
+            ):
+                raise CapabilityDenied("Kimi research environment is invalid")
+            bound_research_environment[name] = value
+        if bound_research_environment and RESEARCH_ARSENAL_SERVER not in authorized:
+            raise CapabilityDenied(
+                "Kimi research credentials bound for an unauthorized server"
+            )
+
     artifacts = host_artifacts or KimiLocalHostArtifacts(
         interpreter=root / ".venv" / "bin" / "python",
         sequential_thinking=KIMI_SEQUENTIAL_COMMAND,
@@ -824,6 +900,8 @@ def _kimi_local_server_templates(
         }
         if name == "chrono-vault":
             selected[name]["env"] = bound_vault_environment
+        elif name == RESEARCH_ARSENAL_SERVER and bound_research_environment:
+            selected[name]["env"] = bound_research_environment
     return selected
 
 
@@ -946,6 +1024,28 @@ def _mcp_gates_launch(mcp_class: Mapping[str, object] | None) -> bool:
     return requirement != "preferred"
 
 
+def partition_absent_mcps(
+    *,
+    authorized: tuple[str, ...] | list[str],
+    configured: tuple[str, ...] | list[str],
+    mcp_classes: Mapping[str, Mapping[str, object]] | None,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Split absent MCPs into launch-blocking and degraded declarations.
+
+    The native Codex path and ``plan_lane`` must make the same decision from
+    the typed capability source. Unknown or malformed metadata stays
+    fail-closed; only an explicit ``preferred`` declaration can degrade.
+    """
+
+    classes = mcp_classes or {}
+    absent = tuple(sorted(set(authorized) - set(configured)))
+    blocking = tuple(
+        name for name in absent if _mcp_gates_launch(classes.get(name))
+    )
+    degraded = tuple(name for name in absent if name not in blocking)
+    return blocking, degraded
+
+
 def mcp_health(*, lane: str, details: Mapping[str, object]) -> str:
     """Classify ONE configured server record as healthy/unknown/unhealthy.
 
@@ -1014,6 +1114,7 @@ def plan_lane(
     mcp_classes: Mapping[str, Mapping[str, object]] | None = None,
     repo_root: Path | None = None,
     kimi_vault_environment: Mapping[str, str] | None = None,
+    kimi_research_environment: Mapping[str, str] | None = None,
     kimi_host_artifacts: KimiLocalHostArtifacts | None = None,
     broker_chrono_vault: bool = False,
 ) -> LaneCapabilityPlan:
@@ -1057,6 +1158,7 @@ def plan_lane(
             repo_root=repo_root,
             authorized=template_authorized,
             vault_environment=kimi_vault_environment,
+            research_environment=kimi_research_environment,
             host_artifacts=kimi_host_artifacts,
         ))
         if broker_chrono_vault and CHRONO_VAULT_SERVER in authorized:
@@ -1086,9 +1188,10 @@ def plan_lane(
     classes = classes or {}
     # STRUCTURAL: an absent REQUIRED server cannot be enforced at all. Missing
     # or malformed requirement metadata defaults to required and fails closed.
-    absent_mcps = tuple(sorted(set(authorized) - set(configured)))
-    blocking_absent_mcps = tuple(
-        name for name in absent_mcps if _mcp_gates_launch(classes.get(name))
+    blocking_absent_mcps, degraded_absent_mcps = partition_absent_mcps(
+        authorized=authorized,
+        configured=configured,
+        mcp_classes=classes,
     )
     if blocking_absent_mcps:
         raise CapabilityDenied(
@@ -1098,12 +1201,27 @@ def plan_lane(
     # DEGRADATION: a declared non-required server may be absent. Remove it from
     # the enforceable set and surface the absence through the existing health
     # fields so the launch receipt and injected worker notice both record it.
-    degraded_absent_mcps = tuple(
-        name for name in absent_mcps if name not in blocking_absent_mcps
-    )
     authorized = tuple(
         name for name in authorized if name not in degraded_absent_mcps
     )
+    # Agy exposes every enabled persistent MCP to every worker. Require the four
+    # operator-selected Chrono servers, then report the entire enabled inventory
+    # as authorized rather than pretending an unsupported flag disabled extras.
+    if lane == "gemini":
+        missing_global_mcps = tuple(
+            sorted(AGY_GLOBAL_CHRONO_MCPS - set(configured))
+        )
+        if missing_global_mcps:
+            raise CapabilityDenied(
+                "agy global MCP exposure is missing required Chrono servers: "
+                + ", ".join(missing_global_mcps)
+            )
+        authorized = configured
+    elif lane == "grok":
+        # Grok discovers persistent host MCP configuration and exposes it as a
+        # global surface. Record that complete surface instead of claiming a
+        # per-invocation selector the CLI does not provide.
+        authorized = configured
     # STRUCTURAL: an unsafe record is a defect in the plan, not an outage.
     for name in authorized:
         _validate_server_record(name=name, details=configured_servers[name])
@@ -1121,7 +1239,11 @@ def plan_lane(
         )
     )
     unhealthy_mcps = tuple(name for name, _status in unhealthy_status)
-    disabled = tuple(sorted(set(configured) - set(authorized)))
+    disabled = (
+        ()
+        if lane in {"gemini", "grok"}
+        else tuple(sorted(set(configured) - set(authorized)))
+    )
 
     capability_gaps: tuple[str, ...] = ()
     if lane == "gemini":
@@ -1191,10 +1313,11 @@ def plan_lane(
             )
         tag = "claude-cli-disallowed-mcp-tools/v1"
     elif lane == "gemini":
-        arguments = ["--allowed-mcp-server-names", *authorized]
-        if tools:
-            arguments.extend(("--allowed-tools", *tools))
-        tag = "gemini-cli-allowed-mcp-names/v1"
+        arguments = []
+        tag = "agy-cli-global-mcp-exposure/v1"
+    elif lane == "grok":
+        arguments = []
+        tag = "grok-cli-global-mcp-exposure/v1"
     else:
         role_config_json = _canonical_role_config(
             authorized=authorized,
@@ -1290,6 +1413,7 @@ def cli_args_for_materialized(
 
 
 __all__ = [
+    "AGY_GLOBAL_CHRONO_MCPS",
     "CapabilityDenied",
     "broker_chrono_vault_plan",
     "codex_chrono_vault_relay_args",
@@ -1305,5 +1429,6 @@ __all__ = [
     "parse_claude_enabled_plugins",
     "parse_claude_project_plugin_dirs",
     "parse_live_mcp_listing",
+    "partition_absent_mcps",
     "plan_lane",
 ]

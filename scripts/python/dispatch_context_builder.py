@@ -19,6 +19,7 @@ from pathlib import Path, PurePosixPath
 import re
 import secrets
 import subprocess
+import sys
 import tempfile
 import time
 from typing import Any, Callable, Mapping, NoReturn, Sequence
@@ -33,6 +34,7 @@ try:
     import specialist_capability_source as scs
     from verification_contract import (
         ContractError as VerificationContractError,
+        MODELESS_MODE,
         read_yaml_frontmatter,
         validate_verification_contract as validate_contract_schema,
     )
@@ -46,6 +48,7 @@ except ImportError:  # pragma: no cover - package-context fallback
     from . import specialist_capability_source as scs  # type: ignore[no-redef]
     from .verification_contract import (  # type: ignore[no-redef]
         ContractError as VerificationContractError,
+        MODELESS_MODE,
         read_yaml_frontmatter,
         validate_verification_contract as validate_contract_schema,
     )
@@ -53,6 +56,10 @@ except ImportError:  # pragma: no cover - package-context fallback
 
 CONTEXT_SCHEMA = "go-live-trusted-context/v1"
 AUTHORITY_SCHEMA = "go-live-authority/v1"
+RESIDUE_HEALTH_VERIFIER = (
+    Path(__file__).resolve().parents[2] / "bin" / "validate-specialists.sh"
+)
+RESIDUE_HEALTH_TIMEOUT_SECONDS = 180
 TASK_RE = re.compile(
     r"^TASK-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}-[A-Za-z0-9][A-Za-z0-9-]*$"
 )
@@ -112,6 +119,7 @@ MODEL_TO_LANE = {
     "gpt-codex": "codex",
     "claude": "claude",
     "gemini": "gemini",
+    "grok": "grok",
     "kimi": "kimi",
 }
 LANE_TO_MODEL = {value: key for key, value in MODEL_TO_LANE.items()}
@@ -133,6 +141,7 @@ LANE_NETWORK_SCOPE = {
     # Gemini remains a native-CLI lane, but its supported authentication is
     # the explicit API-key exception rather than subscription OAuth.
     "gemini": "gemini-api-key",
+    "grok": "xai-api-key",
     "kimi": "moonshot-subscription",
 }
 _TRUSTED_LANE_BASE_ARGS = {
@@ -151,14 +160,23 @@ _TRUSTED_LANE_BASE_ARGS = {
         "--dangerously-skip-permissions",
     ),
     "gemini": (
-        "--yolo",
-        "--skip-trust",
+        "--mode",
+        "accept-edits",
+        "--dangerously-skip-permissions",
+    ),
+    "grok": (
+        "--permission-mode",
+        "bypassPermissions",
+        "--no-subagents",
+        "--disable-web-search",
     ),
     "kimi": (
         "--yolo",
         "--thinking",
     ),
 }
+AGY_EXTERNAL_MCP_MAX_CALLS_FIELD = "external_mcp_max_calls"
+AGY_EXTERNAL_MCP_MAX_CALLS_MAX = 10_000
 
 
 def timeout_budget_for_mode(mode: str) -> int:
@@ -174,6 +192,28 @@ def timeout_budget_for_mode(mode: str) -> int:
     """
 
     return 3600 if mode == "bounty" else 2700
+
+
+def agy_external_mcp_max_calls(fields: Mapping[str, str]) -> int:
+    """Return agy's authenticated numeric ceiling for metered MCP calls.
+
+    Antigravity has no per-invocation MCP selector or native spend flag. The
+    board can still carry a typed call ceiling in its sealed authority and
+    worker projection. Absence therefore fails safe at zero; a packet may opt
+    in to a bounded positive integer explicitly.
+    """
+
+    raw = _unquote(fields.get(AGY_EXTERNAL_MCP_MAX_CALLS_FIELD, "0"))
+    if re.fullmatch(r"(?:0|[1-9][0-9]{0,4})", raw) is None:
+        raise DispatchContextError(
+            f"{AGY_EXTERNAL_MCP_MAX_CALLS_FIELD} must be a non-negative integer"
+        )
+    value = int(raw)
+    if value > AGY_EXTERNAL_MCP_MAX_CALLS_MAX:
+        raise DispatchContextError(
+            f"{AGY_EXTERNAL_MCP_MAX_CALLS_FIELD} exceeds the board ceiling"
+        )
+    return value
 
 
 class DispatchContextError(ValueError):
@@ -659,6 +699,7 @@ def lane_policy_evidence_for(repo_root: Path, lane: str) -> dict[str, str]:
         "codex": "subscription",
         "claude": "subscription",
         "gemini": "gemini-api-key",
+        "grok": "xai-api-key",
         "kimi": "managed-login",
     }.get(lane)
     if auth_class != expected:
@@ -902,6 +943,26 @@ def undeclared_gitignored_write_scope(
                 + (f": {detail}" if detail else "")
             )
     return tuple(ignored)
+
+
+def resolve_packet_mode(fields: Mapping[str, str]) -> str:
+    """Resolve a packet's mode. THIS is the home of the absent-mode rule.
+
+    An absent `mode:` means a deliberate modeless engagement; an explicitly
+    EMPTY `mode:` is a malformed row and keeps failing downstream. Only true
+    absence defaults.
+
+    The rule used to be restated at three layers -- `bin/send-task.sh`,
+    `dispatch_preflight._validate_contract`, and nowhere here -- and the one
+    layer that GATED (this module, via `require_packet_fields`) was the one
+    that did not have it. A packet omitting `mode:` therefore passed the shell
+    dry-run and the preflight and then died at launch, furthest from its
+    author. The rule now lives here, at the gate; the other layers are mirrors,
+    and `scripts/python/tests/test_dryrun_parity.py` pins them to this function
+    so a mirror cannot drift away from it again.
+    """
+
+    return fields["mode"] if "mode" in fields else MODELESS_MODE
 
 
 def resolve_memory_aperture(fields: Mapping[str, str]) -> str:
@@ -1363,10 +1424,26 @@ def build_context(
     generation: int,
     now: int | None = None,
     nonce: str | None = None,
+    staged: bool = False,
 ) -> dict[str, Any]:
+    """Build one launch context. ``staged=True`` validates a packet that has
+    not been published to the unified mailbox yet -- the `--dry-run` preflight.
+
+    Every launch invariant below still runs against the staged bytes. The one
+    substitution is the on-disk mailbox-location check, which cannot hold
+    before publication: a staged packet is validated against the canonical
+    inbox path it WILL occupy instead. `bin/send-task.sh` copies to exactly
+    that path unconditionally, so the substituted check is the weaker half of
+    the pair; a staged pass therefore does not prove the file is in the
+    mailbox, and proves everything else. The `build` subcommand never sets it.
+    """
+
     root = Path(repo_root).resolve(strict=True)
     packet_path = Path(task_file).resolve(strict=True)
     fields, _body = parse_task_packet(packet_path)
+    # Absent mode -> modeless, resolved once at the gating layer. See
+    # resolve_packet_mode() for why this is the rule's single home.
+    fields = {**fields, "mode": resolve_packet_mode(fields)}
     task_id = _unquote(fields.get("id", ""))
     specialist = _unquote(fields.get("specialist", ""))
     namespace = _unquote(fields.get("source_namespace", ""))
@@ -1398,7 +1475,11 @@ def build_context(
         lane = MODEL_TO_LANE[to_model]
     except KeyError as exc:
         raise DispatchContextError(f"unsupported to_model: {to_model!r}") from exc
-    _validate_mailbox_packet(root, packet_path, task_id)
+    if staged:
+        packet_relative = canonical_mailbox_relative("inbox", task_id)
+    else:
+        _validate_mailbox_packet(root, packet_path, task_id)
+        packet_relative = packet_path.relative_to(root).as_posix()
     row = _runtime_row(root, specialist)
     if row.get("source_namespace") != namespace:
         raise DispatchContextError("packet namespace does not match runtime map")
@@ -1459,10 +1540,25 @@ def build_context(
             + ", ".join(ignored_undeclared)
             + "; declare each exact output in evidence_outputs or remove it from write_scope"
         )
-    # A read-only verdict role declares no artifact and an empty write_scope;
-    # `any()` over an empty scope is always False, so this containment check
-    # rejected it unconditionally. Nothing to contain means nothing to check.
-    if return_artifact and not any(
+    # An EMPTY write_scope means "this task writes only its return artifact".
+    #
+    # The return artifact is the return CONTRACT, not a granted permission: a
+    # task that cannot write its response cannot report at all. A read-only
+    # packet therefore declares no writable paths AND still names an artifact,
+    # and `any()` over an empty scope is always False, so this check refused
+    # exactly that shape. Measured 2026-08-31: 188 real packets in the archive
+    # declare `write_scope: []` with a real return_artifact, 79 of them
+    # review/audit/read-only roles.
+    #
+    # `scripts/send-task.sh:221` has been hiding this by injecting the response
+    # path as the FIRST scope entry on every generated packet, so only PREPARED
+    # packets — the ones reviewers hand-write — ever hit the refusal. That is
+    # one rule with two behaviours depending on which door you came through.
+    #
+    # A DECLARED scope still has to contain the artifact: a packet that grants
+    # path A while returning artifact B is genuinely inconsistent, and that is
+    # the error this check exists to catch.
+    if return_artifact and write_scope and not any(
         _contains(scope, return_artifact) for scope in write_scope
     ):
         raise DispatchContextError("return_artifact is outside packet write_scope")
@@ -1477,7 +1573,7 @@ def build_context(
         )
     explicit_reads = parse_scope(fields.get("read_scope", "[]"), field="read_scope")
     required_reads = (
-        packet_path.relative_to(root).as_posix(),
+        packet_relative,
         canonical_role.relative_to(root).as_posix(),
         adapter.relative_to(root).as_posix(),
     )
@@ -1596,6 +1692,19 @@ def build_context(
     if len(task_prompt.encode("utf-8")) > TRUSTED_LAUNCH_PROMPT_LIMIT:
         raise DispatchContextError("task packet is too large for trusted launch prompt")
 
+    budgets = {
+        # Safety BACKSTOP against a truly-hung / runaway spawn — NOT a normal
+        # deadline. A short deadline was killing legitimate long tasks; instead
+        # Chrono supervises live (dashboard stall visibility) and cancels a stuck
+        # spawn. Real tasks finish well within this; the backstop only catches an
+        # infinite loop so it can't burn unbounded.
+        "timeout_seconds": timeout_budget_for_mode(mode)
+    }
+    if lane == "gemini":
+        budgets[AGY_EXTERNAL_MCP_MAX_CALLS_FIELD] = agy_external_mcp_max_calls(
+            fields
+        )
+
     authority = {
         "schema": AUTHORITY_SCHEMA,
         "task_id": task_id,
@@ -1629,14 +1738,7 @@ def build_context(
         "scheduler_settled": {},
         "network_scope": [LANE_NETWORK_SCOPE[lane], "role-mcp"],
         "action_scope": ["repo-read", "worktree-write", "role-mcp"],
-        "budgets": {
-            # Safety BACKSTOP against a truly-hung / runaway spawn — NOT a normal
-            # deadline. A short deadline was killing legitimate long tasks; instead
-            # Chrono supervises live (dashboard stall visibility) and cancels a stuck
-            # spawn. Real tasks finish well within this; the backstop only catches an
-            # infinite loop so it can't burn unbounded.
-            "timeout_seconds": timeout_budget_for_mode(mode)
-        },
+        "budgets": budgets,
         "expected_result_path": return_artifact,
         "expected_outbox_path": expected_outbox,
         "evidence_outputs": list(evidence_outputs),
@@ -2498,6 +2600,297 @@ def _artifact_summary_excerpt(artifact_text: str, *, limit: int = 600) -> str:
     return excerpt.replace("\x00", "").strip("-").strip()
 
 
+def _verify_candidate_tree_health(
+    worktree_root: Path,
+    write_paths: Sequence[str],
+    bridge_owned_paths: Sequence[str],
+) -> None:  # pylint: disable=too-many-locals,too-many-branches,too-many-statements
+    """Refuse code residue when the candidate adds a tree-health failure.
+
+    ``board-supervisor.sh`` calls :func:`prepare_worktree_outputs` before it
+    calls ``commit_worker_residue`` and ``integrate_worktree_commits``.  This
+    is therefore the last in-scope seam where an outcome gate can inspect the
+    worker's complete candidate (including uncommitted edits) without having
+    to roll back a visible branch mutation.
+
+    The verifier executable comes from the controller's code checkout, while
+    ``VAULT_ROOT`` points it at the candidate worktree.  A worker may alter
+    the data being validated but cannot replace the validator that judges it.
+    Minimal/public fixture trees that do not carry the canonical runtime map
+    are outside this repository-specific gate; the production worktree does.
+    """
+
+    bridge_owned = frozenset(bridge_owned_paths)
+    candidate_scopes = tuple(path for path in write_paths if path not in bridge_owned)
+    if not candidate_scopes:
+        return
+
+    try:
+        candidate_root = Path(worktree_root).resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        raise DispatchContextError(
+            f"candidate tree health root is unavailable: {exc}"
+        ) from exc
+    if not (candidate_root / "shared/specialist-runtime-map.tsv").is_file():
+        return
+
+    verifier = Path(RESIDUE_HEALTH_VERIFIER)
+    if verifier.is_symlink() or not verifier.is_file():
+        raise DispatchContextError(
+            f"candidate tree health verifier is unavailable: {verifier}"
+        )
+    command = ("/bin/bash", str(verifier), "--quiet")
+    environment = dict(os.environ)
+    environment["VAULT_ROOT"] = str(candidate_root)
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    # Run repo tooling on the operator's real PATH, which the supervisor already
+    # preserves for exactly this purpose.
+    #
+    # `board-supervisor.sh` hardens its own PATH to /usr/bin:/bin:/usr/sbin:/sbin
+    # (a boundary for untrusted input) but captures the incoming one as
+    # TRUSTED_HOST_PATH and hands it to the worker launch. This health check is
+    # the SAME kind of consumer -- trusted first-party tooling -- and simply was
+    # not using the mechanism. Under the hardened PATH, `python3` was macOS 3.9,
+    # `validate_capability_homes.py` died importing `tomllib`, and the failure
+    # surfaced as "candidate tree health check refused residue promotion". Five
+    # consecutive tasks were blocked holding correct work (2026-08-31).
+    #
+    # DEFAULT_LANE_PATH was tried here first and is NOT equivalent: it omits
+    # ~/.cargo/bin, so tool probes then fail on cargo-installed tools such as
+    # `anchor`. TRUSTED_HOST_PATH is the operator's actual PATH, so it resolves
+    # everything the host really has.
+    _trusted_path = os.environ.get("TRUSTED_HOST_PATH", "").strip()
+    if _trusted_path:
+        environment["PATH"] = _trusted_path
+    # Judge the RESIDUE, not the host. This gate decides whether a worker's
+    # changes may be promoted, and live capability-home *existence* asks a
+    # different question entirely: is every declared tool installed on this
+    # machine right now. A worker cannot install or uninstall anything, so that
+    # check can only ever fail for reasons the worker is not responsible for.
+    #
+    # It also cannot pass reliably here. A detached supervisor's PATH is
+    # structurally narrower than an interactive shell's -- no Homebrew, no
+    # ~/.local/bin, no ~/.cargo/bin -- so the existence probes were judging a
+    # machine that does not exist. Measured 2026-08-31 on a real worktree:
+    #
+    #   restricted PATH, full gate         rc=1, 140 diagnostics
+    #   restricted PATH, host-independent   rc=0,   0 diagnostics
+    #
+    # Five consecutive tasks were blocked here holding correct work.
+    #
+    # This is a DELIBERATE narrowing, set explicitly rather than inherited. The
+    # previous code popped the variable so an ambient value could not weaken the
+    # gate, and that concern is still honoured: nothing ambient decides this, the
+    # controller does. Live existence keeps its home in the local pre-commit hook
+    # (bin/validate-specialists.sh says so in its own INFO line), which runs on a
+    # real developer PATH where the answer is meaningful. Everything that can
+    # actually detect bad residue -- boundary, parity, index, source, required --
+    # still runs on every settlement.
+    environment["SQUAD_CI_HOST_INDEPENDENT"] = "1"
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=str(candidate_root),
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=RESIDUE_HEALTH_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise DispatchContextError(
+            f"candidate tree health check could not execute: {exc}"
+        ) from exc
+    if completed.returncode == 0:
+        return
+
+    # A whole-tree failure is not evidence that this attempt caused it. Compare
+    # the exact same validator against the immutable merge-base between the
+    # worker and the admitted integration branch. This avoids a second,
+    # maintenance-heavy path-to-validator registry while preserving the gate
+    # for every diagnostic that is new in the candidate.
+    base_branch = os.environ.get("SQUAD_BASE_BRANCH", "").strip()
+    base_comparison_error = ""
+    base_completed: subprocess.CompletedProcess[str] | None = None
+    base_root: Path | None = None
+    if not base_branch:
+        base_comparison_error = "SQUAD_BASE_BRANCH is unavailable"
+    else:
+        try:
+            merge_base = subprocess.run(
+                ("git", "merge-base", "HEAD", f"refs/heads/{base_branch}"),
+                cwd=str(candidate_root),
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            base_commit = merge_base.stdout.strip()
+            if (
+                merge_base.returncode != 0
+                or re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", base_commit) is None
+            ):
+                base_comparison_error = (
+                    "cannot derive admitted merge-base: "
+                    + (merge_base.stderr.strip() or "git merge-base returned no commit")
+                )
+            else:
+                with tempfile.TemporaryDirectory(
+                    prefix="candidate-health-base-"
+                ) as directory:
+                    base_root = Path(directory) / "base"
+                    cloned = subprocess.run(
+                        (
+                            "git",
+                            "clone",
+                            "--quiet",
+                            "--no-checkout",
+                            "--shared",
+                            "--",
+                            str(candidate_root),
+                            str(base_root),
+                        ),
+                        env=environment,
+                        capture_output=True,
+                        text=True,
+                        timeout=60,
+                        check=False,
+                    )
+                    if cloned.returncode != 0:
+                        base_comparison_error = (
+                            "cannot materialize admitted base: "
+                            + (cloned.stderr.strip() or "git clone failed")
+                        )
+                    else:
+                        checked_out = subprocess.run(
+                            ("git", "checkout", "--quiet", "--detach", base_commit),
+                            cwd=str(base_root),
+                            env=environment,
+                            capture_output=True,
+                            text=True,
+                            timeout=60,
+                            check=False,
+                        )
+                        if checked_out.returncode != 0:
+                            base_comparison_error = (
+                                "cannot check out admitted base: "
+                                + (checked_out.stderr.strip() or "git checkout failed")
+                            )
+                        else:
+                            base_environment = dict(environment)
+                            base_environment["VAULT_ROOT"] = str(base_root)
+                            base_completed = subprocess.run(
+                                command,
+                                cwd=str(base_root),
+                                env=base_environment,
+                                capture_output=True,
+                                text=True,
+                                timeout=RESIDUE_HEALTH_TIMEOUT_SECONDS,
+                                check=False,
+                            )
+                            if base_completed.returncode != 0:
+                                candidate_issues = _health_failure_lines(
+                                    completed, candidate_root
+                                )
+                                base_issues = _health_failure_lines(
+                                    base_completed, base_root
+                                )
+                                introduced = candidate_issues - base_issues
+                                if not introduced:
+                                    print(
+                                        "WARNING: candidate tree health failure is "
+                                        "already present at the admitted base; "
+                                        "settlement will not block it, and the "
+                                        "owning CI/release boundary must clear it",
+                                        file=sys.stderr,
+                                    )
+                                    return
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            base_comparison_error = f"base comparison could not execute: {exc}"
+
+    # If the base is healthy, the candidate's failure is necessarily new. If
+    # both fail, only a candidate-only diagnostic is causal. When the base
+    # cannot be measured, causation is unproven and the doctrine requires a
+    # warning rather than denial at this boundary.
+    if base_comparison_error:
+        print(
+            "WARNING: candidate tree health failure could not be compared with "
+            f"the admitted base ({base_comparison_error}); settlement will not "
+            "block it, and the owning CI/release boundary must evaluate it",
+            file=sys.stderr,
+        )
+        return
+
+    combined = "\n".join(
+        part.strip()
+        for part in (completed.stdout or "", completed.stderr or "")
+        if part.strip()
+    ).replace("\x00", "")
+    # Report the lines that explain the FAILURE, not the last 4000 characters.
+    #
+    # This validator emits one JSON line per file, and 71 of them pass, so a
+    # blind tail is 4000 characters of `"status":"pass"` with the actual cause
+    # scrolled off the front. Measured 2026-08-31: five tasks were blocked and
+    # every stored error began mid-token ("ile\":\"...") in a run of pass lines.
+    # The real cause -- `ModuleNotFoundError: No module named 'tomllib'` -- sat
+    # just outside the window each time, so five identical failures read as an
+    # unexplained repository-health verdict and were diagnosed by hand.
+    #
+    # Keep the bound (a validator CAN emit one diagnostic per adapter), but
+    # spend it on lines that carry signal, and say plainly when lines were
+    # dropped so a truncated report can never again look complete.
+    if combined:
+        lines = combined.splitlines()
+        interesting = [line for line in lines if '"status":"pass"' not in line]
+        selected = interesting or lines
+        detail = "\n".join(selected)[-4000:]
+        dropped = len(lines) - len(selected)
+        if dropped > 0:
+            detail = f"[{dropped} passing line(s) omitted]\n{detail}"
+    else:
+        detail = "no output"
+    raise DispatchContextError(
+        "candidate tree health check refused residue promotion: "
+        f"command={' '.join(command)} exit={completed.returncode} output={detail}"
+    )
+
+
+def _health_failure_lines(
+    completed: subprocess.CompletedProcess[str], tree_root: Path
+) -> frozenset[str]:
+    """Return stable, root-independent diagnostics from one failed health run."""
+
+    combined = "\n".join(
+        part.strip()
+        for part in (completed.stdout or "", completed.stderr or "")
+        if part.strip()
+    ).replace("\x00", "")
+    root_text = str(tree_root)
+    stable: set[str] = set()
+    for raw_line in combined.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith(("INFO:", "Total:")):
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            stable.add(line.replace(root_text, "<TREE>"))
+            continue
+        if not isinstance(payload, Mapping):
+            stable.add(line.replace(root_text, "<TREE>"))
+            continue
+        if payload.get("status") == "pass" or payload.get("schema") == (
+            "capability-home-validation/v1"
+        ):
+            continue
+        canonical = json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+        )
+        stable.add(canonical.replace(root_text, "<TREE>"))
+    return frozenset(stable)
+
+
 def prepare_worktree_outputs(
     repo_root: Path,
     worktree_root: Path,
@@ -2730,6 +3123,15 @@ def prepare_worktree_outputs(
             output.data,
             label=f"evidence output {output.relative_path}",
         )
+    _verify_candidate_tree_health(
+        Path(worktree_root),
+        write_paths,
+        (
+            result_relative,
+            outbox_relative,
+            *(output.relative_path for output in prepared_evidence),
+        ),
+    )
     return PreparedWorktreeOutputs(
         task_id=task_id,
         result_relative=result_relative,
@@ -2743,26 +3145,6 @@ def prepare_worktree_outputs(
         run_id=run_id,
         evidence_outputs=tuple(prepared_evidence),
     )
-
-
-def validate_worktree_outputs(
-    repo_root: Path,
-    worktree_root: Path,
-    authority: Mapping[str, object],
-) -> dict[str, object]:
-    """Validate completion sources and destinations without publishing either."""
-
-    prepared = prepare_worktree_outputs(repo_root, worktree_root, authority)
-    aliased = prepared.result_relative == prepared.outbox_relative
-    return {
-        "status": prepared.status,
-        "artifact_path": str(Path(repo_root) / prepared.result_relative),
-        "artifact_sha256": _sha256_bytes(
-            prepared.envelope_bytes if aliased else prepared.result_bytes
-        ),
-        "envelope_path": str(Path(repo_root) / prepared.outbox_relative),
-        "envelope_sha256": _sha256_bytes(prepared.envelope_bytes),
-    }
 
 
 def _project_mode_exit_manifest(
@@ -3185,6 +3567,10 @@ def main(argv: list[str] | None = None) -> int:
     check = subparsers.add_parser("check")
     check.add_argument("--repo-root", type=Path, required=True)
     check.add_argument("--task-file", type=Path, required=True)
+    # A dry-run has not published anything yet, so its packet is a staging copy
+    # outside the mailbox. Without this the location check alone would refuse
+    # every dry-run and the preflight could never be wired at all.
+    check.add_argument("--staged", action="store_true")
     blocked = subparsers.add_parser("blocked")
     blocked.add_argument("--repo-root", type=Path, required=True)
     blocked.add_argument("--task-id", required=True)
@@ -3227,6 +3613,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.task_file,
                 attempt_id="d-" + "0" * 32,
                 generation=1,
+                staged=args.staged,
             )
             # build_context() has already enforced the trusted-launch bound and
             # every other launch invariant by this point; reaching here means the
@@ -3285,6 +3672,8 @@ def main(argv: list[str] | None = None) -> int:
             parser.error("a command is required")
     except DispatchContextError as exc:
         parser.error(str(exc))
+    except OSError as exc:
+        parser.error(f"task packet is unreadable: {exc}")
     return 0
 
 

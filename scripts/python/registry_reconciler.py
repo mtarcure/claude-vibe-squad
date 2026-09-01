@@ -77,6 +77,13 @@ NEVER_LAUNCHED_GRACE = timedelta(
 )
 SETTLED_WITHOUT_ENVELOPE = "work-done-no-envelope"
 REVIEW_REQUIRED = "review-required"
+# The supervisor is the source of this receipt marker. The focused recovery
+# test pins this mirror to bin/board-supervisor.sh because shell/Python receipt
+# producers cannot share an import without reversing the controller dependency.
+CONTROLLER_QUARANTINE_MARKER = (
+    "validated-artifact-after-cli-transport-failure/v1"
+)
+CONTROLLER_QUARANTINE_FAILURE_CLASSES = frozenset({"cli_nonzero", "cli_timeout"})
 COORDINATION_REQUESTED = "COORDINATION-REQUESTED"
 COORDINATION_MIGRATION_SCHEMA = "coordination-status-migration/v1"
 COORDINATION_MIGRATION_FIELD = "coordination_status_migration"
@@ -107,6 +114,7 @@ LANE_AUTHOR_FAMILY = {
     "gpt-codex": "openai",
     "claude": "anthropic",
     "gemini": "google",
+    "grok": "xai",
     "kimi": "moonshot",
 }
 
@@ -126,6 +134,7 @@ REVIEW_VERDICT_SPECIALISTS = frozenset({"code-reviewer", "security-analyst", "sk
 TEST_ISOLATION_ENV = "SQUAD_TEST_ISOLATION"
 CHRONO_NOTIFY_LOCKDIR = STATE_DIR / "chrono-notify.lockdir"
 CHRONO_NOTIFY_RECEIPTS_DIR = STATE_DIR / "chrono-notify-receipts"
+NOTIFICATION_PENDING_EVENTS_FIELD = "notification_pending_events"
 
 
 def utc_date() -> str:
@@ -508,32 +517,267 @@ def emit_event(status: str, task_ref: str, summary: str, nudge: str) -> bool:
     # recovery record, and withholding it would degrade replay. Only the
     # host-global page is gated (see registered_in_canonical_registry).
     append_chrono_queue(status, task_ref, summary)
+    return deliver_event(status, task_ref, nudge)
+
+
+def deliver_event(status: str, task_ref: str, nudge: str) -> bool:
+    """Deliver an event whose durable queue record already exists."""
+
     if not registered_in_canonical_registry(task_ref.rsplit("/", 1)[-1]):
         return False
     return nudge_chrono(nudge, notification_event_key(task_ref, status))
 
 
+def notification_delivery_key(
+    entry: dict[str, Any], task_id: str, state: str
+) -> tuple[str, int]:
+    """Return the registry acknowledgement key and fenced generation."""
+
+    generation = int(entry.get("delivery_generation") or 1)
+    return f"{task_id}|{state}|{generation}", generation
+
+
+def _pending_notification_events(
+    entry: dict[str, Any], *, create: bool = False
+) -> dict[str, Any]:
+    pending = entry.get(NOTIFICATION_PENDING_EVENTS_FIELD)
+    if pending is None:
+        if not create:
+            return {}
+        pending = {}
+        entry[NOTIFICATION_PENDING_EVENTS_FIELD] = pending
+    if not isinstance(pending, dict):
+        raise ValueError(
+            f"{NOTIFICATION_PENDING_EVENTS_FIELD} must be an object"
+        )
+    return pending
+
+
 def notification_due(
     entry: dict[str, Any], task_id: str, state: str, now: datetime
 ) -> bool:
-    """Persist an exactly-once notification key for one task state/generation.
+    """Persist retry intent without consuming the delivered-event key.
 
-    This function only mutates the caller-owned entry. `reconcile()` persists
-    that mutation in the same locked atomic registry write as the state
-    transition before it emits the event outside the registry lock.
-    A watcher restart therefore cannot turn the same response into an unbounded
-    notification loop. Recovery is provided by durable queue state; repeating an
-    identical notification is not a delivery mechanism.
+    ``notification_key`` remains the acknowledgement that delivery succeeded.
+    A distinct pending record is committed with the lifecycle transition before
+    the registry lock is released. Matching pending work is replayed from its
+    durable payload by ``reconcile()``; it is not treated as already sent.
     """
-    generation = int(entry.get("delivery_generation") or 1)
-    key = f"{task_id}|{state}|{generation}"
-    previous = str(entry.get("notification_key") or "")
-    if previous == key:
+
+    key, generation = notification_delivery_key(entry, task_id, state)
+    if str(entry.get("notification_key") or "") == key:
         return False
-    entry["notification_key"] = key
-    entry["notification_state"] = state
-    entry["notification_delivery_generation"] = generation
-    entry["notification_last_emitted_at"] = now.isoformat()
+    pending = _pending_notification_events(entry, create=True)
+    if key in pending:
+        return False
+    pending[key] = {
+        "state": state,
+        "delivery_generation": generation,
+        "created_at": now.isoformat(),
+        "outcome": "pending",
+        "attempt_count": 0,
+        "failure_count": 0,
+        "queue_recorded": False,
+    }
+    return True
+
+
+def _notification_state_token(value: Any) -> str:
+    return str(value or "").strip().replace("_", "-").casefold()
+
+
+def _prepare_notification_deliveries(
+    registry: dict[str, Any],
+    events: list[tuple[str, str, str, str]],
+    task_id_filter: str | None,
+) -> tuple[list[tuple[str, str, str, str, str | None, bool]], bool]:
+    """Bind new event payloads and prepend durable retries.
+
+    The pending record must carry the complete event because terminal lifecycle
+    transitions such as ``in-flight`` -> ``complete`` are not reconstructable on
+    the next pass. Unmanaged events retain their historical one-shot behavior.
+    """
+
+    existing: list[tuple[str, dict[str, Any]]] = []
+    for task_id, entry in registry.items():
+        if task_id_filter and task_id != task_id_filter:
+            continue
+        if not isinstance(entry, dict):
+            continue
+        for key, record in _pending_notification_events(entry).items():
+            if not isinstance(record, dict):
+                raise ValueError(f"pending notification {key!r} must be an object")
+            if isinstance(record.get("event"), dict):
+                existing.append((key, record))
+
+    bound: dict[int, tuple[str, dict[str, Any]]] = {}
+    payload_changed = False
+    for index, (status, task_ref, summary, nudge) in enumerate(events):
+        task_id = task_ref.rsplit("/", 1)[-1]
+        entry = registry.get(task_id)
+        if not isinstance(entry, dict):
+            continue
+        candidates: list[tuple[str, dict[str, Any]]] = []
+        for key, record in _pending_notification_events(entry).items():
+            if not isinstance(record, dict) or isinstance(record.get("event"), dict):
+                continue
+            if _notification_state_token(record.get("state")) == _notification_state_token(
+                status
+            ):
+                candidates.append((key, record))
+        if not candidates:
+            continue
+        current_generation = int(entry.get("delivery_generation") or 1)
+        key, record = next(
+            (
+                candidate
+                for candidate in candidates
+                if int(candidate[1].get("delivery_generation") or 1)
+                == current_generation
+            ),
+            candidates[0],
+        )
+        record["event"] = {
+            "status": status,
+            "task_ref": task_ref,
+            "summary": summary,
+            "nudge": nudge,
+        }
+        bound[index] = (key, record)
+        payload_changed = True
+
+    deliveries: list[tuple[str, str, str, str, str | None, bool]] = []
+    bound_keys = {key for key, _record in bound.values()}
+    for key, record in existing:
+        if key in bound_keys:
+            continue
+        event = record["event"]
+        deliveries.append(
+            (
+                str(event.get("status") or ""),
+                str(event.get("task_ref") or ""),
+                str(event.get("summary") or ""),
+                str(event.get("nudge") or ""),
+                key,
+                bool(record.get("queue_recorded")),
+            )
+        )
+    for index, event in enumerate(events):
+        status, task_ref, summary, nudge = event
+        binding = bound.get(index)
+        if binding is None:
+            deliveries.append((status, task_ref, summary, nudge, None, False))
+            continue
+        key, record = binding
+        deliveries.append(
+            (
+                status,
+                task_ref,
+                summary,
+                nudge,
+                key,
+                bool(record.get("queue_recorded")),
+            )
+        )
+    return deliveries, payload_changed
+
+
+def acknowledge_notification_delivery(
+    task_id: str,
+    pending_key: str,
+    delivered_at: datetime | None = None,
+) -> bool:
+    """Promote one exact pending attempt to the delivered-event marker."""
+
+    delivered_at = delivered_at or datetime.now(timezone.utc)
+    with locked_registry() as _lock:
+        registry = load_registry()
+        entry = registry.get(task_id)
+        if not isinstance(entry, dict):
+            raise ValueError(f"notification task missing from registry: {task_id}")
+        pending = _pending_notification_events(entry)
+        record = pending.get(pending_key)
+        if record is None:
+            if str(entry.get("notification_key") or "") == pending_key:
+                return False
+            raise ValueError(f"pending notification missing: {pending_key}")
+        if not isinstance(record, dict):
+            raise ValueError(f"pending notification {pending_key!r} must be an object")
+
+        state = str(record.get("state") or "")
+        generation = int(record.get("delivery_generation") or 1)
+        created_at = str(record.get("created_at") or "")
+        current_created_at = parse_dt(entry.get("notification_event_created_at"))
+        pending_created_at = parse_dt(created_at)
+        publish_marker = (
+            str(entry.get("notification_key") or "") == pending_key
+            or current_created_at is None
+            or pending_created_at is None
+            or pending_created_at >= current_created_at
+        )
+        if publish_marker:
+            entry["notification_key"] = pending_key
+            entry["notification_state"] = state
+            entry["notification_delivery_generation"] = generation
+            entry["notification_event_created_at"] = created_at
+            entry["notification_last_emitted_at"] = delivered_at.isoformat()
+            entry["notification_last_attempt_at"] = delivered_at.isoformat()
+            entry["notification_attempt_count"] = int(
+                record.get("attempt_count") or 0
+            ) + 1
+            entry["notification_failure_count"] = int(
+                record.get("failure_count") or 0
+            )
+            if record.get("last_failed_at"):
+                entry["notification_last_failed_at"] = record["last_failed_at"]
+
+        del pending[pending_key]
+        if not pending:
+            entry.pop(NOTIFICATION_PENDING_EVENTS_FIELD, None)
+        atomic_write(
+            REGISTRY_PATH,
+            json.dumps(registry, indent=2, ensure_ascii=False) + "\n",
+        )
+    return True
+
+
+def record_notification_delivery_failure(
+    task_id: str,
+    pending_key: str,
+    failed_at: datetime | None = None,
+) -> bool:
+    """Persist a retryable negative attempt after queueing succeeded."""
+
+    failed_at = failed_at or datetime.now(timezone.utc)
+    with locked_registry() as _lock:
+        registry = load_registry()
+        entry = registry.get(task_id)
+        if not isinstance(entry, dict):
+            raise ValueError(f"notification task missing from registry: {task_id}")
+        pending = _pending_notification_events(entry)
+        record = pending.get(pending_key)
+        if record is None:
+            if str(entry.get("notification_key") or "") == pending_key:
+                return False
+            raise ValueError(f"pending notification missing: {pending_key}")
+        if not isinstance(record, dict):
+            raise ValueError(f"pending notification {pending_key!r} must be an object")
+        # A later reconcile must retry delivery, but an unchanged negative
+        # outcome is already durable. Rewriting counters/timestamps on every
+        # watcher tick breaks the registry's settled-byte stability without
+        # adding recovery information.
+        if record.get("outcome") == "failed" and record.get("queue_recorded") is True:
+            return False
+        record["outcome"] = "failed"
+        record["attempt_count"] = int(record.get("attempt_count") or 0) + 1
+        record["failure_count"] = int(record.get("failure_count") or 0) + 1
+        record["last_attempt_at"] = failed_at.isoformat()
+        record["last_failed_at"] = failed_at.isoformat()
+        record["queue_recorded"] = True
+        atomic_write(
+            REGISTRY_PATH,
+            json.dumps(registry, indent=2, ensure_ascii=False) + "\n",
+        )
     return True
 
 
@@ -1197,6 +1441,19 @@ def raw_response_status(path: Path) -> str:
     return strip_frontmatter(read_text(path)).get("status", "").strip()
 
 
+def response_controller_quarantine_active(path: Path) -> bool:
+    """Recognize the controller's exact quarantine marker in an envelope body."""
+
+    text = read_text(path)
+    if not text.startswith("---\n"):
+        return False
+    _header, boundary, body = text[4:].partition("---\n\n")
+    if not boundary:
+        return False
+    marker_line = f"controller_quarantine: {CONTROLLER_QUARANTINE_MARKER}"
+    return body.partition("\n")[0] == marker_line
+
+
 def valid_response_status(status: str) -> bool:
     """True only for a canonical settleable status (rejects '', 'in-flight', typos)."""
     return status in SETTLEABLE_STATUSES
@@ -1330,6 +1587,7 @@ def landed_response(
 
 
 RECEIPT_DIAGNOSTIC_REASON_LIMIT = 240
+RECEIPT_CLI_EXCERPT_LIMIT = 2048
 
 # Every registry key `receipt_failure_diagnostics` knows how to produce. A
 # re-reconcile that finds a receipt WITHOUT one of these clears the stale value
@@ -1340,6 +1598,17 @@ RECEIPT_DIAGNOSTIC_FIELDS = (
     "failure_class",
     "reason",
     "returncode",
+    "termination_kind",
+    "signal_number",
+    "signal_name",
+    "cli_stdout_excerpt",
+    "cli_stdout_bytes",
+    "cli_stdout_truncated",
+    "cli_stderr_excerpt",
+    "cli_stderr_bytes",
+    "cli_stderr_truncated",
+    "controller_quarantine",
+    "response_status",
     "evidence_status",
     "evidence_ref",
     "evidence_commit",
@@ -1625,6 +1894,39 @@ def receipt_failure_diagnostics(receipt: Path) -> dict[str, Any]:
     returncode = payload.get("returncode")
     if isinstance(returncode, int) and not isinstance(returncode, bool):
         diagnostics["returncode"] = returncode
+    termination_kind = payload.get("termination_kind")
+    if termination_kind in {"controller", "exit", "signal", "timeout"}:
+        diagnostics["termination_kind"] = termination_kind
+    signal_number = payload.get("signal_number")
+    if isinstance(signal_number, int) and not isinstance(signal_number, bool):
+        diagnostics["signal_number"] = signal_number
+    signal_name = payload.get("signal_name")
+    if isinstance(signal_name, str) and signal_name.strip():
+        diagnostics["signal_name"] = signal_name.strip()[:64]
+    for stream in ("stdout", "stderr"):
+        excerpt = payload.get(f"cli_{stream}_excerpt")
+        if isinstance(excerpt, str):
+            diagnostics[f"cli_{stream}_excerpt"] = excerpt.replace("\x00", "")[
+                -RECEIPT_CLI_EXCERPT_LIMIT:
+            ]
+        byte_count = payload.get(f"cli_{stream}_bytes")
+        if isinstance(byte_count, int) and not isinstance(byte_count, bool):
+            diagnostics[f"cli_{stream}_bytes"] = byte_count
+        truncated = payload.get(f"cli_{stream}_truncated")
+        if isinstance(truncated, bool):
+            diagnostics[f"cli_{stream}_truncated"] = truncated
+    controller_quarantine = (
+        payload.get("schema") == "board-dispatch-receipt/v2"
+        and payload.get("status") == "blocked"
+        and payload.get("terminal_outcome") == "needs_review"
+        and payload.get("response_status") == "needs_review"
+        and payload.get("controller_quarantine") == CONTROLLER_QUARANTINE_MARKER
+        and payload.get("cli_exec_succeeded") is False
+        and payload.get("failure_class") in CONTROLLER_QUARANTINE_FAILURE_CLASSES
+    )
+    if controller_quarantine:
+        diagnostics["controller_quarantine"] = CONTROLLER_QUARANTINE_MARKER
+        diagnostics["response_status"] = "needs_review"
     # The salvage receipt already records WHERE a terminal failure's work
     # survived. Until now this function read straight past it, so the board
     # computed the answer and never printed it.
@@ -1760,7 +2062,19 @@ def terminal_board_receipt(
         if strict_outcome is None:
             return None, "", "", None
         raw_status = strict_outcome
-        status = "blocked" if raw_status in {"failed", "denied"} else raw_status
+        quarantine_candidate = (
+            payload.get("status") == "blocked"
+            and payload.get("response_status") == "needs_review"
+            and raw_status == "needs_review"
+        )
+        # A raw block is the fail-closed baseline. Only the complete controller
+        # fence lifted by receipt_failure_diagnostics may turn this candidate
+        # into the quarantine review hold later in reconciliation.
+        status = (
+            "blocked"
+            if raw_status in {"failed", "denied"} or quarantine_candidate
+            else raw_status
+        )
         return (receipt, status, raw_status, str(completed_at)) if valid_response_status(status) else (None, "", "", None)
     if schema != "v1" or payload.get("schema") not in (None, "board-dispatch-receipt/v1"):
         return None, "", "", None
@@ -2139,20 +2453,6 @@ def worker_response_issue(
 # A lowercase 64-hex digest, not glued to further hex on either side.
 _SHA256_TOKEN_RE = re.compile(r"(?<![0-9a-fA-F])[0-9a-f]{64}(?![0-9a-fA-F])")
 
-# Prose that names a digest as an ARTIFACT BUNDLE specifically. Deliberately
-# narrow: a response body quotes commit hashes, contract hashes and blob hashes
-# constantly, and holding a task over one of those would be a false accusation
-# rather than a safety margin.
-# The gap deliberately allows ordinary words ("the artifact bundle hash is X"):
-# an earlier hex-only gap matched a backticked digest but not that sentence,
-# which is most of how humans actually write it. Lazy and same-line bounded, so
-# the nearest digest within 40 characters is the one claimed.
-_BUNDLE_PROSE_RE = re.compile(
-    r"artifact[\s_\-]*bundle(?:[\s_\-]*sha256)?[^\n]{0,40}?"
-    r"((?<![0-9a-fA-F])[0-9a-f]{64}(?![0-9a-fA-F]))",
-    re.IGNORECASE,
-)
-
 # A file that can bind a bundle digest to bytes: the run manifest or the
 # artifact list that enumerates {path, sha256, role} tuples.
 _MANIFEST_NAME_RE = re.compile(r"(manifest|artifact-list).*\.json$", re.IGNORECASE)
@@ -2165,20 +2465,15 @@ DECLARED_HASH_SCAN_FILE_LIMIT = 2048
 
 
 def declared_bundle_hashes(response: Path) -> list[str]:
-    """Digests this response offers as its artifact-bundle identity."""
+    """Valid bundle digests explicitly declared in response frontmatter."""
 
-    text = read_text(response)
-    declared: list[str] = []
     frontmatter = (
-        strip_frontmatter(text).get("artifact_bundle_sha256", "").strip().lower()
+        strip_frontmatter(read_text(response))
+        .get("artifact_bundle_sha256", "")
+        .strip()
+        .lower()
     )
-    if _SHA256_TOKEN_RE.fullmatch(frontmatter):
-        declared.append(frontmatter)
-    for match in _BUNDLE_PROSE_RE.finditer(text):
-        value = match.group(1).lower()
-        if value not in declared:
-            declared.append(value)
-    return declared
+    return [frontmatter] if _SHA256_TOKEN_RE.fullmatch(frontmatter) else []
 
 
 def declared_hash_search_roots(entry: dict[str, Any]) -> list[Path]:
@@ -2238,7 +2533,7 @@ def bundle_declaring_file(entry: dict[str, Any], digest: str) -> str | None:
 
 
 def declared_hash_issue(entry: dict[str, Any], response: Path) -> str:
-    """Refuse to settle a response on a digest that resolves to nothing.
+    """Refuse to settle an explicit bundle declaration that resolves to nothing.
 
     TASK-2026-08-11-0180 settled `complete` declaring an artifact bundle whose
     manifest was never reachable from the repository. Its pinned contract set
@@ -2539,6 +2834,45 @@ def response_review_pending(
     return True, executing_lane, review_lane
 
 
+def controller_quarantine_review_target(
+    entry: dict[str, Any],
+) -> tuple[str, str]:
+    """Select a fail-closed review target independent of packet trigger state."""
+
+    executing_lane = _lane(entry.get("to_model")) or _specialist_primary_lane(
+        str(entry.get("specialist") or "")
+    )
+    review_lane = _lane(entry.get("review_model"))
+    if review_lane in {"", "none"}:
+        review_lane = INVALID_REVIEW_LANE
+    return executing_lane or "unknown", review_lane
+
+
+def controller_quarantine_hold_reason(
+    executing_lane: str, review_lane: str
+) -> str:
+    if review_lane == INVALID_REVIEW_LANE:
+        return (
+            "controller-quarantined output requires a distinct-family review lane"
+        )
+    if executing_lane == review_lane:
+        return (
+            "controller-quarantined output requires anti-affinity; executing and "
+            f"review lanes are both {review_lane}"
+        )
+    return (
+        "controller-quarantined output awaits explicit Chrono settlement after "
+        f"{review_lane} review"
+    )
+
+
+def controller_quarantine_active(diagnostics: dict[str, Any]) -> bool:
+    return (
+        diagnostics.get("controller_quarantine") == CONTROLLER_QUARANTINE_MARKER
+        and diagnostics.get("response_status") == "needs_review"
+    )
+
+
 def _review_reference(raw: str) -> tuple[Path, str]:
     """Resolve an explicit review reference to a mailbox response file."""
     path = Path(raw).expanduser()
@@ -2563,9 +2897,125 @@ def _review_reference(raw: str) -> tuple[Path, str]:
     return resolved, str(relative)
 
 
-def review_verdict(review_path: Path) -> str:
-    """Return the normalized structured verdict from a review response."""
-    return strip_frontmatter(read_text(review_path)).get("verdict", "").strip().upper()
+def _registry_review_artifact(
+    review_path: Path,
+    registry: dict[str, Any],
+    response_meta: dict[str, str],
+) -> Path | None:
+    """Resolve a distinct review artifact from registry-owned provenance only."""
+
+    suffix = "-response.md"
+    review_task_id = (
+        review_path.name[: -len(suffix)]
+        if review_path.name.endswith(suffix)
+        else ""
+    )
+    review_entry = registry.get(review_task_id)
+    if not isinstance(review_entry, dict):
+        return None
+
+    response_declared = response_meta.get("return_artifact", "").strip()
+    raw = review_entry.get("return_artifact")
+    if raw is None:
+        # A response-only declaration is inert. Historical canonical envelopes
+        # carry this echo even when their registry row predates return-artifact
+        # storage; it must never become a fallback source or a new refusal.
+        return None
+    if not isinstance(raw, str) or not raw.strip():
+        raise ValueError(
+            f"review task registry entry has an invalid return_artifact: "
+            f"{review_task_id}"
+        )
+    registry_declared = raw.strip()
+    if response_declared and response_declared != registry_declared:
+        raise ValueError(
+            "review response return_artifact conflicts with registry provenance: "
+            f"expected={registry_declared} observed={response_declared}"
+        )
+
+    declared = Path(registry_declared).expanduser()
+    if (
+        not declared.parts
+        or declared == Path(".")
+        or any(part in {"", ".", ".."} for part in declared.parts)
+    ):
+        raise ValueError(
+            "review task registry return_artifact is not a canonical in-root path"
+        )
+    try:
+        root = VAULT_ROOT.resolve(strict=True)
+        candidate = declared if declared.is_absolute() else VAULT_ROOT / declared
+        resolved = candidate.resolve(strict=True)
+    except FileNotFoundError as exc:
+        raise ValueError(
+            "review task registry return_artifact does not exist"
+        ) from exc
+    except (OSError, RuntimeError) as exc:
+        raise ValueError(
+            "review task registry return_artifact cannot be resolved"
+        ) from exc
+    if candidate.is_symlink():
+        raise ValueError("review task registry return_artifact must not be a symlink")
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(
+            "review task registry return_artifact must resolve inside VAULT_ROOT"
+        ) from exc
+    if not resolved.is_file():
+        raise ValueError("review task registry return_artifact must be a regular file")
+    if resolved == review_path.resolve(strict=True):
+        return None
+    return resolved
+
+
+def _strict_review_artifact_frontmatter(artifact_path: Path) -> dict[str, str]:
+    """Parse one artifact's flat frontmatter with the promotion parser contract."""
+
+    try:
+        text = artifact_path.read_bytes().decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError("review return artifact is not valid UTF-8") from exc
+    except OSError as exc:
+        raise ValueError(f"review return artifact cannot be read: {exc}") from exc
+
+    # The output bridge and settlement must agree on flat frontmatter. Import
+    # the bridge's parser locally so notification-only reconciler paths retain
+    # their current minimal dependency surface.
+    try:
+        from dispatch_context_builder import (  # noqa: PLC0415
+            DispatchContextError,
+            _frontmatter_records,
+            _parse_flat_frontmatter,
+        )
+    except ImportError as exc:  # fail closed only when the fallback is needed
+        raise ValueError(
+            "review return artifact parser is unavailable"
+        ) from exc
+    try:
+        fields, _closing = _parse_flat_frontmatter(
+            _frontmatter_records(text), subject="review return artifact"
+        )
+    except DispatchContextError as exc:
+        raise ValueError(str(exc)) from exc
+    return fields
+
+
+def review_verdict(review_path: Path, registry: dict[str, Any]) -> str:
+    """Resolve the response verdict, falling back lazily to its artifact."""
+
+    response_meta = strip_frontmatter(read_text(review_path))
+    response_verdict = response_meta.get("verdict", "").strip().upper()
+    if response_verdict:
+        return response_verdict
+
+    artifact_path = _registry_review_artifact(
+        review_path, registry, response_meta
+    )
+    if artifact_path is not None:
+        artifact_meta = _strict_review_artifact_frontmatter(artifact_path)
+        return artifact_meta.get("verdict", "").strip().upper()
+    return ""
 
 
 # The three queue statuses this handler can write. They are distinct
@@ -2635,9 +3085,11 @@ def memory_promotion_message(
         return (MEMORY_PROMOTION_FAILED_STATUS, f"memory promotion failed: {exc}")
 
 
-def require_approval_verdict(review_path: Path, force: bool) -> tuple[str, bool]:
+def require_approval_verdict(
+    review_path: Path, registry: dict[str, Any], force: bool
+) -> tuple[str, bool]:
     """Fail closed unless the structured review verdict is exactly APPROVE."""
-    verdict = review_verdict(review_path)
+    verdict = review_verdict(review_path, registry)
     forced_override = verdict != "APPROVE" and force
     if verdict != "APPROVE" and not force:
         raise ValueError(
@@ -2804,7 +3256,14 @@ def settle_review(task_id: str, review_ref: str, *, force: bool = False) -> bool
                 issue = worker_response_issue(task_id, entry, response, schema)
                 if issue:
                     raise ValueError(f"task response does not match dispatched worker fence: {issue}")
-            if status not in {"complete", "needs_review"}:
+            # ``needs_human`` can be the correct worker outcome for a task
+            # that stopped at an operator/write-scope boundary.  Once the
+            # task is already held for mandatory review, that status must not
+            # deadlock the only path that validates the configured reviewer,
+            # family anti-affinity, and exact APPROVE verdict.  This widens
+            # only the response-status admission below; every review and
+            # verdict check remains on the settlement path.
+            if status not in {"complete", "needs_review", "needs_human"}:
                 raise ValueError(f"task response status cannot be settled: {status or 'missing'}")
             if normalized_ref == str(response.relative_to(VAULT_ROOT)):
                 raise ValueError("--review-ref must not be the task's own response")
@@ -2823,7 +3282,9 @@ def settle_review(task_id: str, review_ref: str, *, force: bool = False) -> bool
                 _validate_standard_review(task_id, entry, _review_path, registry)
                 settled_by = "chrono-explicit"
 
-            verdict, forced_override = require_approval_verdict(_review_path, force)
+            verdict, forced_override = require_approval_verdict(
+                _review_path, registry, force
+            )
 
             now = datetime.now(timezone.utc)
             update_capability_card_drift(entry, now)
@@ -4029,6 +4490,9 @@ def migrate_untriggered_needs_review(
 
 def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]]:
     events: list[tuple[str, str, str, str]] = []
+    delivery_events: list[
+        tuple[str, str, str, str, str | None, bool]
+    ] = []
     coordination_queue_records: list[tuple[str, str, str]] = []
     archive_requests: list[tuple[str, str]] = []
     with locked_registry() as _lock:
@@ -4049,14 +4513,31 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                         task_id, raw_entry, schema, process_descriptor
                     )
                 )
+                receipt_diagnostics = (
+                    receipt_failure_diagnostics(terminal_receipt)
+                    if terminal_receipt is not None
+                    else {}
+                )
+                controller_quarantine = controller_quarantine_active(
+                    receipt_diagnostics
+                )
                 if (
                     terminal_receipt is not None
-                    and receipt_status in {"blocked", "complete"}
+                    and (
+                        receipt_status in {"blocked", "complete"}
+                        or controller_quarantine
+                    )
                 ):
                     namespace = _canonical_mailbox_label()
-                    pending, _executing_lane, review_lane = (
-                        response_review_pending(raw_entry, receipt_status)
-                    )
+                    if controller_quarantine:
+                        _executing_lane, review_lane = (
+                            controller_quarantine_review_target(raw_entry)
+                        )
+                        pending = True
+                    else:
+                        pending, _executing_lane, review_lane = (
+                            response_review_pending(raw_entry, receipt_status)
+                        )
                     mark_delivery_terminal(
                         task_id,
                         raw_entry,
@@ -4068,9 +4549,6 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                     )
                     raw_entry["terminal_receipt_status"] = raw_receipt_status
                     raw_entry["completed_at"] = receipt_completed_at
-                    receipt_diagnostics = receipt_failure_diagnostics(
-                        terminal_receipt
-                    )
                     apply_receipt_diagnostics(raw_entry, receipt_diagnostics)
                     preserved = preserved_work_statement(
                         task_id, raw_entry, receipt_diagnostics
@@ -4079,9 +4557,16 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                     if pending:
                         raw_entry["status"] = REVIEW_REQUIRED
                         raw_entry["review_required_by"] = review_lane
+                        reason = (
+                            controller_quarantine_hold_reason(
+                                _executing_lane, review_lane
+                            )
+                            if controller_quarantine
+                            else review_hold_reason(_executing_lane, review_lane)
+                        )
                         messages.append(
                             f"review-required {task_id} -> terminal board receipt "
-                            f"{raw_receipt_status} awaits {review_lane} review"
+                            f"{raw_receipt_status}; {reason}"
                         )
                         append_terminal_event(
                             events,
@@ -4091,9 +4576,9 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                             now,
                             "REVIEW-REQUIRED",
                             f"terminal board status={raw_receipt_status}; "
-                            f"disposition=awaiting {review_lane} review; {preserved}",
+                            f"disposition={reason}; {preserved}",
                             f"REVIEW REQUIRED: {task_id} ended with terminal board "
-                            f"status {raw_receipt_status} and awaits {review_lane} review. "
+                            f"status {raw_receipt_status}; {reason}. "
                             f"{preserved}.",
                         )
                     else:
@@ -4262,7 +4747,8 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                             )
                         )
                     continue
-                # A declared hash must resolve to something a reviewer can open.
+                # An explicitly declared bundle hash must resolve to something a
+                # reviewer can open. Body prose never creates this declaration.
                 # This runs AFTER the pin/fence checks so an off-attempt
                 # response is rejected on identity first, and it HOLDS rather
                 # than rejects: the response file and the deliverable are left
@@ -4324,9 +4810,17 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                 )
                 worker_status = status
                 raw_worker_status = raw_response_status(response)
-                resolved_status, legacy_coordination = resolve_worker_status(
-                    raw_entry, worker_status
+                controller_quarantine = (
+                    worker_status == "needs_review"
+                    and response_controller_quarantine_active(response)
                 )
+                if controller_quarantine:
+                    resolved_status = "needs_review"
+                    legacy_coordination = False
+                else:
+                    resolved_status, legacy_coordination = resolve_worker_status(
+                        raw_entry, worker_status
+                    )
                 explicit_coordination, coordination_summary = (
                     response_coordination_request(
                         response, include_legacy=legacy_coordination
@@ -4363,9 +4857,15 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                 # its own response or on any parsed review file. It stays held
                 # until Chrono explicitly runs --settle-review after reading the
                 # review. Unknown or malformed review state is therefore inert.
-                pending, executing_lane, review_lane = response_review_pending(
-                    raw_entry, worker_status
-                )
+                if controller_quarantine:
+                    executing_lane, review_lane = controller_quarantine_review_target(
+                        raw_entry
+                    )
+                    pending = True
+                else:
+                    pending, executing_lane, review_lane = response_review_pending(
+                        raw_entry, worker_status
+                    )
                 if pending:
                     newly_flagged = current_status != REVIEW_REQUIRED
                     lane_changed = raw_entry.get("review_required_by") != review_lane
@@ -4400,7 +4900,13 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                     )
                     if hold_changed:
                         changed += 1
-                    reason = review_hold_reason(executing_lane, review_lane)
+                    reason = (
+                        controller_quarantine_hold_reason(
+                            executing_lane, review_lane
+                        )
+                        if controller_quarantine
+                        else review_hold_reason(executing_lane, review_lane)
+                    )
                     next_action = review_hold_next_action(executing_lane, review_lane)
                     if newly_flagged or lane_changed:
                         messages.append(f"review-required {task_id} -> {reason}")
@@ -4484,6 +4990,9 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                 )
                 receipt_path = str(terminal_receipt.relative_to(VAULT_ROOT))
                 receipt_diagnostics = receipt_failure_diagnostics(terminal_receipt)
+                controller_quarantine = controller_quarantine_active(
+                    receipt_diagnostics
+                )
                 receipt_response: Path | None = None
                 receipt_response_status = ""
                 if schema == "v2":
@@ -4497,9 +5006,18 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                         receipt_response = None
                 explicit_coordination = False
                 coordination_summary = ""
-                resolved_receipt_status, legacy_coordination = resolve_worker_status(
-                    raw_entry, receipt_status
-                )
+                if controller_quarantine:
+                    # This is a controller disposition authenticated by the V2
+                    # receipt fence, not the worker's status intent. In
+                    # particular, do not call resolve_worker_status(): its
+                    # ordinary untriggered needs_review -> complete coercion is
+                    # intentionally inapplicable to quarantined partial work.
+                    resolved_receipt_status = "needs_review"
+                    legacy_coordination = False
+                else:
+                    resolved_receipt_status, legacy_coordination = resolve_worker_status(
+                        raw_entry, receipt_status
+                    )
                 if receipt_response is not None:
                     explicit_coordination, coordination_summary = (
                         response_coordination_request(
@@ -4522,18 +5040,30 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                         if receipt_response is not None
                         else f"terminal board receipt reported {receipt_status} without a declared review trigger"
                     )
-                raw_worker_status = (
-                    raw_receipt_status
-                    if registry_status(raw_receipt_status)
-                    else receipt_status
-                )
-                outcome_metadata_changed = apply_worker_outcome_metadata(
-                    raw_entry,
-                    reported_status=raw_worker_status,
-                    coordination_requested=coordination_requested,
-                    coordination_source=coordination_source,
-                    coordination_summary=coordination_summary,
-                )
+                if controller_quarantine:
+                    outcome_metadata_changed = apply_worker_outcome_metadata(
+                        raw_entry,
+                        reported_status="",
+                        coordination_requested=coordination_requested,
+                        coordination_source=coordination_source,
+                        coordination_summary=coordination_summary,
+                    )
+                    if "worker_reported_status" in raw_entry:
+                        del raw_entry["worker_reported_status"]
+                        outcome_metadata_changed = True
+                else:
+                    raw_worker_status = (
+                        raw_receipt_status
+                        if registry_status(raw_receipt_status)
+                        else receipt_status
+                    )
+                    outcome_metadata_changed = apply_worker_outcome_metadata(
+                        raw_entry,
+                        reported_status=raw_worker_status,
+                        coordination_requested=coordination_requested,
+                        coordination_source=coordination_source,
+                        coordination_summary=coordination_summary,
+                    )
                 # This route fires exactly when NO response envelope was
                 # promoted -- the shape where a reader has nothing but the
                 # notification text to go on, and so the one place the preserved
@@ -4560,11 +5090,23 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                 raw_entry["terminal_receipt_path"] = receipt_path
                 raw_entry["terminal_receipt_status"] = raw_receipt_status
                 raw_entry.pop("invalid_response_status", None)
-                pending, executing_lane, review_lane = response_review_pending(
-                    raw_entry, receipt_status
-                )
+                if controller_quarantine:
+                    executing_lane, review_lane = controller_quarantine_review_target(
+                        raw_entry
+                    )
+                    pending = True
+                else:
+                    pending, executing_lane, review_lane = response_review_pending(
+                        raw_entry, receipt_status
+                    )
                 if pending:
-                    reason = review_hold_reason(executing_lane, review_lane)
+                    reason = (
+                        controller_quarantine_hold_reason(
+                            executing_lane, review_lane
+                        )
+                        if controller_quarantine
+                        else review_hold_reason(executing_lane, review_lane)
+                    )
                     hold_changed = (
                         current_status != REVIEW_REQUIRED
                         or raw_entry.get("review_required_by") != review_lane
@@ -4731,6 +5273,11 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                     messages.append(
                         f"v2-settlement-hold {task_id_filter} -> schema={held_schema}"
                     )
+        delivery_events, payload_changed = _prepare_notification_deliveries(
+            registry, events, task_id_filter
+        )
+        if payload_changed and changed == 0:
+            changed = 1
         if changed and not dry_run:
             atomic_write(REGISTRY_PATH, json.dumps(registry, indent=2, ensure_ascii=False) + "\n")
         if not dry_run:
@@ -4748,8 +5295,18 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                     "archived inbox packet "
                     f"{_canonical_mailbox_label()}/{archived_task_id}"
                 )
-        for status, task_ref, summary, nudge in events:
-            nudged = emit_event(status, task_ref, summary, nudge)
+        for status, task_ref, summary, nudge, pending_key, queue_recorded in delivery_events:
+            nudged = (
+                deliver_event(status, task_ref, nudge)
+                if pending_key and queue_recorded
+                else emit_event(status, task_ref, summary, nudge)
+            )
+            if pending_key:
+                task_id = task_ref.rsplit("/", 1)[-1]
+                if nudged:
+                    acknowledge_notification_delivery(task_id, pending_key)
+                else:
+                    record_notification_delivery_failure(task_id, pending_key)
             messages.append(f"chrono-nudge {'sent' if nudged else 'queued-only'} {task_ref}")
         # Completion and coordination remain separate durable audit facts even
         # when the promoted-response path coalesces their operator page.

@@ -733,8 +733,28 @@ run_moat_fast() {
             files+=("$file")
         fi
     done
-    node --test "${files[@]}" &&
-        node --test \
+    # Bound the node --test fan-out. With no flag, `node --test` sets its
+    # concurrency to the CPU count and launches that many worker processes at
+    # once (10 on the maintainer's Mac). That burst is the single largest
+    # transient this runner produces, and the individual suites (sequential
+    # `run_suite` calls) hide it. On a host whose memory is already saturated --
+    # a live tmux squad plus its per-session MCP fleet -- the burst is the
+    # marginal spike that tips the kernel memory-status killer over; it then
+    # reclaims by killing large processes, hitting the test itself (exit 137)
+    # and unrelated squad processes as collateral. Serializing the SAME files
+    # bounds the peak and changes no coverage. CI hosts have headroom, so there
+    # the default full parallelism is kept.
+    #   unset & CI set   -> node default (flag omitted; full parallelism)
+    #   unset & local    -> --test-concurrency=2 (bounded)
+    #   SQUAD_MOAT_TEST_CONCURRENCY=<n> -> --test-concurrency=<n> verbatim
+    local conc_flag=()
+    if [[ -n "${SQUAD_MOAT_TEST_CONCURRENCY:-}" ]]; then
+        conc_flag=(--test-concurrency="$SQUAD_MOAT_TEST_CONCURRENCY")
+    elif [[ -z "${CI:-}" ]]; then
+        conc_flag=(--test-concurrency=2)
+    fi
+    node --test "${conc_flag[@]}" "${files[@]}" &&
+        node --test "${conc_flag[@]}" \
             --test-name-pattern='runIsolated hard-aborts|Docker runtime enforces|Jazzer escalation resolves|disabled Jazzer escalation' \
             moat/tests/phase4b-operational.test.mjs
 }

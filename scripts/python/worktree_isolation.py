@@ -20,6 +20,7 @@ from pathlib import Path, PurePosixPath
 import re
 import stat
 import subprocess
+import tempfile
 from typing import Mapping, Sequence
 
 from launch_hygiene import run_sanitized
@@ -43,6 +44,7 @@ _TASK_RE = re.compile(r"^TASK-[A-Za-z0-9][A-Za-z0-9._-]{3,127}$")
 _ATTEMPT_RE = re.compile(r"^d-[0-9a-f]{32}$")
 _UNSAFE_BRANCH_CHARS = re.compile(r"[\s~^:?*\[\\]")
 _OBJECT_ID_RE = re.compile(r"^[0-9a-f]{40,64}$")
+_WORKER_CREDENTIAL_EXCLUDE_PATTERN = "/.role-capabilities/"
 # ``integrate_worktree_commits`` is the last production call that still has the
 # authenticated write scope and bridge-owned exclusions. Register that bounded
 # contract for ``WorktreePool.release`` in the same supervisor process so the
@@ -150,6 +152,124 @@ def _registered_worktree_roots(repo_root: Path) -> tuple[Path, ...]:
         if line.startswith("worktree "):
             roots.append(Path(os.path.realpath(line[len("worktree "):])))
     return tuple(roots)
+
+
+def _atomic_replace_text(path: Path, content: str) -> None:
+    """Replace one Git metadata file with fsync-before-rename durability."""
+
+    try:
+        current = path.lstat()
+    except FileNotFoundError:
+        mode = 0o600
+    except OSError as exc:
+        raise WorktreeIsolationError(f"cannot inspect {path}: {exc}") from exc
+    else:
+        if not stat.S_ISREG(current.st_mode):
+            raise WorktreeIsolationError(
+                f"refusing to replace non-regular Git metadata: {path}"
+            )
+        mode = stat.S_IMODE(current.st_mode)
+
+    descriptor = -1
+    temporary_path: Path | None = None
+    try:
+        descriptor, raw_temporary_path = tempfile.mkstemp(
+            prefix=f".{path.name}.",
+            dir=str(path.parent),
+        )
+        temporary_path = Path(raw_temporary_path)
+        os.fchmod(descriptor, mode)
+        payload = content.encode("utf-8")
+        offset = 0
+        while offset < len(payload):
+            written = os.write(descriptor, payload[offset:])
+            if written <= 0:
+                raise OSError("short write while replacing Git metadata")
+            offset += written
+        os.fsync(descriptor)
+        os.close(descriptor)
+        descriptor = -1
+        os.replace(temporary_path, path)
+        temporary_path = None
+        directory_descriptor = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+    except OSError as exc:
+        raise WorktreeIsolationError(f"cannot atomically replace {path}: {exc}") from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink()
+            except FileNotFoundError:
+                pass
+
+
+def _ensure_worker_credential_exclusion(repo_root: Path) -> None:
+    """Keep generated provider configs out of every linked worktree index.
+
+    Git resolves ``info/exclude`` through the common Git directory for linked
+    worktrees. Installing one root-anchored rule there therefore covers both
+    already-live and future attempt worktrees without adding a tracked or
+    untracked ``.gitignore`` to a worker's branch.
+    """
+
+    common = git_common_dir(repo_root)
+    info_directory = common / "info"
+    try:
+        info_directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    except OSError as exc:
+        raise WorktreeIsolationError(
+            f"cannot create Git exclude directory {info_directory}: {exc}"
+        ) from exc
+    if not info_directory.is_dir():
+        raise WorktreeIsolationError(
+            f"Git exclude directory is not a directory: {info_directory}"
+        )
+
+    # Serialize with integration's existing common-Git lock: replacing an
+    # exclude file is small, but two fresh supervisors must not lose each
+    # other's repository-local patterns in a read/modify/rename race.
+    lock_path = common / "board-integration.lock"
+    try:
+        lock_descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+    except OSError as exc:
+        raise WorktreeIsolationError(
+            f"cannot open Git metadata lock {lock_path}: {exc}"
+        ) from exc
+    # Acquired outside the release block on purpose: the sole handler at the
+    # construction site catches WorktreeIsolationError, so a raw OSError here
+    # would escape it, and unlocking a lock we never took is not a release.
+    try:
+        fcntl.flock(lock_descriptor, fcntl.LOCK_EX)
+    except OSError as exc:
+        os.close(lock_descriptor)
+        raise WorktreeIsolationError(
+            f"cannot lock Git metadata lock {lock_path}: {exc}"
+        ) from exc
+    try:
+        exclude_path = info_directory / "exclude"
+        try:
+            existing = exclude_path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            existing = ""
+        except OSError as exc:
+            raise WorktreeIsolationError(
+                f"cannot read Git exclude file {exclude_path}: {exc}"
+            ) from exc
+        if _WORKER_CREDENTIAL_EXCLUDE_PATTERN in existing.splitlines():
+            return
+        separator = "" if not existing or existing.endswith("\n") else "\n"
+        _atomic_replace_text(
+            exclude_path,
+            f"{existing}{separator}{_WORKER_CREDENTIAL_EXCLUDE_PATTERN}\n",
+        )
+    finally:
+        fcntl.flock(lock_descriptor, fcntl.LOCK_UN)
+        os.close(lock_descriptor)
 
 
 def worktree_write_scope_paths(worktree_root: Path, repo_root: Path) -> tuple[Path, ...]:
@@ -300,6 +420,9 @@ class WorktreePool:
         self._pool_root.mkdir(parents=True, exist_ok=True)
         self._base_branch = base_branch
         self._handles: dict[tuple[str, str], WorktreeHandle] = {}
+        # The common repository-local exclude is visible from every registered
+        # linked worktree, including attempts that predate this pool instance.
+        _ensure_worker_credential_exclusion(self._repo_root)
 
     def active(self) -> tuple[WorktreeHandle, ...]:
         return tuple(self._handles.values())
@@ -330,6 +453,9 @@ class WorktreePool:
         self._reject_target_inside_shared_git(worktree_root)
 
         base_commit = _resolve_commit(self._repo_root, self._base_branch)
+        # Reassert immediately before creation in case an operator intentionally
+        # edited the repository-local excludes after this pool was constructed.
+        _ensure_worker_credential_exclusion(self._repo_root)
         completed = _run_git(
             ["worktree", "add", "-q", "-b", branch, str(worktree_root), base_commit],
             cwd=self._repo_root,
@@ -526,9 +652,33 @@ def _resolve_base_branch(repo_root: Path, explicit: str | None = None) -> str:
     return name
 
 
+# Scopes are PREFIX paths, matched by `_is_contained` on path components. They
+# are not globs and never have been, so a trailing `/**` becomes a literal path
+# component that matches nothing: `scripts/python/tests/**` does not contain
+# `scripts/python/tests/test_foo.py`, while the bare `scripts/python/tests`
+# does. Left unchecked that reads as a granted scope and behaves as an empty
+# one, which is the worst possible direction for a permission to fail --
+# measured 2026-08-31, when a packet declaring `scripts/python/tests/**` had all
+# seven of its correct edits flagged out-of-scope, and again on a 2026-07-13
+# packet carrying `_state/scratch/**` and `daemon/tests/**`.
+#
+# No tracked path in this repository contains a glob metacharacter (verified
+# 2026-08-31: `git ls-files | grep -cE '[][*?]'` is 0), so refusing them costs
+# nothing real and converts a silent mismatch into a loud one at declaration.
+_GLOB_METACHARACTERS: frozenset[str] = frozenset("*?[]")
+
+
 def _normalized_relative(value: str, *, label: str) -> PurePosixPath:
     if not isinstance(value, str) or not value or "\x00" in value:
         raise WorktreeIsolationError(f"{label} is empty or invalid")
+    if any(character in _GLOB_METACHARACTERS for character in value):
+        raise WorktreeIsolationError(
+            f"{label} looks like a glob, but scopes are prefix paths and are "
+            f"never glob-expanded: {value!r}. A trailing '/**' matches nothing "
+            f"at all rather than everything beneath it. Name the directory "
+            f"itself (for example 'scripts/python/tests') to cover its whole "
+            f"subtree, or list the exact files."
+        )
     candidate = PurePosixPath(value)
     if (
         candidate.is_absolute()
@@ -1421,10 +1571,15 @@ def preserve_terminal_evidence(
         repo_root=repo_root,
         base_commit=base_commit,
     )
+    # One-file responses intentionally alias the result and envelope. Collapse
+    # that exact authority-level identity here; the lower-level normalized-path
+    # uniqueness guard still rejects every other collision.
     explicit_outputs = tuple(
-        value
-        for key in ("expected_result_path", "expected_outbox_path")
-        if isinstance((value := authority.get(key)), str) and value
+        dict.fromkeys(
+            value
+            for key in ("expected_result_path", "expected_outbox_path")
+            if isinstance((value := authority.get(key)), str) and value
+        )
     )
     return _preserve_attempt_evidence(
         handle,

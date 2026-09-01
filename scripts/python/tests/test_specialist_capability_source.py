@@ -17,10 +17,12 @@ from specialist_capability_source import (  # noqa: E402
     CapabilityRef,
     CapabilitySourceError,
     SOURCE_RELATIVE,
+    accepted_source_sha256s,
     available_arrays,
     load_source,
     role_surface_payload,
     role_surface_sha256,
+    source_sha256,
 )
 
 VALIDATOR_SPEC = importlib.util.spec_from_file_location(
@@ -41,6 +43,14 @@ REGISTRY_SPEC.loader.exec_module(registry)
 
 
 class SpecialistCapabilitySourceTests(unittest.TestCase):
+    def test_projection_compatibility_hashes_include_current_and_explicit_prior(self) -> None:
+        _entries, payload = load_source(ROOT)
+        accepted = accepted_source_sha256s(ROOT, payload)
+        self.assertIn(source_sha256(ROOT), accepted)
+        self.assertTrue(
+            set(payload["projection_compatible_source_sha256s"]) < accepted
+        )
+
     def test_role_surface_payload_is_canonical_and_splits_brokered_mcps(self) -> None:
         entry = {
             "specialist": "example",

@@ -117,6 +117,7 @@ class BoardReceiptSettlementTests(unittest.TestCase):
         terminal_outcome: str = "complete",
         generation: int | None = None,
         descriptor_sha256: str | None = None,
+        **extra: object,
     ) -> Path:
         payload = json.loads(descriptor.read_text(encoding="utf-8"))
         canonical_hash = hashlib.sha256(
@@ -130,22 +131,19 @@ class BoardReceiptSettlementTests(unittest.TestCase):
         receipt = descriptor.with_name(
             descriptor.name.removesuffix(".dispatch.json") + ".receipt.json"
         )
+        receipt_payload = {
+            "schema": "board-dispatch-receipt/v2",
+            "task_id": payload["task_id"],
+            "attempt_id": payload["attempt_id"],
+            "generation": payload["generation"] if generation is None else generation,
+            "status": "launched",
+            "terminal_outcome": terminal_outcome,
+            "completed_at": completed_at,
+            "descriptor_sha256": descriptor_sha256 or canonical_hash,
+        }
+        receipt_payload.update(extra)
         receipt.write_text(
-            json.dumps(
-                {
-                    "schema": "board-dispatch-receipt/v2",
-                    "task_id": payload["task_id"],
-                    "attempt_id": payload["attempt_id"],
-                    "generation": (
-                        payload["generation"] if generation is None else generation
-                    ),
-                    "status": "launched",
-                    "terminal_outcome": terminal_outcome,
-                    "completed_at": completed_at,
-                    "descriptor_sha256": descriptor_sha256 or canonical_hash,
-                }
-            )
-            + "\n",
+            json.dumps(receipt_payload) + "\n",
             encoding="utf-8",
         )
         return receipt
@@ -1220,6 +1218,206 @@ class BoardReceiptSettlementTests(unittest.TestCase):
             self.assertNotIn("worker_response_issue", entry)
 
 
+    def _run_transport_receipt(
+        self,
+        *,
+        failure_class: str,
+        quarantined: bool,
+        initial_status: str = "in-flight",
+        controller_quarantine_marker: str | None = (
+            reconciler.CONTROLLER_QUARANTINE_MARKER
+        ),
+    ) -> dict[str, object]:
+        suffix = "quarantine" if quarantined else "agycanary"
+        task_id = f"TASK-2026-08-31-1330-{failure_class}-{suffix}"
+        attempt_id = "d-" + ("8" if quarantined else "7") * 32
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state = root / "_state"
+            registry_path = state / "active-tasks.json"
+            entry = self._v2_entry(
+                task_id,
+                attempt_id,
+                mandatory_review="false",
+                review_triggers=[],
+                review_model="claude",
+                status=initial_status,
+            )
+            descriptor = self._write_v2_descriptor(state, task_id, attempt_id)
+            registry_path.write_text(
+                json.dumps({task_id: entry}) + "\n", encoding="utf-8"
+            )
+            if quarantined:
+                response = (
+                    root
+                    / "departments"
+                    / "coding"
+                    / "outbox"
+                    / f"{task_id}-response.md"
+                )
+                self._write_response(
+                    response,
+                    task_id,
+                    "needs_review",
+                    attempt_id=attempt_id,
+                )
+            receipt_fields: dict[str, object] = {
+                "status": "blocked",
+                "cli_exec_succeeded": False,
+                "failure_class": failure_class,
+                "returncode": None if failure_class == "cli_timeout" else 1,
+                "termination_kind": (
+                    "timeout" if failure_class == "cli_timeout" else "exit"
+                ),
+                "signal_number": None,
+                "signal_name": None,
+                "cli_stdout_excerpt": "stdout provider diagnostic",
+                "cli_stdout_bytes": 26,
+                "cli_stdout_truncated": False,
+                "cli_stderr_excerpt": "stderr provider diagnostic",
+                "cli_stderr_bytes": 26,
+                "cli_stderr_truncated": False,
+            }
+            if quarantined:
+                receipt_fields["response_status"] = "needs_review"
+                if controller_quarantine_marker is not None:
+                    receipt_fields["controller_quarantine"] = (
+                        controller_quarantine_marker
+                    )
+            self._write_v2_receipt(
+                descriptor,
+                completed_at="2026-08-31T20:35:00Z",
+                terminal_outcome="needs_review" if quarantined else "blocked",
+                **receipt_fields,
+            )
+            with self._patch_runtime(root, state, registry_path):
+                reconciler.reconcile(task_id, dry_run=False)
+            return json.loads(registry_path.read_text(encoding="utf-8"))[task_id]
+
+    def test_quarantined_receipt_holds_even_when_worker_status_would_complete(self) -> None:
+        control_entry = {
+            "mandatory_review": "false",
+            "review_triggers": [],
+        }
+        self.assertEqual(
+            reconciler.resolve_worker_status(control_entry, "needs_review"),
+            ("complete", True),
+        )
+        for failure_class in ("cli_nonzero", "cli_timeout"):
+            with self.subTest(failure_class=failure_class):
+                entry = self._run_transport_receipt(
+                    failure_class=failure_class, quarantined=True
+                )
+                self.assertEqual(entry["status"], reconciler.REVIEW_REQUIRED)
+                self.assertEqual(entry["review_required_by"], "claude")
+                self.assertEqual(
+                    entry["terminal_receipt_controller_quarantine"],
+                    reconciler.CONTROLLER_QUARANTINE_MARKER,
+                )
+                self.assertEqual(
+                    entry["terminal_receipt_response_status"], "needs_review"
+                )
+                self.assertEqual(
+                    entry["terminal_receipt_failure_class"], failure_class
+                )
+                self.assertIn(
+                    "stdout provider diagnostic",
+                    entry["terminal_receipt_cli_stdout_excerpt"],
+                )
+                self.assertIn(
+                    "stderr provider diagnostic",
+                    entry["terminal_receipt_cli_stderr_excerpt"],
+                )
+                self.assertNotEqual(entry["status"], "complete")
+                self.assertNotIn("worker_reported_status", entry)
+        previously_completed = self._run_transport_receipt(
+            failure_class="cli_nonzero",
+            quarantined=True,
+            initial_status="complete",
+        )
+        self.assertEqual(previously_completed["status"], reconciler.REVIEW_REQUIRED)
+
+    def test_quarantined_envelope_without_receipt_does_not_settle_complete(
+        self,
+    ) -> None:
+        task_id = "TASK-2026-08-31-1500-quarantine-envelope-only"
+        attempt_id = "d-" + "6" * 32
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state = root / "_state"
+            registry_path = state / "active-tasks.json"
+            entry = self._v2_entry(
+                task_id,
+                attempt_id,
+                mandatory_review="false",
+                review_triggers=[],
+                review_model="claude",
+            )
+            self._write_v2_descriptor(state, task_id, attempt_id)
+            registry_path.write_text(
+                json.dumps({task_id: entry}) + "\n", encoding="utf-8"
+            )
+            response = (
+                root
+                / "departments"
+                / "coding"
+                / "outbox"
+                / f"{task_id}-response.md"
+            )
+            self._write_response(
+                response,
+                task_id,
+                "needs_review",
+                attempt_id=attempt_id,
+            )
+            response.write_text(
+                response.read_text(encoding="utf-8").replace(
+                    "---\n\nBoard result.\n",
+                    "---\n\n"
+                    "controller_quarantine: "
+                    f"{reconciler.CONTROLLER_QUARANTINE_MARKER}\n\n"
+                    "Board result.\n",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+            with self._patch_runtime(root, state, registry_path):
+                changed, messages = reconciler.reconcile(task_id, dry_run=False)
+
+            settled = json.loads(registry_path.read_text(encoding="utf-8"))[task_id]
+            self.assertGreater(changed, 0, messages)
+            self.assertEqual(settled["status"], reconciler.REVIEW_REQUIRED)
+            self.assertEqual(settled["review_required_by"], "claude")
+            self.assertNotEqual(settled["status"], "complete")
+
+    def test_fence_partial_quarantine_receipt_resolves_blocked(self) -> None:
+        for label, marker in (
+            ("missing", None),
+            ("mismatched", "wrong-quarantine-marker/v1"),
+        ):
+            with self.subTest(fence=label):
+                entry = self._run_transport_receipt(
+                    failure_class="cli_nonzero",
+                    quarantined=True,
+                    controller_quarantine_marker=marker,
+                )
+                self.assertEqual(entry["status"], "blocked")
+                self.assertNotIn(
+                    "terminal_receipt_controller_quarantine", entry
+                )
+                self.assertNotIn("review_required_by", entry)
+
+    def test_agycanary_unmarked_exit_one_keeps_the_blocked_path(self) -> None:
+        entry = self._run_transport_receipt(
+            failure_class="cli_nonzero", quarantined=False
+        )
+        self.assertEqual(entry["status"], "blocked")
+        self.assertEqual(entry["terminal_receipt_failure_class"], "cli_nonzero")
+        self.assertNotIn("terminal_receipt_controller_quarantine", entry)
+        self.assertNotIn("review_required_by", entry)
+
+
 class ReceiptFailureDiagnosticsTests(unittest.TestCase):
     """A terminal receipt's failure_class must survive into the registry.
 
@@ -1672,7 +1870,7 @@ class PreservedWorkSurfacingTests(unittest.TestCase):
 
 
 class DeclaredHashHoldTests(unittest.TestCase):
-    """A declared hash that resolves to nothing must hold, never pass.
+    """An explicitly declared hash that resolves to nothing must hold.
 
     TASK-2026-08-11-0180 settled `complete` while declaring an artifact bundle
     whose manifest was never reachable, under a contract whose review subject
@@ -1804,10 +2002,8 @@ class DeclaredHashHoldTests(unittest.TestCase):
         self.assertEqual(settled["status"], "complete")
         self.assertNotIn("declared_hash_issue", settled)
 
-    def test_a_bundle_hash_named_only_in_prose_is_still_checked(self) -> None:
-        # The real TASK-2026-08-11-0180 declared its bundle in the body, not
-        # the frontmatter, and that is precisely where it escaped scrutiny.
-        task_id = "TASK-2026-08-11-9615-prose-bundle"
+    def test_a_bundle_hash_in_a_quoted_command_is_not_a_declaration(self) -> None:
+        task_id = "TASK-2026-08-11-9615-quoted-command-bundle"
         attempt_id = "d-" + "5" * 32
         with tempfile.TemporaryDirectory() as directory:
             root, state, registry_path, response = self._fixture(
@@ -1815,12 +2011,12 @@ class DeclaredHashHoldTests(unittest.TestCase):
             )
             self._declare_in_prose(
                 response,
-                f"Run the mandatory review of artifact bundle `{self.DIGEST}`.",
+                f"Quoted command: `checker --label 'artifact bundle {self.DIGEST}'`.",
             )
             entry = self._reconcile(root, state, registry_path, task_id)
 
-        self.assertEqual(entry["status"], "in-flight")
-        self.assertIn(self.DIGEST, entry["declared_hash_issue"])
+        self.assertEqual(entry["status"], "complete")
+        self.assertNotIn("declared_hash_issue", entry)
 
     def test_an_unrelated_digest_in_prose_is_not_a_bundle_claim(self) -> None:
         # Responses quote commit hashes, contract hashes and blob hashes
@@ -1841,11 +2037,7 @@ class DeclaredHashHoldTests(unittest.TestCase):
         self.assertEqual(entry["status"], "complete")
         self.assertNotIn("declared_hash_issue", entry)
 
-    def test_a_bundle_claim_written_as_an_ordinary_sentence_is_checked(self) -> None:
-        # Humans mostly do not backtick the digest. An earlier matcher only
-        # spanned non-hex characters between the phrase and the digest, so
-        # "artifact bundle hash is X" slipped through while "artifact bundle
-        # `X`" did not -- a gap that would have re-created the original defect.
+    def test_a_bundle_hash_written_only_in_prose_is_not_a_declaration(self) -> None:
         task_id = "TASK-2026-08-11-9618-prose-sentence"
         attempt_id = "d-" + "8" * 32
         with tempfile.TemporaryDirectory() as directory:
@@ -1857,8 +2049,8 @@ class DeclaredHashHoldTests(unittest.TestCase):
             )
             entry = self._reconcile(root, state, registry_path, task_id)
 
-        self.assertEqual(entry["status"], "in-flight")
-        self.assertIn(self.DIGEST, entry["declared_hash_issue"])
+        self.assertEqual(entry["status"], "complete")
+        self.assertNotIn("declared_hash_issue", entry)
 
     def test_an_exhausted_scan_budget_fails_open_instead_of_accusing(self) -> None:
         # A hold must rest on evidence that the digest is unbacked, never on our

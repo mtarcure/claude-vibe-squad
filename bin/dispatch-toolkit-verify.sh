@@ -3,8 +3,9 @@
 #
 # For each model lane, parse the "Expected Model Lane Tool Surface" block from
 # shared/dispatch-toolkit.sh, then ask the CLI what's actually installed via
-# `<cli> mcp list`. Fail on either expected-but-missing or unexpected-installed
-# mismatches; refuse to claim a match when either surface cannot be measured.
+# the lane's native inventory command. Fail on expected-but-missing or
+# unexpected-installed mismatches, except Grok's explicitly global inventory;
+# refuse to claim a match when either surface cannot be measured.
 # Config-consistency check, NOT a runtime probe.
 #
 # Routing-reminder prose is intentionally outside the expected-surface block and
@@ -28,8 +29,8 @@ if [ ! -f "$TOOLKIT" ]; then
 fi
 
 # Parallel arrays — bash 3.2 has no associative arrays
-LANES=(gpt-codex claude gemini kimi)
-CLIS=(codex     claude gemini kimi)
+LANES=(gpt-codex claude gemini grok kimi)
+CLIS=(codex     claude gemini grok kimi)
 # (chrono pane is the Coordinator and doesn't receive a toolkit injection.)
 
 mcp_list_for_cli() {
@@ -56,6 +57,10 @@ mcp_list_for_cli() {
             # at list-time; we only care about configured names here.
             env -u ANTHROPIC_API_KEY -u OPENAI_API_KEY -u GEMINI_API_KEY -u GOOGLE_API_KEY \
                 "$cli" mcp list -d 2>&1
+            ;;
+        grok)
+            env -u ANTHROPIC_API_KEY -u OPENAI_API_KEY -u GEMINI_API_KEY -u GOOGLE_API_KEY \
+                "$cli" inspect 2>&1
             ;;
         *)
             env -u ANTHROPIC_API_KEY -u OPENAI_API_KEY -u GEMINI_API_KEY -u GOOGLE_API_KEY \
@@ -184,6 +189,28 @@ elif cli in {"claude", "gemini"}:
             if match is None:
                 raise ValueError("Gemini MCP inventory contains an unparseable row")
             names.append(canonical(match.group("name")))
+elif cli == "grok":
+    lines = text.splitlines()
+    try:
+        start = next(
+            i for i, line in enumerate(lines)
+            if re.fullmatch(r"\s*MCP Servers\s+\([0-9]+\)\s*", line)
+        )
+    except StopIteration as exc:
+        raise ValueError("Grok MCP inventory header is missing") from exc
+    declared_count = int(re.search(r"\(([0-9]+)\)", lines[start]).group(1))
+    for raw in lines[start + 1:]:
+        match = re.fullmatch(
+            r"\s*[├└](?:─+)?\s+(?P<name>[A-Za-z0-9][A-Za-z0-9._:-]*)"
+            r"\s+\((?:stdio|http)\)(?:\s+.*)?",
+            raw,
+        )
+        if match is not None:
+            names.append(canonical(match.group("name")))
+        elif names and raw and not raw[0].isspace():
+            break
+    if len(set(names)) != declared_count:
+        raise ValueError("Grok MCP inventory count does not match its inspect header")
 else:
     # Kimi currently emits a text table. Refuse unknown non-header rows rather
     # than tokenizing every word and accidentally treating an error message as
@@ -264,14 +291,16 @@ while [ "$i" -lt "$TOTAL_LANES" ]; do
             pane_warns=$((pane_warns + 1))
         fi
     done <<< "$enumerated"
-    while IFS= read -r mcp; do
-        [[ -n "$mcp" ]] || continue
-        if ! grep -Fxq -- "$mcp" <<< "$enumerated"; then
-            echo "  WARN: $cli lists '$mcp' but $lane does not enumerate it"
-            WARN_COUNT=$((WARN_COUNT + 1))
-            pane_warns=$((pane_warns + 1))
-        fi
-    done <<< "$installed"
+    if [[ "$lane" != grok ]]; then
+        while IFS= read -r mcp; do
+            [[ -n "$mcp" ]] || continue
+            if ! grep -Fxq -- "$mcp" <<< "$enumerated"; then
+                echo "  WARN: $cli lists '$mcp' but $lane does not enumerate it"
+                WARN_COUNT=$((WARN_COUNT + 1))
+                pane_warns=$((pane_warns + 1))
+            fi
+        done <<< "$installed"
+    fi
 
     if [ "$pane_warns" -eq 0 ]; then
         n=$(echo "$enumerated" | wc -l | tr -d ' ')

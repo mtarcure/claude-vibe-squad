@@ -10,10 +10,16 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 REPO = Path(__file__).resolve().parents[3]
 RECONCILER = REPO / "scripts/python/registry_reconciler.py"
+PYTHON_ROOT = REPO / "scripts/python"
+sys.path.insert(0, str(PYTHON_ROOT))
+
+import dispatch_context_builder as dcb  # noqa: E402
+import worktree_isolation as wti  # noqa: E402
 
 
 class DeliveryFixture(unittest.TestCase):
@@ -267,11 +273,189 @@ class ClaimAndRedeliveryTests(DeliveryFixture):
             f"---\nin_response_to: {task}\nfrom: gpt-codex\ntype: RESULT\nstatus: complete\n"
             "verdict: APPROVE\n---\n\nreviewed\n", encoding="utf-8",
         )
+        self.assertFalse((self.root / review_entry["return_artifact"]).exists())
         self.run_cli(
             "--settle-review", task,
             "--review-ref", f"departments/coding/outbox/{review_task}-response.md",
         )
         self.assertEqual(self.registry()[task]["status"], "complete")
+
+
+class ResidueHealthGateTests(unittest.TestCase):
+    """Outcome, not worker status, decides whether residue may integrate."""
+
+    OUTPUT = (
+        "departments/coding/outbox/"
+        "TASK-2026-08-30-1803-residuehealth-response.md"
+    )
+    TASK = "TASK-2026-08-30-1803-residuehealth"
+    ATTEMPT = "d-" + "c" * 32
+
+    def git(self, cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+        result = subprocess.run(
+            [
+                "/usr/bin/git",
+                "-c",
+                "core.hooksPath=/dev/null",
+                *args,
+            ],
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        return result
+
+    def provision(
+        self, root: Path, *, task_status: str
+    ) -> tuple[Path, wti.WorktreeHandle, Path]:
+        repo = root / "repo"
+        repo.mkdir()
+        self.git(repo, "init", "-q")
+        self.git(repo, "checkout", "-q", "-b", "v2")
+        self.git(repo, "config", "user.name", "Residue Health Test")
+        self.git(repo, "config", "user.email", "residue-health@example.invalid")
+        (repo / "shared").mkdir()
+        (repo / "shared/specialist-runtime-map.tsv").write_text(
+            "specialist\tc2\tc3\tc4\tc5\tc6\tprimary_lane\n",
+            encoding="utf-8",
+        )
+        (repo / "candidate-health.txt").write_text("green\n", encoding="utf-8")
+        (repo / "_state").mkdir()
+        (repo / "_state/active-tasks.json").write_text(
+            json.dumps({self.TASK: {"status": task_status}}) + "\n",
+            encoding="utf-8",
+        )
+        self.git(repo, "add", ".")
+        self.git(repo, "commit", "-q", "-m", "baseline")
+        pool = wti.WorktreePool(repo, root / "pool", base_branch="v2")
+        handle = pool.provision(self.TASK, self.ATTEMPT)
+
+        verifier = root / "trusted-health-verifier.sh"
+        verifier.write_text(
+            "#!/bin/bash\n"
+            "if [[ $(<\"${VAULT_ROOT}/candidate-health.txt\") == green ]]; then\n"
+            "  echo 'candidate-health: PASS'\n"
+            "  exit 0\n"
+            "fi\n"
+            "echo 'candidate-health: FAIL adapter pins disagree' >&2\n"
+            "exit 1\n",
+            encoding="utf-8",
+        )
+        return repo, handle, verifier
+
+    def write_worker_outputs(
+        self, handle: wti.WorktreeHandle, *, health: str
+    ) -> dict[str, object]:
+        (handle.worktree_root / "candidate-health.txt").write_text(
+            health + "\n", encoding="utf-8"
+        )
+        response = handle.worktree_root / self.OUTPUT
+        response.parent.mkdir(parents=True)
+        response.write_text(
+            "---\n"
+            f"id: {self.TASK}-response\n"
+            f"in_response_to: {self.TASK}\n"
+            "from: gpt-codex\n"
+            "to: chrono\n"
+            "type: RESULT\n"
+            "status: complete\n"
+            f"return_artifact: {self.OUTPUT}\n"
+            "---\n\nworker finished\n",
+            encoding="utf-8",
+        )
+        return {
+            "task_id": self.TASK,
+            "lane": "codex",
+            "write_paths": ["candidate-health.txt", self.OUTPUT],
+            "expected_result_path": self.OUTPUT,
+            "expected_outbox_path": self.OUTPUT,
+            "reconciliation_echo": {},
+        }
+
+    def integrate(self, handle: wti.WorktreeHandle) -> None:
+        wti.commit_worker_residue(
+            handle,
+            ("candidate-health.txt", self.OUTPUT),
+            exclude_paths=(self.OUTPUT,),
+        )
+        wti.integrate_worktree_commits(
+            handle,
+            ("candidate-health.txt", self.OUTPUT),
+            exclude_paths=(self.OUTPUT,),
+        )
+
+    def test_broken_residue_is_refused_for_superseded_and_complete_tasks(self):
+        for task_status in ("superseded", "complete"):
+            with self.subTest(task_status=task_status), tempfile.TemporaryDirectory(
+                prefix="residue-health-broken-"
+            ) as directory:
+                repo, handle, verifier = self.provision(
+                    Path(directory), task_status=task_status
+                )
+                authority = self.write_worker_outputs(handle, health="red")
+                with mock.patch.object(
+                    dcb, "RESIDUE_HEALTH_VERIFIER", verifier, create=True
+                ), mock.patch.dict(
+                    os.environ, {"SQUAD_BASE_BRANCH": "v2"}, clear=False
+                ):
+                    try:
+                        dcb.prepare_worktree_outputs(
+                            repo, handle.worktree_root, authority
+                        )
+                    except dcb.DispatchContextError as exc:
+                        self.assertIn(
+                            "candidate tree health check refused residue promotion",
+                            str(exc),
+                        )
+                    else:
+                        # This is the literal pre-fix behavior: preparation
+                        # accepts the unhealthy candidate, so the supervisor's
+                        # next two calls land it on the integration branch.
+                        self.integrate(handle)
+                        landed = (repo / "candidate-health.txt").read_text(
+                            encoding="utf-8"
+                        ).strip()
+                        self.fail(
+                            "broken residue landed after task status "
+                            f"{task_status}: candidate-health={landed}"
+                        )
+
+                self.assertEqual(
+                    (repo / "candidate-health.txt").read_text(encoding="utf-8"),
+                    "green\n",
+                )
+
+    def test_healthy_complete_task_residue_still_promotes(self):
+        with tempfile.TemporaryDirectory(
+            prefix="residue-health-good-"
+        ) as directory:
+            repo, handle, verifier = self.provision(
+                Path(directory), task_status="complete"
+            )
+            authority = self.write_worker_outputs(handle, health="green-v2")
+            verifier.write_text(
+                verifier.read_text(encoding="utf-8").replace(
+                    "== green", "== green-v2"
+                ),
+                encoding="utf-8",
+            )
+            with mock.patch.object(
+                dcb, "RESIDUE_HEALTH_VERIFIER", verifier, create=True
+            ), mock.patch.dict(
+                os.environ, {"SQUAD_BASE_BRANCH": "v2"}, clear=False
+            ):
+                prepared = dcb.prepare_worktree_outputs(
+                    repo, handle.worktree_root, authority
+                )
+                self.assertEqual(prepared.status, "complete")
+                self.integrate(handle)
+
+            self.assertEqual(
+                (repo / "candidate-health.txt").read_text(encoding="utf-8"),
+                "green-v2\n",
+            )
 
 if __name__ == "__main__":
     unittest.main()

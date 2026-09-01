@@ -14,10 +14,12 @@ imports, not a parallel reimplementation of them.
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 import hashlib
 import json
 import os
 import re
+import signal
 from datetime import datetime, timezone
 from pathlib import Path
 import subprocess
@@ -25,6 +27,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -95,6 +98,8 @@ SETTLED_T1P1_BUNDLE_SHA256 = (
 )
 
 import dispatch_context_builder as dcb  # noqa: E402
+import board_process_truth as process_truth  # noqa: E402
+import registry_reconciler as reconciler  # noqa: E402
 import seatbelt_profile  # noqa: E402
 from scripts.python.tests.ci_host_independence import (  # noqa: E402
     skip_in_host_independent_ci,
@@ -1081,6 +1086,271 @@ class CommittedWorkRecoveryTests(unittest.TestCase):
             self.assertEqual(self._branch_head(repo), before)
 
 
+class TransportOutputQuarantineTests(unittest.TestCase):
+    @staticmethod
+    def _namespace() -> dict[str, object]:
+        source = SCRIPT.read_text(encoding="utf-8")
+        region = source.split("# BEGIN transport-output-quarantine", 1)[1].split(
+            "# END transport-output-quarantine", 1
+        )[0]
+        notes: list[str] = []
+        namespace: dict[str, object] = {
+            "replace": replace,
+            "signal": signal,
+            "DispatchContextError": dcb.DispatchContextError,
+            "ModeExitVerificationError": dcb.ModeExitVerificationError,
+            "CONTROLLER_QUARANTINE_MARKER": reconciler.CONTROLLER_QUARANTINE_MARKER,
+            "CLI_DIAGNOSTIC_EXCERPT_BYTES": 2048,
+            "write_board_note": notes.append,
+            "repo_path": Path("/controller/repo"),
+        }
+        exec(compile(region, "board-supervisor.sh", "exec"), namespace)
+        namespace["notes"] = notes
+        return namespace
+
+    @staticmethod
+    def _prepared(status: str = "complete") -> dcb.PreparedWorktreeOutputs:
+        task_id = "TASK-2026-08-31-1330-quarantine"
+        relative = f"departments/coding/outbox/{task_id}-response.md"
+        envelope = (
+            "---\n"
+            f"id: {task_id}-response\n"
+            f"in_response_to: {task_id}\n"
+            "from: gpt-codex\n"
+            "to: chrono\n"
+            "type: RESULT\n"
+            f"status: {status}\n"
+            f"return_artifact: {relative}\n"
+            "---\n\n"
+            "Worker summary survives quarantine.\n"
+        ).encode()
+        return dcb.PreparedWorktreeOutputs(
+            task_id=task_id,
+            result_relative=relative,
+            outbox_relative=relative,
+            result_bytes=envelope,
+            envelope_bytes=envelope,
+            status=status,
+        )
+
+    def test_worker_status_is_replaced_and_the_fixed_marker_is_published(self) -> None:
+        namespace = self._namespace()
+        quarantined = namespace["_quarantine_prepared_outputs"](self._prepared())
+        text = quarantined.envelope_bytes.decode()
+        self.assertEqual(quarantined.status, "needs_review")
+        self.assertIn("status: needs_review\n", text)
+        self.assertNotIn("status: complete\n", text)
+        self.assertIn(
+            "controller_quarantine: "
+            "validated-artifact-after-cli-transport-failure/v1",
+            text,
+        )
+        self.assertIn("Worker summary survives quarantine.", text)
+
+    def test_real_quarantine_envelope_bytes_match_registry_recognizer(self) -> None:
+        namespace = self._namespace()
+        produced = namespace["_quarantine_prepared_outputs"](
+            self._prepared()
+        ).envelope_bytes
+        header, boundary, body = produced.decode("utf-8").partition("---\n\n")
+        self.assertEqual(boundary, "---\n\n")
+        first_line, newline, remaining_body = body.partition("\n")
+        self.assertEqual(newline, "\n")
+
+        with tempfile.TemporaryDirectory() as directory:
+            response = Path(directory) / "response.md"
+            response.write_bytes(produced)
+            self.assertTrue(
+                reconciler.response_controller_quarantine_active(response)
+            )
+
+            near_misses = {
+                "marker_not_first": "Worker preface.\n" + body,
+                "leading_blank_line": "\n" + body,
+                "near_miss_marker": (
+                    first_line + "-near-miss" + newline + remaining_body
+                ),
+            }
+            for label, altered_body in near_misses.items():
+                with self.subTest(label=label):
+                    response.write_text(
+                        header + boundary + altered_body,
+                        encoding="utf-8",
+                    )
+                    self.assertFalse(
+                        reconciler.response_controller_quarantine_active(response)
+                    )
+
+    def test_validated_output_returns_an_authenticated_quarantine_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo = root / "repo"
+            worker = root / "worker"
+            repo.mkdir()
+            worker.mkdir()
+            prepared = self._prepared()
+            worker_response = worker / prepared.outbox_relative
+            worker_response.parent.mkdir(parents=True)
+            worker_response.write_bytes(prepared.result_bytes)
+            authority = {
+                "task_id": prepared.task_id,
+                "lane": "codex",
+                "write_paths": [prepared.outbox_relative],
+                "expected_result_path": prepared.result_relative,
+                "expected_outbox_path": prepared.outbox_relative,
+            }
+            namespace = self._namespace()
+            namespace["repo_path"] = repo
+            namespace["prepare_current_worktree_outputs"] = lambda: (
+                dcb.prepare_worktree_outputs(repo, worker, authority)
+            )
+            namespace["publish_prepared_worktree_outputs"] = (
+                dcb.publish_prepared_worktree_outputs
+            )
+
+            receipt = namespace["recover_validated_outputs_for_transport_failure"]()
+
+            published = (repo / prepared.outbox_relative).read_text(encoding="utf-8")
+            self.assertEqual(
+                receipt["controller_quarantine"],
+                reconciler.CONTROLLER_QUARANTINE_MARKER,
+            )
+            self.assertEqual(receipt["response_status"], "needs_review")
+            self.assertIn("status: needs_review", published)
+            self.assertIn(reconciler.CONTROLLER_QUARANTINE_MARKER, published)
+            self.assertNotIn("status: complete", published)
+
+    def test_agycanary_shape_without_an_artifact_has_no_marker(self) -> None:
+        namespace = self._namespace()
+        published: list[object] = []
+
+        def missing_artifact() -> None:
+            raise dcb.DispatchContextError("return artifact is missing")
+
+        namespace["prepare_current_worktree_outputs"] = missing_artifact
+        namespace["publish_prepared_worktree_outputs"] = (
+            lambda *args: published.append(args)
+        )
+        self.assertIsNone(
+            namespace["recover_validated_outputs_for_transport_failure"]()
+        )
+        self.assertEqual(published, [])
+        self.assertIn("return artifact is missing", namespace["notes"][0])
+
+    def test_diagnostics_bound_both_streams_and_distinguish_signal_and_timeout(self) -> None:
+        namespace = self._namespace()
+        stdout = namespace["_bounded_cli_stream"]("x" * 3000 + "stdout-cause")
+        stderr = namespace["_bounded_cli_stream"]("y" * 3000 + "stderr-cause")
+        self.assertLessEqual(len(stdout["excerpt"].encode()), 2048)
+        self.assertLessEqual(len(stderr["excerpt"].encode()), 2048)
+        self.assertTrue(stdout["truncated"])
+        self.assertTrue(stderr["truncated"])
+        self.assertTrue(stdout["excerpt"].endswith("stdout-cause"))
+        self.assertTrue(stderr["excerpt"].endswith("stderr-cause"))
+        self.assertEqual(
+            namespace["_termination_diagnostics"]("cli_nonzero", 143),
+            {
+                "termination_kind": "signal",
+                "signal_number": 15,
+                "signal_name": "SIGTERM",
+            },
+        )
+        self.assertEqual(
+            namespace["_termination_diagnostics"]("cli_nonzero", 173)[
+                "termination_kind"
+            ],
+            "exit",
+        )
+        self.assertEqual(
+            namespace["_termination_diagnostics"]("cli_timeout", None)[
+                "termination_kind"
+            ],
+            "timeout",
+        )
+
+    def test_nonzero_and_reaped_timeout_share_recovery_and_stub_skip_is_fenced(self) -> None:
+        source = SCRIPT.read_text(encoding="utf-8")
+        marker = re.search(
+            r'^readonly controller_quarantine_marker="([^"]+)"$',
+            source,
+            re.MULTILINE,
+        )
+        self.assertIsNotNone(marker)
+        self.assertEqual(
+            marker.group(1), reconciler.CONTROLLER_QUARANTINE_MARKER
+        )
+        launch = source.split("completed = launch_task(", 1)[1].split(
+            "observed_memory_ids = set()", 1
+        )[0]
+        self.assertEqual(
+            launch.count("recover_validated_outputs_for_transport_failure()"), 2
+        )
+        timeout = launch.index("except subprocess.TimeoutExpired")
+        self.assertLess(
+            timeout,
+            launch.index("recover_validated_outputs_for_transport_failure()", timeout),
+        )
+        detached = source.split('if [[ "${1:-}" == "detached-launch" ]]', 1)[1].split(
+            'if [[ "${1:-}" == "trusted-launch" ]]', 1
+        )[0]
+        quarantine_gate = detached.index(
+            'if [[ "$quarantined_response" != "yes" ]]'
+        )
+        blocked_stub = detached.index('"$context_builder" blocked', quarantine_gate)
+        self.assertLess(quarantine_gate, blocked_stub)
+
+    def test_v2_finalizer_preserves_the_authenticated_quarantine_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            context = root / "context.json"
+            context.write_text("{}\n", encoding="utf-8")
+            descriptor = root / "dispatch.json"
+            descriptor.write_text(
+                json.dumps(
+                    {
+                        "task_id": "TASK-2026-08-31-1330-finalizer",
+                        "attempt_id": "d-" + "5" * 32,
+                        "generation": 1,
+                        "context_path": str(context),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            raw = root / "raw.json"
+            raw.write_text(
+                json.dumps(
+                    {
+                        "status": "blocked",
+                        "response_status": "needs_review",
+                        "controller_quarantine": (
+                            reconciler.CONTROLLER_QUARANTINE_MARKER
+                        ),
+                        "cli_exec_succeeded": False,
+                        "failure_class": "cli_nonzero",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            receipt = root / "receipt.json"
+            with (
+                mock.patch.object(process_truth, "descriptor_error", return_value=None),
+                mock.patch.object(process_truth, "_bound", return_value=True),
+                mock.patch.object(
+                    process_truth, "process_truth", return_value={"state": "live"}
+                ),
+            ):
+                finalized = process_truth.finalize_receipt(
+                    raw, descriptor, receipt
+                )
+            self.assertEqual(finalized["status"], "blocked")
+            self.assertEqual(finalized["terminal_outcome"], "needs_review")
+            self.assertEqual(
+                finalized["controller_quarantine"],
+                reconciler.CONTROLLER_QUARANTINE_MARKER,
+            )
+            self.assertIs(finalized["cli_exec_succeeded"], False)
+
+
 class BlockedReceiptStaysBlockedTests(unittest.TestCase):
     """The rail: recovery makes work REACHABLE, never settles a blocked receipt."""
 
@@ -1145,11 +1415,15 @@ class BlockedReceiptStaysBlockedTests(unittest.TestCase):
 
     def test_the_block_receipt_reports_recovery_without_changing_status(self) -> None:
         source = SCRIPT.read_text(encoding="utf-8")
-        block = source.split(
-            "def block_after_provision(reason, *, failure_class=None", 1
-        )[1].split("\n    sys.exit(75)", 1)[0]
+        block = source.split("def block_after_provision(", 1)[1].split(
+            "\n    sys.exit(75)", 1
+        )[0]
         self.assertIn('"status": "blocked"', block)
         self.assertIn('"work_recovery": work_recovery', block)
+        self.assertIn('"cli_stdout_excerpt"', block)
+        self.assertIn('"cli_stderr_excerpt"', block)
+        self.assertIn("_termination_diagnostics", block)
+        self.assertIn("payload.update(controller_quarantine)", block)
         self.assertNotIn("sys.exit(0)", block)
         # Nothing on this path may promote the attempt to a launched receipt.
         self.assertNotIn('"status": "launched"', block)
@@ -1159,8 +1433,10 @@ class BlockedReceiptStaysBlockedTests(unittest.TestCase):
         self.assertEqual(source.count("_work_recovery_window[0] = True"), 1)
         opened = source.index("_work_recovery_window[0] = True")
         closed = source.index("_work_recovery_window[0] = False\n        try:")
-        prevalidate = source.index("prepared_outputs = prepare_worktree_outputs(")
         launch = source.index("completed = launch_task(")
+        prevalidate = source.index(
+            "prepared_outputs = prepare_current_worktree_outputs()", launch
+        )
         # Opened before the worker CLI, closed after prevalidation and before
         # integration: exactly the span in which a block means the return path
         # failed rather than the work being judged.
@@ -1170,8 +1446,11 @@ class BlockedReceiptStaysBlockedTests(unittest.TestCase):
 
     def test_the_envelope_repair_runs_before_prevalidation(self) -> None:
         source = SCRIPT.read_text(encoding="utf-8")
-        repair = source.index("            repair_worker_envelope_frontmatter()")
-        prevalidate = source.index("            prepared_outputs = prepare_worktree_outputs(")
+        prepare = source.split("def prepare_current_worktree_outputs():", 1)[1].split(
+            "\n    if vault_broker is not None:", 1
+        )[0]
+        repair = prepare.index("repair_worker_envelope_frontmatter()")
+        prevalidate = prepare.index("return prepare_worktree_outputs(")
         self.assertLess(repair, prevalidate)
 
 

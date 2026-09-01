@@ -1,6 +1,6 @@
 ---
 name: compact-now
-description: Operator-triggered proactive compaction — Chrono externalizes load-bearing state (active decisions, open tasks, next action) to a snapshot + a durable Vault learning note before invoking Claude Code's native /compact, then resumes from the snapshot. Use when the operator says "/compact-now" / "compact now" or when a should_compact() advisory has surfaced.
+description: Operator-triggered proactive compaction — Chrono externalizes load-bearing state (active decisions, open tasks, next action) to a snapshot + a durable Vault learning note before invoking Claude Code's native /compact, then resumes from the snapshot. Use when the operator says "/compact-now" / "compact now" or when Chrono has flagged context pressure against shared/lifecycle.md rule 8.
 type: skill
 ---
 
@@ -8,8 +8,10 @@ type: skill
 
 Chrono-side proactive compaction. The operator triggers via slash phrase. Chrono:
 
-1. Reads the live board partition via `chrono_state.registry.registry_view()`, then calls
-   `chrono_state.compaction.should_compact()` to confirm safety (over threshold, no live work).
+1. Reads the live board partition via `chrono_state.registry.registry_view()` and confirms no
+   live work is in flight. Whether context pressure warrants compacting is Chrono's judgment
+   against `shared/lifecycle.md` § 8 — there is no predicate to call, and no token counter to
+   call it with (`shared/lifecycle.md` § 9: pressure is inferred from proxy signals only).
 2. If blockers exist (live dispatches), surfaces them to the operator and asks whether to proceed
    anyway — likewise for any unclassified registry status, which the partition cannot vouch for.
 3. Externalizes load-bearing state to the Vault via the current `record("learning", {...})` writer — captures active decisions (authority), open tasks, pending approvals, and the next action.
@@ -21,13 +23,13 @@ Chrono-side proactive compaction. The operator triggers via slash phrase. Chrono
 
 - Operator types `/compact-now` (explicit)
 - Operator types `compact now` / `please compact` / `let's compact` in prose (intent-recognition)
-- After Chrono has surfaced a `should_compact()` advisory and the operator nudges affirmatively
+- After Chrono has flagged context pressure against `shared/lifecycle.md` § 8 and the operator nudges affirmatively
 
 ## When NOT to invoke
 
 - Live dispatches running (`registry_view()["live"]` non-empty) — surface blockers first
 - Mid-task (Chrono still processing) — wait for a task boundary
-- Below the `should_compact()` threshold — no benefit, just cost
+- Below the `shared/lifecycle.md` § 8 threshold — no benefit, just cost
 
 ## Implementation
 
@@ -40,7 +42,7 @@ one — do not depend on it; externalize eagerly here.
 # Chrono inline (not dispatched)
 import json, sys
 sys.path.insert(0, "scripts/python")
-from chrono_state.compaction import should_compact, snapshot   # noqa: E402
+from chrono_state.compaction import snapshot                   # noqa: E402
 from chrono_state.registry import registry_view                # noqa: E402
 from chrono_state.decisions import active_decisions            # noqa: E402
 
@@ -52,12 +54,13 @@ from chrono_state.decisions import active_decisions            # noqa: E402
 # or the gate filters on a status the board does not emit and passes vacuously.
 board = registry_view()
 
-advisory = should_compact(
-    token_estimate=current_context_estimate,
-    in_flight=[t["id"] for t in board["live"]],
-)
-if advisory["blockers"]:
-    surface_to_operator(f"Blockers: {advisory['blockers']}. Proceed anyway?")
+# Live work is a hard blocker and IS mechanical -- the board knows it, so ask the
+# board. Whether context pressure warrants compacting at all is Chrono's judgment
+# against shared/lifecycle.md rule 8; there is no predicate for it and no token
+# counter to feed one (rule 9: proxy signals only).
+blockers = [t["id"] for t in board["live"]]
+if blockers:
+    surface_to_operator(f"Blockers: {blockers}. Proceed anyway?")
     if not operator_confirms:
         return
 # An unclassified status is owed work the partition cannot see — surface it loudly
@@ -98,7 +101,8 @@ trigger_native_compact()
 
 ## Cross-references
 
-- Policy + snapshot helpers: `scripts/python/chrono_state/compaction.py` (`should_compact`, `snapshot`, `recover`)
+- Snapshot helpers: `scripts/python/chrono_state/compaction.py` (`snapshot`, `recover`). The
+  threshold policy is prose, not code: `shared/lifecycle.md` § 8.
 - Decision authority (separate from Vault): `scripts/python/chrono_state/decisions.py`
 - Live board partition: `scripts/python/chrono_state/registry.py` (`registry_view` — live /
   deferred / unclassified; `LIVE_STATUSES` is the only status vocabulary. The dead bounded-file

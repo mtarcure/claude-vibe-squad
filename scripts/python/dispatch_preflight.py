@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """Mandatory, packet-bound checks immediately before board host admission.
 
-This is deliberately a thin composition layer. Structural packet parsing,
-runtime/profile resolution, role lookup, and verification-contract validation
-remain owned by ``dispatch_context_builder``. Process-truth's canonical SHA-256
-shape is reused for verdict binding. The only semantic rule here is the bounded
-owner-mismatch check requested for squad-wide harness drift.
+Thin composition over ``dispatch_context_builder``. One local rule: owner-mismatch
+harness-drift. Absent ``mode`` -> ``modeless`` (key-presence; DISP-01) is NOT restated
+here; it is delegated to ``context_builder.resolve_packet_mode``, the rule's one home.
 """
 
 from __future__ import annotations
@@ -18,6 +16,7 @@ import hmac
 import json
 from pathlib import Path, PurePosixPath
 import re
+import subprocess
 import sys
 from typing import Any, Mapping, Sequence
 
@@ -28,9 +27,26 @@ import dispatch_context_builder as context_builder
 VERDICT_SCHEMA = "dispatch-preflight/v1"
 ACK_FIELD = "dispatch_preflight_ack"
 OWNER_MISMATCH = "owner_mismatch"
+CODE_COMMIT_ARTIFACT_ONLY = "code_commit_artifact_only"
+UNSCOPED_TRACKED_PATH = "unscoped_tracked_path"
+DIRTY_WRITE_SCOPE = "dirty_write_scope"
+COUPLED_HASH_PIN = "coupled_hash_pin"
 KNOWN_ACKS = frozenset({OWNER_MISMATCH})
 TOOLKIT_BOUNDARY = "\n## Dispatch Context\n"
 RECENT_DISPATCH_WINDOW = 50
+
+CODE_COMMIT_RE = re.compile(
+    r"\bcommit\s+(?:(?:your|the|these)\s+)?(?:code|implementation)(?:\s+changes?)?\b"
+)
+MUTATION_RE = re.compile(
+    r"\b(?:add|append|author|change|create|edit|fix|implement|modify|move|patch|put|"
+    r"remove|rename|replace|rewrite|update|write)\w*\b"
+)
+NEGATED_MUTATION_RE = re.compile(
+    r"\b(?:do not|don't|must not|may not|never|no need to)\s+"
+    r"(?:(?:also|directly)\s+)?(?:add|append|author|change|create|edit|fix|implement|"
+    r"modify|move|patch|put|remove|rename|replace|rewrite|update|write)\w*\b"
+)
 
 EXIT_PASS = 0
 EXIT_INTERNAL = 2
@@ -142,6 +158,8 @@ def _validate_contract(
     body: str,
     packet_text: str,
 ) -> PacketContract:
+    # Delegated, not restated: a copy here could drift from the layer that gates.
+    fields = {**fields, "mode": context_builder.resolve_packet_mode(fields)}
     task_id = _field(fields, "id")
     specialist = _field(fields, "specialist")
     to_model = _field(fields, "to_model")
@@ -193,7 +211,7 @@ def _validate_contract(
     return_artifact = context_builder._safe_relative(  # noqa: SLF001
         fields.get("return_artifact", ""), field="return_artifact"
     )
-    if return_artifact and not any(
+    if return_artifact and write_scope and not any(
         _contains(scope, return_artifact) for scope in write_scope
     ):
         raise ExactContractViolation("return_artifact is outside packet write_scope")
@@ -235,14 +253,164 @@ def _validate_contract(
     )
 
 
-def _author_task_text(contract: PacketContract) -> str:
-    body = contract.body.split(TOOLKIT_BOUNDARY, 1)[0]
+def _author_text(fields: Mapping[str, str], body: str) -> str:
+    body = body.split(TOOLKIT_BOUNDARY, 1)[0]
     frontmatter_intent = " ".join(
-        _field(contract.fields, name)
+        _field(fields, name)
         for name in ("title", "goal", "objective", "task_shape")
-        if _field(contract.fields, name)
+        if _field(fields, name)
     )
     return f"{frontmatter_intent}\n{body}".lower()
+
+
+def _author_task_text(contract: PacketContract) -> str:
+    return _author_text(contract.fields, contract.body)
+
+
+def _git_paths(repo_root: Path, *arguments: str) -> tuple[str, ...]:
+    try:
+        result = subprocess.run(
+            ("git", "-C", str(repo_root), *arguments),
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=3,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ()
+    if result.returncode:
+        return ()
+    return tuple(
+        item.decode("utf-8", "surrogateescape")
+        for item in result.stdout.split(b"\0")
+        if item
+    )
+
+
+def _mutation_targets(text: str, tracked_paths: Sequence[str]) -> tuple[str, ...]:
+    lines = text.splitlines()
+    targets = set()
+    for path in tracked_paths:
+        needle = path.lower()
+        for index, line in enumerate(lines):
+            if needle not in line:
+                continue
+            context = " ".join(lines[max(0, index - 1) : index + 1])
+            if MUTATION_RE.search(context) and not NEGATED_MUTATION_RE.search(context):
+                targets.add(path)
+                break
+    return tuple(sorted(targets))
+
+
+def _write_scope_advisories(
+    repo_root: Path, fields: Mapping[str, str], body: str
+) -> tuple[Mapping[str, Any], ...]:
+    """Return fail-open authoring diagnostics; these must never gate dispatch."""
+    try:
+        write_scope = context_builder.parse_scope(
+            fields.get("write_scope", ""), field="write_scope"
+        )
+        return_artifact = context_builder._safe_relative(  # noqa: SLF001
+            fields.get("return_artifact", ""), field="return_artifact"
+        )
+        task_text = _author_text(fields, body)
+        warnings: list[Mapping[str, Any]] = []
+        if (
+            return_artifact
+            and len(write_scope) == 1
+            and PurePosixPath(write_scope[0]) == PurePosixPath(return_artifact)
+            and CODE_COMMIT_RE.search(task_text)
+        ):
+            warnings.append(
+                {
+                    "code": CODE_COMMIT_ARTIFACT_ONLY,
+                    "gate": "advisory",
+                    "blocking": False,
+                    "message": (
+                        "body asks to commit code, but write_scope contains only "
+                        "the return artifact"
+                    ),
+                    "return_artifact": return_artifact,
+                }
+            )
+
+        tracked_paths = _git_paths(repo_root, "ls-files", "-z")
+        mutation_targets = _mutation_targets(task_text, tracked_paths)
+        unscoped = tuple(
+            path
+            for path in mutation_targets
+            if not any(_contains(scope, path) for scope in write_scope)
+        )
+        if unscoped:
+            warnings.append(
+                {
+                    "code": UNSCOPED_TRACKED_PATH,
+                    "gate": "advisory",
+                    "blocking": False,
+                    "message": "body asks to change tracked paths outside write_scope",
+                    "paths": list(unscoped),
+                }
+            )
+
+        for source in sorted(set(write_scope) & set(tracked_paths)):
+            digest = hashlib.sha256((repo_root / source).read_bytes()).hexdigest()
+            pins = _git_paths(repo_root, "grep", "-lz", digest, "--")
+            missing = tuple(
+                path for path in pins
+                if not any(_contains(scope, path) for scope in write_scope)
+            )
+            if missing:
+                sample = ", ".join(missing[:3])
+                warnings.append({
+                    "code": COUPLED_HASH_PIN, "gate": "advisory", "blocking": False,
+                    "message": f"{source} hash is pinned outside write_scope by "
+                    f"{len(missing)} tracked path(s) (sample: {sample})",
+                    "source_path": source, "missing_count": len(missing),
+                    "paths": list(missing[:10]),
+                })
+
+        dirty = set()
+        if write_scope:
+            dirty.update(
+                _git_paths(
+                    repo_root, "diff", "--name-only", "-z", "--", *write_scope
+                )
+            )
+            dirty.update(
+                _git_paths(
+                    repo_root,
+                    "diff",
+                    "--cached",
+                    "--name-only",
+                    "-z",
+                    "--",
+                    *write_scope,
+                )
+            )
+        if dirty:
+            warnings.append(
+                {
+                    "code": DIRTY_WRITE_SCOPE,
+                    "gate": "advisory",
+                    "blocking": False,
+                    "message": "tracked main-checkout changes already overlap write_scope",
+                    "paths": sorted(dirty),
+                }
+            )
+        return tuple(warnings)
+    except Exception:  # Diagnostics are deliberately fail-open, including future drift.
+        return ()
+
+
+def authoring_warnings(repo_root: Path, packet: Path) -> tuple[Mapping[str, Any], ...]:
+    try:
+        fields, body = context_builder._parse_task_text(  # noqa: SLF001
+            Path(packet).read_text(encoding="utf-8")
+        )
+        root = Path(repo_root).resolve(strict=True)
+    except Exception:
+        return ()
+    return _write_scope_advisories(root, fields, body)
 
 
 def _scope_classification(write_scope: Sequence[str]) -> str:
@@ -442,6 +610,7 @@ def evaluate_packet(repo_root: Path, packet: Path) -> PreflightVerdict:
         acknowledgements = _parse_acknowledgements(fields.get(ACK_FIELD, ""))
         contract = _validate_contract(repo_root, fields, body, text)
         warning = _owner_mismatch_warning(repo_root, contract)
+        advisories = _write_scope_advisories(repo_root, fields, body)
     except (context_builder.DispatchContextError, ExactContractViolation, OSError) as exc:
         return PreflightVerdict(
             packet_sha256=packet_sha256,
@@ -456,10 +625,13 @@ def evaluate_packet(repo_root: Path, packet: Path) -> PreflightVerdict:
         )
 
     warning_basis = warning
-    warnings: tuple[Mapping[str, Any], ...] = ()
+    warnings: tuple[Mapping[str, Any], ...] = advisories
     if warning is not None:
         warning = {**warning, "acknowledged": OWNER_MISMATCH in acknowledgements}
-        warnings = (warning,)
+        warnings = (warning, *warnings)
+    acknowledgement_warnings = tuple(
+        item for item in warnings if item.get("required_ack")
+    )
     informational = []
     if not contract.direct_lane:
         informational.extend(
@@ -490,13 +662,14 @@ def evaluate_packet(repo_root: Path, packet: Path) -> PreflightVerdict:
         warning_set_sha256 = hashlib.sha256(
             context_builder._canonical_json([warning_basis])  # noqa: SLF001
         ).hexdigest()
-        if all(bool(item["acknowledged"]) for item in warnings):
+        if all(bool(item["acknowledged"]) for item in acknowledgement_warnings):
             ack_sha256 = hashlib.sha256(
                 f"{packet_sha256}\0{warning_set_sha256}".encode("ascii")
             ).hexdigest()
     decision = (
         "needs_ack"
-        if warnings and not all(bool(item["acknowledged"]) for item in warnings)
+        if acknowledgement_warnings
+        and not all(bool(item["acknowledged"]) for item in acknowledgement_warnings)
         else "allow"
     )
     return PreflightVerdict(
@@ -531,16 +704,34 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-root", required=True, type=Path)
     parser.add_argument("--packet", required=True, type=Path)
+    parser.add_argument("--authoring-warnings-only", action="store_true")
     return parser
+
+
+def _print_advisories(warnings: Sequence[Mapping[str, Any]]) -> None:
+    for warning in warnings:
+        try:
+            if warning.get("gate") == "advisory":
+                print(
+                    f"dispatch preflight warning [{warning['code']}]: "
+                    f"{warning['message']}",
+                    file=sys.stderr,
+                )
+        except Exception:
+            continue
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.authoring_warnings_only:
+        _print_advisories(authoring_warnings(args.repo_root, args.packet))
+        return EXIT_PASS
     try:
         verdict = evaluate_packet(args.repo_root.resolve(strict=True), args.packet)
     except OSError as exc:
         print(f"dispatch preflight internal error: {exc}", file=sys.stderr)
         return EXIT_INTERNAL
+    _print_advisories(verdict.warnings)
     print(
         json.dumps(
             verdict.as_dict(), sort_keys=True, separators=(",", ":"), ensure_ascii=False

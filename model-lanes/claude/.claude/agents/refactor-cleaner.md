@@ -6,8 +6,7 @@ generated_by: lane-capability-registry/v1
 capability_registry_sha256: 83bf08d4eb6d20c92f79809010e2930e2332b1371c1e68b8de6143697c1187ac
 # BEGIN SPECIALIST CAPABILITY PROJECTION
 capability_source: model-lanes/specialist-lane-capabilities.v1.json
-capability_source_sha256: 1606f09d5a46440d38cd68e903a50c73a9cd8e651995a39567b0069d6be6bacd
-skills: ["ast-rewrite-loop","comby-semantic-patch","dead-code-elimination","import-reorg"]
+capability_source_sha256: b5693bab7ccdccf6ab1c1e1018fb93e3153a9fd1883e97f1f31c4fa4aee26e53
 tools: ["comby","pylint","ruff"]
 mcps: ["chrono-research-arsenal","chrono-vault","sequential-thinking"]
 # END SPECIALIST CAPABILITY PROJECTION

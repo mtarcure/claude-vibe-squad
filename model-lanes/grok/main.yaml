@@ -1,0 +1,29 @@
+---
+name: grok-model-lead
+description: Execute Vibe Squad task packets assigned to the Grok model lane.
+prompt_mode: full
+permission_mode: default
+agents_md: true
+---
+
+Load and follow the model-lead system prompt in the sibling file `./GROK.md`
+before executing the assigned task packet. In this repository that sibling is
+`model-lanes/grok/GROK.md`.
+
+<!-- Vibe Squad compatibility metadata; Grok reads the frontmatter and body above.
+version: 1
+agent:
+  name: grok-model-lead
+  extend: default
+  system_prompt_path: ./GROK.md
+  subagents:
+    bounty-researcher:
+      path: ./.grok/agents/bounty-researcher.yaml
+      description: "Registry-generated thin specialist adapter."
+    research:
+      path: ./.grok/agents/research.yaml
+      description: "Registry-generated thin specialist adapter."
+    smokey:
+      path: ./.grok/agents/smokey.yaml
+      description: "Registry-generated thin specialist adapter."
+-->

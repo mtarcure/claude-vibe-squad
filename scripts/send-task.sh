@@ -13,9 +13,9 @@
 #     artifact. Without this the wrapper could only ever author read-only packets,
 #     so any packet asking for code changes silently could not apply them.
 #
-#   REVIEWS=TASK-...  — the task this packet reviews. Required for a review packet:
-#     the response envelope is stamped from it, so settlement works without the
-#     reviewer having to declare its own subject.
+#   REVIEWS=none | REVIEWS=TASK-...  — required review-provenance declaration.
+#     `none` deliberately marks ordinary work; a canonical task id marks a review
+#     and is stamped into the response envelope for settlement.
 #
 #   AUTHORIZED_DELETE_PATHS='"a", "b"'  — JSON-list members of paths the worker may
 #     DELETE. Required for any file MOVE; the board refuses worker deletions without it.
@@ -29,6 +29,7 @@ set -euo pipefail
 
 VAULT_ROOT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
 HARDENED_DISPATCH="${VAULT_ROOT}/bin/send-task.sh"
+AUTHORING_PREFLIGHT="${VAULT_ROOT}/scripts/python/dispatch_preflight.py"
 RUNTIME_MAP="${VAULT_ROOT}/shared/specialist-runtime-map.tsv"
 source "${VAULT_ROOT}/shared/lead-windows.sh"
 
@@ -95,6 +96,23 @@ case "${MODE}" in
         exit 1
         ;;
 esac
+
+# Review intent is an explicit admission-time union. An omitted variable used to
+# be indistinguishable from deliberate ordinary work, and a missing review target
+# cannot be reconstructed after launch. Validate before TASK_ID/UUID creation or
+# packet staging so omission cannot leave any dispatch residue.
+if [[ -z "${REVIEWS+x}" ]]; then
+    echo "ERROR: missing required REVIEWS declaration; set REVIEWS=none for ordinary work or REVIEWS=TASK-YYYY-MM-DD-HHMM-<suffix> for a review"
+    exit 1
+fi
+if [[ -z "${REVIEWS}" ]]; then
+    echo "ERROR: empty REVIEWS declaration; set REVIEWS=none for ordinary work or REVIEWS=TASK-YYYY-MM-DD-HHMM-<suffix> for a review"
+    exit 1
+fi
+if [[ "${REVIEWS}" != "none" && ! "${REVIEWS}" =~ ^TASK-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}-[A-Za-z0-9][A-Za-z0-9-]*$ ]]; then
+    echo "ERROR: invalid REVIEWS declaration '${REVIEWS}'; expected exactly none or a canonical TASK-YYYY-MM-DD-HHMM-<suffix> id"
+    exit 1
+fi
 
 # An explicit 4th-arg lane must survive the runtime-map lookup below; without
 # this the documented [to-model] override was silently discarded (failover
@@ -177,15 +195,9 @@ fi
 # doc) was undispatchable from here and had to be hand-authored. Always emitted:
 # the dispatcher json.loads it and treats [] as falsy, so an unset value is inert.
 DELETE_PATHS_LINE="authorized_delete_paths: [${AUTHORIZED_DELETE_PATHS:-}]"
-# A review packet must name the task it reviews. dispatch_context_builder reads this
-# packet field and stamps it into the trusted response envelope, so the reviewer never
-# has to remember it -- reviewers omitted it on every attempt, including one packet that
-# asked explicitly. Without this line the stamp has nothing to copy and the review
-# cannot settle, which is what left memory promotion dead.
-REVIEWS_LINE=""
-if [[ -n "${REVIEWS:-}" ]]; then
-    REVIEWS_LINE="reviews: ${REVIEWS}"$'\n'
-fi
+# Every generated packet carries the typed declaration. The hardened dispatcher
+# independently validates prepared packets, then projects only a real task target.
+REVIEWS_LINE="reviews: ${REVIEWS}"$'\n'
 
 TIMESTAMP="$(date +%Y-%m-%d-%H%M)"
 TASK_ID="TASK-${TIMESTAMP}-$(uuidgen | head -c 8 | tr '[:upper:]' '[:lower:]')"
@@ -231,6 +243,18 @@ EOF
 } > "${TASK_FILE}"
 
 sync "${TASK_FILE}" 2>/dev/null || true
+
+# The hardened live path runs the packet-bound preflight immediately before host
+# admission. Its dry-run exits earlier through the context-builder validator, so
+# emit the same authoring advisories here for generated dry-runs. This diagnostic
+# path is intentionally fail-open: neither a warning nor a broken warning check
+# may change what the hardened dispatcher admits.
+if [[ "${DRY_RUN}" == "true" && -f "${AUTHORING_PREFLIGHT}" ]]; then
+    python3 "${AUTHORING_PREFLIGHT}" \
+        --repo-root "${VAULT_ROOT}" \
+        --packet "${TASK_FILE}" \
+        --authoring-warnings-only >/dev/null || true
+fi
 
 echo "  Packet mode: ${MODE}"
 DISPATCH_ARGS=("${TASK_FILE}")

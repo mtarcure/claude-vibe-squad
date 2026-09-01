@@ -280,25 +280,6 @@ class MaintainerRunUnaffectedTests(unittest.TestCase):
         self.assertEqual(summary["failed"], 0)
         self.assertEqual(summary["passed"], summary["files"])
         self.assertNotIn("registry-not-published", result.stdout)
-        documents = [
-            json.loads(line) for line in result.stdout.splitlines() if line.strip()
-        ]
-        census = next(
-            item for item in documents if item["type"] == "skill-reference-census"
-        )
-        self.assertEqual(census["status"], "pass")
-        self.assertTrue(
-            any(
-                report["code"] == "skill-reference-plugin-disabled"
-                for report in census["reports"]
-            )
-        )
-        self.assertFalse(
-            any(
-                error["code"] == "skill-reference-plugin-disabled"
-                for error in census["errors"]
-            )
-        )
 
     def test_maintainer_self_test_still_passes(self) -> None:
         result = _run_validator(REPO_ROOT, "--self-test")

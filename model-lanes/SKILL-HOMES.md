@@ -14,8 +14,9 @@ single physical directory can serve all four lanes:
 | gpt-codex | worktree root | `<cwd>/.agents/skills/` |
 | gemini | `model-lanes/gemini` | `<cwd>/.agents/skills/` (cwd-relative, **not** `--include-directories`) |
 | kimi | worktree root | dirs passed via `--skills-dir` (no cwd auto-discovery) |
+| grok | worktree root | **UNMEASURED** — the lane landed 2026-08-30 and its skill-discovery path has never been probed live. Do not assume it matches another lane. |
 
-All four paths were enumerated **live** on 2026-08-18 (see the task response). Gemini
+The first four paths were enumerated **live** on 2026-08-18; grok is not yet enumerated (see the task response). Gemini
 is the only lane whose cwd is not the worktree root, so its `<cwd>/.agents/skills`
 does not exist unless bridged.
 

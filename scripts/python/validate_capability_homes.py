@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+from datetime import date
 from functools import lru_cache
 import hashlib
 import json
@@ -27,6 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from specialist_capability_source import (
     CapabilitySourceError,
     SOURCE_RELATIVE,
+    accepted_source_sha256s,
     atomic_write_text,
     available_arrays,
     is_usable_capability,
@@ -44,7 +46,7 @@ from gen_runtime_tool_summary import (
 )
 
 
-LANES = ("gpt-codex", "claude", "gemini", "kimi")
+LANES = ("gpt-codex", "claude", "gemini", "grok", "kimi")
 ROUTE_FIELDS = (
     "primary_lane",
     "backup_lane",
@@ -171,9 +173,27 @@ def load_policy(root: Path, policy_path: Path | None = None) -> dict[str, Any]:
             raise CapabilityHomeError(
                 f"policy migration_parity_retirements[{index}].kind must be skills or tools"
             )
-        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", record["retired_on"]):
+        # Shape is not semantics: `\d{4}-\d{2}-\d{2}` accepts 2026-02-30. Parse it
+        # and require the round-trip, so a calendar-invalid date cannot retire a
+        # capability. Same reasoning for source_task -- a bare `TASK-...-9999-`
+        # prefix carries no provenance, so require a non-empty trailing slug.
+        retired_on = record["retired_on"]
+        try:
+            parsed_retired_on = date.fromisoformat(retired_on)
+        except ValueError:
+            parsed_retired_on = None
+        if parsed_retired_on is None or parsed_retired_on.isoformat() != retired_on:
             raise CapabilityHomeError(
-                f"policy migration_parity_retirements[{index}].retired_on must be YYYY-MM-DD"
+                f"policy migration_parity_retirements[{index}].retired_on must be a "
+                f"real calendar date in YYYY-MM-DD form; got {retired_on!r}"
+            )
+        if not re.fullmatch(
+            r"TASK-\d{4}-\d{2}-\d{2}-\d{4}-\S+", record["source_task"]
+        ):
+            raise CapabilityHomeError(
+                f"policy migration_parity_retirements[{index}].source_task must be "
+                f"TASK-YYYY-MM-DD-HHMM-<slug> with a non-empty slug; got "
+                f"{record['source_task']!r}"
             )
         key = (record["specialist"], record["kind"], record["identifier"])
         if key in retirement_keys:
@@ -375,6 +395,7 @@ def _adapter_globs(root: Path) -> Iterable[tuple[str, Path]]:
         ("gpt-codex", root / "model-lanes/gpt-codex/.codex/agents", "*.toml"),
         ("claude", root / "model-lanes/claude/.claude/agents", "*.md"),
         ("gemini", root / "model-lanes/gemini/.gemini/agents", "*.md"),
+        ("grok", root / "model-lanes/grok/.grok/agents", "*.yaml"),
         ("kimi", root / "model-lanes/kimi/.kimi/agents", "*.yaml"),
     )
     for lane, directory, pattern in locations:
@@ -425,6 +446,46 @@ def routed_lanes(row: dict[str, str]) -> tuple[str, ...]:
             }
         )
     )
+
+
+def grok_adapter_route_diagnostics(
+    root: Path, rows: dict[str, dict[str, str]]
+) -> list[dict[str, Any]]:
+    """Reject Grok adapter artifacts whose specialist has no Grok route.
+
+    Grok route generation emits a native Markdown definition, a capability
+    YAML mirror, and a prompt.  Route withdrawal must make all three visible
+    to validation; the validator reports them but never deletes them.
+    """
+
+    locations = (
+        (root / "model-lanes/grok/.grok/agents", ("*.md", "*.yaml")),
+        (root / "model-lanes/grok/.grok/prompts", ("*.md",)),
+    )
+    issues: list[dict[str, Any]] = []
+    for directory, patterns in locations:
+        if not directory.is_dir():
+            continue
+        for pattern in patterns:
+            for path in sorted(directory.glob(pattern)):
+                specialist = path.stem
+                if specialist.lower() == "readme":
+                    continue
+                row = rows.get(specialist)
+                if row is not None and "grok" in routed_lanes(row):
+                    continue
+                rel = path.relative_to(root).as_posix()
+                issues.append(
+                    diagnostic(
+                        "adapter-route",
+                        rel,
+                        f"{specialist}:grok",
+                        "Grok adapter artifact has no ranked runtime route; "
+                        "remove it or restore the route",
+                        kind="schema",
+                    )
+                )
+    return issues
 
 
 def load_adapters(
@@ -882,12 +943,37 @@ def source_coverage_diagnostics(
     return issues
 
 
+def projection_arrays(
+    source_entries: dict[tuple[str, str], dict[str, Any]],
+    specialist: str,
+    lane: str,
+) -> dict[str, tuple[str, ...]]:
+    """Return live arrays only when failed-probe evidence has been refreshed.
+
+    ``pending-reprobe`` is valid evidence for a tracked, non-live capability.
+    It cannot prove an ``available`` claim: retaining it while flipping only
+    availability would re-arm a capability whose last live probe failed.
+    """
+    entry = source_entries.get((specialist, lane), {})
+    for kind in CAPABILITY_FIELDS:
+        for ref in entry.get(kind, ()):
+            if ref.availability == "available" and ref.evidence == "pending-reprobe":
+                raise CapabilityHomeError(
+                    f"{SOURCE_RELATIVE.as_posix()}: "
+                    f"{specialist}:{lane}:{ref.identifier}: availability 'available' "
+                    "cannot retain evidence 'pending-reprobe'; record refreshed "
+                    "evidence from a successful re-probe before projecting"
+                )
+    return available_arrays(source_entries, specialist, lane)
+
+
 def adapter_source_sync_diagnostics(
     root: Path,
     adapters: dict[tuple[str, str], dict[str, Any]],
     source_entries: dict[tuple[str, str], dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    expected_sha = source_sha256(root)
+    _entries, payload = load_source(root)
+    accepted_hashes = accepted_source_sha256s(root, payload)
     issues: list[dict[str, Any]] = []
     for key, entry in sorted(source_entries.items()):
         if not any(entry[field] for field in CAPABILITY_FIELDS) and not entry.get(
@@ -907,7 +993,7 @@ def adapter_source_sync_diagnostics(
                 )
             )
             continue
-        expected = available_arrays(source_entries, specialist, lane)
+        expected = projection_arrays(source_entries, specialist, lane)
         for field in CAPABILITY_FIELDS:
             if tuple(adapter[field]) != expected[field]:
                 issues.append(
@@ -921,7 +1007,7 @@ def adapter_source_sync_diagnostics(
                 )
         if (
             adapter.get("capability_source") != SOURCE_RELATIVE.as_posix()
-            or adapter.get("capability_source_sha256") != expected_sha
+            or adapter.get("capability_source_sha256") not in accepted_hashes
         ):
             issues.append(
                 diagnostic(
@@ -958,7 +1044,7 @@ def load_lane_inventory(root: Path) -> dict[str, dict[str, set[str]]]:
             result[lane]["tools"].add("google_web_search")
     if set(result) != set(LANES):
         raise CapabilityHomeError(
-            "lane inventory must contain exactly the four execution lanes"
+            "lane inventory must contain exactly the five execution lanes"
         )
     return result
 
@@ -994,7 +1080,7 @@ def _explicit_catalog_lanes(section: str, block: str) -> set[str] | None:
         return _catalog_lane_tokens(lane_field.group(1))
 
     only_lane = re.search(
-        r"\b(claude|codex|gemini|kimi)(?:/chrono)?(?:[- ]lane|\s+panes?)\s+only\b",
+        r"\b(claude|codex|gemini|grok|kimi)(?:/chrono)?(?:[- ]lane|\s+panes?)\s+only\b",
         block,
         re.IGNORECASE,
     )
@@ -1006,12 +1092,13 @@ def _explicit_catalog_lanes(section: str, block: str) -> set[str] | None:
         "anthropic / claude": {"claude"},
         "openai / codex": {"gpt-codex"},
         "google / gemini": {"gemini"},
+        "xai / grok": {"grok"},
         "moonshot / kimi": {"kimi"},
     }
     if normalized in section_defaults:
         return set(section_defaults[normalized])
     section_lane = re.search(
-        r"\b(claude|codex|gemini|kimi) lane\b", normalized, re.IGNORECASE
+        r"\b(claude|codex|gemini|grok|kimi) lane\b", normalized, re.IGNORECASE
     )
     if section_lane:
         return {normalize_lane(section_lane.group(1).lower())}
@@ -1126,12 +1213,23 @@ def actual_skill_names(root: Path, lane: str) -> set[str]:
             home / ".codex/plugins/cache",
         ),
         "claude": (
-            root / "model-lanes/claude/.claude/skills",
+            # `.claude/skills` at the REPO ROOT is the real home and the one
+            # Claude Code loads from. The old `model-lanes/claude/.claude/skills`
+            # path does not exist, so this lane's only live home was the plugin
+            # cache -- and 67 of the repo's 95 skills were invisible to this gate
+            # while it reported pass. validate_skill_wiring.py:5-14 already
+            # documents `.claude/skills` as the corrected model and names the old
+            # path as wrong; this brings the second validator into agreement.
+            root / ".claude/skills",
             home / ".claude/plugins/cache",
         ),
         "gemini": (
             root / "model-lanes/gemini/.gemini/skills",
             home / ".gemini/extensions",
+        ),
+        "grok": (
+            root / "model-lanes/grok/.grok/skills",
+            home / ".grok/skills",
         ),
         "kimi": (root / "model-lanes/kimi/.kimi/skills",),
     }
@@ -1278,7 +1376,7 @@ def source_existence_diagnostics(
     runtime = runtime_rows(root)
     issues: list[dict[str, Any]] = []
     for (specialist, lane), entry in sorted(source_entries.items()):
-        projected = available_arrays(source_entries, specialist, lane)
+        projected = projection_arrays(source_entries, specialist, lane)
         for kind in CAPABILITY_FIELDS:
             for identifier in projected[kind]:
                 present = False
@@ -1587,6 +1685,7 @@ def render_index(
         for (specialist, lane), entry in sorted(source_entries.items()):
             adapter = adapters.get((specialist, lane), {})
             primary_lane = normalize_lane(runtime[specialist]["primary_lane"])
+            projected = projection_arrays(source_entries, specialist, lane)
             surface_hash = role_surface_sha256(entry)
             surface_hashes.add(surface_hash)
             assigned_servers = {
@@ -1628,18 +1727,12 @@ def render_index(
                     },
                     "lane": lane,
                     "limitations": list(entry["limitations"]),
-                    "mcps": list(
-                        available_arrays(source_entries, specialist, lane)["mcps"]
-                    ),
+                    "mcps": list(projected["mcps"]),
                     "primary_plan": primary_plan,
-                    "skills": list(
-                        available_arrays(source_entries, specialist, lane)["skills"]
-                    ),
+                    "skills": list(projected["skills"]),
                     "specialist": specialist,
                     "surface_sha256": surface_hash,
-                    "tools": list(
-                        available_arrays(source_entries, specialist, lane)["tools"]
-                    ),
+                    "tools": list(projected["tools"]),
                 }
             )
         payload = {
@@ -1715,6 +1808,7 @@ def validate_repository(
     policy = load_policy(root, policy_path)
     rows = runtime_rows(root)
     adapters, issues = load_adapters(root, rows)
+    issues.extend(grok_adapter_route_diagnostics(root, rows))
     lane_inventory = load_lane_inventory(root)
     source_entries, _source_payload = load_source(root)
     enabled = only or {"boundary", "parity", "existence", "source", "required", "index"}

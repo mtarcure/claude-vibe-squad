@@ -18,6 +18,8 @@ import json
 import base64
 import binascii
 import mimetypes
+import re
+from http import HTTPStatus
 from typing import Any
 
 import arxiv
@@ -134,6 +136,65 @@ def _coerce_result(item: Any, source_hint: str) -> dict[str, str] | None:
     return {"title": title or url, "url": url, "snippet": snippet, "source": source}
 
 
+def _xai_http_status(response: Any) -> dict[str, Any]:
+    """Return status + reason without assuming one HTTPX response version."""
+    try:
+        status_code = response.status_code
+    except Exception:
+        status_code = None
+    if isinstance(status_code, bool) or not isinstance(status_code, int):
+        status_code = None
+    try:
+        reason_phrase = response.reason_phrase
+    except Exception:
+        reason_phrase = None
+    if not isinstance(reason_phrase, str) or not reason_phrase:
+        try:
+            reason_phrase = HTTPStatus(status_code).phrase
+        except (TypeError, ValueError):
+            reason_phrase = "Unknown"
+    return {"status_code": status_code, "reason_phrase": reason_phrase}
+
+
+def _xai_exception_fields(exc: BaseException) -> dict[str, str]:
+    """Describe a local failure without returning an exception's free-form text."""
+    traceback = exc.__traceback__
+    while traceback is not None and traceback.tb_next is not None:
+        traceback = traceback.tb_next
+    fields = {
+        "exception_type": type(exc).__name__,
+        "location": (
+            f"{traceback.tb_frame.f_code.co_name}:{traceback.tb_lineno}"
+            if traceback is not None
+            else "unknown"
+        ),
+    }
+    if isinstance(exc, AttributeError):
+        attribute = getattr(exc, "name", None)
+        obj = getattr(exc, "obj", None)
+        object_type = type(obj).__name__ if obj is not None else None
+        if not isinstance(attribute, str) or not re.fullmatch(
+            r"[A-Za-z_][A-Za-z0-9_]*", attribute
+        ):
+            # Older Python versions do not populate AttributeError.name/obj.
+            # Parse only the interpreter's fixed, value-free message shape;
+            # never return arbitrary exception text.
+            match = re.fullmatch(
+                r"'([A-Za-z_][A-Za-z0-9_.]*)' object has no attribute "
+                r"'([A-Za-z_][A-Za-z0-9_]*)'",
+                str(exc),
+            )
+            if match:
+                object_type, attribute = match.groups()
+        if isinstance(attribute, str):
+            fields["attribute"] = attribute
+        if isinstance(object_type, str) and re.fullmatch(
+            r"[A-Za-z_][A-Za-z0-9_.]*", object_type
+        ):
+            fields["object_type"] = object_type
+    return fields
+
+
 def _message_text_and_citations(response_data: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
     texts: list[str] = []
     citations: list[dict[str, Any]] = []
@@ -230,7 +291,7 @@ def arxiv_search(
         search = arxiv.Search(
             query=full_query,
             max_results=max_results,
-            sort_by=arxiv.SortCriterion.SubmittedDate,
+            sort_by=arxiv.SortCriterion.Relevance,
             sort_order=arxiv.SortOrder.Descending,
         )
         papers = []
@@ -355,14 +416,12 @@ def xai_search(
             "query": query,
             "endpoint": "https://api.x.ai/v1/responses",
         }
-    except httpx.HTTPStatusError as e:
-        return {
-            "ok": False,
-            "error": f"HTTP {e.response.status_code} {e.response.reason_phrase}",
-            "query": query,
-        }
-    except Exception as e:
-        return {"ok": False, "error": f"{type(e).__name__}", "query": query}
+    except httpx.HTTPStatusError as exc:
+        return _err("xai_http_error", query=query, **_xai_http_status(exc.response))
+    except AttributeError as exc:
+        return _err("xai_attribute_error", query=query, **_xai_exception_fields(exc))
+    except Exception as exc:
+        return _err("xai_internal_error", query=query, **_xai_exception_fields(exc))
 
 
 @mcp.tool()

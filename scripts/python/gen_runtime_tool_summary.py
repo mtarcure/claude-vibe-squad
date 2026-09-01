@@ -22,6 +22,7 @@ LANE_NAMES = {
     "codex": "gpt-codex",
     "claude": "claude",
     "gemini": "gemini",
+    "grok": "grok",
     "kimi": "kimi",
 }
 # Only these availability states feed the runtime-map tool summary. Every other

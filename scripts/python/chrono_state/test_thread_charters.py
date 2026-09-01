@@ -154,5 +154,79 @@ class ThreadCharterCapsuleTests(unittest.TestCase):
         self.assertIn("active=1; open_QUEUE=1", capsule)
 
 
+class CharterArchiveTransitionTests(unittest.TestCase):
+    """AUD-03: DONE-WHEN participates in the one transition a charter has.
+
+    Archiving used to be a bare ``mv``, so ``done_when_met`` was computed on
+    every parse and consulted by nobody at the moment it decides something.
+    """
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        base = self.root / "_state" / "chrono" / "thread-charters"
+        self.active = base / "active"
+        self.complete = base / thread_charters.COMPLETE_DIRNAME
+        self.parked = base / thread_charters.PARKED_DIRNAME
+        self.active.mkdir(parents=True)
+
+    def charter(self, done: str, loops: str = "- (none)") -> Path:
+        path = self.active / "skills-wiring.md"
+        path.write_text(charter_text(loops, done), encoding="utf-8")
+        return path
+
+    def test_unticked_done_when_cannot_be_archived_as_complete(self):
+        path = self.charter("- [x] first\n- [ ] second")
+        with self.assertRaises(thread_charters.CharterArchiveRefused) as caught:
+            thread_charters.archive_charter(path, self.complete)
+        self.assertIn("DONE-WHEN", str(caught.exception))
+        # The refusal leaves the charter where a reader still sees it.
+        self.assertTrue(path.exists())
+        self.assertFalse((self.complete / path.name).exists())
+
+    def test_negative_control_a_ticked_charter_archives_normally(self):
+        """Closing must stay conditional, never impossible."""
+        path = self.charter("- [x] first\n- [X] second")
+        target = thread_charters.archive_charter(path, self.complete)
+        self.assertEqual(target, self.complete / "skills-wiring.md")
+        self.assertTrue(target.exists())
+        self.assertFalse(path.exists())
+
+    def test_an_unfinished_charter_is_parkable(self):
+        """parked/ already means 'archived, not finished' -- that route stays open."""
+        path = self.charter("- [ ] still open")
+        target = thread_charters.archive_charter(path, self.parked)
+        self.assertTrue(target.exists())
+        self.assertFalse(path.exists())
+        debt = thread_charters.load_archived_debt(self.root)
+        self.assertEqual([c.thread_id for c in debt], ["skills-wiring"])
+
+    def test_unresolved_queue_also_refuses_a_completion_claim(self):
+        queued = (
+            "- 2026-08-18T12:00:00Z | QUEUE Q-001 | remove mirrors "
+            "— why: deletion is separate; resume: rerun the validator"
+        )
+        path = self.charter("- [x] done", loops=queued)
+        with self.assertRaises(thread_charters.CharterArchiveRefused) as caught:
+            thread_charters.archive_charter(path, self.complete)
+        self.assertIn("Q-001", str(caught.exception))
+
+    def test_malformed_and_unknown_destination_fail_closed(self):
+        empty = self.active / "empty-done.md"
+        empty.write_text(charter_text("- (none)", ""), encoding="utf-8")
+        with self.assertRaises(thread_charters.CharterArchiveRefused):
+            thread_charters.archive_charter(empty, self.complete)
+        with self.assertRaises(ValueError):
+            thread_charters.archive_charter(empty, self.active)
+
+    def test_the_debt_reporter_and_the_mover_share_one_predicate(self):
+        """Two answers to 'is this charter done?' would age apart."""
+        done = thread_charters.parse_charter(self.charter("- [x] done"))
+        open_ = thread_charters.parse_charter(self.charter("- [ ] open"))
+        self.assertEqual(thread_charters.unfinished_business(done), ())
+        self.assertTrue(thread_charters.unfinished_business(open_))
+
+
 if __name__ == "__main__":
     unittest.main()

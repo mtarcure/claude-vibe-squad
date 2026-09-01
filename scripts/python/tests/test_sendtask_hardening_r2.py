@@ -252,6 +252,7 @@ class SendTaskFixture(unittest.TestCase):
                     "run_id": "R2-SENDTASK-HARDENING",
                     "parallel_safe": "true",
                     "direct_lane_work_allowed": "true",
+                    "reviews": "none",
                     "write_scope": write_scope,
                     "return_artifact": return_artifact,
                 }
@@ -410,6 +411,7 @@ class ContractAdmissionReasonTests(unittest.TestCase):
             "direct_lane_work_allowed": "false",
             "mandatory_review": "false",
             "review_model": "none",
+            "reviews": "none",
             "model_override_reason": "regression fixture",
             "return_artifact": "_state/r2admit/out.md",
         }

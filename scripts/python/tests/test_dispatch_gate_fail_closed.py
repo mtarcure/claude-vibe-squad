@@ -140,6 +140,7 @@ class DispatchGateFailClosedTests(unittest.TestCase):
             "direct_lane_work_allowed: true\n"
             "mandatory_review: false\n"
             "review_model: none\n"
+            "reviews: none\n"
             "---\n\n"
             "Fixture packet for the dispatch-gate fail-closed suite.\n",
             encoding="utf-8",

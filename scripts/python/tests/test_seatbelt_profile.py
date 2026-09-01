@@ -52,10 +52,12 @@ import seatbelt_profile
 print(json.dumps({
     "host_home": str(seatbelt_profile.HOST_HOME),
     "local_bin_root": str(seatbelt_profile.LOCAL_BIN_ROOT),
+    "grok_bin_root": str(seatbelt_profile.GROK_BIN_ROOT),
     "uv_root": str(seatbelt_profile.UV_ROOT),
     "uv_tools_root": str(seatbelt_profile.UV_TOOLS_ROOT),
     "uv_python_root": str(seatbelt_profile.UV_PYTHON_ROOT),
     "claude": str(seatbelt_profile.LANE_CLI_PATHS["claude"]),
+    "grok": str(seatbelt_profile.LANE_CLI_PATHS["grok"]),
     "kimi": str(seatbelt_profile.LANE_CLI_PATHS["kimi"]),
     "default_path": seatbelt_profile.DEFAULT_LANE_PATH,
 }, sort_keys=True))
@@ -83,15 +85,20 @@ print(json.dumps({
         self.assertEqual(completed.returncode, 0, completed.stderr)
         paths = json.loads(completed.stdout)
         local_bin_root = synthetic_home / ".local" / "bin"
+        grok_bin_root = synthetic_home / ".grok" / "bin"
         uv_root = synthetic_home / ".local" / "share" / "uv"
         self.assertEqual(paths["host_home"], str(synthetic_home))
         self.assertEqual(paths["local_bin_root"], str(local_bin_root))
+        self.assertEqual(paths["grok_bin_root"], str(grok_bin_root))
         self.assertEqual(paths["uv_root"], str(uv_root))
         self.assertEqual(paths["uv_tools_root"], str(uv_root / "tools"))
         self.assertEqual(paths["uv_python_root"], str(uv_root / "python"))
         self.assertEqual(paths["claude"], str(local_bin_root / "claude"))
+        self.assertEqual(paths["grok"], str(grok_bin_root / "grok"))
         self.assertEqual(paths["kimi"], str(local_bin_root / "kimi"))
-        self.assertTrue(paths["default_path"].startswith(f"{local_bin_root}:"))
+        self.assertTrue(
+            paths["default_path"].startswith(f"{grok_bin_root}:{local_bin_root}:")
+        )
         maintainer_home = "/" + "Users" + "/chrono"
         self.assertNotIn(maintainer_home, json.dumps(paths, sort_keys=True))
 

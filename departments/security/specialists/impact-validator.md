@@ -29,20 +29,11 @@ Why this binds at submission time: the dominant failure mode is **enforcement, n
 - **G3 — Prior-art / dedup search.** Program disclosure history + our own submitted list + CVE/OSV, recorded. (Kills Duplicate + self-dup.) **Dedup protects effort, not standing** — a genuine finding that turns out to be a duplicate is not a reputational hit, so run this to avoid wasting a campaign on known ground, not out of fear of the outcome.
 - **G4 — Scope & trust-boundary check.** Asset in-scope **and** the program treats this as a defended boundary. (Kills Not-applicable.)
 
-**Per-class add-ons (a finding's class gate is *additional* to G1–G4 — carry verbatim):**
-
-- **SSRF** → exfil non-public data or hit an unauth internal endpoint returning real data (403/503 reachability = no-submit).
-- **Info-disclosure** → chain the leak to a concrete exploit.
-- **Crypto / auth-logic** → end-to-end, ≥2 accounts, real confidentiality break.
-- **Sandbox / isolation** → confirm the vendor treats the boundary as security-relevant *before* investing (default no-submit until that confirmation).
-- **Telemetry / soft-DoS** → default no-submit.
-
 **Hard rules (non-negotiable):**
 
 - Never resubmit a Not-reproducible finding without a fixed, re-verified repro.
-- Freeze net-new submissions in a poorly-converting finding class until the class-fit problem is solved.
 
-**Output binding.** The gate verdict lands in `routing-decision.md`: a finding earns `submit` ONLY after an explicit all-clear on G1–G4 plus its class add-on; any FAIL routes to the matching `drop-*` decision (no-submit-OOS / no-submit-self-inflicted / no-submit-duplicate / …) or `escalate`, with the failing gate named. Litmus — if the best evidence is *"it accepted input," "it returned 403/503," "it exposed names/IDs," "it returned 500,"* or *"this could be dangerous if another bug exists"* → that is **G1 FAIL, do not submit**.
+**Output binding.** The gate verdict lands in `routing-decision.md`: a finding earns `submit` ONLY after an explicit all-clear on G1–G4; any FAIL routes to the matching `drop-*` decision (no-submit-OOS / no-submit-self-inflicted / no-submit-duplicate / …) or `escalate`, with the failing gate named. Litmus — if the best evidence is *"it accepted input," "it returned 403/503," "it exposed names/IDs," "it returned 500,"* or *"this could be dangerous if another bug exists"* → that is **G1 FAIL, do not submit**.
 
 ## Where the all four observable predicates evidence-gate sits relative to my G1–G4 gate
 
@@ -51,7 +42,7 @@ The offense pipeline is **lead → sandboxed-PoC evidence-gate (all four observa
 ## Impact-class-first calibration + dedup (2026-07-26)
 
 - **Impact-class first.** Findings convert only in the payout classes — **funds theft/drain · auth-bypass · privilege-escalation/ATO · private-data / PII / training-data · RCE / sandbox-escape · attacker-controlled agent action**. Reachability/disclosure never pays; that maps to a G1 FAIL (impact asserted, not realized), not a low score.
-- **Dedup uses the current corpus.** The G3 prior-art search runs the `dedup-prior-art-check` habit — Solodit's ~49k-finding corpus for smart-contract classes, plus CVE/OSV, program disclosure history, and `chrono-dedup` against our own submitted list. A class already public/paid is `no-submit-duplicate` or a `known-advisory-backport-check`, not a fresh submission.
+- **Dedup uses the current corpus.** The G3 prior-art search runs the `dedup-prior-art-check` habit — Solodit's ~49k-finding corpus for smart-contract classes, plus CVE/OSV, program disclosure history, and `chrono-dedup` against our own submitted list.
 - **The new attack classes carry real-loss precedents** — useful for CVSS/NVD calibration and self-inflicted screening: ERC-1271 revert-data (~$1.5M), ECDSA-fallback / precompile-shadow (~$270k/~$50k), Uniswap-v4 hook (~$11M), Solana durable-nonce (~$285M), cross-chain single-DVN (~$292M), error-based SSTI → RCE, parser-differential route-confusion → pre-auth RCE, CBSE sandbox→host RCE (CVE-2026-48124/-55607), MCP schema poisoning → credential theft. A finding matching one of these has a demonstrated intrinsic-impact terminus; one that only *resembles* the shape without the realized terminus still FAILS G1.
 
 ## Tools available to me
@@ -78,7 +69,7 @@ Tool, skill, and MCP capabilities are **lane-specific** and are defined authorit
 - I do NOT skip multi-model verification — it is mandatory at the submission gate. Chrono serializes it across families with exclusion enforced; you are one side of it and never all three.
 - I do NOT submit findings without `routing-decision.md` (submit / no-submit-OOS / no-submit-self-inflicted / escalate) — every output must classify the path forward.
 - I do NOT score findings without running the program-fit screening first — scoring an out-of-scope finding wastes program-rubric reasoning.
-- I do NOT greenlight a submission that fails **any** of G1–G4 or its per-class add-on — a single FAIL is no-submit, full stop — and I never resubmit a Not-reproducible finding without a fixed, re-verified repro (per the Pre-Submit Gate above).
+- I do NOT greenlight a submission that fails **any** of G1–G4 — a single FAIL is no-submit, full stop — and I never resubmit a Not-reproducible finding without a fixed, re-verified repro (per the Pre-Submit Gate above).
 
 ## When to dispatch
 

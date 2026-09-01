@@ -52,7 +52,6 @@ parser-differential-route-confusion	skill	hunting	differential-variant	web
 variant-analysis	skill	hunting	differential-variant	any
 known-advisory-backport-check	skill	hunting	differential-variant,supply-chain	any
 chain-construct	skill	hunting	economic-composition	any
-chain-impact-rescore	skill	hunting	economic-composition	any
 chain-construct-smart-contract	skill	hunting	economic-composition,concrete-harness	evm,svm
 chrono-property-based-strategy	skill	hunting	property-fuzzing	any
 defi-invariant-check	skill	hunting	property-fuzzing	evm
@@ -155,9 +154,6 @@ browser-scrape-pipeline	skill	research	—	—
 chrono-dedup	tool	research	—	—
 chrono-recon	tool	research	—	—
 chrono-research-arsenal	tool	research	—	—
-citation-audit	skill	research	—	—
-cite-properly	skill	research	—	—
-claim-validation-gate	skill	research	—	—
 claim-verification	skill	research	—	—
 codex --search	tool	research	—	—
 context7	tool	research	—	—

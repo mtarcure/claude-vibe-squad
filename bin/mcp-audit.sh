@@ -3,7 +3,7 @@
 
 set -uo pipefail
 
-export PATH="${HOME}/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:${PATH}"
+export PATH="${HOME}/.grok/bin:${HOME}/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:${PATH}"
 
 # shellcheck source-path=SCRIPTDIR source=../shared/repo-root.sh disable=SC1091
 source "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")/.." && pwd -P)/shared/repo-root.sh"
@@ -39,6 +39,7 @@ command_list() {
                 jq -r '.mcpServers // {} | keys[]' "${HOME}/.gemini/settings.json" 2>/dev/null || true
             fi
             ;;
+        grok) grok inspect 2>&1 || true ;;
         kimi) kimi mcp list 2>&1 | grep -v 'AuthlibDeprecation\|authlib.jose\|It will be compatible\|from authlib' || true ;;
         claude)
             for file in "${HOME}/.claude/settings.json" "${VAULT_ROOT}/.claude/settings.json"; do
@@ -114,7 +115,7 @@ for entry in "${MCPS[@]}"; do
 done
 wait
 
-for cli in claude codex gemini kimi; do
+for cli in claude codex gemini grok kimi; do
     echo "## ${cli}" | tee -a "${LOG}"
     if ! command -v "$cli" >/dev/null 2>&1; then
         echo "- cli_present=false" | tee -a "${LOG}"

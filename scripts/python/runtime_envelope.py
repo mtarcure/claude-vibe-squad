@@ -24,6 +24,7 @@ _FRESH_LANE_COMMAND = {
     "gpt-codex": "exec",
     "claude": "-p",
     "gemini": "-p",
+    "grok": "-p",
     "kimi": "-p",
 }
 _RESUME_ARGUMENTS = frozenset({"resume", "--resume", "--continue", "continue"})

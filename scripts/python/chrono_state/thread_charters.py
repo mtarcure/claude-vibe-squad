@@ -8,8 +8,9 @@ the file therefore needs exactly three fields and no frontmatter:
 
 The parser is deliberately small and fail-soft.  The resume capsule can surface a
 malformed charter without crashing, while the skill-wiring validator reports the
-same issue informationally.  This module never mutates a charter: OPEN LOOPS is an
-append-only operator/Chrono ledger.
+same issue informationally.  This module never edits a charter's bytes: OPEN
+LOOPS is an append-only operator/Chrono ledger.  It does own the one state
+transition a charter has -- ``archive_charter``, active/ to complete/ or parked/.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import os
 import re
 
 
@@ -252,10 +254,71 @@ def load_active_charters(path: Path, now: datetime | None = None) -> list[Thread
     return [parse_charter(entry, now=now) for entry in entries]
 
 
+COMPLETE_DIRNAME = "complete"
+PARKED_DIRNAME = "parked"
+
 ARCHIVED_RELS = (
-    Path("_state/chrono/thread-charters/complete"),
-    Path("_state/chrono/thread-charters/parked"),
+    Path("_state/chrono/thread-charters") / COMPLETE_DIRNAME,
+    Path("_state/chrono/thread-charters") / PARKED_DIRNAME,
 )
+
+
+class CharterArchiveRefused(RuntimeError):
+    """A charter's own DONE-WHEN contradicts the completion claim being made."""
+
+    def __init__(self, path: Path, reasons: tuple[str, ...]) -> None:
+        self.path = path
+        self.reasons = reasons
+        super().__init__(
+            f"{path.name} cannot be archived as {COMPLETE_DIRNAME}: "
+            + "; ".join(reasons)
+        )
+
+
+def unfinished_business(charter: ThreadCharter) -> tuple[str, ...]:
+    """Why this charter is not finished, in stable order; empty means it is.
+
+    One home for that question.  The archive transition below and the archived-
+    debt reporter must never disagree about whether a charter is done, so both
+    read this instead of re-deriving it.
+    """
+    reasons: list[str] = []
+    if not charter.done_when_met:
+        reasons.append("DONE-WHEN is unticked, empty, or unparsable")
+    reasons.extend(f"unresolved {loop.queue_id}" for loop in charter.unresolved_queues)
+    return tuple(reasons)
+
+
+def archive_charter(
+    path: Path, destination: Path, now: datetime | None = None
+) -> Path:
+    """Move one charter out of ``active/``, refusing a false completion claim.
+
+    This is the transition itself, not a check standing beside it.  Archiving
+    used to be a bare ``mv``, so ``done_when_met`` was computed on every parse
+    and consulted by nobody at the single moment it decides something -- a
+    charter was fully visible right up until the move and invisible after it.
+
+    An unfinished charter is not blocked from being archived: it belongs in
+    ``parked/``, which is what that directory already means.  Only the
+    *completion claim* is refused, so closing stays possible and stops being
+    automatic.  An unrecognised destination fails closed.
+    """
+    path = Path(path)
+    destination = Path(destination)
+    if destination.name not in (COMPLETE_DIRNAME, PARKED_DIRNAME):
+        raise ValueError(
+            f"charter destination must be {COMPLETE_DIRNAME}/ or "
+            f"{PARKED_DIRNAME}/, got {destination.name!r}"
+        )
+    if destination.name == COMPLETE_DIRNAME:
+        reasons = unfinished_business(parse_charter(path, now=now))
+        if reasons:
+            raise CharterArchiveRefused(path, reasons)
+    destination.mkdir(parents=True, exist_ok=True)
+    target = destination / path.name
+    os.replace(path, target)
+    return target
 
 
 def load_archived_debt(root: Path, now: datetime | None = None) -> list[ThreadCharter]:
@@ -280,7 +343,7 @@ def load_archived_debt(root: Path, now: datetime | None = None) -> list[ThreadCh
             continue
         for entry in entries:
             charter = parse_charter(entry, now=now)
-            if not charter.done_when_met or charter.unresolved_queues:
+            if unfinished_business(charter):
                 found.append(charter)
     return found
 

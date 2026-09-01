@@ -379,6 +379,99 @@ class BountySpineTests(unittest.TestCase):
                 self.assertFalse(result.passed)
                 self.assertEqual(result.tier, checker.TIER_OPERATOR)
 
+    def _killed_campaign(self) -> tuple["SpineFixture", dict[str, object]]:
+        """A `normal` Bounty run whose hunt honestly found nothing: the KILLED exit.
+
+        `result_type` is pinned at dispatch and immutable at close
+        (`check_verification_contract`), so a campaign dispatched `normal`
+        cannot retreat to `dry_run` once the hunt comes up empty. This is the
+        exact shape such a campaign must be able to settle in.
+        """
+        fixture = SpineFixture(self, mode="bounty", result_type="normal")
+        manifest = fixture.complete_bounty(result_type="normal")
+        # No PoC exists to reproduce, so the run reports the KILL work instead.
+        for record in manifest["verification_records"]:
+            if record["kind"] == "poc_reproduction":
+                record["kind"] = "negative_control"
+        return fixture, manifest
+
+    def test_zero_finding_killed_campaign_closes_cleanly(self) -> None:
+        _fixture, manifest = self._killed_campaign()
+        self.assertEqual(manifest["result_type"], "normal")
+        self.assertEqual(manifest["findings"], [])
+        report = checker.run_all_checks(manifest)
+        self.assertEqual(report.overall_tier, checker.TIER_OK, checker.render_report(report))
+        self.assertEqual([item for item in report.checks if not item.passed], [])
+
+    def test_killed_close_still_owes_its_kill_evidence(self) -> None:
+        """Negative control: the relaxation is conditional, not a blanket pass."""
+        for mutation in ("no_negatives", "stale_subject", "bad_hash", "no_control_record"):
+            with self.subTest(mutation=mutation):
+                fixture, manifest = self._killed_campaign()
+                if mutation == "no_negatives":
+                    manifest["negative_results"] = []
+                elif mutation == "stale_subject":
+                    manifest["negative_results"][0]["subject_sha256"] = "9" * 64
+                elif mutation == "bad_hash":
+                    manifest["negative_results"][0]["evidence_sha256"] = "9" * 64
+                else:
+                    for record in manifest["verification_records"]:
+                        if record["kind"] == "negative_control":
+                            record["kind"] = "unrelated_kind"
+                report = checker.run_all_checks(manifest)
+                self.assertNotEqual(
+                    report.overall_tier, checker.TIER_OK, checker.render_report(report)
+                )
+
+    def test_poc_reproduction_substitution_only_fires_on_a_zero_finding_bounty(self) -> None:
+        """A finding-bearing run still owes poc_reproduction; project mode is untouched."""
+        fixture, manifest = self._killed_campaign()
+        manifest["findings"] = [{"id": "F-1", "target": "https://target.example/scope/item"}]
+        result = checker.check_verification_coverage(manifest)
+        self.assertFalse(result.passed)
+        self.assertIn("poc_reproduction", result.detail)
+
+        project = SpineFixture(self)
+        project_manifest = project.complete_common()
+        project_manifest["findings"] = []
+        self.assertEqual(
+            checker._required_verification_kinds(project_manifest),
+            project.contract["required_verification_kinds"],
+        )
+
+    def test_submitted_exit_closes_today_and_stays_closeable(self) -> None:
+        """The SUBMITTED half of AUD-01: already representable, and kept that way.
+
+        A campaign that produced a finding settles green with
+        `submission.attempted: false` -- correct, because the worker only stages
+        (bounty.md Phase 6) and the operator's Submit click happens outside any
+        task manifest. Nothing here was relaxed; this pins that.
+        """
+        fixture = SpineFixture(self, mode="bounty", result_type="normal")
+        manifest = fixture.complete_bounty(result_type="normal")
+        artifact = fixture.root / "finding.txt"
+        artifact.write_text("poc\n", encoding="utf-8")
+        author = fixture.contract["author_family"]
+        manifest["findings"] = [{
+            "id": "F-1", "title": "fixture finding",
+            "target": "https://target.example/scope/item",
+            "cvss_v4": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
+            "cvss_v4_score": 9.3,
+            "artifact_sha256": checker.hash_file(artifact),
+            "author_family": author, "author_run_id": fixture.run_id,
+            "reproduction": {
+                "reproducer_family": "claude" if author != "claude" else "openai",
+                "reproduction_run_id": "BTY-CROSS-FAMILY-REPRO",
+                "status": "reproduced", "control_status": "passed",
+                "subject_sha256": checker.hash_file(artifact),
+                "evidence_ref": "evidence.txt",
+                "evidence_sha256": checker.hash_file(fixture.evidence),
+            },
+        }]
+        report = checker.run_all_checks(manifest)
+        self.assertEqual(report.overall_tier, checker.TIER_OK, checker.render_report(report))
+        self.assertIs(manifest["submission"]["attempted"], False)
+
     def test_out_of_scope_bounty_target_is_operator_surface(self) -> None:
         for area in ("action", "finding", "kill"):
             with self.subTest(area=area):

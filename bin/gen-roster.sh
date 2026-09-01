@@ -57,12 +57,12 @@ generate() {
                 failed = 1
                 next
             }
-            if ($7 !~ /^(codex|claude|gemini|kimi)$/) {
+            if ($7 !~ /^(codex|claude|gemini|grok|kimi)$/) {
                 printf "roster generator: line %d has invalid primary_lane: %s\n", NR, $7 > "/dev/stderr"
                 failed = 1
                 next
             }
-            if ($14 !~ /^(codex|claude|gemini|kimi|none)$/) {
+            if ($14 !~ /^(codex|claude|gemini|grok|kimi|none)$/) {
                 printf "roster generator: line %d has invalid review_lane: %s\n", NR, $14 > "/dev/stderr"
                 failed = 1
                 next
@@ -88,13 +88,15 @@ generate() {
             lane_order[1] = "codex"
             lane_order[2] = "claude"
             lane_order[3] = "gemini"
-            lane_order[4] = "kimi"
+            lane_order[4] = "grok"
+            lane_order[5] = "kimi"
             lane_heading["codex"] = "GPT/Codex"
             lane_heading["claude"] = "Claude"
             lane_heading["gemini"] = "Gemini"
+            lane_heading["grok"] = "Grok"
             lane_heading["kimi"] = "Kimi"
 
-            for (lane_index = 1; lane_index <= 4; lane_index++) {
+            for (lane_index = 1; lane_index <= 5; lane_index++) {
                 lane = lane_order[lane_index]
                 print "## " lane_heading[lane]
                 print ""
@@ -105,7 +107,7 @@ generate() {
                     review_display = review[row] == "codex" ? "gpt-codex" : review[row]
                     printf "- `%s` (source: `%s`, review: `%s`, safety: `%s`)\n", specialist[row], source[row], review_display, safety[row]
                 }
-                if (lane_index < 4) {
+                if (lane_index < 5) {
                     print ""
                 }
             }

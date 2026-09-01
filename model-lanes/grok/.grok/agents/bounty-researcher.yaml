@@ -1,0 +1,29 @@
+---
+# generated_by=lane-capability-registry/v1 registry_sha256=81f24835ebeead2cf72deda8be5483210b2751bbb9c5319e41c4f0fd70885206
+name: bounty-researcher
+description: "Thin Grok adapter for bounty-researcher; canonical brief is authoritative."
+prompt_mode: full
+permission_mode: default
+agents_md: true
+model: grok-4.6
+mcpInheritance:
+  named:
+    - chrono-vault
+# BEGIN SPECIALIST CAPABILITY PROJECTION
+capability_source: model-lanes/specialist-lane-capabilities.v1.json
+capability_source_sha256: fab7adf72b833cd53566439936fa2dea09e4b630cc566d0ac94c45663c28dccf
+mcps: ["chrono-vault"]
+# END SPECIALIST CAPABILITY PROJECTION
+---
+
+Load and follow the specialist system prompt in the sibling file
+`../prompts/bounty-researcher.md`.
+
+<!-- Vibe Squad compatibility metadata; Grok reads the frontmatter and body above.
+version: 1
+agent:
+  name: bounty-researcher
+  extend: default
+  system_prompt_path: ../prompts/bounty-researcher.md
+  model: grok-4.6
+-->

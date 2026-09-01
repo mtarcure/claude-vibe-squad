@@ -10,7 +10,7 @@ max_turns: 30
 <!-- generated_by=lane-capability-registry/v1 registry_sha256=036f6a2da0cb9865544c8c6bcd04b9f03b9caa6caf9943c48c099d82227fad2d
 # BEGIN SPECIALIST CAPABILITY PROJECTION
 capability_source: model-lanes/specialist-lane-capabilities.v1.json
-capability_source_sha256: 1606f09d5a46440d38cd68e903a50c73a9cd8e651995a39567b0069d6be6bacd
+capability_source_sha256: b5693bab7ccdccf6ab1c1e1018fb93e3153a9fd1883e97f1f31c4fa4aee26e53
 capability_mcps: ["chrono-vault","sequential-thinking"]
 # END SPECIALIST CAPABILITY PROJECTION
 -->

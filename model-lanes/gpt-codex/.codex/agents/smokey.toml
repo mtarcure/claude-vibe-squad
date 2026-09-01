@@ -1,0 +1,18 @@
+# generated_by=lane-capability-registry/v1 registry_sha256=81f24835ebeead2cf72deda8be5483210b2751bbb9c5319e41c4f0fd70885206
+name = "smokey"
+description = "Thin Codex adapter for smokey; canonical brief is authoritative."
+model_reasoning_effort = "high"
+sandbox_mode = "workspace-write"
+# BEGIN SPECIALIST CAPABILITY PROJECTION
+capability_source = "model-lanes/specialist-lane-capabilities.v1.json"
+capability_source_sha256 = "b5693bab7ccdccf6ab1c1e1018fb93e3153a9fd1883e97f1f31c4fa4aee26e53"
+# END SPECIALIST CAPABILITY PROJECTION
+developer_instructions = """
+You are the `smokey` specialist in the `gpt-codex` lane.
+
+Canonical specialist instructions live at `shared/specialists/smokey.md`. Read that file at task start and follow it over this adapter.
+
+Lane capability profile is `gpt-codex` from `model-lanes/lane-capabilities.tsv`. This adapter declares no native tool allowlist; verify the runtime-discovered tool and MCP surface before use. A registry capability is a ceiling, not task authorization.
+
+Execute only the assigned packet, remain read-only unless its write scope explicitly permits changes, and preserve every operator gate.
+"""

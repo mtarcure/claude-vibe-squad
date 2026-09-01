@@ -17,19 +17,21 @@ from chrono_state import compaction  # noqa: E402
 
 
 class TestChronoCompaction(unittest.TestCase):
-    def test_should_compact_blocks_on_inflight(self):
-        r = compaction.should_compact(token_estimate=180000, in_flight=["T-1"])
-        self.assertFalse(r["compact"])
-        self.assertIn("T-1", r["blockers"])
+    def test_should_compact_is_gone(self):
+        """The threshold predicate was deleted 2026-08-31, not renamed.
 
-    def test_should_compact_fires_over_threshold_when_clear(self):
-        r = compaction.should_compact(token_estimate=180000, in_flight=[])
-        self.assertTrue(r["compact"])
-        self.assertEqual(r["blockers"], [])
-
-    def test_should_compact_quiet_below_threshold(self):
-        r = compaction.should_compact(token_estimate=50000, in_flight=[])
-        self.assertFalse(r["compact"])
+        It had no production caller, no way to obtain its `token_estimate`
+        argument (the repo has no token-counting code at all), and a threshold
+        that contradicted shared/lifecycle.md. The rule now lives once, in prose,
+        in shared/lifecycle.md § 8. Reintroducing a code copy would recreate the
+        two-sources-of-truth problem that Hard Rule 10 forbids.
+        """
+        self.assertFalse(
+            hasattr(compaction, "should_compact"),
+            "should_compact() is back. The compaction threshold belongs in "
+            "shared/lifecycle.md, read by judgment -- not duplicated in code "
+            "where it can drift from the prose rule again.",
+        )
 
     def test_snapshot_roundtrip(self):
         with tempfile.TemporaryDirectory() as d:

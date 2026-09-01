@@ -117,6 +117,7 @@
     "_archive/**",
     "_state/**",
     "assets/hero/**",
+    "bench/**",
     "bin/relaunch-lanes.sh",
     "departments/*/_state/**",
     "departments/*/active/**",

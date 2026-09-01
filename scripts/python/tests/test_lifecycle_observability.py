@@ -52,6 +52,14 @@ class ParkedCauseCapsuleTests(unittest.TestCase):
             with (
                 mock.patch.object(resume, "QUEUE_PATH", queue),
                 mock.patch.object(resume, "ARCHIVED_DEBT_ROOT", base),
+                # CAPSULE_PATH must be redirected too, or this fixture is not
+                # hermetic: active_thread_charters() derives its lookup from it
+                # (resume.py:289, `CAPSULE_PATH.parent / CHARTERS_REL...`), so an
+                # unmocked value reads the developer's LIVE _state/chrono/. A
+                # local gitignored charter then adds tokens to the rendered
+                # capsule and the budget assertion below fails on one machine and
+                # passes on another.
+                mock.patch.object(resume, "CAPSULE_PATH", base / "resume.md"),
                 mock.patch.object(resume, "registry_view", return_value=EMPTY_VIEW),
                 mock.patch.object(resume, "active_decisions", return_value=[]),
                 mock.patch.object(registry, "KNOWN_STATUSES", vocabulary),

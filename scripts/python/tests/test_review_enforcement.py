@@ -312,6 +312,103 @@ class ReviewEnforcementTest(unittest.TestCase):
         self.assertIn("review_settled_at", entry)
         self.assertEqual(queue.count("REVIEW-SETTLED"), 1)
 
+    def test_b1_needs_human_response_settles_only_through_valid_review(self):
+        """A legitimate operator stop must not bypass or deadlock review."""
+        t = "TASK-2026-08-30-needs-human-settlement"
+        review_task = "TASK-2026-08-30-needs-human-review"
+        review_ref = f"departments/coding/outbox/{review_task}-response.md"
+        responses = self._own_response(t, "claude", "needs_human")
+        responses[review_ref] = review(
+            t,
+            "gpt-codex",
+            "APPROVE — the boundary stop was correct.",
+            "complete",
+            review_task,
+            verdict="APPROVE",
+        )
+        entries = self._with_review_provenance(
+            {t: self._entry(author_family="anthropic")},
+            review_ref,
+            t,
+            "gpt-codex",
+        )
+        _root, state, env = self.fixture(entries, responses)
+
+        self.run_reconcile(env, t)
+        parked, _queue = self.result(state, t)
+        self.assertEqual(parked["status"], "review-required")
+
+        # Reopen remains the wrong path: this task was never explicitly settled.
+        refused_reopen = self.run_reopen(
+            env, t, expected_returncode=2
+        )
+        self.assertIn("task is not explicitly settled complete", refused_reopen.stderr)
+
+        self.run_settle(env, t, review_ref)
+        settled, queue = self.result(state, t)
+        self.assertEqual(settled["status"], "complete")
+        self.assertEqual(settled["verdict"], "APPROVE")
+        self.assertEqual(settled["review_settled_by"], "chrono-explicit")
+        self.assertEqual(queue.count("REVIEW-SETTLED"), 1)
+
+    def test_b1a_needs_human_accept_more_path_preserves_family_anti_affinity(self):
+        t = "TASK-2026-08-30-needs-human-same-family"
+        review_task = "TASK-2026-08-30-needs-human-same-family-review"
+        review_ref = f"departments/coding/outbox/{review_task}-response.md"
+        responses = self._own_response(t, "claude", "needs_human")
+        responses[review_ref] = review(
+            t,
+            "gpt-codex",
+            "APPROVE — but from the author's family.",
+            "complete",
+            review_task,
+            verdict="APPROVE",
+        )
+        entries = self._with_review_provenance(
+            {t: self._entry(author_family="openai")},
+            review_ref,
+            t,
+            "gpt-codex",
+        )
+        _root, state, env = self.fixture(entries, responses)
+        self.run_reconcile(env, t)
+
+        refused = self.run_settle(
+            env, t, review_ref, expected_returncode=2
+        )
+
+        self.assertIn("standard review must be cross-family", refused.stderr)
+        self.assertEqual(self.result(state, t)[0]["status"], "review-required")
+
+    def test_b1b_needs_human_accept_more_path_rejects_nonapproval(self):
+        t = "TASK-2026-08-30-needs-human-reject"
+        review_task = "TASK-2026-08-30-needs-human-reject-review"
+        review_ref = f"departments/coding/outbox/{review_task}-response.md"
+        responses = self._own_response(t, "claude", "needs_human")
+        responses[review_ref] = review(
+            t,
+            "gpt-codex",
+            "The stop was sound, but the deliverable needs changes.",
+            "complete",
+            review_task,
+            verdict="REJECT",
+        )
+        entries = self._with_review_provenance(
+            {t: self._entry(author_family="anthropic")},
+            review_ref,
+            t,
+            "gpt-codex",
+        )
+        _root, state, env = self.fixture(entries, responses)
+        self.run_reconcile(env, t)
+
+        refused = self.run_settle(
+            env, t, review_ref, expected_returncode=2
+        )
+
+        self.assertIn("observed REJECT", refused.stderr)
+        self.assertEqual(self.result(state, t)[0]["status"], "review-required")
+
     def test_b2_blocking_review_keeps_open(self):
         t = "TASK-2026-07-15-0004-dddd"
         responses = self._own_response(t, "claude", "needs_review")
@@ -907,7 +1004,11 @@ class ReviewEnforcementTest(unittest.TestCase):
         )
         _root, state, env = self.fixture(
             self._with_review_provenance(
-                {t: self._entry()}, review_ref, t, "gpt-codex"
+                {t: self._entry()},
+                review_ref,
+                t,
+                "gpt-codex",
+                return_artifact=review_ref,
             ),
             responses,
         )
@@ -936,7 +1037,11 @@ class ReviewEnforcementTest(unittest.TestCase):
         )
         _root, state, env = self.fixture(
             self._with_review_provenance(
-                {t: self._entry()}, review_ref, t, "gpt-codex"
+                {t: self._entry()},
+                review_ref,
+                t,
+                "gpt-codex",
+                return_artifact=review_ref,
             ),
             responses,
         )
@@ -946,6 +1051,243 @@ class ReviewEnforcementTest(unittest.TestCase):
         self.assertIn("observed MISSING", refused.stderr)
         held, _queue = self.result(state, t)
         self.assertEqual(held["status"], "review-required")
+
+    def test_u2a_registry_artifact_approve_is_a_bounded_verdict_fallback(self):
+        t = "TASK-2026-08-30-artifact-verdict-approve"
+        review_task = "TASK-2026-08-30-artifact-verdict-review"
+        review_ref = f"departments/coding/outbox/{review_task}-response.md"
+        artifact_ref = f"departments/coding/outbox/{review_task}-artifact.md"
+        responses = self._own_response(t, "claude", "needs_review")
+        responses[review_ref] = review(
+            t, "gpt-codex", "Structured verdict is in the artifact.",
+            "complete", review_task,
+        )
+        responses[artifact_ref] = envelope(
+            {
+                "reviews": t,
+                "reviewer_family": "openai",
+                "author_family": "anthropic",
+                "verdict": "APPROVE",
+            },
+            body="Independent review evidence.",
+        )
+        _root, state, env = self.fixture(
+            self._with_review_provenance(
+                {t: self._entry(author_family="anthropic")},
+                review_ref,
+                t,
+                "gpt-codex",
+                return_artifact=artifact_ref,
+            ),
+            responses,
+        )
+        self.run_reconcile(env, t)
+
+        self.run_settle(env, t, review_ref)
+
+        settled, _queue = self.result(state, t)
+        self.assertEqual(settled["status"], "complete")
+        self.assertEqual(settled["verdict"], "APPROVE")
+        self.assertEqual(settled["review_ref"], review_ref)
+
+    def test_u2b_registry_artifact_reject_remains_refused(self):
+        t = "TASK-2026-08-30-artifact-verdict-reject"
+        review_task = "TASK-2026-08-30-artifact-reject-review"
+        review_ref = f"departments/coding/outbox/{review_task}-response.md"
+        artifact_ref = f"departments/coding/outbox/{review_task}-artifact.md"
+        responses = self._own_response(t, "claude", "needs_review")
+        responses[review_ref] = review(
+            t, "gpt-codex", "Blocking review.", "complete", review_task
+        )
+        responses[artifact_ref] = envelope(
+            {"verdict": "REJECT"}, body="Changes are required."
+        )
+        _root, state, env = self.fixture(
+            self._with_review_provenance(
+                {t: self._entry()},
+                review_ref,
+                t,
+                "gpt-codex",
+                return_artifact=artifact_ref,
+            ),
+            responses,
+        )
+        self.run_reconcile(env, t)
+
+        refused = self.run_settle(env, t, review_ref, expected_returncode=2)
+
+        self.assertIn("observed REJECT", refused.stderr)
+        self.assertEqual(self.result(state, t)[0]["status"], "review-required")
+
+    def test_u2c_response_verdict_preempts_registry_artifact_fallback(self):
+        t = "TASK-2026-08-30-response-verdict-precedence"
+        review_task = "TASK-2026-08-30-response-verdict-review"
+        review_ref = f"departments/coding/outbox/{review_task}-response.md"
+        artifact_ref = f"departments/coding/outbox/{review_task}-artifact.md"
+        responses = self._own_response(t, "claude", "needs_review")
+        responses[review_ref] = review(
+            t, "gpt-codex", "Response says approve.", "complete", review_task,
+            verdict="APPROVE",
+        )
+        responses[artifact_ref] = envelope(
+            {"verdict": "REJECT"}, body="Artifact says reject."
+        )
+        _root, state, env = self.fixture(
+            self._with_review_provenance(
+                {t: self._entry()},
+                review_ref,
+                t,
+                "gpt-codex",
+                return_artifact=artifact_ref,
+            ),
+            responses,
+        )
+        self.run_reconcile(env, t)
+
+        settled = self.run_settle(env, t, review_ref)
+
+        self.assertEqual(settled.stderr, "")
+        entry, _queue = self.result(state, t)
+        self.assertEqual(entry["status"], "complete")
+        self.assertEqual(entry["verdict"], "APPROVE")
+
+    def test_u2d_response_cannot_retarget_the_registry_artifact_fallback(self):
+        t = "TASK-2026-08-30-artifact-path-authority"
+        review_task = "TASK-2026-08-30-artifact-path-review"
+        review_ref = f"departments/coding/outbox/{review_task}-response.md"
+        artifact_ref = f"departments/coding/outbox/{review_task}-artifact.md"
+        asserted_ref = f"departments/coding/outbox/{review_task}-asserted.md"
+        responses = self._own_response(t, "claude", "needs_review")
+        responses[review_ref] = envelope(
+            {
+                "id": f"{review_task}-response",
+                "in_response_to": review_task,
+                "from": "gpt-codex",
+                "to": "chrono",
+                "type": "RESULT",
+                "status": "complete",
+                "return_artifact": asserted_ref,
+            },
+            body="Worker asserted a different artifact path.",
+        )
+        responses[artifact_ref] = envelope(
+            {"verdict": "APPROVE"}, body="Registry-owned artifact."
+        )
+        responses[asserted_ref] = envelope(
+            {"verdict": "APPROVE"}, body="Worker-selected artifact."
+        )
+        _root, state, env = self.fixture(
+            self._with_review_provenance(
+                {t: self._entry()},
+                review_ref,
+                t,
+                "gpt-codex",
+                return_artifact=artifact_ref,
+            ),
+            responses,
+        )
+        self.run_reconcile(env, t)
+
+        refused = self.run_settle(env, t, review_ref, expected_returncode=2)
+
+        self.assertIn(
+            "return_artifact conflicts with registry provenance", refused.stderr
+        )
+        self.assertEqual(self.result(state, t)[0]["status"], "review-required")
+
+    def test_u2e_malformed_artifact_frontmatter_fails_closed(self):
+        malformed = {
+            "duplicate": (
+                "---\nverdict: APPROVE\nverdict: APPROVE\n---\n\nevidence\n",
+                "duplicated",
+            ),
+            "nested": (
+                "---\nverdict:\n  value: APPROVE\n---\n\nevidence\n",
+                "nested content",
+            ),
+            "malformed": (
+                "---\nverdict APPROVE\n---\n\nevidence\n",
+                "not a top-level key/value pair",
+            ),
+        }
+        for label, (artifact, expected) in malformed.items():
+            with self.subTest(label=label):
+                t = f"TASK-2026-08-30-artifact-{label}"
+                review_task = f"TASK-2026-08-30-artifact-{label}-review"
+                review_ref = (
+                    f"departments/coding/outbox/{review_task}-response.md"
+                )
+                artifact_ref = (
+                    f"departments/coding/outbox/{review_task}-artifact.md"
+                )
+                responses = self._own_response(t, "claude", "needs_review")
+                responses[review_ref] = review(
+                    t, "gpt-codex", "Artifact parser control.",
+                    "complete", review_task,
+                )
+                responses[artifact_ref] = artifact
+                _root, state, env = self.fixture(
+                    self._with_review_provenance(
+                        {t: self._entry()},
+                        review_ref,
+                        t,
+                        "gpt-codex",
+                        return_artifact=artifact_ref,
+                    ),
+                    responses,
+                )
+                self.run_reconcile(env, t)
+
+                refused = self.run_settle(
+                    env, t, review_ref, expected_returncode=2
+                )
+
+                self.assertIn(expected, refused.stderr)
+                self.assertEqual(
+                    self.result(state, t)[0]["status"], "review-required"
+                )
+
+    def test_u2f_artifact_fallback_cannot_bypass_family_anti_affinity(self):
+        def run(author_family: str, suffix: str) -> tuple[dict, str]:
+            t = f"TASK-2026-08-30-artifact-family-{suffix}"
+            review_task = f"TASK-2026-08-30-artifact-family-review-{suffix}"
+            review_ref = f"departments/coding/outbox/{review_task}-response.md"
+            artifact_ref = f"departments/coding/outbox/{review_task}-artifact.md"
+            responses = self._own_response(t, "claude", "needs_review")
+            responses[review_ref] = review(
+                t, "gpt-codex", "Verdict is in the artifact.",
+                "complete", review_task,
+            )
+            responses[artifact_ref] = envelope(
+                {"verdict": "APPROVE"}, body="Artifact approval."
+            )
+            _root, state, env = self.fixture(
+                self._with_review_provenance(
+                    {t: self._entry(author_family=author_family)},
+                    review_ref,
+                    t,
+                    "gpt-codex",
+                    return_artifact=artifact_ref,
+                ),
+                responses,
+            )
+            self.run_reconcile(env, t)
+            result = self.run_settle(
+                env,
+                t,
+                review_ref,
+                expected_returncode=2 if author_family == "openai" else 0,
+            )
+            return self.result(state, t)[0], result.stderr
+
+        held, error = run("openai", "same")
+        self.assertIn("standard review must be cross-family", error)
+        self.assertEqual(held["status"], "review-required")
+
+        settled, error = run("anthropic", "cross")
+        self.assertEqual(error, "")
+        self.assertEqual(settled["status"], "complete")
+        self.assertEqual(settled["verdict"], "APPROVE")
 
     def test_u3_settlement_rejects_a_different_LANE_of_the_SAME_family(self):
         """Anti-affinity is a FAMILY rule, and the lane check cannot stand in for it.

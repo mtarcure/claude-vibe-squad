@@ -151,6 +151,31 @@ class WriteScopeValidationTests(unittest.TestCase):
                 wti.worktree_write_scope_paths(alias, repo)
 
 
+class ScopeGlobRefusalTests(unittest.TestCase):
+    """A glob in a scope is refused, because it would match nothing silently.
+
+    Scopes are prefix paths compared on path components, so `dir/**` is a
+    literal component that contains no file. Accepting it reads as a granted
+    scope and behaves as an empty one -- measured 2026-08-31, when every edit
+    of an otherwise-correct task was flagged out-of-scope.
+    """
+
+    def test_glob_scope_is_refused_with_the_prefix_form_named(self):
+        for value in ("scripts/python/tests/**", "_state/scratch/**", "a/*", "a/f?le", "a/[ab]"):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(wti.WorktreeIsolationError, "never glob-expanded"):
+                    wti._normalized_relative(value, label="write_scope entry")
+
+    def test_the_prefix_form_the_error_recommends_is_accepted_and_contains_its_subtree(self):
+        scope = wti._normalized_relative("scripts/python/tests", label="write_scope entry")
+        member = wti.PurePosixPath("scripts/python/tests/test_dryrun_parity.py")
+        self.assertTrue(wti._is_contained(member, [scope]))
+        # The glob form would have been vacuous, which is the whole bug.
+        self.assertFalse(
+            wti._is_contained(member, [wti.PurePosixPath("scripts/python/tests/**")])
+        )
+
+
 class WorktreePoolTests(unittest.TestCase):
     def test_two_concurrent_provisions_get_disjoint_worktree_roots_on_disjoint_branches(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -247,6 +272,70 @@ class WorktreePoolTests(unittest.TestCase):
                 dedicated_volume_attested=True,
             )
             self.assertTrue(handle.worktree_root.is_dir())
+
+
+class TerminalEvidenceOutputIdentityTests(unittest.TestCase):
+    OUTPUT = "departments/coding/outbox/TASK-2026-08-30-0858-output-response.md"
+
+    def _provision(self, root: Path) -> tuple[Path, Path, wti.WorktreeHandle]:
+        repo = _init_repo(root)
+        pool_root = root / "pool"
+        handle = wti.WorktreePool(repo, pool_root, base_branch="v2").provision(
+            "TASK-2026-08-30-0858-output",
+            "d-" + "a" * 32,
+        )
+        return repo, pool_root, handle
+
+    def test_result_and_outbox_may_intentionally_share_one_output(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo, pool_root, handle = self._provision(Path(directory))
+            output = handle.worktree_root / self.OUTPUT
+            output.parent.mkdir(parents=True)
+            output.write_text(
+                "original terminal cause: HTTP 403 quota exhausted\n",
+                encoding="utf-8",
+            )
+            authority = {
+                "task_id": handle.task_id,
+                "attempt_id": handle.attempt_id,
+                "repo_root": str(repo),
+                "pool_root": str(pool_root),
+                "write_paths": [self.OUTPUT],
+                "expected_result_path": self.OUTPUT,
+                "expected_outbox_path": self.OUTPUT,
+            }
+
+            evidence = wti.preserve_terminal_evidence(authority, base_branch="v2")
+
+            self.assertEqual(evidence.status, "preserved")
+            self.assertEqual(evidence.explicit_output_paths, (self.OUTPUT,))
+            preserved = _git(
+                ["show", f"{evidence.evidence_commit}:{self.OUTPUT}"],
+                cwd=repo,
+            ).stdout
+            self.assertEqual(
+                preserved,
+                "original terminal cause: HTTP 403 quota exhausted\n",
+            )
+
+    def test_distinct_required_outputs_colliding_after_normalization_are_refused(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _repo, _pool_root, handle = self._provision(Path(directory))
+            lexical_alias = self.OUTPUT.replace("/outbox/", "/outbox//")
+
+            with self.assertRaisesRegex(
+                wti.WorktreeIsolationError,
+                "explicit evidence outputs contain duplicates",
+            ):
+                wti._preserve_attempt_evidence(
+                    handle,
+                    (self.OUTPUT,),
+                    # These entries model distinct required outputs whose
+                    # spellings resolve to the same repository path.
+                    explicit_output_paths=(self.OUTPUT, lexical_alias),
+                )
 
 
 class ReleaseHandleIdentityTests(unittest.TestCase):

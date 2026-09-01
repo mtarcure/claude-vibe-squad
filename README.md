@@ -2,12 +2,12 @@
 
 # Vibe Squad
 
-**One coordinator. Four model families. Seventy specialists, all written in Markdown you can read and edit.**
+**One coordinator. Five model families. Seventy-one specialists, all written in Markdown you can read and edit.**
 
-![models](https://img.shields.io/badge/models-Codex%20%C2%B7%20Claude%20%C2%B7%20Gemini%20%C2%B7%20Kimi-informational)
+![models](https://img.shields.io/badge/models-Codex%20%C2%B7%20Claude%20%C2%B7%20Gemini%20%C2%B7%20Kimi%20%C2%B7%20Grok-informational)
 ![license](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![orchestration](https://img.shields.io/badge/orchestration-native%20CLIs%20%C2%B7%20isolated%20worktrees-success)
-![version](https://img.shields.io/badge/version-v1.1.3-blue)
+![version](https://img.shields.io/badge/version-v1.1.4-blue)
 
 <br>
 
@@ -29,22 +29,19 @@ You can ask it to:
 
 **What's underneath**
 
-- **Multi-model orchestration with capability-aware routing** — each specialist is bound to the
-  model family that suits the work, not to whichever one you happen to be talking to.
-- **Sandboxed execution** — every task runs in an isolated git worktree under an explicit write
-  scope. A worker cannot touch what it was not granted, and nothing merges without passing its gate.
-- **Cross-family review** — work is judged by a different model family than wrote it, so a model
-  never signs off on its own reasoning.
-- **Durable memory with a closed loop** — findings are recorded as candidates, recalled into later
-  work, and promoted to verified only when a task that used them passes review.
-- **Context engineering and drift control** — bounded resume capsules instead of dumped state, and
-  thread charters that hold the original ask across topic switches.
+- **The right model for each job** — every specialist is tied to the model that suits its work, not
+  to whichever one you happen to be chatting with.
+- **Each task runs in its own sandbox** — a copy of the repo, with a written list of the files it
+  may change. It cannot touch anything else, and nothing merges until its checks pass.
+- **A different model checks the work** — so no model signs off on its own reasoning.
+- **It remembers** — what a run learns is written down and read back before the next one, so a
+  lesson paid for once isn't paid for twice.
 
 The product is the instruction layer, and it is Markdown all the way down. Modes, specialist briefs, capability cards, and skills are files you can open and change. Code handles only what must not be guessed: launching, worktree isolation, identity checks, atomic publication, admission control, and Git-integration boundaries. Judgment stays with the models.
 
 ## Quickstart
 
-macOS, for now. You need `tmux`, `fswatch`, `jq`, `curl`, Python 3.13, `uv`, and authenticated native CLIs for Claude, Codex, Gemini, and Kimi.
+macOS, for now. You need `tmux`, `fswatch`, `jq`, `curl`, Python 3.13, `uv`, and authenticated native CLIs for Claude, Codex, Gemini, Kimi, and Grok.
 
 Memory lives outside the public repository. Create a private vault once:
 
@@ -105,32 +102,55 @@ flowchart LR
 ```
 
 1. **Chrono is the only operator-facing voice.** Specialists report to Chrono instead of interrupting you from separate chats.
-2. **Routing is quality-first.** Each validated specialist brief is bound to the model profile that fits the job, with a different-family backup and review route.
+2. **Routing is by fit, not by preference.** Each specialist is bound to the model that suits its work, with a different-family backup and review route. Every binding lives in one file, [`shared/specialist-runtime-map.tsv`](shared/specialist-runtime-map.tsv) — not in anything you pick per request.
+
+   ```text
+   71 specialists          claude  ███████████████████████████████  31
+                           codex   █████████████████████            21
+                           gemini  ████████████████                 16
+                           kimi    ██                                2
+                           grok    █                                 1
+   ```
 3. **Workers are isolated.** Mutating attempts get their own git worktree and a narrowly declared write scope.
 4. **Results settle atomically.** Artifacts are written before their completion envelope, so partially published work never reads as done.
-5. **Consequential authority is denied to ordinary workers.** Authenticated launch authority must keep every held-category token outside the worker's declared `action_scope`, or the supervisor rejects the launch. There is no held-action consent prompt during tool use. Deletion is refused again at Git integration unless a controller-pinned, file-exact manifest authorizes it.
+5. **Dangerous actions are refused before a worker starts, not asked about later.** Things like deleting files, changing credentials, or publishing are withheld at launch. A worker is never in a position to ask permission mid-task, and deletion is refused a second time at merge unless an exact, pre-approved file list allows it.
 
 ## Specialists and dispatch
 
 Seventy specialist briefs live under `departments/` and `shared/specialists/`, and every one of them is validated on every push by CI — and on every commit too, once you enable the tracked pre-commit hook with `git config core.hooksPath .githooks` (see the Quickstart; it is opt-in per clone and never set for you). A brief is prose: what the role is for, how it should think, what it must refuse. Adding a specialist means writing Markdown, not registering a class.
 
-Dispatch is a Markdown packet with YAML frontmatter: which specialist, which model, what it may read, what it may write, what counts as done. The packet is the contract. Workers never talk to each other, and never to you. They write one artifact and one completion envelope, and the coordinator integrates the result.
+A task is a Markdown file: which specialist, which model, what it may read, what it may change, and what counts as done. That file is the contract.
 
-That mailbox shape is deliberate. It is what makes a run reconstructable after the fact, and what lets a failed lane be diagnosed from its packet and receipt rather than from a transcript.
+```yaml
+---
+specialist:    security-analyst        # the role, chosen for the job
+to_model:      gpt-codex               # the model bound to that role
+mode:          project
+write_scope:   [src/auth/**]           # the only files it may change
+read_scope:    [src/**, docs/auth.md]
+reviews:       none                    # or the task id this reviews
+review_triggers: [blast_radius]        # what forces a second opinion
+---
 
-Open work that outlives a single conversation is tracked on one append-only workboard, so an item raised and not yet finished is continued on the next request rather than lost when a thread closes.
+Audit the session-handling path and report anything exploitable.
+Do not change behaviour; findings only.
+```
+
+Everything the worker is allowed to do is on that page. Nothing is implied. Workers never talk to each other or to you — each writes one result, and Chrono integrates it. Because every run leaves its task file and its receipt behind, a failure can be diagnosed afterwards from those rather than from a chat log.
+
+Work that outlives one conversation goes on a single running list, so something raised and not finished gets picked up next time instead of being lost when the thread ends.
 
 ## Memory that compounds
 
 Durable memory is private Markdown outside the repository. Chrono records what a run learned and recalls it before the next one, so a lesson paid for once is not paid for twice.
 
-Recall is ranked retrieval over an FTS5/BM25 index, and it returns more than text: each note carries provenance, a sensitivity tier, and a `disputed` flag set when a later note contradicted it and the two were never reconciled. A contested claim comes back marked as contested rather than quietly winning on recency. Obsidian is an optional human view over the same files.
+Each note carries where it came from and how sensitive it is, and gets flagged when a later note contradicts it. A contested claim comes back marked as contested rather than quietly winning because it is newer. Obsidian is an optional way to read the same files by hand.
 
-We are still evaluating explicit Markdown links, bounded graph navigation, and hybrid retrieval against Vibe-Squad-specific questions before adopting any of them. There is no graph database here, and no "SOTA" badge applied on fashion alone.
+There is no graph database here, and no fashionable label applied for its own sake.
 
 ## Models, tools, and probes
 
-All four families run through their providers' **native CLIs**. Claude, Codex, and Kimi use their supported subscription or managed-login paths. Gemini's native CLI is the explicit API-key-backed exception, with spend and rate controls treated as part of its lane contract. Vibe Squad does not swap a model lane for an MCP relay or a direct API fallback.
+All five families run through their providers' **native CLIs**. Claude, Codex, Kimi, and Grok use their supported subscription or managed-login paths. Gemini's native CLI is the explicit API-key-backed exception, with spend and rate controls treated as part of its lane contract. Vibe Squad does not swap a model lane for an MCP relay or a direct API fallback.
 
 Utility services are separate. Memory, research, sequential thinking, security tooling, and media generation may use MCP, local CLIs, or a gated provider API where the capability genuinely needs one.
 
@@ -146,69 +166,23 @@ The reviewer's job is to find a concrete reason the work is wrong. `REJECT` is a
 
 Research on model self-correction and heterogeneous verification motivates this design, but no paper validates this exact architecture. We treat that as a hypothesis under test, not a marketing fact.
 
-## Tested, not guessed
+## Design principles
 
-Evidence is labeled by what it actually proves.
+- Change behaviour by editing Markdown, not by writing code.
+- Ask in ordinary language. You never pick a model by hand.
+- Use code only for what must not be guessed: identity, ordering, hashes, what a
+  worker may change, and what may be deleted.
+- Prefer deleting an unused framework to wiring it in because it exists.
+- Keep private memory, credentials, and target data out of the public repository.
 
-- **Locally tested:** 1,903 tests cover dispatch, atomic publication, process and receipt fencing, cancellation, cleanup, vault recall and promotion, and public-export leak gates. The roster validator checks all 70 specialist briefs on every commit.
-- **Live-probed on the maintainer setup:** all four native CLIs have completed bounded probes. Tool availability is lane-specific, and a config entry or a successful `--version` is not liveness.
-- **Compared before adoption:** larger policy engines and parallel receipt frameworks were prototyped, then removed or deferred when they added more machinery than value. An early memory-aperture prototype was removed on the same grounds; apertures returned later, once dispatch had a real read policy to enforce.
-- **Research-informed:** published work shapes cross-family review and the memory experiments. It is not offered as proof of this implementation.
-- **Not yet claimed:** full legacy-memory migration, automatic failover, and complete fresh-worker tool parity remain open. Aperture enforcement is live — six apertures, checked at admission — but the promotion loop it feeds has run only on test fixtures, not yet across a stretch of real dispatches.
+## Status
 
-That last list should shrink through evidence, not through wording.
+**v1.1.4** is the current release; **v1.1.1** was the first public one. It runs as the maintainer's
+daily driver rather than as a demo. [CHANGELOG.md](CHANGELOG.md) records what each release changed,
+including the parts that are still rough.
 
-## What stays simple
-
-- Change behavior by editing Markdown briefs and capability cards.
-- Ask Chrono in ordinary language. You never pick a model by hand.
-- Keep private memory, credentials, target data, and runtime state out of the public repository.
-- Use deterministic code only for facts that must not be guessed: identity, ordering, hashes, integration scopes, process state, admission denials, file-exact deletion authority.
-- Prefer deleting an unused framework over wiring it in because it exists.
-
-The repository carries a large adversarial test suite because process boundaries are easy to get subtly wrong. Those tests are verification, not more product.
-
-## Project status
-
-**v1.1.3** is the current release; **v1.1.1** was the first public one. The maintainer installation is an active daily driver, and the release gate behind this tag included a fresh-clone rehearsal, exact-docs checks, native-CLI and tool probes, private-data leak scans, and an independent cross-family skeptic pass that had to re-execute every load-bearing claim rather than read it.
-
-This README describes what is verified today. The **Not yet claimed** items above are real open gates.
-
-Start with the [documentation index](docs/README.md), read the [architecture](docs/architecture.md), or see how to [add a specialist](docs/adding-a-specialist.md).
-
-## What changed in v1.1.3
-
-The simplification release. Full detail in [CHANGELOG.md](CHANGELOG.md) — this is the shape of it:
-
-- **Removed the fan-out and swarm dispatch transports** (~5,500 deletions) and the `advisory` mode.
-  Chrono dispatches parallel lanes directly and specialists already fan out via subagents, which is
-  what the transports duplicated.
-- **One source of truth for work state.** A single parser, projection, validator and entry point; the
-  live plan now lives in an append-only workboard whose validator refuses an entry without a reason
-  and a resume point.
-- **Notifications and settlement.** Duplicate operator notifications collapsed on both paths, and
-  review settlement derives its provenance from the registry rather than trusting the reviewer's own
-  frontmatter.
-- **Guards that were live but untested are now pinned** with mutation-proven tests — including the
-  cross-family review check, which a one-line change could have disabled while the whole suite stayed
-  green.
-- **Live capability probes.** `bin/canary.sh` exercises dispatch, the orchestrator↔specialist round
-  trip, skills, memory and artifact placement with real actions, reporting `PASS` / `FAIL` /
-  `NOT MEASURED` — and its `--self-test` proves each probe fails when its capability breaks.
-
-Four items deferred at first publish were folded back in under the same version rather than held for
-a later release:
-
-- **Committed work survives a failed return path.** When a lane blocks but its code is already
-  committed, the board integrates it through the same gated path the success path uses and names the
-  commit on the receipt. The task stays `blocked` until it settles on its own merits — recovery is
-  not settlement.
-- **`modeless` dispatch.** A prepared packet may omit `mode:`; that absence becomes an affirmative
-  `modeless` state whose authority is the intersection of `project` and `bounty` on every axis, with
-  an unknown or dropped mode rejected rather than admitted. The generating wrapper still refuses an
-  omitted `--mode`, because a wrapper must never invent a packet field.
-- **The board MCP surface is measured rather than declared** — including a positive-controlled check
-  that the per-server disable override actually suppresses the bridge.
+Start with the [documentation index](docs/README.md), the
+[architecture](docs/architecture.md), or [how to add a specialist](docs/adding-a-specialist.md).
 
 ## Contributing and license
 

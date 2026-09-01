@@ -38,12 +38,8 @@ from chrono_state import compaction, decisions, registry, resume, workboard  # n
 
 ACTIVE_MARKER = workboard.ACTIVE_MARKER
 OPEN_ID = re.compile(r"\[OPEN-WORK-([^\]]+)\]")
-BLOCK_OMITTED = re.compile(
-    r"\+(\d+) open item\(s\) omitted from this bounded block"
-)
-BOUND_OMITTED = re.compile(
-    r"\((\d+) open item\(s\) omitted for the token bound"
-)
+BLOCK_OMITTED = re.compile(r"\+(\d+) open item\(s\) omitted from this bounded block")
+BOUND_OMITTED = re.compile(r"\((\d+) open item\(s\) omitted for the token bound")
 CONTROL = os.environ.get("WORKBOARD_HISTORY_CONTROL", "")
 
 
@@ -257,9 +253,20 @@ HISTORIES = (
             ("complete", "H24-OLD", "H24-NEXT"),
         ],
         {
-            "H24-Q01", "H24-Q02", "H24-Q03", "H24-Q04", "H24-Q05",
-            "H24-Q06", "H24-Q07", "H24-Q08", "H24-Q09", "H24-Q10",
-            "H24-Q11", "H24-Q12", "H24-Q13", "H24-NEXT",
+            "H24-Q01",
+            "H24-Q02",
+            "H24-Q03",
+            "H24-Q04",
+            "H24-Q05",
+            "H24-Q06",
+            "H24-Q07",
+            "H24-Q08",
+            "H24-Q09",
+            "H24-Q10",
+            "H24-Q11",
+            "H24-Q12",
+            "H24-Q13",
+            "H24-NEXT",
         },
         "H24-NEXT",
     ),
@@ -344,8 +351,7 @@ class WorkboardHistoryAcceptance(unittest.TestCase):
             if next_action:
                 label = "next_action" if ACTIVE_MARKER in body else "resume"
                 row += (
-                    f"; {label}: "
-                    f"{resume.clip(next_action, resume.OPEN_WORK_NEXT_CLIP)}"
+                    f"; {label}: {resume.clip(next_action, resume.OPEN_WORK_NEXT_CLIP)}"
                 )
             lines.append(f"- {row} [OPEN-WORK-{item_id}]")
         dropped = len(items) - len(lines)
@@ -680,6 +686,495 @@ class WorkboardHistoryAcceptance(unittest.TestCase):
         }
         self.assertTrue({"fold", "queue", "drop"} <= kinds)
 
+    def test_completed_alias_can_be_requeued_under_a_distinct_opaque_work_id(self):
+        self._select_history_paths("opaque-identity-positive")
+        self._append(
+            "start",
+            item_id="FOCUS-1",
+            summary="active control",
+            why="the fixture needs one durable focus",
+            next_action="continue the active control",
+        )
+        first = self._append(
+            "queue",
+            item_id="SKL-03",
+            summary="first incarnation",
+            why="prove the first obligation is distinct",
+            resume_action="finish the first incarnation",
+        )
+        self._append("complete", item_id="SKL-03")
+        second = self._append(
+            "queue",
+            item_id="SKL-03",
+            summary="second incarnation",
+            why="the human alias may be reused without reusing identity",
+            resume_action="finish the second incarnation",
+        )
+
+        first_work_id = first.fields["work_id"]
+        second_work_id = second.fields["work_id"]
+        self.assertRegex(first_work_id, r"^W-[0-9a-f]{32}$")
+        self.assertRegex(second_work_id, r"^W-[0-9a-f]{32}$")
+        self.assertNotEqual(first_work_id, second_work_id)
+        view = workboard.load_workboard(self.ledger, strict=True)
+        current = next(item for item in view.items if item.alias == "SKL-03")
+        self.assertEqual(current.work_id, second_work_id)
+        self.assertIn(first_work_id, view.terminal_work_ids)
+        self.assertNotIn(second_work_id, view.terminal_work_ids)
+
+    def test_open_alias_reuse_is_refused_then_the_item_can_close_by_alias(self):
+        self._select_history_paths("duplicate-open-alias-refusal")
+        self._append(
+            "start",
+            item_id="FOCUS-1",
+            summary="active control",
+            why="the fixture needs one durable focus",
+            next_action="continue the active control",
+        )
+        first = self._append(
+            "queue",
+            item_id="DUP-1",
+            summary="first obligation",
+            why="establish the open alias",
+            resume_action="finish the first obligation",
+        )
+        before = self.ledger.read_bytes()
+
+        with self.assertRaisesRegex(
+            workboard.WorkboardConsistencyError,
+            r"cannot queue alias 'DUP-1': it already belongs to 1 open item; "
+            r"queue is an opening event",
+        ):
+            self._append(
+                "queue",
+                item_id="DUP-1",
+                summary="second obligation",
+                why="prove the duplicate opening is refused",
+                resume_action="finish the second obligation",
+            )
+
+        self.assertEqual(self.ledger.read_bytes(), before)
+        view = workboard.load_workboard(self.ledger, strict=True)
+        duplicates = [item for item in view.items if item.alias == "DUP-1"]
+        self.assertEqual(
+            [item.work_id for item in duplicates], [first.fields["work_id"]]
+        )
+
+        self._append("complete", item_id="DUP-1")
+        closed = workboard.load_workboard(self.ledger, strict=True)
+        self.assertNotIn("DUP-1", {item.alias for item in closed.items})
+
+    def test_legacy_open_alias_refuses_duplicate_then_closes_by_alias_only(self):
+        self._select_history_paths("duplicate-legacy-open-alias-refusal")
+        self.ledger.write_text(
+            "# Open Work\n\n"
+            + workboard.format_event(
+                "start",
+                event_id="EV-FOCUS",
+                at="2026-08-27T00:00:00Z",
+                work_id="W-22222222222222222222222222222222",
+                alias="FOCUS-1",
+                summary="active control",
+                why="the fixture needs one durable focus",
+                next_action="continue the active control",
+            )
+            + workboard.format_event(
+                "queue",
+                event_id="EV-LEGACY-CI",
+                at="2026-08-27T00:00:01Z",
+                item_id="CI-02",
+                summary="legacy obligation",
+                why="reproduce the coordinator's exact trap",
+                resume_action="finish the legacy obligation",
+            ),
+            encoding="utf-8",
+        )
+        before = self.ledger.read_bytes()
+
+        with self.assertRaisesRegex(
+            workboard.WorkboardConsistencyError,
+            r"cannot queue alias 'CI-02': it already belongs to 1 open item; "
+            r"queue is an opening event",
+        ):
+            self._append(
+                "queue",
+                item_id="CI-02",
+                summary="duplicate note",
+                why="the writer must not create a second identity",
+                resume_action="close the existing obligation",
+            )
+        self.assertEqual(self.ledger.read_bytes(), before)
+
+        legacy_id = workboard._legacy_work_id("CI-02")
+        with self.assertRaisesRegex(
+            workboard.WorkboardConsistencyError, "work_id is not an opaque work id"
+        ):
+            self._append("complete", work_id=legacy_id)
+        self.assertEqual(self.ledger.read_bytes(), before)
+
+        self._append("complete", item_id="CI-02")
+        closed = workboard.load_workboard(self.ledger, strict=True)
+        self.assertNotIn("CI-02", {item.alias for item in closed.items})
+
+    def test_start_reusing_an_open_alias_is_refused_without_writing(self):
+        self._select_history_paths("duplicate-open-alias-start-refusal")
+        first = self._append(
+            "start",
+            item_id="DUP-START",
+            summary="first focus",
+            why="establish the open alias",
+            next_action="continue the first focus",
+        )
+        before = self.ledger.read_bytes()
+
+        with self.assertRaisesRegex(
+            workboard.WorkboardConsistencyError,
+            r"cannot start alias 'DUP-START': it already belongs to 1 open item; "
+            r"start is an opening event",
+        ):
+            self._append(
+                "start",
+                item_id="DUP-START",
+                summary="second focus",
+                why="prove start follows the same refusal policy",
+                next_action="continue the second focus",
+            )
+
+        self.assertEqual(self.ledger.read_bytes(), before)
+        view = workboard.load_workboard(self.ledger, strict=True)
+        duplicates = [item for item in view.items if item.alias == "DUP-START"]
+        self.assertEqual(
+            [item.work_id for item in duplicates], [first.fields["work_id"]]
+        )
+
+    def test_explicit_new_work_id_cannot_bypass_open_alias_refusal(self):
+        self._select_history_paths("duplicate-open-alias-explicit-id-refusal")
+        self._append(
+            "start",
+            item_id="FOCUS-1",
+            summary="active control",
+            why="the fixture needs one durable focus",
+            next_action="continue the active control",
+        )
+        self._append(
+            "queue",
+            item_id="DUP-ERROR",
+            summary="first obligation",
+            why="establish the open alias",
+            resume_action="finish the first obligation",
+        )
+        before = self.ledger.read_bytes()
+
+        with self.assertRaisesRegex(
+            workboard.WorkboardConsistencyError,
+            r"cannot queue alias 'DUP-ERROR'.*queue is an opening event",
+        ):
+            self._append(
+                "queue",
+                work_id="W-11111111111111111111111111111111",
+                alias="DUP-ERROR",
+                summary="second obligation",
+                why="prove a caller-supplied identity cannot turn queue into update",
+                resume_action="use a transition event instead",
+            )
+
+        self.assertEqual(self.ledger.read_bytes(), before)
+        view = workboard.load_workboard(self.ledger, strict=True)
+        duplicates = [item for item in view.items if item.alias == "DUP-ERROR"]
+        self.assertEqual(len(duplicates), 1)
+
+    def test_fresh_open_alias_is_created(self):
+        self._select_history_paths("fresh-open-alias-control")
+        self._append(
+            "start",
+            item_id="FOCUS-1",
+            summary="active control",
+            why="the fixture needs one durable focus",
+            next_action="continue the active control",
+        )
+
+        created = self._append(
+            "queue",
+            item_id="FRESH-1",
+            summary="fresh obligation",
+            why="prove the refusal is selective",
+            resume_action="finish the fresh obligation",
+        )
+        self.assertEqual(created.kind, "queue")
+
+    def test_closed_alias_can_be_requeued(self):
+        self._select_history_paths("closed-alias-requeue-control")
+        self._append(
+            "start",
+            item_id="FOCUS-1",
+            summary="active control",
+            why="the fixture needs one durable focus",
+            next_action="continue the active control",
+        )
+        first = self._append(
+            "queue",
+            item_id="SKL-03",
+            summary="first incarnation",
+            why="establish a terminal alias",
+            resume_action="finish the first incarnation",
+        )
+        self._append("complete", work_id=first.fields["work_id"])
+
+        second = self._append(
+            "queue",
+            item_id="SKL-03",
+            summary="second incarnation",
+            why="prove closed aliases remain valid re-queues",
+            resume_action="finish the second incarnation",
+        )
+
+        self.assertEqual(second.kind, "queue")
+        self.assertNotEqual(first.fields["work_id"], second.fields["work_id"])
+
+    def test_append_guard_rejects_reused_work_id_without_writing_bytes(self):
+        self._select_history_paths("opaque-identity-rejection")
+        self._append(
+            "start",
+            item_id="FOCUS-1",
+            summary="active control",
+            why="the fixture needs one durable focus",
+            next_action="continue the active control",
+        )
+        first = self._append(
+            "queue",
+            item_id="DOC-01",
+            summary="first incarnation",
+            why="establish a terminal work identity",
+            resume_action="finish the first incarnation",
+        )
+        self._append("complete", item_id="DOC-01")
+        before = self.ledger.read_bytes()
+
+        with self.assertRaisesRegex(
+            workboard.WorkboardConsistencyError,
+            r"append rejected: .* was not reflected as queue; added issue.*"
+            r"queue reuses work id W-",
+        ):
+            self._append(
+                "queue",
+                work_id=first.fields["work_id"],
+                alias="DOC-01",
+                summary="invalid identity reuse",
+                why="the guard must surface this collision",
+                resume_action="never silently disappear",
+            )
+        self.assertEqual(self.ledger.read_bytes(), before)
+
+    def test_rejected_append_does_not_create_a_missing_workboard(self):
+        self._select_history_paths("rejected-missing-destination")
+        self.assertFalse(self.ledger.exists())
+        with self.assertRaisesRegex(
+            workboard.WorkboardConsistencyError, "not an opaque work id"
+        ):
+            self._append(
+                "queue",
+                work_id="human-readable-id",
+                alias="DOC-01",
+                summary="invalid identity",
+                why="the formatter must reject this before destination creation",
+                resume_action="supply an opaque identity",
+            )
+        self.assertFalse(self.ledger.exists())
+
+    def test_adopt_rekeys_one_rejected_opening_without_rewriting_history(self):
+        self._select_history_paths("adopt-collided-opening")
+        collided_event_id = "EV-SKL-REQUEUE"
+        history = (
+            "# Open Work\n\n"
+            + workboard.format_event(
+                "start",
+                event_id="EV-FOCUS",
+                at="2026-08-27T00:00:00Z",
+                item_id="FOCUS-1",
+                summary="active control",
+                why="the fixture needs one durable focus",
+                next_action="continue the active control",
+            )
+            + workboard.format_event(
+                "queue",
+                event_id="EV-SKL-FIRST",
+                at="2026-08-27T00:00:01Z",
+                item_id="SKL-03",
+                summary="first incarnation",
+                why="establish the legacy identity",
+                resume_action="finish the first incarnation",
+            )
+            + workboard.format_event(
+                "complete",
+                event_id="EV-SKL-COMPLETE",
+                at="2026-08-27T00:00:02Z",
+                item_id="SKL-03",
+            )
+            + workboard.format_event(
+                "queue",
+                event_id=collided_event_id,
+                at="2026-08-27T00:00:03Z",
+                item_id="SKL-03",
+                summary="second incarnation",
+                why="this is the collided live obligation",
+                resume_action="finish the second incarnation",
+            )
+        )
+        self.ledger.write_text(history, encoding="utf-8")
+        before = self.ledger.read_bytes()
+        broken = workboard.load_workboard(self.ledger)
+        self.assertIn("line 6: queue reuses work id SKL-03", broken.transition_issues)
+        self.assertNotIn("SKL-03", {item.alias for item in broken.items})
+
+        adopted = workboard.append_event(
+            workboard.ADOPTION_KIND,
+            path=self.ledger,
+            event_id="EV-SKL-ADOPT",
+            at="2026-08-27T00:00:04Z",
+            source_event_id=collided_event_id,
+        )
+        self.assertTrue(self.ledger.read_bytes().startswith(before))
+        repaired = workboard.load_workboard(self.ledger, strict=True)
+        item = next(item for item in repaired.items if item.alias == "SKL-03")
+        self.assertEqual(item.work_id, adopted.fields["work_id"])
+        self.assertEqual(item.summary, "second incarnation")
+        self.assertNotIn("queue reuses work id SKL-03", "\n".join(repaired.issues))
+
+    def test_append_guard_allows_a_legitimate_existing_item_transition(self):
+        self._select_history_paths("append-guard-negative-control")
+        opened = self._append(
+            "start",
+            item_id="CONTROL-1",
+            summary="negative control",
+            why="prove the guard admits a reflected transition",
+            next_action="run the first step",
+        )
+        before = self.ledger.read_bytes()
+        advanced = self._append(
+            "advance",
+            item_id="CONTROL-1",
+            next_action="run the second step",
+        )
+
+        self.assertTrue(self.ledger.read_bytes().startswith(before))
+        view = workboard.load_workboard(self.ledger, strict=True)
+        self.assertEqual(view.active_work_id, opened.fields["work_id"])
+        self.assertEqual(view.next_action, "run the second step")
+        self.assertEqual(view.items[0].last_event_id, advanced.event_id)
+
+    def test_append_guard_compares_issue_delta_on_a_dirty_document(self):
+        self._select_history_paths("append-guard-dirty-negative-control")
+        history = (
+            "# Open Work\n\n"
+            + workboard.format_event(
+                "start",
+                event_id="EV-DIRTY-FOCUS",
+                at="2026-08-27T00:00:00Z",
+                item_id="ACTIVE-1",
+                summary="active control",
+                why="the fixture needs one durable focus",
+                next_action="run the first step",
+            )
+            + workboard.format_event(
+                "queue",
+                event_id="EV-DIRTY-FIRST",
+                at="2026-08-27T00:00:01Z",
+                item_id="COLLIDED-1",
+                summary="first incarnation",
+                why="establish a terminal legacy identity",
+                resume_action="finish the first incarnation",
+            )
+            + workboard.format_event(
+                "complete",
+                event_id="EV-DIRTY-COMPLETE",
+                at="2026-08-27T00:00:02Z",
+                item_id="COLLIDED-1",
+            )
+            + workboard.format_event(
+                "queue",
+                event_id="EV-DIRTY-COLLISION",
+                at="2026-08-27T00:00:03Z",
+                item_id="COLLIDED-1",
+                summary="rejected incarnation",
+                why="supply a pre-existing validation issue",
+                resume_action="adopt this incarnation later",
+            )
+        )
+        self.ledger.write_text(history, encoding="utf-8")
+        before = workboard.load_workboard(self.ledger)
+        self.assertEqual(before.issues, ("line 6: queue reuses work id COLLIDED-1",))
+
+        advanced = workboard.append_event(
+            "advance",
+            path=self.ledger,
+            event_id="EV-DIRTY-ADVANCE",
+            at="2026-08-27T00:00:04Z",
+            item_id="ACTIVE-1",
+            next_action="run the second step",
+        )
+        after = workboard.load_workboard(self.ledger)
+        self.assertEqual(after.issues, before.issues)
+        self.assertEqual(after.next_action, "run the second step")
+        self.assertEqual(after.items[0].last_event_id, advanced.event_id)
+
+    def test_fresh_queue_is_allowed_when_it_does_not_add_to_dirty_board_issues(self):
+        self._select_history_paths("append-guard-dirty-fresh-queue-control")
+        history = (
+            "# Open Work\n\n"
+            + workboard.format_event(
+                "start",
+                event_id="EV-DIRTY-QUEUE-FOCUS",
+                at="2026-08-27T00:00:00Z",
+                item_id="ACTIVE-1",
+                summary="active control",
+                why="the fixture needs one durable focus",
+                next_action="run the first step",
+            )
+            + workboard.format_event(
+                "queue",
+                event_id="EV-DIRTY-QUEUE-FIRST",
+                at="2026-08-27T00:00:01Z",
+                item_id="COLLIDED-1",
+                summary="first incarnation",
+                why="establish a terminal legacy identity",
+                resume_action="finish the first incarnation",
+            )
+            + workboard.format_event(
+                "complete",
+                event_id="EV-DIRTY-QUEUE-COMPLETE",
+                at="2026-08-27T00:00:02Z",
+                item_id="COLLIDED-1",
+            )
+            + workboard.format_event(
+                "queue",
+                event_id="EV-DIRTY-QUEUE-COLLISION",
+                at="2026-08-27T00:00:03Z",
+                item_id="COLLIDED-1",
+                summary="rejected incarnation",
+                why="supply a pre-existing validation issue",
+                resume_action="adopt this incarnation later",
+            )
+        )
+        self.ledger.write_text(history, encoding="utf-8")
+        before = workboard.load_workboard(self.ledger)
+        self.assertEqual(
+            before.issues,
+            ("line 6: queue reuses work id COLLIDED-1",),
+        )
+
+        fresh = self._append(
+            "queue",
+            item_id="FRESH-ON-DIRTY",
+            summary="fresh obligation",
+            why="prove the append guard compares issue delta",
+            resume_action="finish the fresh obligation",
+        )
+
+        after = workboard.load_workboard(self.ledger)
+        self.assertEqual(after.issues, before.issues)
+        item = next(item for item in after.items if item.alias == "FRESH-ON-DIRTY")
+        self.assertEqual(item.work_id, fresh.fields["work_id"])
+
     def test_validator_inverted_controls_reject_each_guarded_break(self):
         with self.subTest(control="missing literal next_action"):
             self._select_history_paths("invalid-missing-next-action")
@@ -744,14 +1239,40 @@ class WorkboardHistoryAcceptance(unittest.TestCase):
                 why="the focus remains open",
                 next_action="continue D",
             )
-            for next_action in ("fold once", "fold twice"):
+            self._append(
+                "fold",
+                request_id="REQUEST-DUP",
+                target_id="ACTIVE-D",
+                summary="same interruption",
+                why="the request cannot have two dispositions",
+                next_action="fold once",
+            )
+            before = self.ledger.read_bytes()
+            with self.assertRaisesRegex(
+                workboard.WorkboardConsistencyError,
+                "fold reuses request id REQUEST-DUP",
+            ):
                 self._append(
                     "fold",
                     request_id="REQUEST-DUP",
                     target_id="ACTIVE-D",
                     summary="same interruption",
                     why="the request cannot have two dispositions",
-                    next_action=next_action,
+                    next_action="fold twice",
+                )
+            self.assertEqual(self.ledger.read_bytes(), before)
+            with self.ledger.open("a", encoding="utf-8") as stream:
+                stream.write(
+                    workboard.format_event(
+                        "fold",
+                        event_id="EV-RAW-DUPLICATE-FOLD",
+                        at="2026-08-27T00:00:04Z",
+                        request_id="REQUEST-DUP",
+                        target_id="ACTIVE-D",
+                        summary="same interruption",
+                        why="the raw fixture bypasses the guarded writer",
+                        next_action="fold twice",
+                    )
                 )
             with self.assertRaisesRegex(
                 workboard.WorkboardConsistencyError,
@@ -833,9 +1354,7 @@ class WorkboardMigrationAcceptance(unittest.TestCase):
         self.assertEqual(dry_run["legacy_checklist_count_in"], 4)
         self.assertEqual(dry_run["legacy_anonymous_rows_preserved"], 1)
         self.assertTrue(dry_run["header_contract_updated"])
-        self.assertEqual(
-            dry_run["header_contract"], workboard.HEADER_CONTRACT_VERSION
-        )
+        self.assertEqual(dry_run["header_contract"], workboard.HEADER_CONTRACT_VERSION)
         self.assertEqual(dry_run["active_id_in"], "ACTIVE-1")
         self.assertEqual(dry_run["active_id_out"], "ACTIVE-1")
 
@@ -1021,9 +1540,7 @@ class WorkboardMigrationAcceptance(unittest.TestCase):
         )
         self.addCleanup(lambda: child.poll() is None and child.kill())
         self.assertEqual(child.stdout.readline().strip(), "ready")
-        readable, _writable, _exceptional = select.select(
-            [child.stdout], [], [], 0.15
-        )
+        readable, _writable, _exceptional = select.select([child.stdout], [], [], 0.15)
         self.assertEqual(readable, [], "append bypassed the registry lock")
         self.assertFalse(destination.exists(), "append opened before taking the lock")
 
@@ -1044,9 +1561,7 @@ class WorkboardMigrationAcceptance(unittest.TestCase):
         mode = self.ledger.stat().st_mode & 0o777
         workboard._atomic_replace_bytes(self.ledger, mutated, mode)
         control = workboard.compare_item_censuses(
-            workboard._parse_workboard_text(
-                self.ledger, before.decode("utf-8")
-            ),
+            workboard._parse_workboard_text(self.ledger, before.decode("utf-8")),
             workboard._parse_workboard_text(
                 self.ledger, self.ledger.read_text(encoding="utf-8")
             ),

@@ -114,6 +114,24 @@
         "mcps": [],
         "skills": [
           {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "harness-baseline-audit",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "instinct-prune-loop",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "kg-vault-health-check",
+            "requirement": "preferred"
+          },
+          {
             "availability": "authored:stub",
             "evidence": "shared-skills:stub",
             "id": "mcp-reachability-audit",
@@ -123,6 +141,12 @@
             "availability": "authored:stub",
             "evidence": "shared-skills:stub",
             "id": "prompt-cache-hit-monitoring",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "stale-knowledge-purge",
             "requirement": "preferred"
           }
         ],
@@ -189,14 +213,9 @@
           "resolution": "local"
         }
       ],
-      "skills": [
-        "harness-baseline-audit",
-        "instinct-prune-loop",
-        "kg-vault-health-check",
-        "stale-knowledge-purge"
-      ],
+      "skills": [],
       "specialist": "agentops",
-      "surface_sha256": "11cd5544cce35cd7fd8814253ff6d33f822c425314b0ede15e0e74a7016a8746",
+      "surface_sha256": "3f2af46245ceb666da72f1877779b671eae5c3c8726f7e996ddd8fd9d96b9d16",
       "tools": [
         "awk",
         "du",
@@ -232,10 +251,16 @@
     },
     {
       "adapter": "model-lanes/claude/.claude/agents/ai-engineer.md",
-      "coverage": "full",
+      "coverage": "partial",
       "known_unavailable": {
         "mcps": [],
         "skills": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "agent-architecture-pattern",
+            "requirement": "preferred"
+          },
           {
             "availability": "authored:stub",
             "evidence": "shared-skills:stub",
@@ -243,9 +268,206 @@
             "requirement": "preferred"
           },
           {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "mcp-tool-design",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "multi-model-routing-discipline",
+            "requirement": "preferred"
+          },
+          {
             "availability": "authored:stub",
             "evidence": "shared-skills:stub",
             "id": "prompt-cache-discipline",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "rag-eval-loop",
+            "requirement": "preferred"
+          }
+        ],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "perplexity_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [
+        "chrono-research-arsenal",
+        "chrono-vault",
+        "context7",
+        "sequential-thinking"
+      ],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "ai-engineer",
+      "surface_sha256": "0b2d31eb30fca3eb662c0e44655ae1264b50175659b300834595d17fab3dd28e",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/ai-engineer.toml",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "agent-architecture-pattern",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "authored:stub",
+            "evidence": "shared-skills:stub",
+            "id": "eval-harness-pattern",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "mcp-tool-design",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "multi-model-routing-discipline",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "authored:stub",
+            "evidence": "shared-skills:stub",
+            "id": "prompt-cache-discipline",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "rag-eval-loop",
+            "requirement": "preferred"
+          }
+        ],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "perplexity_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gpt-codex",
+      "limitations": [],
+      "mcps": [
+        "chrono-research-arsenal",
+        "chrono-vault",
+        "sequential-thinking"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-research-arsenal",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "chrono-research-arsenal",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "requirement": "preferred",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "requirement": "preferred",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "sequential-thinking",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "sequential-thinking",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "requirement": "preferred",
+          "resolution": "local"
+        }
+      ],
+      "skills": [],
+      "specialist": "ai-engineer",
+      "surface_sha256": "245c11cac8e5f1a061b0f30f049653214689ad7877769fafdc3eaa4e06e247eb",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/architect.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "boundary-design",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "c4-model-authoring",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "data-model-contract",
             "requirement": "preferred"
           }
         ],
@@ -323,152 +545,12 @@
         }
       ],
       "skills": [
-        "agent-architecture-pattern",
-        "mcp-tool-design",
-        "multi-model-routing-discipline",
-        "rag-eval-loop"
-      ],
-      "specialist": "ai-engineer",
-      "surface_sha256": "9beefdf0165b4514735f2af9531a4ba01a479e5f16e3ab969d745bed05b2b9f0",
-      "tools": []
-    },
-    {
-      "adapter": "model-lanes/gpt-codex/.codex/agents/ai-engineer.toml",
-      "coverage": "partial",
-      "known_unavailable": {
-        "mcps": [],
-        "skills": [],
-        "tools": [
-          {
-            "availability": "mcp-operation",
-            "evidence": "chrono-research-arsenal",
-            "id": "arxiv_search",
-            "requirement": "preferred"
-          },
-          {
-            "availability": "mcp-operation",
-            "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search",
-            "requirement": "preferred"
-          },
-          {
-            "availability": "harness-only",
-            "evidence": "runtime-map:requires_approval",
-            "id": "WebFetch",
-            "requirement": "preferred"
-          },
-          {
-            "availability": "mcp-operation",
-            "evidence": "chrono-research-arsenal",
-            "id": "xai_search",
-            "requirement": "preferred"
-          }
-        ]
-      },
-      "lane": "gpt-codex",
-      "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
-      ],
-      "mcps": [
-        "chrono-research-arsenal",
-        "chrono-vault",
-        "sequential-thinking"
-      ],
-      "primary_plan": [],
-      "skills": [],
-      "specialist": "ai-engineer",
-      "surface_sha256": "245c11cac8e5f1a061b0f30f049653214689ad7877769fafdc3eaa4e06e247eb",
-      "tools": []
-    },
-    {
-      "adapter": "model-lanes/claude/.claude/agents/architect.md",
-      "coverage": "full",
-      "known_unavailable": {
-        "mcps": [],
-        "skills": [],
-        "tools": [
-          {
-            "availability": "mcp-operation",
-            "evidence": "chrono-research-arsenal",
-            "id": "arxiv_search",
-            "requirement": "preferred"
-          },
-          {
-            "availability": "mcp-operation",
-            "evidence": "chrono-research-arsenal",
-            "id": "perplexity_search",
-            "requirement": "preferred"
-          },
-          {
-            "availability": "harness-only",
-            "evidence": "runtime-map:requires_approval",
-            "id": "WebFetch",
-            "requirement": "preferred"
-          },
-          {
-            "availability": "mcp-operation",
-            "evidence": "chrono-research-arsenal",
-            "id": "xai_search",
-            "requirement": "preferred"
-          }
-        ]
-      },
-      "lane": "claude",
-      "limitations": [],
-      "mcps": [
-        "chrono-research-arsenal",
-        "chrono-vault",
-        "context7",
-        "sequential-thinking"
-      ],
-      "primary_plan": [
-        {
-          "capability_id": "chrono-research-arsenal",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-research-arsenal",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "chrono-vault",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-vault",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "context7",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "context7",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "sequential-thinking",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "sequential-thinking",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        }
-      ],
-      "skills": [
-        "boundary-design",
-        "c4-model-authoring",
         "data-flow-trace",
-        "data-model-contract",
         "dependency-cycle-audit",
         "interface-ambiguity-check"
       ],
       "specialist": "architect",
-      "surface_sha256": "da387273e4f36efc8b78d62b281c767e3784d55945b319e9433cc90ac1bfb5c0",
+      "surface_sha256": "650fe00e54cc2103b7eba4cf2ae04cdaa19d00fe88e17e3a7990aff00c2dbf82",
       "tools": []
     },
     {
@@ -495,7 +577,7 @@
     },
     {
       "adapter": "model-lanes/claude/.claude/agents/asset-provenance-and-rights-auditor.md",
-      "coverage": "full",
+      "coverage": "partial",
       "known_unavailable": {
         "mcps": [],
         "skills": [
@@ -522,6 +604,37 @@
         ]
       },
       "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [
+        "chrono-vault",
+        "sequential-thinking"
+      ],
+      "primary_plan": [],
+      "skills": [
+        "rule6-rights-gate"
+      ],
+      "specialist": "asset-provenance-and-rights-auditor",
+      "surface_sha256": "0c8c91d0dd453c8b7599ddcee099f0923b1e5245fa602fb9b0e350999525f5ed",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gemini/.gemini/agents/asset-provenance-and-rights-auditor.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gemini",
       "limitations": [],
       "mcps": [
         "chrono-vault",
@@ -533,7 +646,7 @@
           "evidence": "capsource-generated-runtime-tool-summary",
           "id": "chrono-vault",
           "kind": "mcps",
-          "provider_lane": "claude",
+          "provider_lane": "gemini",
           "requirement": "preferred",
           "resolution": "local"
         },
@@ -542,7 +655,7 @@
           "evidence": "capsource-generated-runtime-tool-summary",
           "id": "sequential-thinking",
           "kind": "mcps",
-          "provider_lane": "claude",
+          "provider_lane": "gemini",
           "requirement": "preferred",
           "resolution": "local"
         }
@@ -551,7 +664,7 @@
         "rule6-rights-gate"
       ],
       "specialist": "asset-provenance-and-rights-auditor",
-      "surface_sha256": "0c8c91d0dd453c8b7599ddcee099f0923b1e5245fa602fb9b0e350999525f5ed",
+      "surface_sha256": "16cb442f077826e20668b8e9004e38d3cebd83e72ddc07bc2bef7cf56912ebc4",
       "tools": []
     },
     {
@@ -601,10 +714,47 @@
     },
     {
       "adapter": "model-lanes/claude/.claude/agents/backend-engineer.md",
-      "coverage": "full",
+      "coverage": "partial",
       "known_unavailable": {
         "mcps": [],
-        "skills": [],
+        "skills": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "async-scraper-pipeline",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "axum-tokio-pattern",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "fastapi-service-boot",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "mcp-server-cdp-pattern",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "n8n-workflow-orchestration",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "playwright-stealth-config",
+            "requirement": "preferred"
+          }
+        ],
         "tools": [
           {
             "availability": "mcp-operation",
@@ -633,72 +783,68 @@
         ]
       },
       "lane": "claude",
-      "limitations": [],
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
       "mcps": [
         "chrono-research-arsenal",
         "chrono-vault",
         "context7",
         "sequential-thinking"
       ],
-      "primary_plan": [
-        {
-          "capability_id": "chrono-research-arsenal",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-research-arsenal",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "chrono-vault",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-vault",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "context7",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "context7",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "sequential-thinking",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "sequential-thinking",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        }
-      ],
+      "primary_plan": [],
       "skills": [
-        "async-scraper-pipeline",
-        "axum-tokio-pattern",
-        "data-flow-trace",
-        "fastapi-service-boot",
-        "mcp-server-cdp-pattern",
-        "n8n-workflow-orchestration",
-        "playwright-stealth-config"
+        "data-flow-trace"
       ],
       "specialist": "backend-engineer",
-      "surface_sha256": "ef1725cfb3aee26e415594608ec2ae73edd0cc2eff8c9cd2b41f5179fc3d7743",
+      "surface_sha256": "10033ea7ced4fb4730af285bb2fac6749ac874aceca237cdfd6db675aae13b93",
       "tools": [
         "playwright"
       ]
     },
     {
       "adapter": "model-lanes/gpt-codex/.codex/agents/backend-engineer.toml",
-      "coverage": "partial",
+      "coverage": "full",
       "known_unavailable": {
         "mcps": [],
-        "skills": [],
+        "skills": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "async-scraper-pipeline",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "axum-tokio-pattern",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "fastapi-service-boot",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "mcp-server-cdp-pattern",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "n8n-workflow-orchestration",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "playwright-stealth-config",
+            "requirement": "preferred"
+          }
+        ],
         "tools": [
           {
             "availability": "mcp-operation",
@@ -727,15 +873,41 @@
         ]
       },
       "lane": "gpt-codex",
-      "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
-      ],
+      "limitations": [],
       "mcps": [
         "chrono-research-arsenal",
         "chrono-vault",
         "sequential-thinking"
       ],
-      "primary_plan": [],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-research-arsenal",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "chrono-research-arsenal",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "requirement": "preferred",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "requirement": "preferred",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "sequential-thinking",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "sequential-thinking",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "requirement": "preferred",
+          "resolution": "local"
+        }
+      ],
       "skills": [
         "data-flow-trace"
       ],
@@ -840,6 +1012,31 @@
       "tools": []
     },
     {
+      "adapter": "model-lanes/grok/.grok/agents/bounty-researcher.yaml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "grok",
+      "limitations": [
+        "best-effort non-primary (escalate) route; required capabilities remain anchored to the primary execution plan (gemini)",
+        "grok's only projected lane capability is the chrono-vault MCP (plus repo shell); native X/Twitter search (x_keyword_search) is live on the SuperGrok subscription session but is not present in the grok lane tool inventory (model-lanes/lane-capabilities.tsv adapter_tools is empty), so it is not projected here",
+        "web_search / web_fetch exist in the grok CLI but the launcher passes --disable-web-search, so no general web retrieval is available to a worker on this lane",
+        "read_file hard-fails a 343KB document at a 25,000-token ceiling (it errors rather than truncating); this role returns cited grounded leads rather than ingesting whole corpora, but any single supplied audit/report above the ceiling must stay on the primary grounded route rather than escalate to grok",
+        "authentication is the SuperGrok subscription session, not XAI_API_KEY"
+      ],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "bounty-researcher",
+      "surface_sha256": "be7d49b1f4ff7fd56dc3b8ea583974e818c0c25589608399932bbb7211c90ccf",
+      "tools": []
+    },
+    {
       "adapter": "model-lanes/claude/.claude/agents/brand-voice.md",
       "coverage": "full",
       "known_unavailable": {
@@ -891,12 +1088,12 @@
         }
       ],
       "skills": [
-        "cite-properly",
+        "claim-verification",
         "skill-description-trigger-authoring",
         "writing-skills"
       ],
       "specialist": "brand-voice",
-      "surface_sha256": "726c63008a9103e37af3f5629ec98ac8d877d01c7620f3cd651bd82b6269a06b",
+      "surface_sha256": "064b8aea8abfc06dccd2b205483df83e45a8ec8baab75803e889e3291f720fca",
       "tools": []
     },
     {
@@ -927,12 +1124,12 @@
       ],
       "primary_plan": [],
       "skills": [
-        "cite-properly",
+        "claim-verification",
         "skill-description-trigger-authoring",
         "writing-skills"
       ],
       "specialist": "brand-voice",
-      "surface_sha256": "5dc10446fc3810acf9bf5dede8d539a0ee037ce33a77a4bb68106b8ac1cfd0af",
+      "surface_sha256": "64985c2924d71986ca049f82c7d85179bf2d11dbb6fe815e0447ef671c7dcab3",
       "tools": []
     },
     {
@@ -979,7 +1176,7 @@
       ],
       "primary_plan": [],
       "skills": [
-        "claim-validation-gate",
+        "claim-verification",
         "code-review-loop",
         "data-flow-trace",
         "diff-aware-semgrep-scan",
@@ -988,7 +1185,7 @@
         "review-severity-ladder"
       ],
       "specialist": "code-reviewer",
-      "surface_sha256": "059a8d33b31717fc001dadad7d9d0726f4b1ef6b006e47056fa70f42a40b4146",
+      "surface_sha256": "c3e88cefe54f5831537be7aaa25536b0543a90b8079deb81b56b3e74eda39a86",
       "tools": [
         "semgrep"
       ]
@@ -1065,7 +1262,7 @@
         }
       ],
       "skills": [
-        "claim-validation-gate",
+        "claim-verification",
         "code-review-loop",
         "data-flow-trace",
         "diff-aware-semgrep-scan",
@@ -1074,14 +1271,14 @@
         "review-severity-ladder"
       ],
       "specialist": "code-reviewer",
-      "surface_sha256": "580683e788a7231f5fd1af1050909f7a4828d531107cd8245adcf151c00f131d",
+      "surface_sha256": "07d41f7953fd4e92a680a3fb1704662dbe18520135b25d0757743ea05a6e8cbe",
       "tools": [
         "semgrep"
       ]
     },
     {
       "adapter": "model-lanes/claude/.claude/agents/content-verifier.md",
-      "coverage": "full",
+      "coverage": "partial",
       "known_unavailable": {
         "mcps": [],
         "skills": [],
@@ -1113,6 +1310,57 @@
         ]
       },
       "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [
+        "chrono-research-arsenal",
+        "chrono-vault",
+        "sequential-thinking"
+      ],
+      "primary_plan": [],
+      "skills": [
+        "claim-verification",
+        "verification-before-completion"
+      ],
+      "specialist": "content-verifier",
+      "surface_sha256": "250afa05897d5908ad28cc98a4b0fc1ad58d4dea2d87ac1817c16e2764c5c48e",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gemini/.gemini/agents/content-verifier.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "perplexity_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gemini",
       "limitations": [],
       "mcps": [
         "chrono-research-arsenal",
@@ -1125,7 +1373,7 @@
           "evidence": "capsource-generated-runtime-tool-summary",
           "id": "chrono-research-arsenal",
           "kind": "mcps",
-          "provider_lane": "claude",
+          "provider_lane": "gemini",
           "requirement": "preferred",
           "resolution": "local"
         },
@@ -1134,7 +1382,7 @@
           "evidence": "capsource-generated-runtime-tool-summary",
           "id": "chrono-vault",
           "kind": "mcps",
-          "provider_lane": "claude",
+          "provider_lane": "gemini",
           "requirement": "preferred",
           "resolution": "local"
         },
@@ -1143,7 +1391,7 @@
           "evidence": "capsource-generated-runtime-tool-summary",
           "id": "sequential-thinking",
           "kind": "mcps",
-          "provider_lane": "claude",
+          "provider_lane": "gemini",
           "requirement": "preferred",
           "resolution": "local"
         }
@@ -1153,7 +1401,7 @@
         "verification-before-completion"
       ],
       "specialist": "content-verifier",
-      "surface_sha256": "250afa05897d5908ad28cc98a4b0fc1ad58d4dea2d87ac1817c16e2764c5c48e",
+      "surface_sha256": "2e55dcd5f0e29527e6cd187648115305a5dd30460d6824c82c90aaa8f7b0cbe9",
       "tools": []
     },
     {
@@ -1222,9 +1470,39 @@
             "requirement": "preferred"
           },
           {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "evidence-level",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "find-sources",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "research-integrity-gate",
+            "requirement": "preferred"
+          },
+          {
             "availability": "authored:stub",
             "evidence": "shared-skills:stub",
             "id": "schema-inference",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "source-triangulation",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "summarize-findings",
             "requirement": "preferred"
           }
         ],
@@ -1240,15 +1518,10 @@
       ],
       "primary_plan": [],
       "skills": [
-        "cite-properly",
-        "evidence-level",
-        "find-sources",
-        "research-integrity-gate",
-        "source-triangulation",
-        "summarize-findings"
+        "claim-verification"
       ],
       "specialist": "data-extraction-engineer",
-      "surface_sha256": "6fafa3f706ea34d13d6bfbe608ca80f74fa600687d73a24f4e7c60d0f79a0473",
+      "surface_sha256": "8dade098e6e9397a1df64355a3d960b91de8f4eefb8d847891f4c9ce9b809535",
       "tools": []
     },
     {
@@ -1346,54 +1619,6 @@
     },
     {
       "adapter": "model-lanes/claude/.claude/agents/database-engineer.md",
-      "coverage": "full",
-      "known_unavailable": {
-        "mcps": [],
-        "skills": [],
-        "tools": [
-          {
-            "availability": "harness-only",
-            "evidence": "runtime-map:requires_approval",
-            "id": "WebFetch",
-            "requirement": "preferred"
-          }
-        ]
-      },
-      "lane": "claude",
-      "limitations": [],
-      "mcps": [
-        "chrono-vault",
-        "sequential-thinking"
-      ],
-      "primary_plan": [
-        {
-          "capability_id": "chrono-vault",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-vault",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "sequential-thinking",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "sequential-thinking",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        }
-      ],
-      "skills": [
-        "data-flow-trace"
-      ],
-      "specialist": "database-engineer",
-      "surface_sha256": "8a36e94feb2aba9c18c288f30be15ecbf9c7b2bdfdd68b1e6d368093fd34a82e",
-      "tools": []
-    },
-    {
-      "adapter": "model-lanes/gpt-codex/.codex/agents/database-engineer.toml",
       "coverage": "partial",
       "known_unavailable": {
         "mcps": [],
@@ -1407,7 +1632,7 @@
           }
         ]
       },
-      "lane": "gpt-codex",
+      "lane": "claude",
       "limitations": [
         "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
       ],
@@ -1416,6 +1641,54 @@
         "sequential-thinking"
       ],
       "primary_plan": [],
+      "skills": [
+        "data-flow-trace"
+      ],
+      "specialist": "database-engineer",
+      "surface_sha256": "8a36e94feb2aba9c18c288f30be15ecbf9c7b2bdfdd68b1e6d368093fd34a82e",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/database-engineer.toml",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gpt-codex",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault",
+        "sequential-thinking"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "requirement": "preferred",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "sequential-thinking",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "sequential-thinking",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "requirement": "preferred",
+          "resolution": "local"
+        }
+      ],
       "skills": [
         "data-flow-trace"
       ],
@@ -1513,6 +1786,18 @@
         "mcps": [],
         "skills": [
           {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "cc-hooks-ci-discipline",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "k8s-deploy-loop",
+            "requirement": "preferred"
+          },
+          {
             "availability": "authored:stub",
             "evidence": "shared-skills:stub",
             "id": "rollback-test-coverage",
@@ -1522,6 +1807,12 @@
             "availability": "authored:stub",
             "evidence": "shared-skills:stub",
             "id": "secret-rotation-discipline",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "terraform-state-hygiene",
             "requirement": "preferred"
           }
         ],
@@ -1536,13 +1827,9 @@
         "sequential-thinking"
       ],
       "primary_plan": [],
-      "skills": [
-        "cc-hooks-ci-discipline",
-        "k8s-deploy-loop",
-        "terraform-state-hygiene"
-      ],
+      "skills": [],
       "specialist": "devops-engineer",
-      "surface_sha256": "5fab283b2b6c0683aef93e7bb3f2ade5c6b42e25b8c5b12337305a48c01f6043",
+      "surface_sha256": "f298eb6cd2c72b6a6f87ddfc7bd6107547d456083c6f8ac64835a14478a684e4",
       "tools": []
     },
     {
@@ -1670,13 +1957,13 @@
         }
       ],
       "skills": [
-        "cite-properly",
+        "claim-verification",
         "copy-refinement",
         "skill-description-trigger-authoring",
         "writing-skills"
       ],
       "specialist": "editor",
-      "surface_sha256": "9ef49993235c0ad9d4af893ffe948110769f393ca20ec9b659c8907ad0ca2491",
+      "surface_sha256": "4b523d17186a97b6a6d5c11f9c516d0f0b6cf80f006229ac702abdacedb41a75",
       "tools": []
     },
     {
@@ -1714,13 +2001,13 @@
       ],
       "primary_plan": [],
       "skills": [
-        "cite-properly",
+        "claim-verification",
         "copy-refinement",
         "skill-description-trigger-authoring",
         "writing-skills"
       ],
       "specialist": "editor",
-      "surface_sha256": "c14d956a9f96433702f2b8aabc19a8a1419d13e409b440ca8738c53109419d81",
+      "surface_sha256": "500a94bcf8649dc7a38c76a1622a35e2ac67bc6401d3c52f15129609b638d773",
       "tools": []
     },
     {
@@ -1818,14 +2105,12 @@
         "agentic-safety-audit",
         "chain-construct",
         "chain-construct-smart-contract",
-        "chain-impact-rescore",
         "cosmos-sdk-audit-checklist",
         "cross-chain-bridge-audit",
         "defi-invariant-check",
         "dependency-health-triage",
         "evm-audit-flow",
         "findings-filter",
-        "gptscan-prompt-templates",
         "known-advisory-backport-check",
         "multi-stance-audit-fanout",
         "osint-platform-audit",
@@ -1842,7 +2127,7 @@
         "vulnhunter-solana"
       ],
       "specialist": "experimental-attacker",
-      "surface_sha256": "f0d29998496c7427318583365bd12aebb95b86b9718ba9269c456736c6a0f802",
+      "surface_sha256": "ce149d16a6169684b3fecfcc00e4cdd26289d28af11bb625348efaab938b143b",
       "tools": [
         "aderyn",
         "amass",
@@ -1886,11 +2171,36 @@
     },
     {
       "adapter": "model-lanes/gpt-codex/.codex/agents/experimental-attacker.toml",
-      "coverage": "partial",
+      "coverage": "full",
       "known_unavailable": {
-        "mcps": [],
+        "mcps": [
+          {
+            "availability": "probe-failed",
+            "evidence": "pending-reprobe",
+            "id": "guarded-semgrep",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "probe-failed",
+            "evidence": "pending-reprobe",
+            "id": "guarded-slither",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "probe-failed",
+            "evidence": "pending-reprobe",
+            "id": "guarded-solodit",
+            "requirement": "preferred"
+          }
+        ],
         "skills": [],
         "tools": [
+          {
+            "availability": "probe-failed",
+            "evidence": "pending-reprobe",
+            "id": "amass",
+            "requirement": "preferred"
+          },
           {
             "availability": "mcp-operation",
             "evidence": "chrono-research-arsenal",
@@ -1913,6 +2223,12 @@
             "availability": "uninstalled",
             "evidence": "host-PATH:absent",
             "id": "ghidra",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "probe-failed",
+            "evidence": "pending-reprobe",
+            "id": "golangci-lint",
             "requirement": "preferred"
           },
           {
@@ -1946,6 +2262,18 @@
             "requirement": "preferred"
           },
           {
+            "availability": "probe-failed",
+            "evidence": "pending-reprobe",
+            "id": "semgrep",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "probe-failed",
+            "evidence": "pending-reprobe",
+            "id": "snyk",
+            "requirement": "preferred"
+          },
+          {
             "availability": "harness-only",
             "evidence": "runtime-map:requires_approval",
             "id": "WebFetch",
@@ -1961,7 +2289,6 @@
       },
       "lane": "gpt-codex",
       "limitations": [
-        "best-effort non-primary route; the mirrored arsenal is available for Codex validation and PoC work but required primary execution remains anchored to Kimi",
         "board workers are network-isolated: prior_art_check reaches only chrono-vault locally, while web sources and metered research operations require a Chrono-side invocation with an explicit budget",
         "gdb is limited to offline binary parsing on this host; brakeman still needs an operator install; eslint-security and litesvm are target-project dependencies rather than host executables",
         "active scanners and exploit tooling remain bounded by target scope, rules of engagement, and the offensive_execution operator gate"
@@ -1971,24 +2298,65 @@
         "chrono-recon",
         "chrono-research-arsenal",
         "chrono-vault",
-        "guarded-semgrep",
-        "guarded-slither",
-        "guarded-solodit",
         "sequential-thinking"
       ],
-      "primary_plan": [],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "requirement": "required",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "chrono-dedup",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "chrono-dedup",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "requirement": "preferred",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "chrono-recon",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "chrono-recon",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "requirement": "preferred",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "chrono-research-arsenal",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "chrono-research-arsenal",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "requirement": "preferred",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "sequential-thinking",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "sequential-thinking",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "requirement": "preferred",
+          "resolution": "local"
+        }
+      ],
       "skills": [
         "agentic-safety-audit",
         "chain-construct",
         "chain-construct-smart-contract",
-        "chain-impact-rescore",
         "cosmos-sdk-audit-checklist",
         "cross-chain-bridge-audit",
         "defi-invariant-check",
         "dependency-health-triage",
         "evm-audit-flow",
         "findings-filter",
-        "gptscan-prompt-templates",
         "known-advisory-backport-check",
         "multi-stance-audit-fanout",
         "osint-platform-audit",
@@ -2005,10 +2373,9 @@
         "vulnhunter-solana"
       ],
       "specialist": "experimental-attacker",
-      "surface_sha256": "7fe98bda32840d52bbceac86caab7d4e2adb0a4db3bd1400b2a43f03925e0ef6",
+      "surface_sha256": "1dc91c6c94aecdee69413b85ee2896c414fda939dbde9859dd17badc7863685d",
       "tools": [
         "aderyn",
-        "amass",
         "anchor",
         "angr",
         "anvil",
@@ -2026,7 +2393,6 @@
         "gau",
         "gdb",
         "gitleaks",
-        "golangci-lint",
         "gosec",
         "gowitness",
         "grype",
@@ -2044,9 +2410,7 @@
         "osv-scanner",
         "playwright",
         "radare2",
-        "semgrep",
         "slither",
-        "snyk",
         "solana",
         "sqlmap",
         "staticcheck",
@@ -2059,7 +2423,7 @@
     },
     {
       "adapter": "model-lanes/kimi/.kimi/agents/experimental-attacker.yaml",
-      "coverage": "full",
+      "coverage": "partial",
       "known_unavailable": {
         "mcps": [],
         "skills": [],
@@ -2138,47 +2502,17 @@
         "lead:chrono-vault",
         "lead:sequential-thinking"
       ],
-      "primary_plan": [
-        {
-          "capability_id": "lead:chrono-dedup",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-dedup",
-          "kind": "mcps",
-          "provider_lane": "kimi",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "lead:chrono-vault",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-vault",
-          "kind": "mcps",
-          "provider_lane": "kimi",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "lead:sequential-thinking",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "sequential-thinking",
-          "kind": "mcps",
-          "provider_lane": "kimi",
-          "requirement": "preferred",
-          "resolution": "local"
-        }
-      ],
+      "primary_plan": [],
       "skills": [
         "agentic-safety-audit",
         "chain-construct",
         "chain-construct-smart-contract",
-        "chain-impact-rescore",
         "cosmos-sdk-audit-checklist",
         "cross-chain-bridge-audit",
         "defi-invariant-check",
         "dependency-health-triage",
         "evm-audit-flow",
         "findings-filter",
-        "gptscan-prompt-templates",
         "known-advisory-backport-check",
         "multi-stance-audit-fanout",
         "osint-platform-audit",
@@ -2195,7 +2529,7 @@
         "vulnhunter-solana"
       ],
       "specialist": "experimental-attacker",
-      "surface_sha256": "01b2388782ae0913f311242220223adb7d935f2ea3c0ba1518d6a1d61409ddcd",
+      "surface_sha256": "7d8cc298e3da22d01edbd07f580bb3bb98365569c7a11ab5b909871a302d6909",
       "tools": [
         "aderyn",
         "amass",
@@ -2252,7 +2586,38 @@
       "coverage": "partial",
       "known_unavailable": {
         "mcps": [],
-        "skills": [],
+        "skills": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "binary-re-pipeline",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "fuzzing-campaign-flow",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "pwntools-exploit-authoring",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "scope-gate",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "xbow-benchmark-runner",
+            "requirement": "preferred"
+          }
+        ],
         "tools": [
           {
             "availability": "uninstalled",
@@ -2342,21 +2707,15 @@
       ],
       "primary_plan": [],
       "skills": [
-        "binary-re-pipeline",
         "chain-construct",
         "chain-construct-smart-contract",
-        "chain-impact-rescore",
         "cosmos-sdk-audit-checklist",
         "cross-chain-bridge-audit",
-        "fuzzing-campaign-flow",
         "known-advisory-backport-check",
-        "pwntools-exploit-authoring",
-        "scope-gate",
-        "systematic-bug-hunting",
-        "xbow-benchmark-runner"
+        "systematic-bug-hunting"
       ],
       "specialist": "exploit-developer",
-      "surface_sha256": "16875d114effec69848467cb3968e32b7cea41ad131b38d6d3ad2f4414f3f0c1",
+      "surface_sha256": "a60446865054f1199a9e3b09dacb17458dfc697d4c32c30787012764ce773e45",
       "tools": [
         "aderyn",
         "angr",
@@ -2539,7 +2898,6 @@
       "skills": [
         "chain-construct",
         "chain-construct-smart-contract",
-        "chain-impact-rescore",
         "cosmos-sdk-audit-checklist",
         "cross-chain-bridge-audit",
         "known-advisory-backport-check",
@@ -2548,7 +2906,7 @@
         "systematic-bug-hunting"
       ],
       "specialist": "exploit-developer",
-      "surface_sha256": "eb07e75448bf0f569729f4cbffd6b358590b97cf027004945eebfa0796810cde",
+      "surface_sha256": "05282ba0425d0660d43df9e09f399de3593a962886d47cea487fe45c9a3cf883",
       "tools": [
         "aderyn",
         "angr",
@@ -2624,7 +2982,38 @@
       "coverage": "full",
       "known_unavailable": {
         "mcps": [],
-        "skills": [],
+        "skills": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "collab-editor-stack",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "frontend-visual-discipline",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "playwright-session-recorder",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "react-performance-loop",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "tailwind-class-management",
+            "requirement": "preferred"
+          }
+        ],
         "tools": [
           {
             "availability": "mcp-operation",
@@ -2720,15 +3109,9 @@
           "resolution": "local"
         }
       ],
-      "skills": [
-        "collab-editor-stack",
-        "frontend-visual-discipline",
-        "playwright-session-recorder",
-        "react-performance-loop",
-        "tailwind-class-management"
-      ],
+      "skills": [],
       "specialist": "frontend-engineer",
-      "surface_sha256": "435f696d050d78bb10c31a412a990cdf47467b2d9f6d080028b51e2ddd0ade74",
+      "surface_sha256": "a6ef26ae21a4bf0b237f88502d836b55ed1d3b82fb879ab48ff6ee5539b6b0fd",
       "tools": []
     },
     {
@@ -2855,10 +3238,16 @@
     },
     {
       "adapter": "model-lanes/claude/.claude/agents/game-engineer.md",
-      "coverage": "full",
+      "coverage": "partial",
       "known_unavailable": {
         "mcps": [],
         "skills": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "cross-arch-build-discipline",
+            "requirement": "preferred"
+          },
           {
             "availability": "authored:stub",
             "evidence": "shared-skills:stub",
@@ -2876,6 +3265,50 @@
         ]
       },
       "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [
+        "chrono-vault",
+        "sequential-thinking"
+      ],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "game-engineer",
+      "surface_sha256": "c2f1352a35f7cf6268e2cc000f45b3e3c79218df38668eae0a5d2141d40061a1",
+      "tools": [
+        "godot"
+      ]
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/game-engineer.toml",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "cross-arch-build-discipline",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "authored:stub",
+            "evidence": "shared-skills:stub",
+            "id": "cross-arch-test-discipline",
+            "requirement": "preferred"
+          }
+        ],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gpt-codex",
       "limitations": [],
       "mcps": [
         "chrono-vault",
@@ -2887,7 +3320,7 @@
           "evidence": "capsource-generated-runtime-tool-summary",
           "id": "chrono-vault",
           "kind": "mcps",
-          "provider_lane": "claude",
+          "provider_lane": "gpt-codex",
           "requirement": "preferred",
           "resolution": "local"
         },
@@ -2896,44 +3329,11 @@
           "evidence": "capsource-generated-runtime-tool-summary",
           "id": "sequential-thinking",
           "kind": "mcps",
-          "provider_lane": "claude",
+          "provider_lane": "gpt-codex",
           "requirement": "preferred",
           "resolution": "local"
         }
       ],
-      "skills": [
-        "cross-arch-build-discipline"
-      ],
-      "specialist": "game-engineer",
-      "surface_sha256": "98e7af7657e320549e24c3f50c01a6174f8eedef0af5cedf4b3869567833ae9a",
-      "tools": [
-        "godot"
-      ]
-    },
-    {
-      "adapter": "model-lanes/gpt-codex/.codex/agents/game-engineer.toml",
-      "coverage": "partial",
-      "known_unavailable": {
-        "mcps": [],
-        "skills": [],
-        "tools": [
-          {
-            "availability": "harness-only",
-            "evidence": "runtime-map:requires_approval",
-            "id": "WebFetch",
-            "requirement": "preferred"
-          }
-        ]
-      },
-      "lane": "gpt-codex",
-      "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
-      ],
-      "mcps": [
-        "chrono-vault",
-        "sequential-thinking"
-      ],
-      "primary_plan": [],
       "skills": [],
       "specialist": "game-engineer",
       "surface_sha256": "24c4a2d369855f3c334b106e237a42c7f314bc50f910109991a8f479c3606f36",
@@ -3060,7 +3460,26 @@
       "coverage": "full",
       "known_unavailable": {
         "mcps": [],
-        "skills": [],
+        "skills": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "harness-baseline-audit",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "leverage-area-identification",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "reversible-change-protocol",
+            "requirement": "preferred"
+          }
+        ],
         "tools": [
           {
             "availability": "mcp-operation",
@@ -3124,13 +3543,9 @@
           "resolution": "local"
         }
       ],
-      "skills": [
-        "harness-baseline-audit",
-        "leverage-area-identification",
-        "reversible-change-protocol"
-      ],
+      "skills": [],
       "specialist": "harness-optimizer",
-      "surface_sha256": "dc5d8fe719ac54aa44ff2fefd8880ce610f16109ef3cbb70343b5efaf1c70279",
+      "surface_sha256": "d9490914456b4fd4c779689c6428fc2eb315a865db8a7790711f26af954fe9b2",
       "tools": []
     },
     {
@@ -3263,7 +3678,32 @@
       "coverage": "full",
       "known_unavailable": {
         "mcps": [],
-        "skills": [],
+        "skills": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "cvss-v4-gate",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "nvd-osv-calibration",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "program-fit-check",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "self-inflicted-detector",
+            "requirement": "preferred"
+          }
+        ],
         "tools": [
           {
             "availability": "mcp-operation",
@@ -3346,16 +3786,12 @@
         }
       ],
       "skills": [
-        "chain-impact-rescore",
-        "cvss-v4-gate",
-        "nvd-osv-calibration",
-        "program-fit-check",
+        "chain-construct",
         "program-rubric-lookup",
-        "self-inflicted-detector",
         "systematic-attacking"
       ],
       "specialist": "impact-validator",
-      "surface_sha256": "efdf5041cfcf85ab35980addd10be35c8e1af83595cfd33733e4976b969e771c",
+      "surface_sha256": "eddd19cea44b230c7de1fd3cbe53cd7b59addf1f56b0e1cc77a57586da6578d2",
       "tools": []
     },
     {
@@ -3625,7 +4061,38 @@
       "coverage": "full",
       "known_unavailable": {
         "mcps": [],
-        "skills": [],
+        "skills": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "binary-doc-to-markdown",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "harness-baseline-audit",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "instinct-prune-loop",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "kg-vault-health-check",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "stale-knowledge-purge",
+            "requirement": "preferred"
+          }
+        ],
         "tools": [
           {
             "availability": "mcp-operation",
@@ -3699,15 +4166,9 @@
           "resolution": "local"
         }
       ],
-      "skills": [
-        "binary-doc-to-markdown",
-        "harness-baseline-audit",
-        "instinct-prune-loop",
-        "kg-vault-health-check",
-        "stale-knowledge-purge"
-      ],
+      "skills": [],
       "specialist": "knowledge-librarian",
-      "surface_sha256": "76f84709e94aa039f4ce4d7ac1b11da7b82e5c33e40b133fd30fb3ce25971971",
+      "surface_sha256": "6d076cbd9920a2dba39fe0d4c580d0bb3610111f3be9f074e48fcb23435d0ecf",
       "tools": [
         "pdftotext",
         "zotero"
@@ -3738,7 +4199,7 @@
     },
     {
       "adapter": "model-lanes/claude/.claude/agents/large-context-analyst.md",
-      "coverage": "partial",
+      "coverage": "full",
       "known_unavailable": {
         "mcps": [],
         "skills": [
@@ -3783,8 +4244,95 @@
         ]
       },
       "lane": "claude",
+      "limitations": [],
+      "mcps": [
+        "chrono-research-arsenal",
+        "chrono-vault",
+        "sequential-thinking"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-research-arsenal",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "chrono-research-arsenal",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "requirement": "preferred",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "requirement": "preferred",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "sequential-thinking",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "sequential-thinking",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "requirement": "preferred",
+          "resolution": "local"
+        }
+      ],
+      "skills": [
+        "claim-verification",
+        "cross-file-relationship-synthesis",
+        "dual-level-retrieval",
+        "layered-analysis-loop",
+        "scope-estimation"
+      ],
+      "specialist": "large-context-analyst",
+      "surface_sha256": "04a2e3c87a262876030c685363f86242a346cdf3c700fa429558d25bb76e4c88",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gemini/.gemini/agents/large-context-analyst.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [
+          {
+            "availability": "authored:stub",
+            "evidence": "shared-skills:stub",
+            "id": "evidence-chain-preservation",
+            "requirement": "preferred"
+          }
+        ],
+        "tools": [
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "arxiv_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "perplexity_search",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "mcp-operation",
+            "evidence": "chrono-research-arsenal",
+            "id": "xai_search",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gemini",
       "limitations": [
-        "best-effort non-primary route: retained as the strong cross-family backup, escalation, and deep-research fallback for the Kimi/K3 primary; required capabilities remain anchored to the primary execution plan"
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
       ],
       "mcps": [
         "chrono-research-arsenal",
@@ -3793,14 +4341,14 @@
       ],
       "primary_plan": [],
       "skills": [
-        "claim-validation-gate",
+        "claim-verification",
         "cross-file-relationship-synthesis",
         "dual-level-retrieval",
         "layered-analysis-loop",
         "scope-estimation"
       ],
       "specialist": "large-context-analyst",
-      "surface_sha256": "e3f4b5aeacd113627050b40acfd7e79f5fb44334f94b72dd7ec050ff1ba8c531",
+      "surface_sha256": "7d24c9c14653d833c22f6cf0697aeeccfd5e8c3164da01425dee90345950cd59",
       "tools": []
     },
     {
@@ -3823,79 +4371,6 @@
       "skills": [],
       "specialist": "large-context-analyst",
       "surface_sha256": "24c4a2d369855f3c334b106e237a42c7f314bc50f910109991a8f479c3606f36",
-      "tools": []
-    },
-    {
-      "adapter": "model-lanes/kimi/.kimi/agents/large-context-analyst.yaml",
-      "coverage": "full",
-      "known_unavailable": {
-        "mcps": [],
-        "skills": [
-          {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
-            "id": "evidence-chain-preservation",
-            "requirement": "preferred"
-          }
-        ],
-        "tools": [
-          {
-            "availability": "harness-only",
-            "evidence": "runtime-map:requires_approval",
-            "id": "WebFetch",
-            "requirement": "preferred"
-          }
-        ]
-      },
-      "lane": "kimi",
-      "limitations": [
-        "no shell, browser, or local tool surface on this lane: corpus files are supplied in-context and no extraction, conversion, or verification binary can be run here",
-        "MCP is lead-brokered only, so chrono-research-arsenal operations are requested from the Kimi lead and never executed in-subagent",
-        "perplexity_search is not proven on Kimi and is therefore not claimed on this lane; cited-web research routes to the Opus 5 backup or a research-namespace dispatch"
-      ],
-      "mcps": [
-        "lead:chrono-research-arsenal",
-        "lead:chrono-vault",
-        "lead:sequential-thinking"
-      ],
-      "primary_plan": [
-        {
-          "capability_id": "lead:chrono-research-arsenal",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-research-arsenal",
-          "kind": "mcps",
-          "provider_lane": "kimi",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "lead:chrono-vault",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-vault",
-          "kind": "mcps",
-          "provider_lane": "kimi",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "lead:sequential-thinking",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "sequential-thinking",
-          "kind": "mcps",
-          "provider_lane": "kimi",
-          "requirement": "preferred",
-          "resolution": "local"
-        }
-      ],
-      "skills": [
-        "claim-validation-gate",
-        "cross-file-relationship-synthesis",
-        "dual-level-retrieval",
-        "layered-analysis-loop",
-        "scope-estimation"
-      ],
-      "specialist": "large-context-analyst",
-      "surface_sha256": "12be381d7b15c1969537562c32d525320196c799de3dcbd413ed5f37350f4569",
       "tools": []
     },
     {
@@ -4094,7 +4569,26 @@
       "coverage": "full",
       "known_unavailable": {
         "mcps": [],
-        "skills": [],
+        "skills": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "loop-checkpoint-protocol",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "safe-intervention",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "stall-detection",
+            "requirement": "preferred"
+          }
+        ],
         "tools": [
           {
             "availability": "mcp-operation",
@@ -4158,13 +4652,9 @@
           "resolution": "local"
         }
       ],
-      "skills": [
-        "loop-checkpoint-protocol",
-        "safe-intervention",
-        "stall-detection"
-      ],
+      "skills": [],
       "specialist": "loop-operator",
-      "surface_sha256": "ec0cfde23e7e04f04d16ca6f92dd722fb22670a9bfe2ba63a53521e7d643607a",
+      "surface_sha256": "d9490914456b4fd4c779689c6428fc2eb315a865db8a7790711f26af954fe9b2",
       "tools": []
     },
     {
@@ -4194,7 +4684,32 @@
       "coverage": "full",
       "known_unavailable": {
         "mcps": [],
-        "skills": [],
+        "skills": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "harness-baseline-audit",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "instinct-prune-loop",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "kg-vault-health-check",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "stale-knowledge-purge",
+            "requirement": "preferred"
+          }
+        ],
         "tools": [
           {
             "availability": "mcp-operation",
@@ -4270,14 +4785,9 @@
           "resolution": "local"
         }
       ],
-      "skills": [
-        "harness-baseline-audit",
-        "instinct-prune-loop",
-        "kg-vault-health-check",
-        "stale-knowledge-purge"
-      ],
+      "skills": [],
       "specialist": "mac-ops",
-      "surface_sha256": "adf28f29bd17b6ecc720cc195f38779a1575ccd8a10395ff8d3166b5c67599c6",
+      "surface_sha256": "08f0de13438c9ba9019dabddc73efd1d2c3cfe106d7f1e221722ed249beff94f",
       "tools": [
         "brew",
         "df",
@@ -4322,7 +4832,32 @@
       "coverage": "full",
       "known_unavailable": {
         "mcps": [],
-        "skills": [],
+        "skills": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "brain-trio-amendment-authoring",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "instinct-prune-loop",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "kg-vault-health-check",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "stale-knowledge-purge",
+            "requirement": "preferred"
+          }
+        ],
         "tools": [
           {
             "availability": "mcp-operation",
@@ -4386,14 +4921,9 @@
           "resolution": "local"
         }
       ],
-      "skills": [
-        "brain-trio-amendment-authoring",
-        "instinct-prune-loop",
-        "kg-vault-health-check",
-        "stale-knowledge-purge"
-      ],
+      "skills": [],
       "specialist": "memory-curator",
-      "surface_sha256": "15a3c50d31ee7d6933935f7927445ac1b6d697a086aacf49c464d46f7ac26318",
+      "surface_sha256": "d9490914456b4fd4c779689c6428fc2eb315a865db8a7790711f26af954fe9b2",
       "tools": []
     },
     {
@@ -4541,10 +5071,22 @@
     },
     {
       "adapter": "model-lanes/claude/.claude/agents/performance-optimizer.md",
-      "coverage": "full",
+      "coverage": "partial",
       "known_unavailable": {
         "mcps": [],
         "skills": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "cross-arch-compute-routing",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "flamegraph-triage-flow",
+            "requirement": "preferred"
+          },
           {
             "availability": "authored:stub",
             "evidence": "shared-skills:stub",
@@ -4555,6 +5097,12 @@
             "availability": "authored:stub",
             "evidence": "shared-skills:stub",
             "id": "representative-workload-design",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "thread-sweet-spot-profiling",
             "requirement": "preferred"
           }
         ],
@@ -4616,48 +5164,18 @@
         ]
       },
       "lane": "claude",
-      "limitations": [],
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
       "mcps": [
         "chrono-research-arsenal",
         "chrono-vault",
         "sequential-thinking"
       ],
-      "primary_plan": [
-        {
-          "capability_id": "chrono-research-arsenal",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-research-arsenal",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "chrono-vault",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-vault",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "sequential-thinking",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "sequential-thinking",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        }
-      ],
-      "skills": [
-        "cross-arch-compute-routing",
-        "flamegraph-triage-flow",
-        "thread-sweet-spot-profiling"
-      ],
+      "primary_plan": [],
+      "skills": [],
       "specialist": "performance-optimizer",
-      "surface_sha256": "64a5aafb1ee3708d745291fbd6572e9be538f469ce1dc8b392cac0e635d4232c",
+      "surface_sha256": "5909f0f5b659487a58c329d29b2237ae606ecf65f7fc16e38ad00d652b17c514",
       "tools": [
         "chrome-devtools",
         "dtrace",
@@ -4667,10 +5185,41 @@
     },
     {
       "adapter": "model-lanes/gpt-codex/.codex/agents/performance-optimizer.toml",
-      "coverage": "partial",
+      "coverage": "full",
       "known_unavailable": {
         "mcps": [],
-        "skills": [],
+        "skills": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "cross-arch-compute-routing",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "flamegraph-triage-flow",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "authored:stub",
+            "evidence": "shared-skills:stub",
+            "id": "regression-bisect-flow",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "authored:stub",
+            "evidence": "shared-skills:stub",
+            "id": "representative-workload-design",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "thread-sweet-spot-profiling",
+            "requirement": "preferred"
+          }
+        ],
         "tools": [
           {
             "availability": "mcp-operation",
@@ -4729,19 +5278,46 @@
         ]
       },
       "lane": "gpt-codex",
-      "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
-      ],
+      "limitations": [],
       "mcps": [
         "chrono-research-arsenal",
         "chrono-vault",
         "sequential-thinking"
       ],
-      "primary_plan": [],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-research-arsenal",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "chrono-research-arsenal",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "requirement": "preferred",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "requirement": "preferred",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "sequential-thinking",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "sequential-thinking",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "requirement": "preferred",
+          "resolution": "local"
+        }
+      ],
       "skills": [],
       "specialist": "performance-optimizer",
-      "surface_sha256": "836abedb1b3b432c3eb18a3b2405c7cc3442bbc7bc6d21c91a9f2b2df9eef2d0",
+      "surface_sha256": "8e12a82fccdf1e9587cb49436e9ff2d9e6392d67faa483f1b8e1341d5434fa42",
       "tools": [
+        "chrome-devtools",
         "dtrace",
         "pprof",
         "py-spy"
@@ -4820,7 +5396,20 @@
       "coverage": "full",
       "known_unavailable": {
         "mcps": [],
-        "skills": [],
+        "skills": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "cvss-v4-gate",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "scope-gate",
+            "requirement": "preferred"
+          }
+        ],
         "tools": [
           {
             "availability": "mcp-operation",
@@ -4886,14 +5475,12 @@
       ],
       "skills": [
         "agentic-safety-audit",
-        "cvss-v4-gate",
         "data-flow-trace",
         "pre-audit-threat-model",
-        "scope-gate",
         "supply-chain-audit"
       ],
       "specialist": "privacy-steward",
-      "surface_sha256": "708c5582a368c14f66fc8d9ef82a1ac7df51b83c3d126b428def367b70e73c7d",
+      "surface_sha256": "f7b31379e8510aefa7071914e093e2bbde0217c9d054ee7cec963e0467e234e6",
       "tools": []
     },
     {
@@ -5178,14 +5765,38 @@
     },
     {
       "adapter": "model-lanes/claude/.claude/agents/refactor-cleaner.md",
-      "coverage": "full",
+      "coverage": "partial",
       "known_unavailable": {
         "mcps": [],
         "skills": [
           {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "ast-rewrite-loop",
+            "requirement": "preferred"
+          },
+          {
             "availability": "authored:stub",
             "evidence": "shared-skills:stub",
             "id": "behavior-preservation-test",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "comby-semantic-patch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "dead-code-elimination",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "import-reorg",
             "requirement": "preferred"
           },
           {
@@ -5265,49 +5876,18 @@
         ]
       },
       "lane": "claude",
-      "limitations": [],
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
       "mcps": [
         "chrono-research-arsenal",
         "chrono-vault",
         "sequential-thinking"
       ],
-      "primary_plan": [
-        {
-          "capability_id": "chrono-research-arsenal",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-research-arsenal",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "chrono-vault",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-vault",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "sequential-thinking",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "sequential-thinking",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        }
-      ],
-      "skills": [
-        "ast-rewrite-loop",
-        "comby-semantic-patch",
-        "dead-code-elimination",
-        "import-reorg"
-      ],
+      "primary_plan": [],
+      "skills": [],
       "specialist": "refactor-cleaner",
-      "surface_sha256": "1d198d7b2c55b9b4597f9508f2edb3cf7e648021218da9f35cf3e4c217ab0792",
+      "surface_sha256": "d5fc70930538f427bd0965089add2557d4ab1874add2f3d7eacbf65fdad69f7e",
       "tools": [
         "comby",
         "pylint",
@@ -5316,10 +5896,47 @@
     },
     {
       "adapter": "model-lanes/gpt-codex/.codex/agents/refactor-cleaner.toml",
-      "coverage": "partial",
+      "coverage": "full",
       "known_unavailable": {
         "mcps": [],
-        "skills": [],
+        "skills": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "ast-rewrite-loop",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "authored:stub",
+            "evidence": "shared-skills:stub",
+            "id": "behavior-preservation-test",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "comby-semantic-patch",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "dead-code-elimination",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "import-reorg",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "authored:stub",
+            "evidence": "shared-skills:stub",
+            "id": "refactor-scope-bounding",
+            "requirement": "preferred"
+          }
+        ],
         "tools": [
           {
             "availability": "mcp-operation",
@@ -5390,15 +6007,41 @@
         ]
       },
       "lane": "gpt-codex",
-      "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
-      ],
+      "limitations": [],
       "mcps": [
         "chrono-research-arsenal",
         "chrono-vault",
         "sequential-thinking"
       ],
-      "primary_plan": [],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-research-arsenal",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "chrono-research-arsenal",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "requirement": "preferred",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "requirement": "preferred",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "sequential-thinking",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "sequential-thinking",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "requirement": "preferred",
+          "resolution": "local"
+        }
+      ],
       "skills": [],
       "specialist": "refactor-cleaner",
       "surface_sha256": "6a997ec59e300b6476593d20fac980214042d8176be999c5184c1f3301d606b6",
@@ -5413,7 +6056,38 @@
       "coverage": "partial",
       "known_unavailable": {
         "mcps": [],
-        "skills": [],
+        "skills": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "evidence-level",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "find-sources",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "research-integrity-gate",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "source-triangulation",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "summarize-findings",
+            "requirement": "preferred"
+          }
+        ],
         "tools": []
       },
       "lane": "claude",
@@ -5428,16 +6102,11 @@
       ],
       "primary_plan": [],
       "skills": [
-        "cite-properly",
-        "dual-level-retrieval",
-        "evidence-level",
-        "find-sources",
-        "research-integrity-gate",
-        "source-triangulation",
-        "summarize-findings"
+        "claim-verification",
+        "dual-level-retrieval"
       ],
       "specialist": "research",
-      "surface_sha256": "a135d528a61f03844ed24653dbd1179856584d54987c1189a969184d88d8c4e6",
+      "surface_sha256": "190597a8e3653135aad76c9e5d05e1d606e9068eb7cf090d3c55f80c0d5b6627",
       "tools": [
         "firecrawl"
       ]
@@ -5559,6 +6228,31 @@
       "tools": []
     },
     {
+      "adapter": "model-lanes/grok/.grok/agents/research.yaml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "grok",
+      "limitations": [
+        "best-effort non-primary (escalate) route; required capabilities remain anchored to the primary execution plan (gemini)",
+        "grok's only projected lane capability is the chrono-vault MCP (plus repo shell); native X/Twitter search (x_keyword_search) is live on the SuperGrok subscription session but is not present in the grok lane tool inventory (model-lanes/lane-capabilities.tsv adapter_tools is empty), so it is not projected here",
+        "web_search / web_fetch exist in the grok CLI but the launcher passes --disable-web-search, so no general web retrieval is available to a worker on this lane",
+        "read_file hard-fails a 343KB document at a 25,000-token ceiling (it errors rather than truncating); by brief this role routes >100k-token corpora (large repos, big PDFs, long transcripts) to large-context-analyst, so grok escalation is for tractable corpora only and any single supplied input above the ceiling must stay on the primary/large-context route rather than escalate here",
+        "authentication is the SuperGrok subscription session, not XAI_API_KEY"
+      ],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "research",
+      "surface_sha256": "be7d49b1f4ff7fd56dc3b8ea583974e818c0c25589608399932bbb7211c90ccf",
+      "tools": []
+    },
+    {
       "adapter": "model-lanes/claude/.claude/agents/reverse-engineer.md",
       "coverage": "partial",
       "known_unavailable": {
@@ -5648,7 +6342,44 @@
       "coverage": "full",
       "known_unavailable": {
         "mcps": [],
-        "skills": [],
+        "skills": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "api-surface-mapper",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "github-recon",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "nuclei-scan",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "program-intel-query",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "recon-chain-orchestrator",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "scope-gate",
+            "requirement": "preferred"
+          }
+        ],
         "tools": [
           {
             "availability": "superseded",
@@ -5790,16 +6521,9 @@
           "resolution": "local"
         }
       ],
-      "skills": [
-        "api-surface-mapper",
-        "github-recon",
-        "nuclei-scan",
-        "program-intel-query",
-        "recon-chain-orchestrator",
-        "scope-gate"
-      ],
+      "skills": [],
       "specialist": "scout",
-      "surface_sha256": "30b55af4ce365af56aa929f8bd4fc13c97f12784371944fd10dd002ff7565731",
+      "surface_sha256": "7b04017dddf2fbfb512f2b26586d445613c79b602136d9f69ae0d2aa4e9c804d",
       "tools": [
         "amass",
         "gowitness",
@@ -5838,9 +6562,39 @@
         "mcps": [],
         "skills": [
           {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "bot-evasion-loop",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "browser-scrape-pipeline",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "data-normalization",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "playwright-stealth-config",
+            "requirement": "preferred"
+          },
+          {
             "availability": "authored:stub",
             "evidence": "shared-skills:stub",
             "id": "rate-limit-respect",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "scrape-state-persistence",
             "requirement": "preferred"
           },
           {
@@ -5869,15 +6623,9 @@
         "sequential-thinking"
       ],
       "primary_plan": [],
-      "skills": [
-        "bot-evasion-loop",
-        "browser-scrape-pipeline",
-        "data-normalization",
-        "playwright-stealth-config",
-        "scrape-state-persistence"
-      ],
+      "skills": [],
       "specialist": "scraping-engineer",
-      "surface_sha256": "d9db02cdabd412703d9ab956e6d2a79c04b23e47c012b7c993f713f531d8d25e",
+      "surface_sha256": "f789ca03e6cdbc636b57cdec8f9fecc47f1f1513da15e5625169bb8f91a07a17",
       "tools": [
         "chrome-devtools"
       ]
@@ -6064,7 +6812,6 @@
         "dependency-health-triage",
         "evm-audit-flow",
         "findings-filter",
-        "gptscan-prompt-templates",
         "known-advisory-backport-check",
         "multi-stance-audit-fanout",
         "osint-platform-audit",
@@ -6081,7 +6828,7 @@
         "vulnhunter-solana"
       ],
       "specialist": "security-analyst",
-      "surface_sha256": "8d28a4f6471bacad91a9c82c7415f80d50e6f1dcbae3ff8204eb55ae1972c7c8",
+      "surface_sha256": "78246460d0b13d3d102459a21d0f7306afe3dcf4923934f8eb398881a0d0f3b6",
       "tools": [
         "aderyn",
         "anchor",
@@ -6248,7 +6995,6 @@
         "dependency-health-triage",
         "evm-audit-flow",
         "findings-filter",
-        "gptscan-prompt-templates",
         "known-advisory-backport-check",
         "multi-stance-audit-fanout",
         "osint-platform-audit",
@@ -6265,7 +7011,7 @@
         "vulnhunter-solana"
       ],
       "specialist": "security-analyst",
-      "surface_sha256": "9428916431855ffce21f2962ffe2b7721869785f888f2357ac93728c2afc0f8e",
+      "surface_sha256": "24ec7bc50f7b376602e343ff4888fcb4705043326e7abdfa20e352d3c1d117c3",
       "tools": [
         "aderyn",
         "anchor",
@@ -6438,7 +7184,7 @@
     },
     {
       "adapter": "model-lanes/claude/.claude/agents/smart-contract-engineer.md",
-      "coverage": "full",
+      "coverage": "partial",
       "known_unavailable": {
         "mcps": [],
         "skills": [
@@ -6496,7 +7242,7 @@
       },
       "lane": "claude",
       "limitations": [
-        "board workers are network-isolated: prior_art_check reaches only chrono-vault locally; HackerOne, Immunefi, GitHub, CVE, OSV, target history, and Solodit require Chrono-side network invocation"
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
       ],
       "mcps": [
         "chrono-dedup",
@@ -6507,71 +7253,7 @@
         "guarded-solodit",
         "sequential-thinking"
       ],
-      "primary_plan": [
-        {
-          "capability_id": "chrono-dedup",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-dedup",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "chrono-research-arsenal",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-research-arsenal",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "chrono-vault",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-vault",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "guarded-semgrep",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "guarded-semgrep",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "guarded-slither",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "guarded-slither",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "guarded-solodit",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "guarded-solodit",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "sequential-thinking",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "sequential-thinking",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        }
-      ],
+      "primary_plan": [],
       "skills": [
         "defensive-pattern-discovery",
         "evm-audit-flow",
@@ -6594,10 +7276,23 @@
     },
     {
       "adapter": "model-lanes/gpt-codex/.codex/agents/smart-contract-engineer.toml",
-      "coverage": "partial",
+      "coverage": "full",
       "known_unavailable": {
         "mcps": [],
-        "skills": [],
+        "skills": [
+          {
+            "availability": "authored:stub",
+            "evidence": "shared-skills:stub",
+            "id": "audit-context-prep",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "authored:stub",
+            "evidence": "shared-skills:stub",
+            "id": "gas-optimization-pattern",
+            "requirement": "preferred"
+          }
+        ],
         "tools": [
           {
             "availability": "mcp-operation",
@@ -6632,9 +7327,7 @@
         ]
       },
       "lane": "gpt-codex",
-      "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
-      ],
+      "limitations": [],
       "mcps": [
         "chrono-research-arsenal",
         "chrono-vault",
@@ -6643,12 +7336,70 @@
         "guarded-solodit",
         "sequential-thinking"
       ],
-      "primary_plan": [],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-research-arsenal",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "chrono-research-arsenal",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "requirement": "preferred",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "requirement": "preferred",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "guarded-semgrep",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "guarded-semgrep",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "requirement": "preferred",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "guarded-slither",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "guarded-slither",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "requirement": "preferred",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "guarded-solodit",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "guarded-solodit",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "requirement": "preferred",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "sequential-thinking",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "sequential-thinking",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "requirement": "preferred",
+          "resolution": "local"
+        }
+      ],
       "skills": [
-        "defensive-pattern-discovery"
+        "defensive-pattern-discovery",
+        "evm-audit-flow",
+        "solana-audit-flow",
+        "vulnhunter-solana"
       ],
       "specialist": "smart-contract-engineer",
-      "surface_sha256": "6afdebc8d0024cd88ae44664707d44ab0a81995bd25cb1892f4f3f940ceca77a",
+      "surface_sha256": "07912e2f31af2f8bfc63b151a96934992d30126c20237aa9660aac163e78e2a3",
       "tools": [
         "aderyn",
         "anchor",
@@ -6660,6 +7411,54 @@
         "myth",
         "slither"
       ]
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/smokey.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "independent review route only; no executable role capabilities are projected"
+      ],
+      "mcps": [],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "smokey",
+      "surface_sha256": "d0acb703aa741ff41c1f19cdee06fde12950de83813a05819b5035ecad4eaf8d",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/grok/.grok/agents/smokey.yaml",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "grok",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "grok",
+          "requirement": "preferred",
+          "resolution": "local"
+        }
+      ],
+      "skills": [],
+      "specialist": "smokey",
+      "surface_sha256": "be7d49b1f4ff7fd56dc3b8ea583974e818c0c25589608399932bbb7211c90ccf",
+      "tools": []
     },
     {
       "adapter": "model-lanes/claude/.claude/agents/social-strategist.md",
@@ -6679,12 +7478,12 @@
       ],
       "primary_plan": [],
       "skills": [
-        "cite-properly",
+        "claim-verification",
         "skill-description-trigger-authoring",
         "writing-skills"
       ],
       "specialist": "social-strategist",
-      "surface_sha256": "8e28f454bef59a5e6c03e282cceb96c28a2512618c41086e7957d0457c872b97",
+      "surface_sha256": "ffe3ace5c969c4b038523e16118fd10d29272f8afdd7816e274d0418c9e3d25f",
       "tools": []
     },
     {
@@ -6785,6 +7584,18 @@
         "mcps": [],
         "skills": [
           {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "compiler-bootstrap-flow",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "cross-arch-build-discipline",
+            "requirement": "preferred"
+          },
+          {
             "availability": "authored:stub",
             "evidence": "shared-skills:stub",
             "id": "cross-arch-test-discipline",
@@ -6826,12 +7637,9 @@
           "resolution": "local"
         }
       ],
-      "skills": [
-        "compiler-bootstrap-flow",
-        "cross-arch-build-discipline"
-      ],
+      "skills": [],
       "specialist": "software-supply-chain-engineer",
-      "surface_sha256": "42e54c34fba40543880e6f3bfc8f775ef15b7b5c0c3f5ec6a94549dabb6e5ba1",
+      "surface_sha256": "741f4974cee1f4a0f659d4851099c05cf843554fd557ee3996652685620ab4ec",
       "tools": [
         "osv-scanner",
         "trivy"
@@ -7034,6 +7842,35 @@
       "tools": []
     },
     {
+      "adapter": "model-lanes/claude/.claude/agents/summarizer.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [
+        "chrono-vault",
+        "sequential-thinking"
+      ],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "summarizer",
+      "surface_sha256": "f298eb6cd2c72b6a6f87ddfc7bd6107547d456083c6f8ac64835a14478a684e4",
+      "tools": []
+    },
+    {
       "adapter": "model-lanes/gpt-codex/.codex/agents/summarizer.toml",
       "coverage": "partial",
       "known_unavailable": {
@@ -7126,7 +7963,26 @@
       "coverage": "full",
       "known_unavailable": {
         "mcps": [],
-        "skills": [],
+        "skills": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "evidence-level",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "preserve-outliers",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "summarize-findings",
+            "requirement": "preferred"
+          }
+        ],
         "tools": [
           {
             "availability": "mcp-operation",
@@ -7191,14 +8047,11 @@
         }
       ],
       "skills": [
-        "cite-properly",
-        "cross-file-relationship-synthesis",
-        "evidence-level",
-        "preserve-outliers",
-        "summarize-findings"
+        "claim-verification",
+        "cross-file-relationship-synthesis"
       ],
       "specialist": "synthesizer",
-      "surface_sha256": "338ad0a323b09a1ddcfa6628b933d2c897839c12b237c693db40b2a9312cd10f",
+      "surface_sha256": "7613c731bf11938354d7691c565682ff20c9591c95788cd89bbe17a9fde66456",
       "tools": []
     },
     {
@@ -7230,15 +8083,39 @@
         "mcps": [],
         "skills": [
           {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "compiler-bootstrap-flow",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "cross-arch-build-discipline",
+            "requirement": "preferred"
+          },
+          {
             "availability": "authored:stub",
             "evidence": "shared-skills:stub",
             "id": "cross-arch-test-discipline",
             "requirement": "preferred"
           },
           {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "hybrid-threading-tuning",
+            "requirement": "preferred"
+          },
+          {
             "availability": "authored:stub",
             "evidence": "shared-skills:stub",
             "id": "simd-correctness-validation",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "simd-porting-layer",
             "requirement": "preferred"
           }
         ],
@@ -7253,14 +8130,9 @@
         "sequential-thinking"
       ],
       "primary_plan": [],
-      "skills": [
-        "compiler-bootstrap-flow",
-        "cross-arch-build-discipline",
-        "hybrid-threading-tuning",
-        "simd-porting-layer"
-      ],
+      "skills": [],
       "specialist": "systems-engineer",
-      "surface_sha256": "2f6d27e54f8e5f693045ac903aea797eb042a17087e96ddac6cf0093841b8ddf",
+      "surface_sha256": "f298eb6cd2c72b6a6f87ddfc7bd6107547d456083c6f8ac64835a14478a684e4",
       "tools": []
     },
     {
@@ -7339,14 +8211,162 @@
     },
     {
       "adapter": "model-lanes/claude/.claude/agents/technical-artist.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "cross-arch-build-discipline",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "authored:stub",
+            "evidence": "shared-skills:stub",
+            "id": "cross-arch-test-discipline",
+            "requirement": "preferred"
+          }
+        ],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [
+        "chrono-vault",
+        "sequential-thinking"
+      ],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "technical-artist",
+      "surface_sha256": "f298eb6cd2c72b6a6f87ddfc7bd6107547d456083c6f8ac64835a14478a684e4",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gemini/.gemini/agents/technical-artist.md",
       "coverage": "full",
       "known_unavailable": {
         "mcps": [],
         "skills": [
           {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "cross-arch-build-discipline",
+            "requirement": "preferred"
+          },
+          {
             "availability": "authored:stub",
             "evidence": "shared-skills:stub",
             "id": "cross-arch-test-discipline",
+            "requirement": "preferred"
+          }
+        ],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gemini",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault",
+        "sequential-thinking"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "gemini",
+          "requirement": "preferred",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "sequential-thinking",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "sequential-thinking",
+          "kind": "mcps",
+          "provider_lane": "gemini",
+          "requirement": "preferred",
+          "resolution": "local"
+        }
+      ],
+      "skills": [],
+      "specialist": "technical-artist",
+      "surface_sha256": "ba15ed9801265037539aea43bc65b834e844ac17e4e6e10dbbb8fb61e0907b60",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/technical-artist.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": [
+          {
+            "availability": "harness-only",
+            "evidence": "runtime-map:requires_approval",
+            "id": "WebFetch",
+            "requirement": "preferred"
+          }
+        ]
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [
+        "chrono-vault",
+        "sequential-thinking"
+      ],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "technical-artist",
+      "surface_sha256": "24c4a2d369855f3c334b106e237a42c7f314bc50f910109991a8f479c3606f36",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/technical-writer.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "binary-doc-to-markdown",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "chrono-adr-authoring",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "chrono-changelog-generator",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "chrono-handoff-authoring",
             "requirement": "preferred"
           }
         ],
@@ -7386,92 +8406,11 @@
         }
       ],
       "skills": [
-        "cross-arch-build-discipline"
-      ],
-      "specialist": "technical-artist",
-      "surface_sha256": "feec4f2e00a39d59a8b4c075836d6db702107d231576cee0b1a6692dd9595598",
-      "tools": []
-    },
-    {
-      "adapter": "model-lanes/gpt-codex/.codex/agents/technical-artist.toml",
-      "coverage": "partial",
-      "known_unavailable": {
-        "mcps": [],
-        "skills": [],
-        "tools": [
-          {
-            "availability": "harness-only",
-            "evidence": "runtime-map:requires_approval",
-            "id": "WebFetch",
-            "requirement": "preferred"
-          }
-        ]
-      },
-      "lane": "gpt-codex",
-      "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
-      ],
-      "mcps": [
-        "chrono-vault",
-        "sequential-thinking"
-      ],
-      "primary_plan": [],
-      "skills": [],
-      "specialist": "technical-artist",
-      "surface_sha256": "24c4a2d369855f3c334b106e237a42c7f314bc50f910109991a8f479c3606f36",
-      "tools": []
-    },
-    {
-      "adapter": "model-lanes/claude/.claude/agents/technical-writer.md",
-      "coverage": "full",
-      "known_unavailable": {
-        "mcps": [],
-        "skills": [],
-        "tools": [
-          {
-            "availability": "harness-only",
-            "evidence": "runtime-map:requires_approval",
-            "id": "WebFetch",
-            "requirement": "preferred"
-          }
-        ]
-      },
-      "lane": "claude",
-      "limitations": [],
-      "mcps": [
-        "chrono-vault",
-        "sequential-thinking"
-      ],
-      "primary_plan": [
-        {
-          "capability_id": "chrono-vault",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-vault",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "sequential-thinking",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "sequential-thinking",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        }
-      ],
-      "skills": [
-        "binary-doc-to-markdown",
-        "chrono-adr-authoring",
-        "chrono-changelog-generator",
-        "chrono-handoff-authoring",
-        "cite-properly",
+        "claim-verification",
         "skill-description-trigger-authoring"
       ],
       "specialist": "technical-writer",
-      "surface_sha256": "78e5258d7f45b0743afd4e454c8ffb3e86b21c20eac6c323707c893bd22adf5d",
+      "surface_sha256": "72aa7e41ebbbf14be73c19a3d23647a7de68779a618531718640378e2dc55923",
       "tools": []
     },
     {
@@ -7498,10 +8437,65 @@
     },
     {
       "adapter": "model-lanes/claude/.claude/agents/test-engineer.md",
-      "coverage": "full",
+      "coverage": "partial",
       "known_unavailable": {
         "mcps": [],
-        "skills": [],
+        "skills": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "chrono-mutation-campaign",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "chrono-property-based-strategy",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "e2e-authoring-flow",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "flaky-e2e-hunt",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "playwright-page-object-model",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "property-based-fuzz-harness",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "staged-integrity-gate",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "test-shrinkage-loop",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "webapp-testing-local",
+            "requirement": "preferred"
+          }
+        ],
         "tools": [
           {
             "availability": "mcp-operation",
@@ -7530,7 +8524,9 @@
         ]
       },
       "lane": "claude",
-      "limitations": [],
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
       "mcps": [
         "chrome-devtools",
         "chrono-research-arsenal",
@@ -7538,76 +8534,75 @@
         "playwright",
         "sequential-thinking"
       ],
-      "primary_plan": [
-        {
-          "capability_id": "chrome-devtools",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrome-devtools",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "chrono-research-arsenal",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-research-arsenal",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "chrono-vault",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-vault",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "playwright",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "playwright",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "sequential-thinking",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "sequential-thinking",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        }
-      ],
-      "skills": [
-        "chrono-mutation-campaign",
-        "chrono-property-based-strategy",
-        "e2e-authoring-flow",
-        "flaky-e2e-hunt",
-        "playwright-page-object-model",
-        "property-based-fuzz-harness",
-        "staged-integrity-gate",
-        "test-shrinkage-loop",
-        "webapp-testing-local"
-      ],
+      "primary_plan": [],
+      "skills": [],
       "specialist": "test-engineer",
-      "surface_sha256": "e5482a5da36383db5a4a08ed83e7116c79c3356eb5030394f724989c92e3e637",
+      "surface_sha256": "680628c2fa6cae54eea95d8938c3f485c5b3b09a1974c39db2f42ee5a2d7226d",
       "tools": [
         "playwright"
       ]
     },
     {
       "adapter": "model-lanes/gpt-codex/.codex/agents/test-engineer.toml",
-      "coverage": "partial",
+      "coverage": "full",
       "known_unavailable": {
         "mcps": [],
-        "skills": [],
+        "skills": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "chrono-mutation-campaign",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "chrono-property-based-strategy",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "e2e-authoring-flow",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "flaky-e2e-hunt",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "playwright-page-object-model",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "property-based-fuzz-harness",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "staged-integrity-gate",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "test-shrinkage-loop",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "webapp-testing-local",
+            "requirement": "preferred"
+          }
+        ],
         "tools": [
           {
             "availability": "mcp-operation",
@@ -7636,18 +8631,64 @@
         ]
       },
       "lane": "gpt-codex",
-      "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
-      ],
+      "limitations": [],
       "mcps": [
+        "chrome-devtools",
         "chrono-research-arsenal",
         "chrono-vault",
+        "playwright",
         "sequential-thinking"
       ],
-      "primary_plan": [],
+      "primary_plan": [
+        {
+          "capability_id": "chrome-devtools",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "chrome-devtools",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "requirement": "preferred",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "chrono-research-arsenal",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "chrono-research-arsenal",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "requirement": "preferred",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "requirement": "preferred",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "playwright",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "playwright",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "requirement": "preferred",
+          "resolution": "local"
+        },
+        {
+          "capability_id": "sequential-thinking",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "sequential-thinking",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "requirement": "preferred",
+          "resolution": "local"
+        }
+      ],
       "skills": [],
       "specialist": "test-engineer",
-      "surface_sha256": "caca44ab3cb32dd727562ce5cc3c9fa2afec39d17d90d94c0ae21c4e21791dbc",
+      "surface_sha256": "557c84bfc624fe436f242a68a8c529a42faf93f0dbbb49d4232ee482333fee02",
       "tools": [
         "playwright"
       ]
@@ -7855,7 +8896,20 @@
       "coverage": "full",
       "known_unavailable": {
         "mcps": [],
-        "skills": [],
+        "skills": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "chrono-ui-aesthetic-framework",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "design-token-governance",
+            "requirement": "preferred"
+          }
+        ],
         "tools": [
           {
             "availability": "mcp-operation",
@@ -7942,15 +8996,13 @@
         }
       ],
       "skills": [
-        "a11y-audit",
-        "chrono-ui-aesthetic-framework",
-        "design-token-governance",
         "figma-code-connect",
         "figma-implement-design",
-        "frontend-design"
+        "frontend-design",
+        "wcag-conformance-audit"
       ],
       "specialist": "ui-engineer",
-      "surface_sha256": "0de60a22896f0cdcf96ae2ac76c8af022ae2c82dce86f55b5da40047123d49c4",
+      "surface_sha256": "de37cd39d59fc089efa254566ac5b1dd26be5f55e80004a66b3c352c8db58aee",
       "tools": [
         "playwright"
       ]
@@ -8350,57 +9402,25 @@
     },
     {
       "adapter": "model-lanes/claude/.claude/agents/voice-agent-builder.md",
-      "coverage": "partial",
-      "known_unavailable": {
-        "mcps": [],
-        "skills": [],
-        "tools": []
-      },
-      "lane": "claude",
-      "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
-      ],
-      "mcps": [
-        "chrono-vault",
-        "sequential-thinking"
-      ],
-      "primary_plan": [],
-      "skills": [],
-      "specialist": "voice-agent-builder",
-      "surface_sha256": "f298eb6cd2c72b6a6f87ddfc7bd6107547d456083c6f8ac64835a14478a684e4",
-      "tools": []
-    },
-    {
-      "adapter": "model-lanes/gemini/.gemini/agents/voice-agent-builder.md",
       "coverage": "full",
       "known_unavailable": {
         "mcps": [],
         "skills": [],
         "tools": []
       },
-      "lane": "gemini",
+      "lane": "claude",
       "limitations": [],
       "mcps": [
-        "chrono-media-studio",
         "chrono-vault",
         "sequential-thinking"
       ],
       "primary_plan": [
         {
-          "capability_id": "chrono-media-studio",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-media-studio",
-          "kind": "mcps",
-          "provider_lane": "gemini",
-          "requirement": "required",
-          "resolution": "local"
-        },
-        {
           "capability_id": "chrono-vault",
           "evidence": "capsource-generated-runtime-tool-summary",
           "id": "chrono-vault",
           "kind": "mcps",
-          "provider_lane": "gemini",
+          "provider_lane": "claude",
           "requirement": "preferred",
           "resolution": "local"
         },
@@ -8409,11 +9429,38 @@
           "evidence": "capsource-generated-runtime-tool-summary",
           "id": "sequential-thinking",
           "kind": "mcps",
-          "provider_lane": "gemini",
+          "provider_lane": "claude",
           "requirement": "preferred",
           "resolution": "local"
         }
       ],
+      "skills": [
+        "agent-prompt-engineering",
+        "conversation-design",
+        "knowledge-base-integration"
+      ],
+      "specialist": "voice-agent-builder",
+      "surface_sha256": "ab48d08904f128a89b827e87ad4214fe7911d47207edcb6bf3c63002c0bf5acf",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gemini/.gemini/agents/voice-agent-builder.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gemini",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "mcps": [
+        "chrono-media-studio",
+        "chrono-vault",
+        "sequential-thinking"
+      ],
+      "primary_plan": [],
       "skills": [
         "agent-prompt-engineering",
         "conversation-design",
@@ -8566,9 +9613,9 @@
     }
   ],
   "generated": true,
-  "policy_sha256": "871719dbbd4dc5701e686bbb730ab2b822d405a6ae2eb31eafd96ad6a6e957cb",
+  "policy_sha256": "50c47921e74b141a2f16bed9f63262cd48436a3122ac6b1eb2261d53d49fa917",
   "schema": "specialist-adapter-capability-index/v2",
   "source": "model-lanes/specialist-lane-capabilities.v1.json",
-  "source_sha256": "1606f09d5a46440d38cd68e903a50c73a9cd8e651995a39567b0069d6be6bacd",
+  "source_sha256": "fab7adf72b833cd53566439936fa2dea09e4b630cc566d0ac94c45663c28dccf",
   "surface_count": 113
 }

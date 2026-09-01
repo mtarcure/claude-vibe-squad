@@ -18,7 +18,7 @@ my-specialist	security	security_reasoning	high	[privacy]	none	claude	claude.fabl
 
 Column rules (enforced by `bin/validate-specialists.sh`):
 - `source_namespace` ∈ `coding | security | content | sysmgmt | research | shared`
-- routing lanes use `codex | claude | gemini | kimi`; `primary_lane` may not be `kimi` unless the specialist has an explicit `primary_exception` row in `shared/lane-policy.tsv` (currently three: `experimental-attacker`, `large-context-analyst`, `summarizer`)
+- routing lanes use `codex | claude | gemini | kimi`; `primary_lane` may not be `kimi` unless the specialist has an explicit `primary_exception` row in `shared/lane-policy.tsv` (currently two: `summarizer`, `kestrel`)
 - `primary_lane` and `backup_lane` must differ, and every lane/profile pair must resolve through `shared/registries/profiles.tsv`
 - `safety_level` ∈ `low | medium | high`
 - `high`/`heightened_risk` rows require an independent review, `escalation.safety_floor.v1`, and `throughput.never.v1`

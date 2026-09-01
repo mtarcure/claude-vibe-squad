@@ -1,5 +1,5 @@
 #!/bin/bash
-# Bootstrap chrono MCP servers across the 4 CLIs (Codex, Gemini, Kimi).
+# Bootstrap chrono MCP servers across Codex, Gemini, agy, and Kimi.
 # Claude Code uses ~/.claude/settings.json + chrono plugins, managed separately.
 #
 # Idempotent: if an MCP is already registered, skip. If missing, register.
@@ -106,6 +106,8 @@ if [[ -f "${GEMINI_SETTINGS}" ]] && command -v jq >/dev/null 2>&1; then
 fi
 KIMI_LIST=""
 cli_available kimi && KIMI_LIST=$(kimi mcp list 2>&1 | grep -v 'AuthlibDeprecation\|authlib.jose\|It will be compatible\|from authlib' || echo "")
+AGY_LIST=""
+cli_available agy && AGY_LIST=$(agy mcp list 2>&1 || echo "")
 
 # An absent CLI and a CLI with nothing registered produce the same empty list.
 # Report them differently: "not installed" is a known state, whereas printing
@@ -120,7 +122,7 @@ show_status() {
     fi
     for entry in "${MCPS[@]}"; do
         local name="${entry%%|*}"
-        if echo "${list}" | grep -q "^[ ]*${name}\b\|^${name}\b"; then
+        if echo "${list}" | grep -Eq "^[[:space:]]*${name}([[:space:]]|$)"; then
             echo "  ✓ ${name}"
         else
             echo "  ✗ ${name} (missing)"
@@ -130,6 +132,7 @@ show_status() {
 
 show_status "codex" "${CODEX_LIST}" "Codex CLI"
 show_status "gemini" "${GEMINI_LIST}" "Gemini CLI"
+show_status "agy" "${AGY_LIST}" "Antigravity CLI (gemini lane)"
 show_status "kimi" "${KIMI_LIST}" "Kimi CLI"
 
 # === Optional dependency: Trail of Bits mcp-context-protector ===
@@ -190,6 +193,7 @@ fi
 
 echo ""
 echo "=== Registering missing MCPs ==="
+AGY_REGISTRATION_FAILED=0
 
 register_codex() {
     local name="$1"; local args_str="$2"; local env_vars="$3"
@@ -235,6 +239,41 @@ register_gemini() {
     fi
 }
 
+register_agy() {
+    local name="$1"; local args_str="$2"; local env_vars="$3"
+    if echo "${AGY_LIST}" | grep -Eq "^[[:space:]]*${name}([[:space:]]|$)"; then
+        echo "  [agy] ${name}: already registered"
+        return
+    fi
+    # Build one non-empty argv array from the subcommand onward. macOS ships
+    # Bash 3.2, where expanding an empty local array under `set -u` raises an
+    # unbound-variable error before agy runs.
+    local agy_args=("mcp" "add")
+    local masked_env=""
+    local v val
+    for v in ${env_vars}; do
+        val="${!v:-}"
+        if [[ -n "${val}" ]]; then
+            agy_args+=("--env" "${v}=${val}")
+            masked_env+=" --env ${v}=*****"
+        fi
+    done
+    # shellcheck disable=SC2206
+    local args_arr=(${args_str})
+    if [[ ${DRY_RUN} -eq 1 ]]; then
+        echo "  [agy] would: agy mcp add${masked_env} ${name} ${CHRONO_PY} ${args_arr[*]}"
+        return
+    fi
+    # agy requires every --env/-e flag before the server name.
+    agy_args+=("${name}" "${CHRONO_PY}" "${args_arr[@]}")
+    if agy "${agy_args[@]}" >/dev/null 2>&1; then
+        echo "  [agy] ${name}: ✓ added"
+    else
+        echo "  [agy] ${name}: ✗ failed"
+        AGY_REGISTRATION_FAILED=1
+    fi
+}
+
 register_kimi() {
     local name="$1"; local args_str="$2"; local env_vars="$3"
     if echo "${KIMI_LIST}" | grep -q "${name}"; then
@@ -268,8 +307,13 @@ for entry in "${MCPS[@]}"; do
     echo "${name}:"
     register_codex "${name}" "${args_str}" "${env_vars}"
     register_gemini "${name}" "${args_str}" "${env_vars}"
+    register_agy "${name}" "${args_str}" "${env_vars}"
     register_kimi "${name}" "${args_str}" "${env_vars}"
 done
 
 echo ""
+if [[ ${AGY_REGISTRATION_FAILED} -ne 0 ]]; then
+    echo "=== agy registration failed. No success claim; inspect a direct sanitized agy error. ==="
+    exit 1
+fi
 echo "=== Done. Re-run with --status to verify. ==="

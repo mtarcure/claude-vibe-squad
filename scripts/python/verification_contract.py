@@ -43,6 +43,7 @@ LANE_TO_AUTHOR_FAMILY = {
     "gpt-codex": "openai",
     "codex": "openai",
     "gemini": "google",
+    "grok": "xai",
     "kimi": "kimi",
 }
 

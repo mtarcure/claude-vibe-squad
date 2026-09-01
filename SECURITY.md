@@ -5,7 +5,7 @@
 Vibe Squad develops on a single `main` branch — there are no release or
 maintenance branches, so security fixes land on `main` and are not backported to
 tagged releases. `CHANGELOG.md` records `v1.0.0`; the repository's tags are
-`v1.0-pre-1.1`, `v1.1.0`, `v1.1.1`, `v1.1.2`, and `v1.1.3`. Work since the latest tag is
+`v1.0-pre-1.1`, `v1.1.0`, `v1.1.1`, `v1.1.2`, `v1.1.3`, and `v1.1.4`. Work since the latest tag is
 tracked in the changelog's `Unreleased` section.
 
 If you are running a tagged release, update to `main` to pick up a fix.

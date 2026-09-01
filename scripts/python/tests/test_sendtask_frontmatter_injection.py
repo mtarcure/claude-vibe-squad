@@ -87,6 +87,7 @@ class SendTaskFrontmatterInjectionTests(unittest.TestCase):
             "run_id": "CC04-FRONTMATTER-INJECTION",
             "parallel_safe": "true",
             "direct_lane_work_allowed": "true",
+            "reviews": "none",
             "write_scope": "[_state/cc04/out.md]",
             "return_artifact": "_state/cc04/out.md",
         }

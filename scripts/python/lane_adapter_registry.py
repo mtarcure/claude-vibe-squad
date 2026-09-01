@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from specialist_capability_source import (
     CapabilitySourceError,
     SOURCE_RELATIVE,
+    accepted_source_sha256s,
     atomic_write_text,
     available_arrays,
     load_source,
@@ -61,6 +62,7 @@ GEMINI_GENERATED_ROLES = (
     "voice-narrator",
 )
 KIMI_GENERATED_ROLES: tuple[str, ...] = ()
+GROK_GENERATED_ROLES = ("smokey",)
 ADVISOR_GENERATED_ROLES = ("fable", "sol")
 SWARM_CRITICAL_ROLES = (
     "exploit-developer",
@@ -140,7 +142,7 @@ def load_capability_registry(path: str | Path) -> dict[str, CapabilityRow]:
             lane = raw["lane"]
             if lane in result:
                 raise AdapterValidationError(f"duplicate lane capability row: {lane}")
-            if lane not in {"gpt-codex", "claude", "gemini", "kimi"}:
+            if lane not in {"gpt-codex", "claude", "gemini", "grok", "kimi"}:
                 raise AdapterValidationError(f"unknown lane capability row: {lane}")
             if not raw["probe_receipt"]:
                 raise AdapterValidationError(f"lane {lane} is missing a probe receipt")
@@ -160,8 +162,8 @@ def load_capability_registry(path: str | Path) -> dict[str, CapabilityRow]:
                 probe_receipt=raw["probe_receipt"],
                 version=raw["version"],
             )
-    if set(result) != {"gpt-codex", "claude", "gemini", "kimi"}:
-        raise AdapterValidationError("lane capability registry must contain exactly four lanes")
+    if set(result) != {"gpt-codex", "claude", "gemini", "grok", "kimi"}:
+        raise AdapterValidationError("lane capability registry must contain exactly five lanes")
     return result
 
 
@@ -527,6 +529,18 @@ def render_adapter(
             f"  system_prompt_path: ../prompts/{specialist}.md\n"
             "  model: kimi-code/kimi-for-coding-highspeed\n"
         )
+    if lane == "grok":
+        return (
+            f"# {marker}\n"
+            "version: 1\n"
+            f"{projection}"
+            "agent:\n"
+            f"  name: {specialist}\n"
+            "  extend: default\n"
+            f'  description: "Thin Grok adapter for {specialist}; canonical brief is authoritative."\n'
+            f"  system_prompt_path: ../prompts/{specialist}.md\n"
+            "  model: grok-4.6\n"
+        )
     raise AdapterValidationError(f"generation is not enabled for lane {lane}")
 
 
@@ -545,6 +559,24 @@ def render_kimi_prompt(repo_root: str | Path, specialist: str) -> str:
         "Lane capability profile is `kimi` from `model-lanes/lane-capabilities.tsv`. MCP tools are unavailable inside Kimi "
         "subagents. Work only from a frozen, provenance-bearing corpus supplied by the main Kimi lane; return any MCP or external "
         "retrieval need to the lead as `subagent_mcp_gap` and never pretend the tool ran.\n\n"
+        "Execute only the assigned packet, stay inside write scope, and preserve every operator gate.\n"
+    )
+
+
+def render_grok_prompt(repo_root: str | Path, specialist: str) -> str:
+    root = Path(repo_root)
+    row = _runtime_rows(root).get(specialist)
+    if row is None:
+        raise AdapterValidationError(f"unknown specialist: {specialist}")
+    brief = canonical_brief(root, row).as_posix()
+    registry_sha = _registry_sha(root)
+    return (
+        f"<!-- generated_by={GENERATED_MARKER} registry_sha256={registry_sha} -->\n"
+        f"# Specialist Adapter: {specialist}\n\n"
+        f"You are the `{specialist}` specialist in the `grok` lane only through its ranked route.\n\n"
+        f"Canonical specialist instructions live at `{brief}`. Read that file at task start and follow it over this adapter.\n\n"
+        "Lane capability profile is `grok` from `model-lanes/lane-capabilities.tsv`. "
+        "Treat runtime-discovered MCPs as availability only; the sealed task capability plan and packet authority remain the ceiling.\n\n"
         "Execute only the assigned packet, stay inside write scope, and preserve every operator gate.\n"
     )
 
@@ -595,8 +627,8 @@ def validate_adapter_file(
             root / "model-lanes" / "lane-capabilities.tsv"
         )[lane]
     brief = canonical_brief(root, row).as_posix()
-    source_entries, _source_payload = load_source(root)
-    source_hash = source_sha256(root)
+    source_entries, source_payload = load_source(root)
+    accepted_source_hashes = accepted_source_sha256s(root, source_payload)
     source_entry = source_entries.get((specialist, lane))
     capability_bearing = bool(
         source_entry
@@ -640,7 +672,7 @@ def validate_adapter_file(
             raise AdapterValidationError(f"Gemini adapter {specialist} lacks canonical pointer {brief}")
         if capability_bearing and (
             _frontmatter_value(text, "capability_source") != SOURCE_RELATIVE.as_posix()
-            or _frontmatter_value(text, "capability_source_sha256") != source_hash
+            or _frontmatter_value(text, "capability_source_sha256") not in accepted_source_hashes
         ):
             raise AdapterValidationError(f"Gemini adapter {specialist} has stale capability source metadata")
         expected_arrays = available_arrays(source_entries, specialist, lane)
@@ -657,7 +689,7 @@ def validate_adapter_file(
             raise AdapterValidationError(f"Codex adapter identity mismatch: {specialist}")
         if brief not in text:
             raise AdapterValidationError(f"Codex adapter {specialist} lacks canonical pointer {brief}")
-        if capability_bearing and (data.get("capability_source") != SOURCE_RELATIVE.as_posix() or data.get("capability_source_sha256") != source_hash):
+        if capability_bearing and (data.get("capability_source") != SOURCE_RELATIVE.as_posix() or data.get("capability_source_sha256") not in accepted_source_hashes):
             raise AdapterValidationError(f"Codex adapter {specialist} has stale capability source metadata")
         expected_arrays = available_arrays(source_entries, specialist, lane)
         for field in ("skills", "tools", "mcps"):
@@ -669,7 +701,7 @@ def validate_adapter_file(
             raise AdapterValidationError(f"Claude adapter identity mismatch: {specialist}")
         if brief not in text:
             raise AdapterValidationError(f"Claude adapter {specialist} lacks canonical pointer {brief}")
-        if capability_bearing and (_frontmatter_value(text, "capability_source") != SOURCE_RELATIVE.as_posix() or _frontmatter_value(text, "capability_source_sha256") != source_hash):
+        if capability_bearing and (_frontmatter_value(text, "capability_source") != SOURCE_RELATIVE.as_posix() or _frontmatter_value(text, "capability_source_sha256") not in accepted_source_hashes):
             raise AdapterValidationError(f"Claude adapter {specialist} has stale capability source metadata")
         expected_arrays = available_arrays(source_entries, specialist, lane)
         for field in ("skills", "tools", "mcps"):
@@ -678,32 +710,34 @@ def validate_adapter_file(
             if capability_bearing and actual != expected_arrays[field]:
                 raise AdapterValidationError(f"Claude adapter {specialist} has stale {field} projection")
         return
-    if lane == "kimi":
+    if lane in {"grok", "kimi"}:
+        lane_name = "Grok" if lane == "grok" else "Kimi"
         if not re.search(rf"(?m)^\s{{2}}name:\s*{re.escape(specialist)}$", text):
-            raise AdapterValidationError(f"Kimi adapter identity mismatch: {specialist}")
+            raise AdapterValidationError(f"{lane_name} adapter identity mismatch: {specialist}")
         pointer = _frontmatter_value(text, "  system_prompt_path")
         if not pointer:
             match = re.search(r"(?m)^\s{2}system_prompt_path:\s*(\S+)$", text)
             pointer = match.group(1) if match else ""
         target = (path.parent / pointer).resolve()
         if not target.is_file():
-            raise AdapterValidationError(f"Kimi system prompt is missing: {target}")
+            raise AdapterValidationError(f"{lane_name} system prompt is missing: {target}")
         prompt = target.read_text(encoding="utf-8")
         if brief not in prompt and brief not in text:
-            raise AdapterValidationError(f"Kimi adapter {specialist} lacks canonical pointer {brief}")
-        if capability_bearing and (_frontmatter_value(text, "capability_source") != SOURCE_RELATIVE.as_posix() or _frontmatter_value(text, "capability_source_sha256") != source_hash):
-            raise AdapterValidationError(f"Kimi adapter {specialist} has stale capability source metadata")
+            raise AdapterValidationError(f"{lane_name} adapter {specialist} lacks canonical pointer {brief}")
+        if capability_bearing and (_frontmatter_value(text, "capability_source") != SOURCE_RELATIVE.as_posix() or _frontmatter_value(text, "capability_source_sha256") not in accepted_source_hashes):
+            raise AdapterValidationError(f"{lane_name} adapter {specialist} has stale capability source metadata")
         expected_arrays = available_arrays(source_entries, specialist, lane)
         for field in ("skills", "tools", "mcps"):
             raw = _frontmatter_value(text, field)
             actual = tuple(json.loads(raw)) if raw else ()
             if capability_bearing and actual != expected_arrays[field]:
-                raise AdapterValidationError(f"Kimi adapter {specialist} has stale {field} projection")
+                raise AdapterValidationError(f"{lane_name} adapter {specialist} has stale {field} projection")
         # Native prompt adapters must state the lead-broker boundary. Older
         # direct canonical pointers contain no independent capability claim and
         # are therefore validated by identity/pointer only.
         if (
             "../prompts/" in pointer
+            and lane == "kimi"
             and capability.child_mcp_policy == KIMI_LEAD_BROKER_POLICY
             and KIMI_LEAD_BROKER_BOUNDARY not in prompt
         ):
@@ -719,7 +753,11 @@ def _target(root: Path, lane: str, specialist: str) -> Path:
         return root / "model-lanes" / "claude" / ".claude" / "agents" / f"{specialist}.md"
     if lane == "gemini":
         return root / "model-lanes" / "gemini" / ".gemini" / "agents" / f"{specialist}.md"
-    return root / "model-lanes" / "kimi" / ".kimi" / "agents" / f"{specialist}.yaml"
+    if lane == "grok":
+        return root / "model-lanes" / "grok" / ".grok" / "agents" / f"{specialist}.yaml"
+    if lane == "kimi":
+        return root / "model-lanes" / "kimi" / ".kimi" / "agents" / f"{specialist}.yaml"
+    raise AdapterValidationError(f"unknown lane target: {lane}")
 
 
 def generated_marker_files(repo_root: str | Path) -> list[tuple[str, Path]]:
@@ -728,12 +766,33 @@ def generated_marker_files(repo_root: str | Path) -> list[tuple[str, Path]]:
     root = Path(repo_root)
     marker = GENERATED_MARKER.encode()
     generated: list[tuple[str, Path]] = []
-    for lane in ("gpt-codex", "claude", "gemini", "kimi"):
+    for lane in ("gpt-codex", "claude", "gemini", "grok", "kimi"):
         lane_root = root / "model-lanes" / lane
         for path in sorted(lane_root.rglob("*")):
             if path.is_file() and marker in path.read_bytes():
                 generated.append((lane, path))
     return generated
+
+
+def _normalize_compatible_digest_metadata(text: str) -> str:
+    """Normalize migration-only digests before generated-text comparison.
+
+    Adapter validation separately proves that a source hash is current or is
+    explicitly compatibility-listed and that every projected array matches the
+    current source. Prompt bodies have no capability arrays, so only their
+    registry marker is normalized here.
+    """
+
+    normalized = re.sub(
+        r"(?m)(capability_source_sha256\s*[:=]\s*\"?)[0-9a-f]{64}(\"?)$",
+        r"\1<accepted-source-sha256>\2",
+        text,
+    )
+    return re.sub(
+        r"(registry_sha256=)[0-9a-f]{64}",
+        r"\1<registry-sha256>",
+        normalized,
+    )
 
 
 def sync_derived_adapters(repo_root: str | Path) -> dict[str, int]:
@@ -744,11 +803,18 @@ def sync_derived_adapters(repo_root: str | Path) -> dict[str, int]:
     refreshed = 0
     created = 0
     for specialist, lane in sorted(source_entries):
+        source_entry = source_entries[(specialist, lane)]
+        if not any(source_entry[field] for field in ("skills", "tools", "mcps")) and not source_entry.get("primary_requirements"):
+            continue
         target = _target(root, lane, specialist)
         if specialist in ADVISOR_GENERATED_ROLES and lane in {
             "claude",
             "gpt-codex",
         }:
+            rendered = render_adapter(root, lane, specialist)
+            if not target.is_file():
+                created += 1
+        elif specialist in GROK_GENERATED_ROLES and lane == "grok":
             rendered = render_adapter(root, lane, specialist)
             if not target.is_file():
                 created += 1
@@ -764,6 +830,11 @@ def sync_derived_adapters(repo_root: str | Path) -> dict[str, int]:
                 f"capability source adapter is missing: {lane}/{specialist}"
             )
         atomic_write_text(target, rendered)
+        if lane == "grok":
+            atomic_write_text(
+                root / "model-lanes" / "grok" / ".grok" / "prompts" / f"{specialist}.md",
+                render_grok_prompt(root, specialist),
+            )
         refreshed += 1
 
     for specialist in ADVISOR_GENERATED_ROLES:
@@ -835,37 +906,47 @@ def _ranked_gaps(root: Path, lane: str, rows: dict[str, dict[str, str]]) -> list
 def repository_report(repo_root: str | Path) -> dict[str, object]:
     root = Path(repo_root)
     rows = _runtime_rows(root)
+    source_entries, _source_payload = load_source(root)
     mismatches: list[str] = []
     kimi_prompt_root = root / "model-lanes" / "kimi" / ".kimi" / "prompts"
+    grok_prompt_root = root / "model-lanes" / "grok" / ".grok" / "prompts"
     for lane, path in generated_marker_files(root):
         role = path.stem
         if path == _target(root, lane, role):
             try:
                 text = path.read_text(encoding="utf-8")
-                expected = (
-                    migrate_gemini_adapter(root, role, text)
-                    if lane == "gemini"
-                    else upsert_capability_projection(root, lane, role, text)
-                )
-                if expected != text:
-                    mismatches.append(f"projection:{lane}:{role}")
                 validate_adapter_file(root, lane, path)
+                if (role, lane) in source_entries:
+                    expected = (
+                        migrate_gemini_adapter(root, role, text)
+                        if lane == "gemini"
+                        else upsert_capability_projection(root, lane, role, text)
+                    )
+                    if _normalize_compatible_digest_metadata(expected) != _normalize_compatible_digest_metadata(text):
+                        mismatches.append(f"projection:{lane}:{role}")
             except AdapterValidationError as exc:
                 mismatches.append(f"invalid:{lane}:{role}:{exc}")
             continue
         if lane == "kimi" and path.parent == kimi_prompt_root:
             try:
-                if path.read_text(encoding="utf-8") != render_kimi_prompt(root, role):
+                if _normalize_compatible_digest_metadata(path.read_text(encoding="utf-8")) != _normalize_compatible_digest_metadata(render_kimi_prompt(root, role)):
                     mismatches.append(f"prompt:kimi:{role}")
             except AdapterValidationError as exc:
                 mismatches.append(f"invalid:kimi-prompt:{role}:{exc}")
+            continue
+        if lane == "grok" and path.parent == grok_prompt_root:
+            try:
+                if _normalize_compatible_digest_metadata(path.read_text(encoding="utf-8")) != _normalize_compatible_digest_metadata(render_grok_prompt(root, role)):
+                    mismatches.append(f"prompt:grok:{role}")
+            except AdapterValidationError as exc:
+                mismatches.append(f"invalid:grok-prompt:{role}:{exc}")
             continue
         relative = path.relative_to(root).as_posix()
         mismatches.append(f"unrecognized-generated-file:{lane}:{relative}")
     physical_lanes: dict[str, list[str]] = {}
     for role in SWARM_CRITICAL_ROLES:
         valid_lanes: list[str] = []
-        for lane in ("gpt-codex", "claude", "gemini", "kimi"):
+        for lane in ("gpt-codex", "claude", "gemini", "grok", "kimi"):
             target = _target(root, lane, role)
             if not target.is_file():
                 continue
@@ -880,6 +961,7 @@ def repository_report(repo_root: str | Path) -> dict[str, object]:
         "generated_mismatches": sorted(mismatches),
         "ranked_gaps": {
             "gemini": _ranked_gaps(root, "gemini", rows),
+            "grok": _ranked_gaps(root, "grok", rows),
             "kimi": _ranked_gaps(root, "kimi", rows),
         },
         "physical_lanes": physical_lanes,
@@ -896,7 +978,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--validate-adapter")
-    parser.add_argument("--lane", choices=("gpt-codex", "claude", "gemini", "kimi"))
+    parser.add_argument("--lane", choices=("gpt-codex", "claude", "gemini", "grok", "kimi"))
     args = parser.parse_args(argv)
     try:
         if args.sync_gemini:
@@ -947,6 +1029,7 @@ def main(argv: list[str] | None = None) -> int:
     return int(
         bool(report["generated_mismatches"])
         or bool(report["ranked_gaps"]["gemini"])
+        or bool(report["ranked_gaps"]["grok"])
         or bool(report["ranked_gaps"]["kimi"])
     )
 

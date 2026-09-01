@@ -14,6 +14,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "scripts" / "python"))
 from lane_adapter_registry import (  # noqa: E402
     AdapterValidationError,
+    render_grok_prompt,
     render_adapter as render_registry_adapter,
     render_kimi_prompt,
     upsert_capability_projection,
@@ -88,14 +89,14 @@ def pin_routed_model(
 ) -> str:
     """Apply an exact model only where the native adapter overrides inheritance."""
 
-    if lane != "kimi":
+    if lane not in {"grok", "kimi"}:
         return text
     _profile_id, model_id = routed_profile_model(lane, row, profiles)
     lines = text.splitlines(keepends=True)
     matches = [index for index, line in enumerate(lines) if line.startswith("  model:")]
     if len(matches) != 1:
         raise AdapterValidationError(
-            f"{row['specialist']}: Kimi adapter must contain exactly one model pin"
+            f"{row['specialist']}: {lane} adapter must contain exactly one model pin"
         )
     index = matches[0]
     newline = "\n" if lines[index].endswith("\n") else ""
@@ -136,6 +137,7 @@ def target_for(lane: str, specialist: str) -> Path:
         "claude": REPO / "model-lanes" / "claude" / ".claude" / "agents" / f"{specialist}.md",
         "gpt-codex": REPO / "model-lanes" / "gpt-codex" / ".codex" / "agents" / f"{specialist}.toml",
         "gemini": REPO / "model-lanes" / "gemini" / ".gemini" / "agents" / f"{specialist}.md",
+        "grok": REPO / "model-lanes" / "grok" / ".grok" / "agents" / f"{specialist}.yaml",
         "kimi": REPO / "model-lanes" / "kimi" / ".kimi" / "agents" / f"{specialist}.yaml",
     }
     return targets[lane]
@@ -150,18 +152,18 @@ def load_rows() -> dict[str, dict[str, str]]:
         return {row["specialist"]: row for row in csv.DictReader(handle, delimiter="\t")}
 
 
-def register_kimi_specialist(specialist: str) -> None:
-    main_path = REPO / "model-lanes" / "kimi" / "main.yaml"
+def register_yaml_specialist(lane: str, specialist: str) -> None:
+    main_path = REPO / "model-lanes" / lane / "main.yaml"
     text = main_path.read_text(encoding="utf-8")
     if f"    {specialist}:" in text:
         return
     anchor = "  subagents:\n"
     if anchor not in text:
-        raise AdapterValidationError("Kimi main.yaml lacks the subagents registry")
+        raise AdapterValidationError(f"{lane} main.yaml lacks the subagents registry")
     block = (
         anchor
         + f"    {specialist}:\n"
-        + f"      path: ./.kimi/agents/{specialist}.yaml\n"
+        + f"      path: ./.{lane}/agents/{specialist}.yaml\n"
         + "      description: \"Registry-generated thin specialist adapter.\"\n"
     )
     atomic_write_text(main_path, text.replace(anchor, block, 1))
@@ -179,21 +181,21 @@ def adapter_is_valid(
         validate_adapter_file(REPO, lane, target)
     except AdapterValidationError as exc:
         return False, [str(exc)]
-    if lane == "kimi":
+    if lane in {"grok", "kimi"}:
         profile_id, expected_model = routed_profile_model(lane, row, profiles)
         actual_model = adapter_model_pin(target.read_text(encoding="utf-8"))
         if actual_model != expected_model:
             return False, [
-                "kimi-model-pin-mismatch:"
+                f"{lane}-model-pin-mismatch:"
                 f"profile={profile_id}:expected={expected_model}:actual={actual_model or 'missing'}"
             ]
-        main = (REPO / "model-lanes" / "kimi" / "main.yaml").read_text(encoding="utf-8")
+        main = (REPO / "model-lanes" / lane / "main.yaml").read_text(encoding="utf-8")
         registration = (
             f"    {row['specialist']}:\n"
-            f"      path: ./.kimi/agents/{row['specialist']}.yaml"
+            f"      path: ./.{lane}/agents/{row['specialist']}.yaml"
         )
         if registration not in main:
-            return False, ["kimi-main-registration-missing"]
+            return False, [f"{lane}-main-registration-missing"]
     return True, []
 
 
@@ -203,6 +205,11 @@ def main() -> int:
     )
     parser.add_argument("specialists", nargs="+", help="canonical specialist IDs")
     parser.add_argument("--write", action="store_true", help="create missing adapters")
+    parser.add_argument(
+        "--lane",
+        choices=("gpt-codex", "claude", "gemini", "grok", "kimi"),
+        help="limit generation/checking to one ranked lane",
+    )
     args = parser.parse_args()
 
     rows = load_rows()
@@ -220,6 +227,8 @@ def main() -> int:
             failed = True
             continue
         for lane in ranked_lanes(row):
+            if args.lane and lane != args.lane:
+                continue
             target = target_for(lane, specialist)
             if args.write:
                 target.parent.mkdir(parents=True, exist_ok=True)
@@ -238,7 +247,14 @@ def main() -> int:
                     rendered_prompt = render_kimi_prompt(REPO, specialist)
                     if not prompt.is_file() or prompt.read_text(encoding="utf-8") != rendered_prompt:
                         atomic_write_text(prompt, rendered_prompt)
-                    register_kimi_specialist(specialist)
+                    register_yaml_specialist(lane, specialist)
+                if lane == "grok":
+                    prompt = REPO / "model-lanes" / "grok" / ".grok" / "prompts" / f"{specialist}.md"
+                    prompt.parent.mkdir(parents=True, exist_ok=True)
+                    rendered_prompt = render_grok_prompt(REPO, specialist)
+                    if not prompt.is_file() or prompt.read_text(encoding="utf-8") != rendered_prompt:
+                        atomic_write_text(prompt, rendered_prompt)
+                    register_yaml_specialist(lane, specialist)
             valid, issues = adapter_is_valid(lane, row, target, profiles)
             print(
                 json.dumps(

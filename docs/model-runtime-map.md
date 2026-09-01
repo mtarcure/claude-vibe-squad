@@ -18,12 +18,12 @@ distribution from that file instead of copying a mutable snapshot here. Its cano
 tab-separated fields, in this order:
 
 1. `specialist` — unique canonical specialist name.
-2. `source_namespace` — one of `coding | security | content | sysmgmt | research | shared`; storage/mailbox compatibility only.
+2. `source_namespace` — one of `coding | security | content | sysmgmt | research | shared`; the specialist markdown location. **Not** the mailbox — transport always goes through `CANONICAL_MAILBOX_ROOT` (`dispatch_context_builder.py:96`) — and never the model. Canonical statement: `CLAUDE.md` Hard Rule 3.
 3. `capability_class` — the work-shape used for quality-fit routing.
 4. `safety_level` — `low | medium | high`.
 5. `safety_tags` — structured dual-use/privacy/financial and related tags.
 6. `tool_profile` — named tool-host constraint, or `none`.
-7. `primary_lane` — `codex | claude | gemini | kimi`; Kimi is default-deny except for the three allowlisted primaries `experimental-attacker`, `large-context-analyst`, and `summarizer`.
+7. `primary_lane` — `codex | claude | gemini | kimi | grok`; Kimi is default-deny except for the two allowlisted primaries `summarizer` and `kestrel`.
 8. `primary_profile` — model/effort/flags key in `shared/registries/profiles.tsv`.
 9. `backup_lane` — genuine cross-family operational backup.
 10. `backup_profile` — backup profile registry key.
@@ -59,7 +59,8 @@ Model binding is per specialist. These are the CLIs a specialist row can be boun
 | `codex` | OpenAI | implementation, repo edits, tests, refactors, PoC mechanics |
 | `claude` | Anthropic | judgment, safety review, privacy/auth reasoning, memory hygiene, adversarial challenge |
 | `gemini` | Google | multimodal analysis, media generation routes, visual/design review, grounded content |
-| `kimi` | Moonshot | three allowlisted primaries (`experimental-attacker`, `large-context-analyst`, `summarizer`); otherwise throughput-only bulk/mechanical work under an explicit downshift gate |
+| `kimi` | Moonshot | two allowlisted primaries (`summarizer`, `kestrel`); otherwise throughput-only bulk/mechanical work under an explicit downshift gate |
+| `grok` | xAI | one primary (`smokey`, the blank advisor); escalate route for `research` and `bounty-researcher`. Native X/Twitter search under a SuperGrok subscription. `read_file` hard-fails past ~25k tokens — large documents need shell or paged ingest |
 
 ## Dispatch Algorithm
 

@@ -4,8 +4,7 @@ description: "Runtime, doctor, status drift, and agent operations."
 model: inherit
 # BEGIN SPECIALIST CAPABILITY PROJECTION
 capability_source: model-lanes/specialist-lane-capabilities.v1.json
-capability_source_sha256: 1606f09d5a46440d38cd68e903a50c73a9cd8e651995a39567b0069d6be6bacd
-skills: ["harness-baseline-audit","instinct-prune-loop","kg-vault-health-check","stale-knowledge-purge"]
+capability_source_sha256: b5693bab7ccdccf6ab1c1e1018fb93e3153a9fd1883e97f1f31c4fa4aee26e53
 tools: ["awk","du","find","jq","lsof","pgrep","ps","tmux"]
 mcps: ["chrono-research-arsenal","chrono-vault","sequential-thinking"]
 # END SPECIALIST CAPABILITY PROJECTION

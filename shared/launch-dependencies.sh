@@ -30,7 +30,7 @@
 # greps every *.sh for `set -` and warns here for exactly that reason;
 # shared/repo-root.sh, shared/namespaces.sh, shared/lead-windows.sh and
 # shared/process-identity.sh are sourced libraries in the same position.
-SQUAD_REQUIRED_COMMANDS=(tmux fswatch jq curl uv claude codex gemini kimi)
+SQUAD_REQUIRED_COMMANDS=(tmux fswatch jq curl uv claude codex gemini grok kimi)
 
 # The one remedy string both callers print, so the list and the fix for it
 # cannot drift apart either.

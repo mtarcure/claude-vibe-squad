@@ -7,10 +7,11 @@
 #
 # Required frontmatter in task file:
 #   id: TASK-YYYY-MM-DD-HHMM-<hash>
-#   to_model: gpt-codex | claude | gemini | kimi
+#   to_model: gpt-codex | claude | gemini | grok | kimi
 #   specialist: <canonical specialist>
 #   source_namespace: coding | security | content | sysmgmt | research | shared
 #   return_artifact: <repo-relative path>  — internal expected_result_path
+#   reviews: none | TASK-YYYY-MM-DD-HHMM-<suffix>
 #
 # Optional frontmatter:
 #   write_scope: [path1, path2]     — conflict-checked against active tasks
@@ -33,6 +34,7 @@ export PATH="${HOME}/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:${PATH}"
 # shipped code so an operated-on vault need not itself be a checkout.
 # shellcheck source-path=SCRIPTDIR source=../shared/repo-root.sh disable=SC1091
 source "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")/.." && pwd -P)/shared/repo-root.sh"
+
 SQUAD_CODE_ROOT="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")/.." && pwd -P)"
 ACTIVE_REGISTRY="${VAULT_ROOT}/_state/active-tasks.json"
 
@@ -202,7 +204,42 @@ board_host_admit() {
     done
     vector_sha="$(printf '%s\0' "${vector_fields[@]}" | shasum -a 256 | awk '{print $1}')" || die "cannot hash admission vector"
     admission_args+=(--vector-sha256 "$vector_sha")
-    if ! decision="$(python3 "${VAULT_ROOT}/scripts/python/host_admission.py" "${admission_args[@]}")"; then die "board host admission queued candidate vector: ${decision}"; fi
+    # A QUEUE verdict means "wait", not "fail".
+    #
+    # host_admission.py already models backpressure correctly: it returns
+    # `{"action": "queue", "backoff_seconds": N}` when the host is momentarily
+    # too loaded, which is a request to retry. This call site used to `die` on
+    # it -- while printing the word "queued" -- so a saturated host turned every
+    # correct dispatch into a dead one. Measured 2026-08-31: clause-4 refused
+    # three dispatches in a session on genuine memory pressure, and each was
+    # lost rather than delayed, on a machine that used to run 8 lanes at once.
+    # Backpressure being real is evidence the budget works, not that finished
+    # work should be discarded.
+    #
+    # Retry on the admission's own backoff up to a bounded budget, then give up
+    # loudly. A non-queue verdict (a real refusal) still dies immediately.
+    local admission_waited=0 admission_action admission_backoff admission_budget
+    admission_budget="${SQUAD_ADMISSION_MAX_WAIT_SECONDS:-900}"
+    [[ "$admission_budget" =~ ^[0-9]+$ ]] || die "SQUAD_ADMISSION_MAX_WAIT_SECONDS must be an integer"
+    while ! decision="$(python3 "${VAULT_ROOT}/scripts/python/host_admission.py" "${admission_args[@]}")"; do
+        admission_action="$(python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("action",""))
+except Exception: print("")' <<<"$decision")"
+        [[ "$admission_action" == "queue" ]] \
+            || die "board host admission refused candidate vector: ${decision}"
+        admission_backoff="$(python3 -c 'import json,sys
+try:
+    v=json.load(sys.stdin).get("backoff_seconds",5)
+    print(v if isinstance(v,int) and 0 < v <= 60 else 5)
+except Exception: print(5)' <<<"$decision")"
+        if (( admission_waited + admission_backoff > admission_budget )); then
+            die "board host admission still queued after ${admission_waited}s (budget ${admission_budget}s): ${decision}"
+        fi
+        info "Board host admission queued; retrying in ${admission_backoff}s (waited ${admission_waited}s/${admission_budget}s)"
+        sleep "$admission_backoff"
+        admission_waited=$(( admission_waited + admission_backoff ))
+    done
+    (( admission_waited > 0 )) && info "Board host admission cleared after ${admission_waited}s of backpressure"
     admitted_vector="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("candidate_vector_sha256", ""))' <<<"$decision")" || die "board host admission returned invalid JSON"
     [[ "$admitted_vector" == "$vector_sha" ]] || die "candidate vector binding mismatch"
     info "Board host admission: ${decision}"
@@ -557,6 +594,126 @@ inject_verification_contract() {
     mv "$contract_copy" "$WORKING_COPY"
 }
 
+assemble_dispatch_packet() {
+# Build the exact bytes that would be published to the inbox: capability
+# snapshot, verification contract, toolkit block, per-task versioning.
+# Extracted so `--dry-run` can preflight the ASSEMBLED packet rather than the
+# raw one. Checking the raw packet would be worse than useless: it carries no
+# `verification_contract` row yet and none of the injected body, so the
+# contract validator and the assembled-prompt ceiling would both judge a file
+# that never launches. Body left unindented because it embeds heredocs.
+# Sets ACTUAL_TASK_FILE (and RETURN_ARTIFACT under per_task_versioning).
+# ── ITEM 4: inject toolkit + no-delete rule ───────────────────────────────────
+# shared/dispatch-toolkit.sh emits per-namespace tool/specialist roster AND the
+# hard no-delete rule block. Append to a working copy of the task file.
+
+WORKING_COPY=$(mktemp "${TASK_FILE%.md}.working.md.XXXXXX")
+cp "$TASK_FILE" "$WORKING_COPY"
+
+# `none` is admission evidence, not review provenance. The launch context's
+# reconciliation echo intentionally accepts only task ids, so erase only this
+# sentinel from the post-admission working copy. A real target remains in the
+# assembled packet and is projected into both registry and launch authority.
+if [[ "$REVIEWS_DECLARATION" == "none" ]]; then
+    ORDINARY_COPY=$(mktemp "${TASK_FILE%.md}.ordinary.md.XXXXXX")
+    awk '
+        NR == 1 && $0 == "---" { in_frontmatter=1; print; next }
+        in_frontmatter && $0 == "---" { in_frontmatter=0; print; next }
+        in_frontmatter && /^reviews:[[:space:]]*none[[:space:]]*$/ { next }
+        { print }
+    ' "$WORKING_COPY" > "$ORDINARY_COPY" \
+        || die "failed to normalize ordinary reviews declaration"
+    mv "$ORDINARY_COPY" "$WORKING_COPY"
+fi
+
+if [[ -n "$CAPABILITY_SNAPSHOT_JSON" ]]; then
+    CAPABILITY_CARD_PATH="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["capability_card_path"])' <<<"$CAPABILITY_SNAPSHOT_JSON")"
+    CAPABILITY_GATES="$(python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["capability_gates"], separators=(",",":")))' <<<"$CAPABILITY_SNAPSHOT_JSON")"
+    SNAPSHOT_COPY=$(mktemp "${TASK_FILE%.md}.capability.md.XXXXXX")
+    awk \
+        -v capability_id="$CAPABILITY_ID" \
+        -v capability_path="$CAPABILITY_CARD_PATH" \
+        -v capability_sha="$CAPABILITY_HASH" \
+        -v capability_state="$CAPABILITY_STATE" \
+        -v capability_gates="$CAPABILITY_GATES" '
+        NR == 1 && $0 == "---" { in_frontmatter=1; print; next }
+        in_frontmatter && $0 == "---" && !inserted {
+            print "capability_id: " capability_id
+            print "capability_card_path: " capability_path
+            print "capability_card_sha256: " capability_sha
+            print "capability_derived_state: " capability_state
+            print "capability_gates: " capability_gates
+            inserted=1
+            in_frontmatter=0
+        }
+        { print }
+        END { if (!inserted) exit 42 }
+    ' "$WORKING_COPY" > "$SNAPSHOT_COPY" \
+        || die "failed to inject capability snapshot frontmatter"
+    mv "$SNAPSHOT_COPY" "$WORKING_COPY"
+fi
+
+if [[ -n "$VERIFICATION_CONTRACT_SHA256" ]]; then
+    inject_verification_contract
+fi
+
+if [[ -x "$TOOLKIT" ]]; then
+    bash "$TOOLKIT" "$MAILBOX_NAMESPACE" "$TO_MODEL" "$MODE" "$SPECIALIST" >> "$WORKING_COPY"
+    info "Toolkit injected for ${MAILBOX_NAMESPACE}/${TO_MODEL}"
+fi
+
+if [[ -n "$CAPABILITY_SNAPSHOT_JSON" ]]; then
+    cat >> "$WORKING_COPY" <<EOF
+
+## Dispatched Capability Snapshot — immutable completion contract
+
+- Capability ID: \`${CAPABILITY_ID}\`
+- Card SHA-256 at dispatch: \`${CAPABILITY_HASH}\`
+- Validator-derived state at dispatch: \`${CAPABILITY_STATE}\`
+- Gates at dispatch: \`${CAPABILITY_GATES}\`
+
+The active-task registry evaluates this dispatched snapshot, not a later version of the card. Your response envelope MUST echo this exact frontmatter field:
+
+\`\`\`yaml
+capability_card_sha256: ${CAPABILITY_HASH}
+\`\`\`
+
+If the current card changes while this task is running, reconciliation reports that drift separately; it does not silently rewrite this task's contract.
+EOF
+fi
+
+if [[ -n "$VERIFICATION_CONTRACT_SHA256" ]]; then
+    cat >> "$WORKING_COPY" <<EOF
+
+## Dispatcher-pinned Verification Contract v1
+
+- Author family: \`${AUTHOR_FAMILY}\`
+- Contract SHA-256: \`${VERIFICATION_CONTRACT_SHA256}\`
+
+The run manifest MUST echo both \`verification_contract\` and \`verification_contract_sha256\` exactly. These fields are dispatcher-owned and immutable for this task.
+EOF
+fi
+
+# ── ITEM 3: per-task version dirs ─────────────────────────────────────────────
+# If per_task_versioning: true, rewrite return_artifact path to embed TASK-ID
+# as a subdirectory. Prevents output collisions across SUPP dispatches.
+
+ACTUAL_TASK_FILE="$WORKING_COPY"
+if [[ "$PER_TASK_VERSIONING" == "true" ]]; then
+    if [[ -n "$RETURN_ARTIFACT" ]]; then
+        ART_DIR=$(dirname "$RETURN_ARTIFACT")
+        ART_FILE=$(basename "$RETURN_ARTIFACT")
+        NEW_ART="${ART_DIR}/${TASK_ID}/${ART_FILE}"
+        VERSIONED_COPY=$(mktemp "${TASK_FILE%.md}.versioned.md.XXXXXX")
+        sed "s|return_artifact:.*|return_artifact: ${NEW_ART}|" "$WORKING_COPY" > "$VERSIONED_COPY"
+        ACTUAL_TASK_FILE="$VERSIONED_COPY"
+        RETURN_ARTIFACT="$NEW_ART"
+        info "Per-task versioning: return_artifact → ${NEW_ART}"
+    fi
+fi
+
+}
+
 map_field() {
     local specialist="$1" field_index="$2"
     [[ -f "$RUNTIME_MAP" ]] || return 1
@@ -615,6 +772,11 @@ validate_native_adapter() {
             [[ -f "$adapter" ]] || die "predispatch blocked: missing Gemini adapter for specialist '${specialist}'"
             [[ "$(head -n 1 "$adapter")" == "---" ]] || die "predispatch blocked: Gemini adapter missing YAML frontmatter for specialist '${specialist}'"
             grep -q "^name: ${specialist}$" "$adapter" || die "predispatch blocked: Gemini adapter name mismatch for specialist '${specialist}'"
+            ;;
+        grok)
+            adapter="${VAULT_ROOT}/model-lanes/grok/.grok/agents/${specialist}.yaml"
+            [[ -f "$adapter" ]] || die "predispatch blocked: missing Grok adapter for specialist '${specialist}'"
+            grep -q "^[[:space:]]*${specialist}:" "${VAULT_ROOT}/model-lanes/grok/main.yaml" || die "predispatch blocked: Grok main.yaml missing subagent '${specialist}'"
             ;;
         kimi)
             adapter="${VAULT_ROOT}/model-lanes/kimi/.kimi/agents/${specialist}.yaml"
@@ -795,6 +957,9 @@ MANDATORY_REVIEW=$(task_frontmatter_field "mandatory_review")
 REVIEW_TRIGGERS_RAW=$(task_frontmatter_field "review_triggers")
 REVIEW_TRIGGERS_PRESENT=false
 task_frontmatter_has_field "review_triggers" && REVIEW_TRIGGERS_PRESENT=true
+REVIEWS_DECLARATION=$(task_frontmatter_field "reviews")
+REVIEWS_PRESENT=false
+task_frontmatter_has_field "reviews" && REVIEWS_PRESENT=true
 REVIEW_CLASS=$(task_frontmatter_field "review_class")
 MODEL_OVERRIDE_REASON=$(task_frontmatter_field "model_override_reason")
 DIRECT_LANE_WORK_ALLOWED=$(task_frontmatter_field "direct_lane_work_allowed")
@@ -805,10 +970,21 @@ SWARM_SPEC_SHA256=$(task_frontmatter_field "swarm_spec_sha256")
 PLAN_ITEM_IDS_RAW=$(task_frontmatter_field "plan_item_ids") PHASE=$(task_frontmatter_field "phase")
 MODE=$(task_frontmatter_field "mode")
 # A hand-written prepared packet expresses a deliberate modeless engagement
-# through true field absence. This is the single absence-to-token translation
-# site; an explicitly empty `mode:` remains empty and follows the legacy
-# rejection path below. The generating wrapper never reaches this branch
-# because it authors the exact explicit token its caller chose.
+# through true field absence; an explicitly empty `mode:` remains empty and
+# follows the legacy rejection path below. The generating wrapper never reaches
+# this branch because it authors the exact explicit token its caller chose.
+#
+# Validation-only MIRROR of resolve_packet_mode() in
+# scripts/python/dispatch_context_builder.py, which is the rule's single home
+# because it is the layer that gates. This shell copy exists only so the
+# verification contract derived below carries the same mode the builder will
+# resolve. scripts/python/tests/test_dryrun_parity.py pins the two together.
+#
+# It is DELIBERATELY the one restatement that survives, not a fourth home: bash
+# cannot import the Python resolver for a single token, and the contract has to
+# be derived here, before the builder runs. dispatch_preflight.py used to carry
+# a third, avoidable Python copy and now calls the resolver directly; if you are
+# adding a mode decision anywhere, call resolve_packet_mode() -- do not copy this.
 MODE_PRESENT=false
 task_frontmatter_has_field "mode" && MODE_PRESENT=true
 if ! $MODE_PRESENT; then
@@ -837,8 +1013,24 @@ MAILBOX_NAMESPACE="coding"
 # FIX 1 (wave-2): TASK_ID becomes a path component for inbox/temp/outbox files.
 # Require the exact canonical task-id format so it cannot contain a path
 # separator, '.', '..', NUL, or whitespace and redirect a write outside the inbox.
-if [[ ! "$TASK_ID" =~ ^TASK-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}-[A-Za-z0-9][A-Za-z0-9-]*$ ]]; then
+CANONICAL_TASK_ID_PATTERN='^TASK-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}-[A-Za-z0-9][A-Za-z0-9-]*$'
+if [[ ! "$TASK_ID" =~ $CANONICAL_TASK_ID_PATTERN ]]; then
     die "invalid task id '${TASK_ID}': must match TASK-YYYY-MM-DD-HHMM-<suffix> (alphanumeric/hyphen)"
+fi
+# This must precede every side effect below (mailbox creation, registration and
+# launch). `none` is the deliberate ordinary-work sentinel; only a task id has
+# review-target authority. Packet prose and specialist names never substitute.
+if ! $REVIEWS_PRESENT; then
+    die "task packet is missing required reviews declaration; use 'reviews: none' for ordinary work or a canonical task id for a review"
+fi
+if [[ -z "$REVIEWS_DECLARATION" ]]; then
+    die "task packet carries an empty reviews declaration; use 'reviews: none' for ordinary work or a canonical task id for a review"
+fi
+if [[ "$REVIEWS_DECLARATION" != "none" && ! "$REVIEWS_DECLARATION" =~ $CANONICAL_TASK_ID_PATTERN ]]; then
+    die "invalid reviews declaration '${REVIEWS_DECLARATION}'; expected exactly none or a canonical TASK-YYYY-MM-DD-HHMM-<suffix> id"
+fi
+if [[ "$REVIEWS_DECLARATION" == "$TASK_ID" ]]; then
+    die "review task may not target itself: ${TASK_ID}"
 fi
 [[ -z "$SPECIALIST" ]] && die "Task file missing 'specialist' frontmatter: $TASK_FILE"
 [[ -z "$PARALLEL_SAFE" ]] && die "Task file missing 'parallel_safe' frontmatter: $TASK_FILE"
@@ -935,12 +1127,12 @@ fi
 [[ -z "$SOURCE_NAMESPACE" ]] && die "Task file missing 'source_namespace' frontmatter: $TASK_FILE"
 
 case "$TO_MODEL" in
-    gpt-codex|claude|gemini|kimi|none) ;;
-    *) die "invalid to_model '${TO_MODEL}'. Expected gpt-codex|claude|gemini|kimi|none." ;;
+    gpt-codex|claude|gemini|grok|kimi|none) ;;
+    *) die "invalid to_model '${TO_MODEL}'. Expected gpt-codex|claude|gemini|grok|kimi|none." ;;
 esac
 case "$REVIEW_MODEL" in
-    gpt-codex|claude|gemini|kimi|none) ;;
-    *) die "invalid review_model '${REVIEW_MODEL}'. Expected gpt-codex|claude|gemini|kimi|none." ;;
+    gpt-codex|claude|gemini|grok|kimi|none) ;;
+    *) die "invalid review_model '${REVIEW_MODEL}'. Expected gpt-codex|claude|gemini|grok|kimi|none." ;;
 esac
 # Legacy modes remain warnings here; the contract/launch boundary decides.
 case "$MODE" in
@@ -1278,9 +1470,51 @@ echo "  Board outbox: departments/${MAILBOX_NAMESPACE}/outbox/${TASK_ID}-respons
 if $DRY_RUN; then
     echo "[DRY RUN] Would validate, inject toolkit, copy to inbox, update registry"
     echo "[DRY RUN] per_task_versioning=${PER_TASK_VERSIONING:-false}"
+    echo "[DRY RUN] reviews=${REVIEWS_DECLARATION}"
     echo "[DRY RUN] write_scope=${WRITE_SCOPE_JSON:-[]}"
     if [[ -n "$VERIFICATION_CONTRACT_SHA256" ]]; then
         echo "[DRY RUN] verification_contract=verification-contract/v1 sha256=${VERIFICATION_CONTRACT_SHA256}"
+    fi
+    # Run the SAME validator the launch runs (dispatch_context_builder
+    # build_context), against the SAME assembled bytes, through the builder's
+    # own `check` subcommand. Before this the dry-run exited here having proved
+    # only that the shell rules above passed, while every launch invariant --
+    # runtime-map row, canonical role, lane adapter, lane executable, contract
+    # agreement, write_scope containment, evidence promotion, assembled-prompt
+    # ceiling -- went unmeasured. A green dry-run then said nothing about
+    # whether the packet would launch, which is precisely the set that fails.
+    # Dry-run and launch now share one validator and cannot diverge without
+    # deleting this call.
+    assemble_dispatch_packet
+    DRY_RUN_PREFLIGHT=""
+    DRY_RUN_STATUS=0
+    if [[ -f "${VAULT_ROOT}/shared/specialist-runtime-map.tsv" ]]; then
+        DRY_RUN_PREFLIGHT="$(
+            python3 "$DISPATCH_CONTEXT_BUILDER" check \
+                --repo-root "$VAULT_ROOT" --task-file "$ACTUAL_TASK_FILE" --staged 2>&1
+        )" || DRY_RUN_STATUS=$?
+    else
+        # build_context resolves EVERY input -- runtime map, canonical role,
+        # lane adapter, capability source, lane policy -- relative to the repo
+        # root it is handed. A root without the runtime map is not a checkout it
+        # can validate, and running it there would report missing scaffolding
+        # rather than anything about this packet. Production always has it.
+        DRY_RUN_STATUS=255
+    fi
+    rm -f "$WORKING_COPY"
+    [[ "$ACTUAL_TASK_FILE" == "$WORKING_COPY" ]] || rm -f "$ACTUAL_TASK_FILE"
+    # A typed refusal is a verdict ON THE PACKET and must fail the dry-run. A
+    # non-zero exit with no typed refusal means the validator never reached a
+    # verdict at all (an unbuildable fixture root, a stubbed builder, a crash);
+    # calling that green would recreate the bug, and calling it a packet defect
+    # would blame the author for the environment. Report it as UNMEASURED.
+    DRY_RUN_REASON="$(printf '%s\n' "$DRY_RUN_PREFLIGHT" | grep -o ': error: .*' | tail -1 || true)"
+    if (( DRY_RUN_STATUS == 0 )); then
+        echo "[DRY RUN] launch preflight PASSED: ${DRY_RUN_PREFLIGHT}"
+    elif [[ -n "$DRY_RUN_REASON" ]]; then
+        die "dry-run launch preflight refused this packet: ${DRY_RUN_REASON#: error: }"
+    else
+        echo "[DRY RUN] LAUNCH PREFLIGHT NOT RUN: the launch validator reached no verdict against ${VAULT_ROOT}, so launch invariants are UNMEASURED for this packet. ${DRY_RUN_PREFLIGHT}" >&2
     fi
     exit 2
 fi
@@ -1338,98 +1572,7 @@ PYEOF
     info "write_scope: no conflicts"
 fi
 
-# ── ITEM 4: inject toolkit + no-delete rule ───────────────────────────────────
-# shared/dispatch-toolkit.sh emits per-namespace tool/specialist roster AND the
-# hard no-delete rule block. Append to a working copy of the task file.
-
-WORKING_COPY=$(mktemp "${TASK_FILE%.md}.working.md.XXXXXX")
-cp "$TASK_FILE" "$WORKING_COPY"
-
-if [[ -n "$CAPABILITY_SNAPSHOT_JSON" ]]; then
-    CAPABILITY_CARD_PATH="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["capability_card_path"])' <<<"$CAPABILITY_SNAPSHOT_JSON")"
-    CAPABILITY_GATES="$(python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["capability_gates"], separators=(",",":")))' <<<"$CAPABILITY_SNAPSHOT_JSON")"
-    SNAPSHOT_COPY=$(mktemp "${TASK_FILE%.md}.capability.md.XXXXXX")
-    awk \
-        -v capability_id="$CAPABILITY_ID" \
-        -v capability_path="$CAPABILITY_CARD_PATH" \
-        -v capability_sha="$CAPABILITY_HASH" \
-        -v capability_state="$CAPABILITY_STATE" \
-        -v capability_gates="$CAPABILITY_GATES" '
-        NR == 1 && $0 == "---" { in_frontmatter=1; print; next }
-        in_frontmatter && $0 == "---" && !inserted {
-            print "capability_id: " capability_id
-            print "capability_card_path: " capability_path
-            print "capability_card_sha256: " capability_sha
-            print "capability_derived_state: " capability_state
-            print "capability_gates: " capability_gates
-            inserted=1
-            in_frontmatter=0
-        }
-        { print }
-        END { if (!inserted) exit 42 }
-    ' "$WORKING_COPY" > "$SNAPSHOT_COPY" \
-        || die "failed to inject capability snapshot frontmatter"
-    mv "$SNAPSHOT_COPY" "$WORKING_COPY"
-fi
-
-if [[ -n "$VERIFICATION_CONTRACT_SHA256" ]]; then
-    inject_verification_contract
-fi
-
-if [[ -x "$TOOLKIT" ]]; then
-    bash "$TOOLKIT" "$MAILBOX_NAMESPACE" "$TO_MODEL" "$MODE" "$SPECIALIST" >> "$WORKING_COPY"
-    info "Toolkit injected for ${MAILBOX_NAMESPACE}/${TO_MODEL}"
-fi
-
-if [[ -n "$CAPABILITY_SNAPSHOT_JSON" ]]; then
-    cat >> "$WORKING_COPY" <<EOF
-
-## Dispatched Capability Snapshot — immutable completion contract
-
-- Capability ID: \`${CAPABILITY_ID}\`
-- Card SHA-256 at dispatch: \`${CAPABILITY_HASH}\`
-- Validator-derived state at dispatch: \`${CAPABILITY_STATE}\`
-- Gates at dispatch: \`${CAPABILITY_GATES}\`
-
-The active-task registry evaluates this dispatched snapshot, not a later version of the card. Your response envelope MUST echo this exact frontmatter field:
-
-\`\`\`yaml
-capability_card_sha256: ${CAPABILITY_HASH}
-\`\`\`
-
-If the current card changes while this task is running, reconciliation reports that drift separately; it does not silently rewrite this task's contract.
-EOF
-fi
-
-if [[ -n "$VERIFICATION_CONTRACT_SHA256" ]]; then
-    cat >> "$WORKING_COPY" <<EOF
-
-## Dispatcher-pinned Verification Contract v1
-
-- Author family: \`${AUTHOR_FAMILY}\`
-- Contract SHA-256: \`${VERIFICATION_CONTRACT_SHA256}\`
-
-The run manifest MUST echo both \`verification_contract\` and \`verification_contract_sha256\` exactly. These fields are dispatcher-owned and immutable for this task.
-EOF
-fi
-
-# ── ITEM 3: per-task version dirs ─────────────────────────────────────────────
-# If per_task_versioning: true, rewrite return_artifact path to embed TASK-ID
-# as a subdirectory. Prevents output collisions across SUPP dispatches.
-
-ACTUAL_TASK_FILE="$WORKING_COPY"
-if [[ "$PER_TASK_VERSIONING" == "true" ]]; then
-    if [[ -n "$RETURN_ARTIFACT" ]]; then
-        ART_DIR=$(dirname "$RETURN_ARTIFACT")
-        ART_FILE=$(basename "$RETURN_ARTIFACT")
-        NEW_ART="${ART_DIR}/${TASK_ID}/${ART_FILE}"
-        VERSIONED_COPY=$(mktemp "${TASK_FILE%.md}.versioned.md.XXXXXX")
-        sed "s|return_artifact:.*|return_artifact: ${NEW_ART}|" "$WORKING_COPY" > "$VERSIONED_COPY"
-        ACTUAL_TASK_FILE="$VERSIONED_COPY"
-        RETURN_ARTIFACT="$NEW_ART"
-        info "Per-task versioning: return_artifact → ${NEW_ART}"
-    fi
-fi
+assemble_dispatch_packet
 
 board_host_admit "$ACTUAL_TASK_FILE"
 

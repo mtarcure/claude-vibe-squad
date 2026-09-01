@@ -38,42 +38,278 @@ if ! tmux has-session -t "${SESSION}" 2>/dev/null; then
     exit 0
 fi
 
-echo "Squad close initiated (session: ${SESSION}). Requesting live-state update from Chrono..."
+# --- Discover the live orchestrator (Phase 1 no longer assumes the pane) ----
+# LIFE-01. This stop used to send its Phase-1 nudge blindly to the fixed
+# squad:chrono pane and wait 60s -- assuming the orchestrator IS that pane. That
+# is the normal shape, not the only one: a coordinator started as a background
+# job (parented by `claude daemon`, TMUX unset) has no pane, so the nudge lands
+# in whatever holds squad:chrono (an idle shell, or nothing), times out, and
+# reports `chrono_responded: false` -- which reads exactly like "Chrono was
+# there and stayed silent". Discovery replaces that assumption and, crucially,
+# tells "found but not nudgeable" and "nothing to nudge" APART from a real
+# timeout.
+#
+# Discovery AUTHORITY is a coordinator pidfile (LIFE-01 option (a): discover,
+# don't assume). bin/vs-welcome.sh -- the coordinator's OWN startup, which execs
+# claude, so its $$ becomes the claude process -- writes it, recording the real
+# coordinator PID, a start-time fingerprint, and the shape it is: the nudgeable
+# PANE (${SESSION}:chrono) when it runs inside tmux, or the un-nudgeable
+# BACKGROUND-JOB shape (no pane) when it does not. Recording the coordinator's
+# own PID+fingerprint -- not the pane's shell observed from outside, which this
+# reader's */claude* test then rejected -- is what makes the record one this
+# reader BELIEVES. Checked before adding a new file: the job dir (CLAUDE_JOB_DIR)
+# is a harness env var this repo never reads, and the launchd daemon
+# (com.vibesquad.daemon) is separate infra that does not track Chrono -- neither
+# is an existing authority. This reader is shape-independent: the same three
+# outcomes fall out of it whichever shape the coordinator recorded.
+CHRONO_COORDINATOR_PIDFILE="${CHRONO_COORDINATOR_PIDFILE:-${VAULT_ROOT}/_state/runtime/chrono-coordinator/${SESSION}.pid}"
 
-# Phase 1 — ask Chrono to update canonical live state and optionally write an
-# ignored shutdown summary.
-NUDGE_MSG="Operator is closing the squad session. Update chrono/current.md and any affected departments/*/current.md so live state is accurate. Do not write docs/handoffs. If useful, write a transient shutdown summary to ${SUMMARY_FILE} with in-flight task IDs, queued work, and anything next launch should see after reading current.md. Confirm by appending 'SHUTDOWN SUMMARY DONE' to that file. After confirming, the operator will close the session."
+# chrono_pane_has_coordinator() lives in shared/chrono-pane.sh, the one home for
+# "is the coordinator the live foreground process in that pane?" -- version
+# independent, so a Claude release cannot silently break it. bin/outbox-watcher.sh
+# and bin/squad-monitor.sh already source it; this stop was the last lifecycle
+# path still ASSUMING the pane rather than asking it.
+CHRONO_PANE_READY=1
+# shellcheck source=../shared/chrono-pane.sh disable=SC1091
+source "${VAULT_ROOT}/shared/chrono-pane.sh" || CHRONO_PANE_READY=0
+if [[ "${CHRONO_PANE_READY}" != "1" ]]; then
+    # set -uo pipefail without -e: a failed source would leave the function
+    # undefined and every call returning 127, indistinguishable from "no
+    # coordinator there". Define an explicit refusal so discovery leans on the
+    # pidfile alone and says so.
+    chrono_pane_has_coordinator() { return 1; }
+    echo "  WARNING: ${VAULT_ROOT}/shared/chrono-pane.sh failed to load; cannot inspect the ${SESSION}:chrono pane for a live coordinator. Orchestrator discovery relies on the coordinator pidfile only." >&2
+fi
 
-tmux send-keys -l -t "${SESSION}:chrono" "${NUDGE_MSG}"
-sleep 0.3
-tmux send-keys -t "${SESSION}:chrono" Enter
+# parse_coordinator_pidfile <pidfile>: echo "<shape> <pid> <target> <start>" on
+# one line for a well-formed file, nothing (rc1) otherwise. Pure file parse -- no
+# process inspection -- so scripts/python/tests/test_squad_stop_reaping.py drives
+# it with synthetic files. Format (written by bin/vs-welcome.sh): "key value"
+# lines pid/shape/target/start, order-independent, unknown keys ignored, a bad
+# pid or shape rejected. `target` may be empty (a background job has no pane) and
+# `start` may be empty (a synthetic/legacy file with no fingerprint); both are
+# emitted as a "-" sentinel so the four space-separated fields stay positionally
+# unambiguous even though `start` (a kernel lstart string) itself contains
+# spaces. discover_orchestrator reads it back as `shape pid target start` -- the
+# multi-word start lands in the last field -- and restores "" from "-".
+parse_coordinator_pidfile() {
+    local pidfile="$1" key val pid="" shape="" target="" start=""
+    [[ -f "${pidfile}" ]] || return 1
+    while read -r key val; do
+        case "${key}" in
+            pid) pid="${val}" ;;
+            shape) shape="${val}" ;;
+            target) target="${val}" ;;
+            start) start="${val}" ;;
+        esac
+    done < "${pidfile}"
+    [[ "${pid}" =~ ^[0-9]+$ ]] || return 1
+    [[ "${shape}" == "pane" || "${shape}" == "background-job" ]] || return 1
+    printf '%s %s %s %s\n' "${shape}" "${pid}" "${target:--}" "${start:--}"
+}
 
-# Poll for summary file with marker — up to 60s
-echo "Waiting up to 60s for Chrono to update state..."
-deadline=$(( $(date +%s) + 60 ))
-chrono_responded=0
-while [[ $(date +%s) -lt ${deadline} ]]; do
-    if [[ -f "${SUMMARY_FILE}" ]] && grep -q "SHUTDOWN SUMMARY DONE" "${SUMMARY_FILE}" 2>/dev/null; then
-        chrono_responded=1
-        break
+# coordinator_pid_is_live_claude <pid>: true only if $1 is alive AND its
+# executable path looks like the claude CLI -- the SAME `*/claude*` test
+# shared/chrono-pane.sh applies to a pane child, identical on purpose so "what
+# counts as the coordinator process" has one answer (CLAUDE.md rule 10). By
+# itself this is NOT sufficient identity: a PID recycled onto an unrelated
+# `claude` (a board worker on the claude lane is `claude` too) passes it. That
+# gap is closed by discover_orchestrator, which pairs this with
+# pid_identity_still_matches() against the recorded start-time fingerprint -- the
+# recycled worker started at a different moment, so the pair rejects it. This
+# reader never KILLS on the strength of it -- it only chooses nudge-vs-report --
+# so even a bare match misreports, it does not destroy.
+coordinator_pid_is_live_claude() {
+    local pid="$1" cmd
+    [[ "${pid}" =~ ^[0-9]+$ ]] || return 1
+    kill -0 "${pid}" 2>/dev/null || return 1
+    cmd="$(ps -o command= -p "${pid}" 2>/dev/null)"
+    [[ "${cmd}" == */claude* ]] || return 1
+    return 0
+}
+
+# --- process-identity fingerprint (used by BOTH discover_orchestrator below and
+# the descendant reaping in Phase 5) --------------------------------------------
+# Records $1's kernel start time as a single normalized string. Used as a
+# cheap process-identity fingerprint (Plan B Task 7 fix round 1): a PID
+# alone does not identify a process across time -- it can be recycled by an
+# unrelated process between when it was snapshotted and when it is acted
+# on. `lstart` (not `etime`) because it is an absolute wall-clock value, so
+# two queries of the SAME process always agree regardless of how much time
+# passed between them, while a different process reusing the same PID
+# almost certainly started at a different moment. bin/vs-welcome.sh records the
+# coordinator's start with the SAME `ps -o lstart=` normalization so the writer
+# and this reader agree (CLAUDE.md rule 10; the CoordinatorPidfile semantic
+# round-trip test drives writer into reader on a live process to prove it).
+pid_start_time() {
+    ps -o lstart= -p "$1" 2>/dev/null | tr -s '[:space:]' ' ' | sed 's/^ //; s/ $//'
+}
+
+# True only if $1 is BOTH currently alive AND its start time still matches
+# $2, the value recorded for it. A mismatch (or an empty recorded value,
+# e.g. a PID this record never actually saw) means $1 is no longer -- or
+# never was -- the specific process that was recorded, so it must never be
+# treated as the recorded coordinator (or as a survivor of the Phase 5 kill).
+#
+# LIFE-03c: this file is the ONE home for the coordinator identity check. The
+# coordinator exit recorder in bin/launch-squad.sh carries a byte-faithful copy
+# of pid_start_time / pid_identity_still_matches inside the single-line command
+# it sends to the chrono pane (a fresh shell cannot source this script -- doing
+# so would run the whole stop), and uses it to decide whether to clear a stale
+# squad.pid on exit. It reuses THIS scheme rather than inventing a second one;
+# test_squad_stop_reaping.py drives both and asserts they reach the same verdict.
+pid_identity_still_matches() {
+    local pid="$1" recorded_start="$2" current_start
+    kill -0 "${pid}" 2>/dev/null || return 1
+    [[ -n "${recorded_start}" ]] || return 1
+    current_start="$(pid_start_time "${pid}")"
+    [[ -n "${current_start}" ]] || return 1
+    [[ "${current_start}" == "${recorded_start}" ]]
+}
+
+# discover_orchestrator: echo exactly one of
+#   "pane <tmux-target>"    a live coordinator is nudgeable in that pane
+#   "background-job <pid>"  a live coordinator with no pane (NOT nudgeable)
+#   "none"                  no live orchestrator found anywhere we can look
+# Depends only on parse_coordinator_pidfile, coordinator_pid_is_live_claude,
+# pid_identity_still_matches and chrono_pane_has_coordinator (all injectable),
+# plus CHRONO_COORDINATOR_PIDFILE, CHRONO_PANE_READY and SESSION -- so the routing
+# is driven directly by the test with stubs, the same way reap_pidfile_process()
+# takes an injected identity check.
+discover_orchestrator() {
+    local parsed shape pid target start
+    if parsed="$(parse_coordinator_pidfile "${CHRONO_COORDINATOR_PIDFILE}")"; then
+        read -r shape pid target start <<<"${parsed}"
+        [[ "${target}" == "-" ]] && target=""
+        [[ "${start}" == "-" ]] && start=""
+        # Trust the recorded PID only when it is BOTH a live claude AND the SAME
+        # process instance the coordinator recorded at startup -- verified by the
+        # start-time fingerprint. A PID recycled onto an unrelated claude board
+        # worker is live-and-claude but started at a different moment, so identity
+        # fails and it is NOT reported as the coordinator: this is the recycled-PID
+        # false positive the cross-family review found. An empty recorded start
+        # (synthetic/legacy file) fails closed here.
+        if coordinator_pid_is_live_claude "${pid}" && pid_identity_still_matches "${pid}" "${start}"; then
+            case "${shape}" in
+                pane)
+                    # The recorded pane target counts only if the coordinator is
+                    # STILL the live foreground process there -- it may have exited
+                    # or moved since launch. When shared/chrono-pane.sh LOADED, it
+                    # is that authority and a stale target falls through, never
+                    # nudged. When it FAILED to load (CHRONO_PANE_READY != 1), the
+                    # identity-matched live claude above is itself an independent
+                    # authority -- the whole reason the coordinator records its
+                    # real PID+fingerprint -- so trust the recorded target rather
+                    # than collapsing a live coordinator into `none` (review P1).
+                    if [[ -n "${target}" ]]; then
+                        if chrono_pane_has_coordinator "${target}"; then
+                            printf 'pane %s\n' "${target}"
+                            return 0
+                        elif [[ "${CHRONO_PANE_READY:-1}" != "1" ]]; then
+                            printf 'pane %s\n' "${target}"
+                            return 0
+                        fi
+                    fi
+                    ;;
+                background-job)
+                    printf 'background-job %s\n' "${pid}"
+                    return 0
+                    ;;
+            esac
+        fi
     fi
-    sleep 2
-done
+    # No usable pidfile -- the backward-compatible path for a session launched
+    # before this pidfile existed. Ask the pane directly, the exact question the
+    # old code assumed the answer to.
+    if chrono_pane_has_coordinator "${SESSION}:chrono"; then
+        printf 'pane %s\n' "${SESSION}:chrono"
+        return 0
+    fi
+    printf 'none\n'
+    return 0
+}
 
-# Phase 2 — fallback: synthesize mechanically if Chrono didn't respond
+# orchestrator_report_line <shape> <ref>: the operator-facing one-liner for each
+# outcome. Factored out so the test can assert the three DIFFER -- the LIFE-01
+# proof that "no orchestrator" no longer reads like a nudge timeout.
+orchestrator_report_line() {
+    case "$1" in
+        pane) printf 'Live orchestrator found in tmux pane %s; requesting a live-state update.\n' "$2" ;;
+        background-job) printf 'Live orchestrator found as a BACKGROUND JOB (PID %s) with no tmux pane; it cannot be nudged via tmux, so NO live-state update was requested. Synthesizing the baseline summary from filesystem state instead.\n' "$2" ;;
+        none) printf 'NO live orchestrator found: no coordinator pidfile names a live claude process and the %s:chrono pane does not host the coordinator. This is NOT a nudge timeout -- nothing was nudged. Synthesizing the baseline summary from filesystem state.\n' "${SESSION}" ;;
+        *) printf 'Orchestrator discovery returned an unrecognized shape %s.\n' "$1" ;;
+    esac
+}
+
+# Phase 1 — discover the live orchestrator, then (only if it is a nudgeable
+# pane) ask it to update canonical live state and optionally write a summary.
+discovered="$(discover_orchestrator)"
+read -r orch_shape orch_ref <<<"${discovered}"
+echo "Squad close initiated (session: ${SESSION}). $(orchestrator_report_line "${orch_shape}" "${orch_ref}")"
+
+chrono_responded=0
+if [[ "${orch_shape}" == "pane" ]]; then
+    NUDGE_MSG="Operator is closing the squad session. Update chrono/current.md and any affected departments/*/current.md so live state is accurate. Do not write docs/handoffs. If useful, write a transient shutdown summary to ${SUMMARY_FILE} with in-flight task IDs, queued work, and anything next launch should see after reading current.md. Confirm by appending 'SHUTDOWN SUMMARY DONE' to that file. After confirming, the operator will close the session."
+
+    tmux send-keys -l -t "${orch_ref}" "${NUDGE_MSG}"
+    sleep 0.3
+    tmux send-keys -t "${orch_ref}" Enter
+
+    # Poll for summary file with marker — up to 60s
+    echo "Waiting up to 60s for Chrono to update state..."
+    deadline=$(( $(date +%s) + 60 ))
+    while [[ $(date +%s) -lt ${deadline} ]]; do
+        if [[ -f "${SUMMARY_FILE}" ]] && grep -q "SHUTDOWN SUMMARY DONE" "${SUMMARY_FILE}" 2>/dev/null; then
+            chrono_responded=1
+            break
+        fi
+        sleep 2
+    done
+else
+    # background-job or none: nothing to nudge. Repeat the specific reason on
+    # stderr so it survives in an operator's error stream, not only stdout.
+    orchestrator_report_line "${orch_shape}" "${orch_ref}" >&2
+fi
+
+# Frontmatter for the mechanical summary depends on WHY Chrono did not write its
+# own: a real 60s timeout (pane, nudged, silent) is a different fact from "not
+# nudgeable" or "no orchestrator", and the file must not blur them.
+case "${orch_shape}" in
+    pane)
+        summary_status="transient-session-closed-via-fallback"
+        summary_responded="false"
+        summary_orchestrator="pane ${orch_ref} (nudged; no response in 60s)"
+        summary_reason="Chrono did not respond to the shutdown request within 60s"
+        ;;
+    background-job)
+        summary_status="transient-session-closed-orchestrator-unreachable-by-nudge"
+        summary_responded="n/a"
+        summary_orchestrator="background-job PID ${orch_ref} (no tmux pane; not reachable by nudge)"
+        summary_reason="the live orchestrator is a background job with no tmux pane, so it was never nudged"
+        ;;
+    *)
+        summary_status="transient-session-closed-no-orchestrator"
+        summary_responded="n/a"
+        summary_orchestrator="none-found"
+        summary_reason="no live orchestrator was found, so nothing was nudged"
+        ;;
+esac
+
+# Phase 2 — fallback: synthesize mechanically if Chrono did not write its own.
 if [[ ${chrono_responded} -eq 0 ]]; then
-    echo "Chrono did not respond in 60s. Synthesizing baseline summary from filesystem state..."
+    echo "Synthesizing baseline summary from filesystem state (${summary_reason})..."
 
     {
         echo "---"
         echo "date: $(date '+%Y-%m-%d %H:%M %Z')"
-        echo "status: transient-session-closed-via-fallback"
-        echo "chrono_responded: false"
+        echo "status: ${summary_status}"
+        echo "chrono_responded: ${summary_responded}"
+        echo "orchestrator: ${summary_orchestrator}"
         echo "---"
         echo ""
         echo "# Session-end shutdown summary (auto-synthesized)"
         echo ""
-        echo "Generated by \`bin/squad-stop.sh\` because Chrono did not respond to the shutdown request within 60s. This file is ignored runtime context, not durable product truth. Resume from \`_state/active-tasks.json\`, \`chrono/current.md\`, and each source namespace's \`current.md\`."
+        echo "Generated by \`bin/squad-stop.sh\` because ${summary_reason}. This file is ignored runtime context, not durable product truth. Resume from \`_state/active-tasks.json\`, \`chrono/current.md\`, and each source namespace's \`current.md\`."
         echo ""
         echo "## Coordinator state (\`chrono/current.md\`)"
         echo ""
@@ -447,36 +683,14 @@ PY
 )" || true
 fi
 
-# Records $1's kernel start time as a single normalized string. Used as a
-# cheap process-identity fingerprint (Plan B Task 7 fix round 1): a PID
-# alone does not identify a process across time -- it can be recycled by an
-# unrelated process between when it was snapshotted and when it is acted
-# on. `lstart` (not `etime`) because it is an absolute wall-clock value, so
-# two queries of the SAME process always agree regardless of how much time
-# passed between them, while a different process reusing the same PID
-# almost certainly started at a different moment.
-pid_start_time() {
-    ps -o lstart= -p "$1" 2>/dev/null | tr -s '[:space:]' ' ' | sed 's/^ //; s/ $//'
-}
-
-# True only if $1 is BOTH currently alive AND its start time still matches
-# $2, the value recorded for it at snapshot time. A mismatch (or an empty
-# recorded value, e.g. a PID this snapshot never actually saw) means $1 is
-# no longer -- or never was -- the specific process that was snapshotted,
-# so it must never be treated as a survivor of the kill below.
-pid_identity_still_matches() {
-    local pid="$1" recorded_start="$2" current_start
-    kill -0 "${pid}" 2>/dev/null || return 1
-    [[ -n "${recorded_start}" ]] || return 1
-    current_start="$(pid_start_time "${pid}")"
-    [[ -n "${current_start}" ]] || return 1
-    [[ "${current_start}" == "${recorded_start}" ]]
-}
-
 # Fingerprint every descendant NOW, in the same pre-kill snapshot window as
 # the PID list itself, so Phase 5 below can tell a genuine survivor from a
 # PID that got recycled by something else entirely during/after the kill.
-declare -A descendant_start_time=()
+#
+# macOS runs this file with /bin/bash 3.2, which has no associative arrays.
+# PIDs are non-negative integers, so a sparse indexed array is the exact map
+# needed here and keeps the existing pid-keyed reads unchanged.
+declare -a descendant_start_time=()
 if [[ -n "${descendant_pids}" ]]; then
     for pid in ${descendant_pids}; do
         descendant_start_time["${pid}"]="$(pid_start_time "${pid}")"
@@ -595,6 +809,16 @@ if [[ -n "${descendant_pids}" ]]; then
             reap_survivor_group "${pid}" KILL "${descendant_start_time[${pid}]:-}"
         done
     fi
+fi
+
+# The coordinator pidfile named the pane this stop just tore down (or was stale/
+# absent). Remove it so a later stop cannot rediscover a coordinator that no
+# longer exists -- EXCEPT when discovery found a live BACKGROUND JOB: this stop
+# does not (and must not) kill that, so its pidfile still names a live
+# coordinator and must stay. Matches reap_pidfile_process()'s own `rm -f` on the
+# runtime pidfiles it owns; this is gitignored _state/runtime, not tracked state.
+if [[ "${orch_shape}" != "background-job" ]]; then
+    rm -f "${CHRONO_COORDINATOR_PIDFILE}" 2>/dev/null || true
 fi
 
 echo ""

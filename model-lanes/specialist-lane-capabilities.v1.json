@@ -2,6 +2,10 @@
   "schema": "specialist-lane-capabilities/v1",
   "version": 1,
   "description": "Authoring source for specialist-by-lane role capabilities; adapters and the cross-lane index are derived.",
+  "projection_compatible_source_sha256s": [
+    "5e1f2282f7294d6d764a550c1b1851b943709a9637bcb51b1bfb02f15968c70e",
+    "b5693bab7ccdccf6ab1c1e1018fb93e3153a9fd1883e97f1f31c4fa4aee26e53"
+  ],
   "coverage_policy": {
     "primary": "full: required capabilities must resolve in the primary execution plan",
     "non_primary": "partial: backup, escalation, review, and throughput lanes are best-effort and must state limitations"
@@ -163,21 +167,21 @@
       "skills": [
         {
           "id": "harness-baseline-audit",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "instinct-prune-loop",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "kg-vault-health-check",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "mcp-reachability-audit",
@@ -193,9 +197,9 @@
         },
         {
           "id": "stale-knowledge-purge",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         }
       ],
       "tools": [
@@ -323,14 +327,16 @@
     {
       "specialist": "ai-engineer",
       "lane": "claude",
-      "coverage": "full",
-      "limitations": [],
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
       "skills": [
         {
           "id": "agent-architecture-pattern",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "eval-harness-pattern",
@@ -340,15 +346,15 @@
         },
         {
           "id": "mcp-tool-design",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "multi-model-routing-discipline",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "prompt-cache-discipline",
@@ -358,9 +364,9 @@
         },
         {
           "id": "rag-eval-loop",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         }
       ],
       "tools": [
@@ -422,11 +428,46 @@
     {
       "specialist": "ai-engineer",
       "lane": "gpt-codex",
-      "coverage": "partial",
-      "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "agent-architecture-pattern",
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
+        },
+        {
+          "id": "eval-harness-pattern",
+          "requirement": "preferred",
+          "availability": "authored:stub",
+          "evidence": "shared-skills:stub"
+        },
+        {
+          "id": "mcp-tool-design",
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
+        },
+        {
+          "id": "multi-model-routing-discipline",
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
+        },
+        {
+          "id": "prompt-cache-discipline",
+          "requirement": "preferred",
+          "availability": "authored:stub",
+          "evidence": "shared-skills:stub"
+        },
+        {
+          "id": "rag-eval-loop",
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
+        }
       ],
-      "skills": [],
       "tools": [
         {
           "id": "arxiv_search",
@@ -485,15 +526,15 @@
       "skills": [
         {
           "id": "boundary-design",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "c4-model-authoring",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "data-flow-trace",
@@ -503,9 +544,9 @@
         },
         {
           "id": "data-model-contract",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "dependency-cycle-audit",
@@ -603,8 +644,10 @@
     {
       "specialist": "asset-provenance-and-rights-auditor",
       "lane": "claude",
-      "coverage": "full",
-      "limitations": [],
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
       "skills": [
         {
           "id": "consent-and-likeness-check",
@@ -618,6 +661,42 @@
           "availability": "superseded",
           "evidence": "superseded"
         },
+        {
+          "id": "rule6-rights-gate",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "shared-registry:authored"
+        }
+      ],
+      "tools": [
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        }
+      ],
+      "mcps": [
+        {
+          "id": "chrono-vault",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        },
+        {
+          "id": "sequential-thinking",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        }
+      ]
+    },
+    {
+      "specialist": "asset-provenance-and-rights-auditor",
+      "lane": "gemini",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
         {
           "id": "rule6-rights-gate",
           "requirement": "required",
@@ -702,20 +781,22 @@
     {
       "specialist": "backend-engineer",
       "lane": "claude",
-      "coverage": "full",
-      "limitations": [],
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
       "skills": [
         {
           "id": "async-scraper-pipeline",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "axum-tokio-pattern",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "data-flow-trace",
@@ -725,27 +806,27 @@
         },
         {
           "id": "fastapi-service-boot",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "mcp-server-cdp-pattern",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "n8n-workflow-orchestration",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "playwright-stealth-config",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         }
       ],
       "tools": [
@@ -813,16 +894,50 @@
     {
       "specialist": "backend-engineer",
       "lane": "gpt-codex",
-      "coverage": "partial",
-      "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
-      ],
+      "coverage": "full",
+      "limitations": [],
       "skills": [
+        {
+          "id": "async-scraper-pipeline",
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
+        },
+        {
+          "id": "axum-tokio-pattern",
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
+        },
         {
           "id": "data-flow-trace",
           "requirement": "preferred",
           "availability": "available",
           "evidence": "shared-registry:authored"
+        },
+        {
+          "id": "fastapi-service-boot",
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
+        },
+        {
+          "id": "mcp-server-cdp-pattern",
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
+        },
+        {
+          "id": "n8n-workflow-orchestration",
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
+        },
+        {
+          "id": "playwright-stealth-config",
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         }
       ],
       "tools": [
@@ -973,15 +1088,37 @@
       ]
     },
     {
+      "specialist": "bounty-researcher",
+      "lane": "grok",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary (escalate) route; required capabilities remain anchored to the primary execution plan (gemini)",
+        "grok's only projected lane capability is the chrono-vault MCP (plus repo shell); native X/Twitter search (x_keyword_search) is live on the SuperGrok subscription session but is not present in the grok lane tool inventory (model-lanes/lane-capabilities.tsv adapter_tools is empty), so it is not projected here",
+        "web_search / web_fetch exist in the grok CLI but the launcher passes --disable-web-search, so no general web retrieval is available to a worker on this lane",
+        "read_file hard-fails a 343KB document at a 25,000-token ceiling (it errors rather than truncating); this role returns cited grounded leads rather than ingesting whole corpora, but any single supplied audit/report above the ceiling must stay on the primary grounded route rather than escalate to grok",
+        "authentication is the SuperGrok subscription session, not XAI_API_KEY"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": [
+        {
+          "id": "chrono-vault",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        }
+      ]
+    },
+    {
       "specialist": "brand-voice",
       "lane": "claude",
       "coverage": "full",
       "limitations": [],
       "skills": [
         {
-          "id": "cite-properly",
+          "id": "claim-verification",
           "requirement": "required",
-          "availability": "available",
+          "availability": "installed-skill-root",
           "evidence": "installed-skill-root"
         },
         {
@@ -1037,10 +1174,10 @@
       ],
       "skills": [
         {
-          "id": "cite-properly",
+          "id": "claim-verification",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
+          "availability": "installed-skill-root",
+          "evidence": "installed-skill-root"
         },
         {
           "id": "skill-description-trigger-authoring",
@@ -1093,9 +1230,9 @@
       ],
       "skills": [
         {
-          "id": "claim-validation-gate",
+          "id": "claim-verification",
           "requirement": "required",
-          "availability": "available",
+          "availability": "installed-skill-root",
           "evidence": "installed-skill-root"
         },
         {
@@ -1200,10 +1337,10 @@
       ],
       "skills": [
         {
-          "id": "claim-validation-gate",
+          "id": "claim-verification",
           "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
+          "availability": "installed-skill-root",
+          "evidence": "installed-skill-root"
         },
         {
           "id": "code-review-loop",
@@ -1301,6 +1438,77 @@
     {
       "specialist": "content-verifier",
       "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [
+        {
+          "id": "claim-verification",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "shared-registry:authored"
+        },
+        {
+          "id": "verification-before-completion",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        }
+      ],
+      "tools": [
+        {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal",
+          "provided_by": "chrono-research-arsenal"
+        },
+        {
+          "id": "perplexity_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal",
+          "provided_by": "chrono-research-arsenal"
+        },
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal",
+          "provided_by": "chrono-research-arsenal"
+        }
+      ],
+      "mcps": [
+        {
+          "id": "chrono-research-arsenal",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        },
+        {
+          "id": "chrono-vault",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        },
+        {
+          "id": "sequential-thinking",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        }
+      ]
+    },
+    {
+      "specialist": "content-verifier",
+      "lane": "gemini",
       "coverage": "full",
       "limitations": [],
       "skills": [
@@ -1449,9 +1657,9 @@
       ],
       "skills": [
         {
-          "id": "cite-properly",
+          "id": "claim-verification",
           "requirement": "required",
-          "availability": "available",
+          "availability": "installed-skill-root",
           "evidence": "installed-skill-root"
         },
         {
@@ -1462,21 +1670,21 @@
         },
         {
           "id": "evidence-level",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "find-sources",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "research-integrity-gate",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "schema-inference",
@@ -1486,15 +1694,15 @@
         },
         {
           "id": "source-triangulation",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "summarize-findings",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         }
       ],
       "tools": [],
@@ -1620,8 +1828,10 @@
     {
       "specialist": "database-engineer",
       "lane": "claude",
-      "coverage": "full",
-      "limitations": [],
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
       "skills": [
         {
           "id": "data-flow-trace",
@@ -1656,10 +1866,8 @@
     {
       "specialist": "database-engineer",
       "lane": "gpt-codex",
-      "coverage": "partial",
-      "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
-      ],
+      "coverage": "full",
+      "limitations": [],
       "skills": [
         {
           "id": "data-flow-trace",
@@ -1773,15 +1981,15 @@
       "skills": [
         {
           "id": "cc-hooks-ci-discipline",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "k8s-deploy-loop",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "rollback-test-coverage",
@@ -1797,9 +2005,9 @@
         },
         {
           "id": "terraform-state-hygiene",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         }
       ],
       "tools": [],
@@ -1888,9 +2096,9 @@
       "limitations": [],
       "skills": [
         {
-          "id": "cite-properly",
+          "id": "claim-verification",
           "requirement": "required",
-          "availability": "available",
+          "availability": "installed-skill-root",
           "evidence": "installed-skill-root"
         },
         {
@@ -1953,10 +2161,10 @@
       ],
       "skills": [
         {
-          "id": "cite-properly",
+          "id": "claim-verification",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
+          "availability": "installed-skill-root",
+          "evidence": "installed-skill-root"
         },
         {
           "id": "copy-refinement",
@@ -2034,12 +2242,6 @@
           "evidence": "shared-registry:authored"
         },
         {
-          "id": "chain-impact-rescore",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        },
-        {
           "id": "cosmos-sdk-audit-checklist",
           "requirement": "preferred",
           "availability": "available",
@@ -2074,12 +2276,6 @@
           "requirement": "required",
           "availability": "available",
           "evidence": "installed-skill-root"
-        },
-        {
-          "id": "gptscan-prompt-templates",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
         },
         {
           "id": "known-advisory-backport-check",
@@ -2519,9 +2715,8 @@
     {
       "specialist": "experimental-attacker",
       "lane": "gpt-codex",
-      "coverage": "partial",
+      "coverage": "full",
       "limitations": [
-        "best-effort non-primary route; the mirrored arsenal is available for Codex validation and PoC work but required primary execution remains anchored to Kimi",
         "board workers are network-isolated: prior_art_check reaches only chrono-vault locally, while web sources and metered research operations require a Chrono-side invocation with an explicit budget",
         "gdb is limited to offline binary parsing on this host; brakeman still needs an operator install; eslint-security and litesvm are target-project dependencies rather than host executables",
         "active scanners and exploit tooling remain bounded by target scope, rules of engagement, and the offensive_execution operator gate"
@@ -2541,12 +2736,6 @@
         },
         {
           "id": "chain-construct-smart-contract",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        },
-        {
-          "id": "chain-impact-rescore",
           "requirement": "preferred",
           "availability": "available",
           "evidence": "shared-registry:authored"
@@ -2584,12 +2773,6 @@
         {
           "id": "findings-filter",
           "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        },
-        {
-          "id": "gptscan-prompt-templates",
-          "requirement": "preferred",
           "availability": "available",
           "evidence": "shared-registry:authored"
         },
@@ -2688,8 +2871,8 @@
         {
           "id": "amass",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "host-PATH"
+          "availability": "probe-failed",
+          "evidence": "pending-reprobe"
         },
         {
           "id": "anchor",
@@ -2821,8 +3004,8 @@
         {
           "id": "golangci-lint",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "host-PATH"
+          "availability": "probe-failed",
+          "evidence": "pending-reprobe"
         },
         {
           "id": "gosec",
@@ -2960,9 +3143,9 @@
         },
         {
           "id": "semgrep",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "host-PATH"
+          "requirement": "preferred",
+          "availability": "probe-failed",
+          "evidence": "pending-reprobe"
         },
         {
           "id": "slither",
@@ -2973,8 +3156,8 @@
         {
           "id": "snyk",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "host-PATH"
+          "availability": "probe-failed",
+          "evidence": "pending-reprobe"
         },
         {
           "id": "solana",
@@ -3066,20 +3249,20 @@
         {
           "id": "guarded-semgrep",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "verified-registry:guarded-mcp"
+          "availability": "probe-failed",
+          "evidence": "pending-reprobe"
         },
         {
           "id": "guarded-slither",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "verified-registry:guarded-mcp"
+          "availability": "probe-failed",
+          "evidence": "pending-reprobe"
         },
         {
           "id": "guarded-solodit",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "verified-registry:guarded-mcp"
+          "availability": "probe-failed",
+          "evidence": "pending-reprobe"
         },
         {
           "id": "sequential-thinking",
@@ -3092,7 +3275,7 @@
     {
       "specialist": "experimental-attacker",
       "lane": "kimi",
-      "coverage": "full",
+      "coverage": "partial",
       "limitations": [
         "all shared authored audit and exploit-construction skills are live on this lane, but Kimi exposes no shell or local executable surface; every host CLI is tracked as lane-not-wired and intentionally omitted from the live adapter projection",
         "research MCP operations are lead-brokered and unavailable inside Kimi subagents; the tracked operation ids require a Kimi-lead or Chrono handoff rather than a direct child tool call",
@@ -3114,12 +3297,6 @@
         },
         {
           "id": "chain-construct-smart-contract",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        },
-        {
-          "id": "chain-impact-rescore",
           "requirement": "preferred",
           "availability": "available",
           "evidence": "shared-registry:authored"
@@ -3157,12 +3334,6 @@
         {
           "id": "findings-filter",
           "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        },
-        {
-          "id": "gptscan-prompt-templates",
-          "requirement": "preferred",
           "availability": "available",
           "evidence": "shared-registry:authored"
         },
@@ -3633,8 +3804,8 @@
         {
           "id": "binary-re-pipeline",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "chain-construct",
@@ -3644,12 +3815,6 @@
         },
         {
           "id": "chain-construct-smart-contract",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        },
-        {
-          "id": "chain-impact-rescore",
           "requirement": "preferred",
           "availability": "available",
           "evidence": "shared-registry:authored"
@@ -3669,8 +3834,8 @@
         {
           "id": "fuzzing-campaign-flow",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "known-advisory-backport-check",
@@ -3681,14 +3846,14 @@
         {
           "id": "pwntools-exploit-authoring",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "scope-gate",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "systematic-bug-hunting",
@@ -3699,8 +3864,8 @@
         {
           "id": "xbow-benchmark-runner",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         }
       ],
       "tools": [
@@ -3937,12 +4102,6 @@
         },
         {
           "id": "chain-construct-smart-contract",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        },
-        {
-          "id": "chain-impact-rescore",
           "requirement": "preferred",
           "availability": "available",
           "evidence": "shared-registry:authored"
@@ -4248,33 +4407,33 @@
       "skills": [
         {
           "id": "collab-editor-stack",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "frontend-visual-discipline",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "playwright-session-recorder",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "react-performance-loop",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "tailwind-class-management",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         }
       ],
       "tools": [
@@ -4490,14 +4649,16 @@
     {
       "specialist": "game-engineer",
       "lane": "claude",
-      "coverage": "full",
-      "limitations": [],
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
       "skills": [
         {
           "id": "cross-arch-build-discipline",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "cross-arch-test-discipline",
@@ -4538,11 +4699,22 @@
     {
       "specialist": "game-engineer",
       "lane": "gpt-codex",
-      "coverage": "partial",
-      "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "cross-arch-build-discipline",
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
+        },
+        {
+          "id": "cross-arch-test-discipline",
+          "requirement": "preferred",
+          "availability": "authored:stub",
+          "evidence": "shared-skills:stub"
+        }
       ],
-      "skills": [],
       "tools": [
         {
           "id": "WebFetch",
@@ -4694,21 +4866,21 @@
       "skills": [
         {
           "id": "harness-baseline-audit",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "leverage-area-identification",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "reversible-change-protocol",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         }
       ],
       "tools": [
@@ -4907,28 +5079,28 @@
       ],
       "skills": [
         {
-          "id": "chain-impact-rescore",
+          "id": "chain-construct",
           "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-or-shared-authored"
+          "availability": "installed-skill-root",
+          "evidence": "installed-skill-root"
         },
         {
           "id": "cvss-v4-gate",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-or-shared-authored"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "nvd-osv-calibration",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-or-shared-authored"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "program-fit-check",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-or-shared-authored"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "program-rubric-lookup",
@@ -4938,9 +5110,9 @@
         },
         {
           "id": "self-inflicted-detector",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-or-shared-authored"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "systematic-attacking",
@@ -5267,33 +5439,33 @@
       "skills": [
         {
           "id": "binary-doc-to-markdown",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "harness-baseline-audit",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "instinct-prune-loop",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "kg-vault-health-check",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "stale-knowledge-purge",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         }
       ],
       "tools": [
@@ -5397,15 +5569,13 @@
     {
       "specialist": "large-context-analyst",
       "lane": "claude",
-      "coverage": "partial",
-      "limitations": [
-        "best-effort non-primary route: retained as the strong cross-family backup, escalation, and deep-research fallback for the Kimi/K3 primary; required capabilities remain anchored to the primary execution plan"
-      ],
+      "coverage": "full",
+      "limitations": [],
       "skills": [
         {
-          "id": "claim-validation-gate",
+          "id": "claim-verification",
           "requirement": "required",
-          "availability": "available",
+          "availability": "installed-skill-root",
           "evidence": "installed-skill-root"
         },
         {
@@ -5497,40 +5667,14 @@
     },
     {
       "specialist": "large-context-analyst",
-      "lane": "gpt-codex",
+      "lane": "gemini",
       "coverage": "partial",
       "limitations": [
         "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
       ],
-      "skills": [],
-      "tools": [],
-      "mcps": [
-        {
-          "id": "chrono-vault",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "lane-inventory"
-        },
-        {
-          "id": "sequential-thinking",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "lane-inventory"
-        }
-      ]
-    },
-    {
-      "specialist": "large-context-analyst",
-      "lane": "kimi",
-      "coverage": "full",
-      "limitations": [
-        "no shell, browser, or local tool surface on this lane: corpus files are supplied in-context and no extraction, conversion, or verification binary can be run here",
-        "MCP is lead-brokered only, so chrono-research-arsenal operations are requested from the Kimi lead and never executed in-subagent",
-        "perplexity_search is not proven on Kimi and is therefore not claimed on this lane; cited-web research routes to the Opus 5 backup or a research-namespace dispatch"
-      ],
       "skills": [
         {
-          "id": "claim-validation-gate",
+          "id": "claim-verification",
           "requirement": "required",
           "availability": "available",
           "evidence": "shared-registry:authored"
@@ -5568,27 +5712,72 @@
       ],
       "tools": [
         {
+          "id": "arxiv_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal",
+          "provided_by": "chrono-research-arsenal"
+        },
+        {
+          "id": "perplexity_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal",
+          "provided_by": "chrono-research-arsenal"
+        },
+        {
           "id": "WebFetch",
           "requirement": "preferred",
           "availability": "harness-only",
           "evidence": "runtime-map:requires_approval"
+        },
+        {
+          "id": "xai_search",
+          "requirement": "preferred",
+          "availability": "mcp-operation",
+          "evidence": "chrono-research-arsenal",
+          "provided_by": "chrono-research-arsenal"
         }
       ],
       "mcps": [
         {
-          "id": "lead:chrono-research-arsenal",
+          "id": "chrono-research-arsenal",
           "requirement": "preferred",
           "availability": "available",
           "evidence": "lane-inventory"
         },
         {
-          "id": "lead:chrono-vault",
+          "id": "chrono-vault",
           "requirement": "preferred",
           "availability": "available",
           "evidence": "lane-inventory"
         },
         {
-          "id": "lead:sequential-thinking",
+          "id": "sequential-thinking",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        }
+      ]
+    },
+    {
+      "specialist": "large-context-analyst",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": [
+        {
+          "id": "chrono-vault",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        },
+        {
+          "id": "sequential-thinking",
           "requirement": "preferred",
           "availability": "available",
           "evidence": "lane-inventory"
@@ -5802,21 +5991,21 @@
       "skills": [
         {
           "id": "loop-checkpoint-protocol",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "safe-intervention",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "stall-detection",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         }
       ],
       "tools": [
@@ -5901,27 +6090,27 @@
       "skills": [
         {
           "id": "harness-baseline-audit",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "instinct-prune-loop",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "kg-vault-health-check",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "stale-knowledge-purge",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         }
       ],
       "tools": [
@@ -6102,27 +6291,27 @@
       "skills": [
         {
           "id": "brain-trio-amendment-authoring",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "instinct-prune-loop",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "kg-vault-health-check",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "stale-knowledge-purge",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         }
       ],
       "tools": [
@@ -6311,20 +6500,22 @@
     {
       "specialist": "performance-optimizer",
       "lane": "claude",
-      "coverage": "full",
-      "limitations": [],
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
       "skills": [
         {
           "id": "cross-arch-compute-routing",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "flamegraph-triage-flow",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "regression-bisect-flow",
@@ -6340,9 +6531,9 @@
         },
         {
           "id": "thread-sweet-spot-profiling",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         }
       ],
       "tools": [
@@ -6452,11 +6643,40 @@
     {
       "specialist": "performance-optimizer",
       "lane": "gpt-codex",
-      "coverage": "partial",
-      "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "cross-arch-compute-routing",
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
+        },
+        {
+          "id": "flamegraph-triage-flow",
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
+        },
+        {
+          "id": "regression-bisect-flow",
+          "requirement": "preferred",
+          "availability": "authored:stub",
+          "evidence": "shared-skills:stub"
+        },
+        {
+          "id": "representative-workload-design",
+          "requirement": "preferred",
+          "availability": "authored:stub",
+          "evidence": "shared-skills:stub"
+        },
+        {
+          "id": "thread-sweet-spot-profiling",
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
+        }
       ],
-      "skills": [],
       "tools": [
         {
           "id": "arxiv_search",
@@ -6470,6 +6690,12 @@
           "requirement": "preferred",
           "availability": "superseded",
           "evidence": "superseded"
+        },
+        {
+          "id": "chrome-devtools",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-or-shared-authored"
         },
         {
           "id": "cprofile",
@@ -6622,9 +6848,9 @@
         },
         {
           "id": "cvss-v4-gate",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "data-flow-trace",
@@ -6640,9 +6866,9 @@
         },
         {
           "id": "scope-gate",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "supply-chain-audit",
@@ -6972,14 +7198,16 @@
     {
       "specialist": "refactor-cleaner",
       "lane": "claude",
-      "coverage": "full",
-      "limitations": [],
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
       "skills": [
         {
           "id": "ast-rewrite-loop",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "behavior-preservation-test",
@@ -6989,21 +7217,21 @@
         },
         {
           "id": "comby-semantic-patch",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "dead-code-elimination",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "import-reorg",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "refactor-scope-bounding",
@@ -7125,11 +7353,46 @@
     {
       "specialist": "refactor-cleaner",
       "lane": "gpt-codex",
-      "coverage": "partial",
-      "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "ast-rewrite-loop",
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
+        },
+        {
+          "id": "behavior-preservation-test",
+          "requirement": "preferred",
+          "availability": "authored:stub",
+          "evidence": "shared-skills:stub"
+        },
+        {
+          "id": "comby-semantic-patch",
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
+        },
+        {
+          "id": "dead-code-elimination",
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
+        },
+        {
+          "id": "import-reorg",
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
+        },
+        {
+          "id": "refactor-scope-bounding",
+          "requirement": "preferred",
+          "availability": "authored:stub",
+          "evidence": "shared-skills:stub"
+        }
       ],
-      "skills": [],
       "tools": [
         {
           "id": "arxiv_search",
@@ -7249,9 +7512,9 @@
       ],
       "skills": [
         {
-          "id": "cite-properly",
+          "id": "claim-verification",
           "requirement": "required",
-          "availability": "available",
+          "availability": "installed-skill-root",
           "evidence": "installed-skill-root"
         },
         {
@@ -7262,33 +7525,33 @@
         },
         {
           "id": "evidence-level",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "find-sources",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "research-integrity-gate",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "source-triangulation",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "summarize-findings",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         }
       ],
       "tools": [
@@ -7433,6 +7696,28 @@
       ]
     },
     {
+      "specialist": "research",
+      "lane": "grok",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary (escalate) route; required capabilities remain anchored to the primary execution plan (gemini)",
+        "grok's only projected lane capability is the chrono-vault MCP (plus repo shell); native X/Twitter search (x_keyword_search) is live on the SuperGrok subscription session but is not present in the grok lane tool inventory (model-lanes/lane-capabilities.tsv adapter_tools is empty), so it is not projected here",
+        "web_search / web_fetch exist in the grok CLI but the launcher passes --disable-web-search, so no general web retrieval is available to a worker on this lane",
+        "read_file hard-fails a 343KB document at a 25,000-token ceiling (it errors rather than truncating); by brief this role routes >100k-token corpora (large repos, big PDFs, long transcripts) to large-context-analyst, so grok escalation is for tractable corpora only and any single supplied input above the ceiling must stay on the primary/large-context route rather than escalate here",
+        "authentication is the SuperGrok subscription session, not XAI_API_KEY"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": [
+        {
+          "id": "chrono-vault",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        }
+      ]
+    },
+    {
       "specialist": "reverse-engineer",
       "lane": "claude",
       "coverage": "partial",
@@ -7540,39 +7825,39 @@
       "skills": [
         {
           "id": "api-surface-mapper",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "github-recon",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "nuclei-scan",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "program-intel-query",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "recon-chain-orchestrator",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "scope-gate",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         }
       ],
       "tools": [
@@ -7757,27 +8042,27 @@
       "skills": [
         {
           "id": "bot-evasion-loop",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "browser-scrape-pipeline",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "data-normalization",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "playwright-stealth-config",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "rate-limit-respect",
@@ -7787,9 +8072,9 @@
         },
         {
           "id": "scrape-state-persistence",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "tos-compliance-check",
@@ -8002,12 +8287,6 @@
           "evidence": "installed-skill-root"
         },
         {
-          "id": "gptscan-prompt-templates",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        },
-        {
           "id": "known-advisory-backport-check",
           "requirement": "preferred",
           "availability": "available",
@@ -8391,12 +8670,6 @@
           "evidence": "shared-registry:authored"
         },
         {
-          "id": "gptscan-prompt-templates",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        },
-        {
           "id": "known-advisory-backport-check",
           "requirement": "preferred",
           "availability": "available",
@@ -8858,9 +9131,9 @@
     {
       "specialist": "smart-contract-engineer",
       "lane": "claude",
-      "coverage": "full",
+      "coverage": "partial",
       "limitations": [
-        "board workers are network-isolated: prior_art_check reaches only chrono-vault locally; HackerOne, Immunefi, GitHub, CVE, OSV, target history, and Solodit require Chrono-side network invocation"
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
       ],
       "skills": [
         {
@@ -9044,16 +9317,44 @@
     {
       "specialist": "smart-contract-engineer",
       "lane": "gpt-codex",
-      "coverage": "partial",
-      "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
-      ],
+      "coverage": "full",
+      "limitations": [],
       "skills": [
+        {
+          "id": "audit-context-prep",
+          "requirement": "preferred",
+          "availability": "authored:stub",
+          "evidence": "shared-skills:stub"
+        },
         {
           "id": "defensive-pattern-discovery",
           "requirement": "preferred",
           "availability": "available",
           "evidence": "shared-registry:authored"
+        },
+        {
+          "id": "evm-audit-flow",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "gas-optimization-pattern",
+          "requirement": "preferred",
+          "availability": "authored:stub",
+          "evidence": "shared-skills:stub"
+        },
+        {
+          "id": "solana-audit-flow",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "vulnhunter-solana",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "installed-skill-root"
         }
       ],
       "tools": [
@@ -9185,6 +9486,33 @@
       ]
     },
     {
+      "specialist": "smokey",
+      "lane": "gpt-codex",
+      "coverage": "partial",
+      "limitations": [
+        "independent review route only; no executable role capabilities are projected"
+      ],
+      "skills": [],
+      "tools": [],
+      "mcps": []
+    },
+    {
+      "specialist": "smokey",
+      "lane": "grok",
+      "coverage": "full",
+      "limitations": [],
+      "skills": [],
+      "tools": [],
+      "mcps": [
+        {
+          "id": "chrono-vault",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        }
+      ]
+    },
+    {
       "specialist": "social-strategist",
       "lane": "claude",
       "coverage": "partial",
@@ -9193,9 +9521,9 @@
       ],
       "skills": [
         {
-          "id": "cite-properly",
+          "id": "claim-verification",
           "requirement": "required",
-          "availability": "available",
+          "availability": "installed-skill-root",
           "evidence": "installed-skill-root"
         },
         {
@@ -9322,15 +9650,15 @@
       "skills": [
         {
           "id": "compiler-bootstrap-flow",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "cross-arch-build-discipline",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "cross-arch-test-discipline",
@@ -9563,6 +9891,37 @@
     },
     {
       "specialist": "summarizer",
+      "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [],
+      "tools": [
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        }
+      ],
+      "mcps": [
+        {
+          "id": "chrono-vault",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        },
+        {
+          "id": "sequential-thinking",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        }
+      ]
+    },
+    {
+      "specialist": "summarizer",
       "lane": "gpt-codex",
       "coverage": "partial",
       "limitations": [
@@ -9649,9 +10008,9 @@
       "limitations": [],
       "skills": [
         {
-          "id": "cite-properly",
+          "id": "claim-verification",
           "requirement": "required",
-          "availability": "available",
+          "availability": "installed-skill-root",
           "evidence": "installed-skill-root"
         },
         {
@@ -9662,21 +10021,21 @@
         },
         {
           "id": "evidence-level",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "preserve-outliers",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "summarize-findings",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         }
       ],
       "tools": [
@@ -9763,15 +10122,15 @@
       "skills": [
         {
           "id": "compiler-bootstrap-flow",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "cross-arch-build-discipline",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "cross-arch-test-discipline",
@@ -9781,9 +10140,9 @@
         },
         {
           "id": "hybrid-threading-tuning",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "simd-correctness-validation",
@@ -9793,9 +10152,9 @@
         },
         {
           "id": "simd-porting-layer",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         }
       ],
       "tools": [],
@@ -9873,14 +10232,58 @@
     {
       "specialist": "technical-artist",
       "lane": "claude",
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
+      "skills": [
+        {
+          "id": "cross-arch-build-discipline",
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
+        },
+        {
+          "id": "cross-arch-test-discipline",
+          "requirement": "preferred",
+          "availability": "authored:stub",
+          "evidence": "shared-skills:stub"
+        }
+      ],
+      "tools": [
+        {
+          "id": "WebFetch",
+          "requirement": "preferred",
+          "availability": "harness-only",
+          "evidence": "runtime-map:requires_approval"
+        }
+      ],
+      "mcps": [
+        {
+          "id": "chrono-vault",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        },
+        {
+          "id": "sequential-thinking",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        }
+      ]
+    },
+    {
+      "specialist": "technical-artist",
+      "lane": "gemini",
       "coverage": "full",
       "limitations": [],
       "skills": [
         {
           "id": "cross-arch-build-discipline",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "cross-arch-test-discipline",
@@ -9951,32 +10354,32 @@
       "skills": [
         {
           "id": "binary-doc-to-markdown",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "chrono-adr-authoring",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "chrono-changelog-generator",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "chrono-handoff-authoring",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
-          "id": "cite-properly",
+          "id": "claim-verification",
           "requirement": "required",
-          "availability": "available",
+          "availability": "installed-skill-root",
           "evidence": "installed-skill-root"
         },
         {
@@ -10036,62 +10439,64 @@
     {
       "specialist": "test-engineer",
       "lane": "claude",
-      "coverage": "full",
-      "limitations": [],
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
       "skills": [
         {
           "id": "chrono-mutation-campaign",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "chrono-property-based-strategy",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "e2e-authoring-flow",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "flaky-e2e-hunt",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "playwright-page-object-model",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "property-based-fuzz-harness",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "staged-integrity-gate",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "test-shrinkage-loop",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "webapp-testing-local",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         }
       ],
       "tools": [
@@ -10165,11 +10570,64 @@
     {
       "specialist": "test-engineer",
       "lane": "gpt-codex",
-      "coverage": "partial",
-      "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "chrono-mutation-campaign",
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
+        },
+        {
+          "id": "chrono-property-based-strategy",
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
+        },
+        {
+          "id": "e2e-authoring-flow",
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
+        },
+        {
+          "id": "flaky-e2e-hunt",
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
+        },
+        {
+          "id": "playwright-page-object-model",
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
+        },
+        {
+          "id": "property-based-fuzz-harness",
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
+        },
+        {
+          "id": "staged-integrity-gate",
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
+        },
+        {
+          "id": "test-shrinkage-loop",
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
+        },
+        {
+          "id": "webapp-testing-local",
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
+        }
       ],
-      "skills": [],
       "tools": [
         {
           "id": "arxiv_search",
@@ -10207,6 +10665,12 @@
       ],
       "mcps": [
         {
+          "id": "chrome-devtools",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        },
+        {
           "id": "chrono-research-arsenal",
           "requirement": "preferred",
           "availability": "available",
@@ -10214,6 +10678,12 @@
         },
         {
           "id": "chrono-vault",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        },
+        {
+          "id": "playwright",
           "requirement": "preferred",
           "availability": "available",
           "evidence": "lane-inventory"
@@ -10469,22 +10939,16 @@
       ],
       "skills": [
         {
-          "id": "a11y-audit",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
-        },
-        {
           "id": "chrono-ui-aesthetic-framework",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "design-token-governance",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
+          "requirement": "preferred",
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "figma-code-connect",
@@ -10502,6 +10966,12 @@
           "id": "frontend-design",
           "requirement": "required",
           "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "wcag-conformance-audit",
+          "requirement": "required",
+          "availability": "installed-skill-root",
           "evidence": "installed-skill-root"
         }
       ],
@@ -10976,11 +11446,28 @@
     {
       "specialist": "voice-agent-builder",
       "lane": "claude",
-      "coverage": "partial",
-      "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      "coverage": "full",
+      "limitations": [],
+      "skills": [
+        {
+          "id": "agent-prompt-engineering",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "shared-registry:authored"
+        },
+        {
+          "id": "conversation-design",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "shared-registry:authored"
+        },
+        {
+          "id": "knowledge-base-integration",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "shared-registry:authored"
+        }
       ],
-      "skills": [],
       "tools": [],
       "mcps": [
         {
@@ -11000,8 +11487,10 @@
     {
       "specialist": "voice-agent-builder",
       "lane": "gemini",
-      "coverage": "full",
-      "limitations": [],
+      "coverage": "partial",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+      ],
       "skills": [
         {
           "id": "agent-prompt-engineering",

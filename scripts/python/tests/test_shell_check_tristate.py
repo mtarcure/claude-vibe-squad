@@ -7,6 +7,7 @@ import datetime as dt
 import json
 import os
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
 import sys
@@ -125,6 +126,7 @@ class DispatchToolkitTriStateTest(unittest.TestCase):
             "gpt-codex": codex_expected,
             "claude": "bravo",
             "gemini": "charlie",
+            "grok": "echo",
             "kimi": "delta",
         }
         toolkit.write_text(
@@ -153,6 +155,9 @@ class DispatchToolkitTriStateTest(unittest.TestCase):
             "Configured MCP servers:\n"
             "✓ charlie: /bin/charlie (stdio) - Connected\n",
             encoding="utf-8",
+        )
+        (self.inventory / "grok.txt").write_text(
+            "MCP Servers (1)\n└── echo (stdio)\n", encoding="utf-8"
         )
         (self.inventory / "kimi.txt").write_text(
             "delta /bin/delta enabled\n", encoding="utf-8"
@@ -197,13 +202,42 @@ class WriteScopeGuardTriStateTest(unittest.TestCase):
 
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="wsguard-c4-")
+        temporary_root = Path(self.temporary.name)
+        fixtures = temporary_root / "fixtures"
+        shutil.copytree(ROOT / "tools/wsguard/fixtures", fixtures)
+        for packet in fixtures.glob("*.md"):
+            source = packet.read_text(encoding="utf-8")
+            self.assertNotIn("reviews:", source, packet)
+            packet.write_text(
+                source.replace(
+                    "direct_lane_work_allowed: true\n",
+                    "direct_lane_work_allowed: true\nreviews: none\n",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+        verifier_source = (ROOT / "tools/wsguard/verify.sh").read_text(
+            encoding="utf-8"
+        )
+        old_root = 'ROOT="$(cd -- "${HERE}/../.." && pwd -P)"'
+        self.assertIn(old_root, verifier_source)
+        verifier_source = verifier_source.replace(
+            old_root, f"ROOT={shlex.quote(str(ROOT))}", 1
+        ).replace(
+            'rm -f -- "$REPRO_LOG"',
+            'find "$REPRO_LOG" -type f -delete',
+            1,
+        )
+        self.verifier = temporary_root / "verify.sh"
+        self.verifier.write_text(verifier_source, encoding="utf-8")
 
     def tearDown(self):
         self.temporary.cleanup()
 
     def run_verify(self, repro: Path):
         return run_bash(
-            ROOT / "tools/wsguard/verify.sh",
+            self.verifier,
             env={"WSGUARD_REPRO_UNDER_TEST": str(repro)},
         )
 

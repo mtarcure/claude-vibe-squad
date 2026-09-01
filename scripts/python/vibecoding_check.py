@@ -321,9 +321,29 @@ def check_verification_contract(manifest: dict[str, Any]) -> CheckResult:
     return CheckResult("verification_contract_integrity", True, detail="registry, packet, and manifest echoes match")
 
 
-def check_verification_coverage(manifest: dict[str, Any]) -> CheckResult:
+def _required_verification_kinds(manifest: dict[str, Any]) -> list[str]:
+    """The verification kinds this close actually owes.
+
+    A Bounty campaign that hunted and found nothing is a KILL, and a KILL has no
+    PoC to reproduce. `derive_verification_contract` already makes exactly this
+    substitution for a `dry_run`; a `normal` contract cannot, because
+    `result_type` is pinned at dispatch while the outcome is not known until the
+    hunt ends. Substituting here keeps the count identical -- `negative_control`
+    is owed *instead of* `poc_reproduction`, never in addition to it -- and the
+    zero-finding claim still pays for itself in `check_bounty_result_evidence`.
+    """
     contract = manifest.get("verification_contract") or {}
-    required = contract.get("required_verification_kinds") or []
+    required = list(contract.get("required_verification_kinds") or [])
+    if manifest.get("mode") != "bounty" or manifest.get("findings") != []:
+        return required
+    return [
+        "negative_control" if kind == "poc_reproduction" else kind
+        for kind in required
+    ]
+
+
+def check_verification_coverage(manifest: dict[str, Any]) -> CheckResult:
+    required = _required_verification_kinds(manifest)
     records = manifest.get("verification_records")
     if not isinstance(records, list) or not records:
         return CheckResult("verification_coverage", False, TIER_OPERATOR, "verification_records is empty")
@@ -648,6 +668,23 @@ def _pinned_author_family(manifest: dict[str, Any]) -> str:
     return declared
 
 
+def _validate_negative_results(manifest: dict[str, Any], *, owner: str) -> None:
+    """Validate the KILL/negative evidence any zero-finding close rests on.
+
+    `owner` only names the caller in the error, so a KILLED campaign never
+    reports itself as a malformed dry_run.
+    """
+    negatives = manifest.get("negative_results")
+    if not isinstance(negatives, list) or not negatives:
+        raise ManifestContractError(f"{owner} requires KILL/negative evidence")
+    for item in negatives:
+        if item.get("outcome") not in {"killed", "negative"} or item.get("subject_sha256") != manifest.get("action_log_sha256"):
+            raise ManifestContractError("negative result is malformed or stale")
+        path = resolve_vault_file(item.get("evidence_ref"), field_name="negative evidence")
+        if hash_file(path) != item.get("evidence_sha256"):
+            raise ManifestContractError("negative evidence hash mismatch")
+
+
 def check_bounty_result_evidence(manifest: dict[str, Any]) -> CheckResult:
     try:
         result_type = manifest.get("result_type")
@@ -657,18 +694,17 @@ def check_bounty_result_evidence(manifest: dict[str, Any]) -> CheckResult:
         if result_type == "dry_run":
             if findings:
                 raise ManifestContractError("dry_run findings must be empty")
-            negatives = manifest.get("negative_results")
-            if not isinstance(negatives, list) or not negatives:
-                raise ManifestContractError("dry_run requires KILL/negative evidence")
-            for item in negatives:
-                if item.get("outcome") not in {"killed", "negative"} or item.get("subject_sha256") != manifest.get("action_log_sha256"):
-                    raise ManifestContractError("negative result is malformed or stale")
-                path = resolve_vault_file(item.get("evidence_ref"), field_name="negative evidence")
-                if hash_file(path) != item.get("evidence_sha256"):
-                    raise ManifestContractError("negative evidence hash mismatch")
+            _validate_negative_results(manifest, owner="dry_run")
+        elif not findings:
+            # KILLED. bounty.md Phase 5 routes a campaign that cleared no
+            # candidate straight to Phase 7 as a *result*, so it settles on the
+            # same KILL evidence a dry_run owes. Rejecting it instead left the
+            # honest zero-finding close unrepresentable -- `result_type` is
+            # pinned at dispatch, so such a campaign could not become a dry_run
+            # after the fact -- which prices a manufactured finding below a
+            # truthful empty one. No CVSS is owed: it is scored per finding.
+            _validate_negative_results(manifest, owner="zero-finding Bounty")
         else:
-            if not findings:
-                raise ManifestContractError("normal Bounty requires findings")
             # Both anchors are dispatcher-pinned. A finding that supplies its own
             # author_family/author_run_id can otherwise nominate its own family,
             # inside its own run, as the "independent" reproducer and stay green.

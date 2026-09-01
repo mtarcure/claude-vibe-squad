@@ -3,7 +3,7 @@
 Chrono is the only controller and the only operator-facing voice.
 
 ```text
-Operator -> Chrono -> gpt-codex | claude | gemini | kimi -> specialists
+Operator -> Chrono -> gpt-codex | claude | gemini | kimi | grok -> specialists
 ```
 
 Markdown is the interface. Chrono writes task packets; model leads execute them; specialists are markdown role files. This document is the **narrative source of truth** for how routing works. The **machine source of truth** is `shared/specialist-runtime-map.tsv` (per-specialist rows) plus the profile/policy registries; where a specific value is in question, the TSV and registries win.
@@ -34,10 +34,11 @@ Every specialist row carries a full chain, resolved from the profile registry:
 
 | lane | frontier model (primary) | escalate | best-fit capability |
 |------|--------------------------|----------|---------------------|
-| codex | `gpt-5.6-sol` (high) | `gpt-5.6-sol` Ultra/max | implementation · tests · PoC · code review mechanics · graphics/runtime |
+| codex | `gpt-5.6-sol` (high) | `gpt-5.6-sol` Ultra/max | implementation · tests · PoC · experimental probing · code review mechanics · graphics/runtime |
 | claude | `claude-fable-5` (xhigh) | `claude-fable-5` max | judgment · planning · safety/security reasoning · security defense · research/synthesis/long-context · developmental content · game/level/audio design |
-| gemini | `gemini-3.7-flash` | `gemini-3.1-pro-preview` (deep) | content/text · design · media/multimodal · **search grounding (live · API-key-backed — Google Search grounding, first-class Rule-8 route)** |
-| kimi | `kimi-code/k3` (high, thinking) | `kimi-code/k3-256k`; cross-family Opus 5 for the long-context roles | allowlisted primaries (bulk, large-context, summarization, experimental probing); otherwise throughput-only |
+| gemini | `gemini-3.7-flash` | `gemini-3.1-pro-preview` (deep) | content/text · design · media/multimodal · large-context analysis · **search grounding (live · API-key-backed — Google Search grounding, first-class Rule-8 route)** |
+| kimi | `kimi-code/k3` (high, thinking) | `kimi-code/k3-256k` | allowlisted primaries (summarization and blank-advisor parity); otherwise throughput-only |
+| grok | `grok-4.6` (default) | `grok-4.5` | `smokey` advisor; escalate route for `research` and `bounty-researcher`. Native X/Twitter search, subscription-backed. `read_file` ceiling ~25k tokens — use shell or paged ingest for large documents |
 
 **Live-launcher model binding.** For every lane, the board attests the resolved
 `shared/registries/profiles.tsv` row and passes that row's `model_id` as the native CLI's exact `--model`
@@ -45,11 +46,10 @@ argument. There is no lane-specific alternate model pin: selected profile, attes
 remain aligned for Codex, Claude, Gemini, and Kimi.
 
 **Kimi is deny-default as a primary, with a narrow allowlisted primary set.** `shared/lane-policy.tsv` carries
-`primary_default kimi deny` plus **three** operator-ratified `primary_exception` rows:
+`primary_default kimi deny` plus **two** operator-ratified `primary_exception` rows:
 
-- `experimental-attacker` (`kimi.k3.max`) — authorized mass-tool-use, broad hypothesis generation, heavy probing. Outputs are leads, never validated findings, and require Claude/Codex confirmation plus formal review.
-- `large-context-analyst` (`kimi.k3.high`) — large-corpus synthesis on the routed K3 thinking profile. Retrieval and fetch stay lead-brokered, so metered/MCP-backed research is requested from the lead rather than performed in-subagent; Opus 5 remains backup and cross-family reviewer.
 - `summarizer` (`kimi.k3.high`) — low-risk summarization of supplied documents only; Claude review remains required before consequential use.
+- `kestrel` (`kimi.k3.max`) — advisory-only blank-model parity across all four families. MCP work is lead-brokered on Kimi, and Codex is the cross-family reviewer.
 
 For those roles Kimi is a real primary, not a downshift. Outside the allowlist it remains a **gated throughput
 lane** and the data-extraction bulk backup: `kimi.k2.7.bulk` → `kimi-code/kimi-for-coding-highspeed`, marked
@@ -59,7 +59,7 @@ as a throughput one — requires an external numeric budget ceiling; never route
 
 **Gemini owns grounded bounty research.** `bounty-researcher` performs cited prior-audit, historical-exploit, incident, and taxonomy recon. Its outputs feed attack lanes but remain leads until heavy-hitter validation.
 
-**Deep six-round research is a typed Claude handoff, not a Gemini capability.** Gemini-primary `research` and `bounty-researcher` keep grounded live search local, while substantive six-round investigations route to `large-context-analyst@claude`. The handoff may invoke `/ultra-research` only after a current slash-command discovery probe passes; a present-but-undiscoverable legacy plugin is `needs_tool`, never live availability.
+**Deep six-round research is a typed large-context handoff, not generic search grounding.** Gemini-primary `research` and `bounty-researcher` keep grounded live search local, while substantive six-round investigations route to Gemini-primary `large-context-analyst`. When that role runs on its Claude backup, it may invoke `/ultra-research` only after a current slash-command discovery probe passes; a present-but-undiscoverable legacy plugin is `needs_tool`, never live availability.
 
 **Claude and Codex are the heavy hitters and finding authorities.** Claude is judgment/security-reasoning primary; Codex is implementation, tracing, PoC, and test primary. They back up and review one another under anti-affinity. Agreement from any models is corroboration, not formal review.
 
@@ -102,7 +102,7 @@ failover_policy = failover.conservative.v1   (all rows)
 
 Every non-trivial task packet names:
 
-- `to_model`: `gpt-codex | claude | gemini | kimi`
+- `to_model`: `gpt-codex | claude | gemini | kimi | grok`
 - `specialist`: canonical specialist name
 - `source_namespace`: `coding | security | content | sysmgmt | research | shared`
 - `compatibility_namespace`: mailbox that stores the packet
@@ -151,4 +151,4 @@ The dispatcher enforces the map; the recurring failure is *selecting* the wrong 
 1. **Pick the most specific specialist for the task shape** — never a generalist by default. A generalist absorbing specific work starves the specific role and loads a weaker-fit prompt.
 2. **Never route review / audit / verify work to an implementer.** Review belongs to `code-reviewer`, `skeptic`, `impact-validator`, `vibecoding-check`, or `content-verifier` (or the packet's `review_model`). An implementer reviewing lacks the reviewer's adversarial + `anti_affinity: author_family` discipline.
 3. **`systems-engineer` is not the Codex-lane default.** Per its own brief it fires for genuine low-level / cross-arch / SIMD / runtime work only (~5% of coding work). Default general implementation to `backend-engineer`, infra/tool-wiring to `devops-engineer`, persistence to `database-engineer`, hot-paths to `performance-optimizer`, docs to `technical-writer`, review to `code-reviewer`/`skeptic`.
-4. **Deliberately fan across all four models.** Gemini owns grounded research (`bounty-researcher`, Google Search grounding), content/text, and tool-gated media; Kimi owns `experimental-attacker` breadth (leads only) and bulk throughput under the downshift gate; Claude and Codex are the heavy hitters and cross-review one another. Concentrating on two lanes wastes the roster and the cross-family independence that review depends on.
+4. **Deliberately fan across all four models.** Gemini owns grounded research (`bounty-researcher`, Google Search grounding), `large-context-analyst`, content/text, and tool-gated media; Kimi owns the allowlisted `summarizer` and `kestrel` primaries plus bulk throughput under the downshift gate; Codex owns `experimental-attacker` breadth (leads only), and Claude and Codex remain the heavy hitters that cross-review one another. Concentrating on two lanes wastes the roster and the cross-family independence that review depends on.

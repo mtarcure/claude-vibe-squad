@@ -269,7 +269,7 @@ class Validator:
 
     def validate_registries(self) -> None:
         self.validate_registry(self.profile_path, self.profiles, PROFILE_HEADER,
-                               {"codex", "claude", "gemini", "kimi"})
+                               {"codex", "claude", "gemini", "grok", "kimi"})
         self.validate_registry(self.policy_path, self.policies, POLICY_HEADER,
                                {"escalation", "failover", "throughput"})
         self.validate_registry(self.tool_path, self.tools, TOOL_HEADER, optional=True)
@@ -625,10 +625,10 @@ class Validator:
                 elif not re.search(rf"^name: {re.escape(name)}$", text, re.M):
                     issue = f"{lane}-agent-name-mismatch:{name}"
             elif name_format == "main_yaml_registration":
-                main = self.root / "model-lanes/kimi/main.yaml"
+                main = self.root / f"model-lanes/{lane}/main.yaml"
                 if not main.is_file() or not re.search(
                         rf"^\s*{re.escape(name)}:", main.read_text(encoding="utf-8"), re.M):
-                    issue = f"kimi-main-missing-subagent:{name}"
+                    issue = f"{lane}-main-missing-subagent:{name}"
             elif name_format != "frontmatter_optional":
                 issue = f"unknown-adapter-name-format:{lane}:{name_format}"
             if issue:

@@ -21,10 +21,12 @@ GIB = 1024**3
 MIN_SAMPLE_INTERVAL = 2.0
 MAX_SAMPLE_INTERVAL = 5.0
 MAX_SAMPLE_AGE = 10.0
+SWAP_RATE_LIMITS = (64.0, 32.0)  # (swapins, swapouts), pages per second
 FAMILY_TARGET = 4
 LANE_FAMILY = {"claude": "anthropic", "codex": "openai", "gpt-codex": "openai",
-               "gemini": "google", "kimi": "moonshot"}
-MODEL_LANE = {"gpt-codex": "codex", "claude": "claude", "gemini": "gemini", "kimi": "kimi"}
+               "gemini": "google", "grok": "xai", "kimi": "moonshot"}
+MODEL_LANE = {"gpt-codex": "codex", "claude": "claude", "gemini": "gemini",
+              "grok": "grok", "kimi": "kimi"}
 @dataclass(frozen=True)
 class WorkloadPolicy:
     p95_rss_bytes: int
@@ -190,13 +192,12 @@ def _under_admission(
     fresh = 0 <= age <= MAX_SAMPLE_AGE
     if not fresh or not MIN_SAMPLE_INTERVAL <= interval <= MAX_SAMPLE_INTERVAL:
         failed[2] = "telemetry is missing, stale, or outside the 2-5 second interval"
-    # Clause 3 watches SWAP I/O only. Narrowed 2026-08-23: it formerly failed on any
-    # growth in swapins/pageouts/swapouts/compressions, but macOS compresses
-    # constantly (+24306/3s measured under 7 lanes) while swapouts stayed 0, so it
-    # refused every dispatch on a host that was not swapping and retries could not
-    # win a saturated sample. Compressions/pageouts are telemetry only now.
-    if second.swapins > first.swapins or second.swapouts > first.swapouts:
-        failed[3] = "swap I/O is active (swapins or swapouts increased)"
+    # 2026-08-30 24x2s samples (16KiB pages): steady swapins <=5.980/s, swapouts=0; 64/s is
+    # >10x noise and 31.9x below 2042.5/s load; direct-eviction swapouts use 32/s (pressure >=119.220/s).
+    deltas = (second.swapins - first.swapins, second.swapouts - first.swapouts)
+    rates = tuple(delta / interval for delta in deltas) if interval > 0 else (0.0, 0.0)
+    if min(deltas) < 0 or any(rate > limit for rate, limit in zip(rates, SWAP_RATE_LIMITS)):
+        failed[3] = "swap counters regressed" if min(deltas) < 0 else f"swap rates {rates[0]:.3f}/{rates[1]:.3f} exceed 64/32 pages/s"
     selected_reserve = max(policy.reserve_bytes for policy in policies)
     projected = (
         int(second.physical_bytes * (1.0 - second.pressure_free_percent / 100.0))

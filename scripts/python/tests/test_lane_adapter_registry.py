@@ -46,7 +46,9 @@ class LaneAdapterRegistryTests(unittest.TestCase):
         registry = registry_module.load_capability_registry(
             ROOT / "model-lanes" / "lane-capabilities.tsv"
         )
-        self.assertEqual(set(registry), {"gpt-codex", "claude", "gemini", "kimi"})
+        self.assertEqual(
+            set(registry), {"gpt-codex", "claude", "gemini", "grok", "kimi"}
+        )
         self.assertEqual(registry["kimi"].child_mcp_policy, "lead-broker-only")
         self.assertEqual(registry["gemini"].grounding, "google-search-grounding")
         # Derive the expectation from the capability source rather than pinning a
@@ -61,7 +63,7 @@ class LaneAdapterRegistryTests(unittest.TestCase):
         # inverse -- a lane declaring an MCP staged that nothing is waiting on --
         # which is exactly the drift that sat in the tree for three weeks.
         expected_staged = staged_mcps_by_lane()
-        for lane in ("gpt-codex", "claude", "gemini", "kimi"):
+        for lane in ("gpt-codex", "claude", "gemini", "grok", "kimi"):
             self.assertEqual(
                 tuple(sorted(registry[lane].staged_mcp_surface)),
                 expected_staged.get(lane, ()),
@@ -81,6 +83,7 @@ class LaneAdapterRegistryTests(unittest.TestCase):
                 "gpt-codex": "codex",
                 "claude": "claude",
                 "gemini": "gemini",
+                "grok": "grok",
                 "kimi": "kimi",
             },
         )
@@ -90,12 +93,14 @@ class LaneAdapterRegistryTests(unittest.TestCase):
                 "gpt-codex": "subscription-drop-provider-keys",
                 "claude": "subscription-drop-provider-keys",
                 "gemini": "gemini-api-key-only",
+                "grok": "xai-api-key-only",
                 "kimi": "managed-login-drop-provider-keys",
             },
         )
         self.assertIn("chrono-vault", registry["gpt-codex"].mcp_surface)
         self.assertIn("chrono-vault", registry["claude"].mcp_surface)
         self.assertIn("chrono-vault", registry["gemini"].mcp_surface)
+        self.assertIn("chrono-vault", registry["grok"].mcp_surface)
         self.assertIn("lead:chrono-vault", registry["kimi"].mcp_surface)
         self.assertEqual(registry["kimi"].child_mcp_policy, "lead-broker-only")
 
@@ -188,6 +193,7 @@ class LaneAdapterRegistryTests(unittest.TestCase):
         report = registry_module.repository_report(ROOT)
         self.assertEqual(report["generated_mismatches"], [])
         self.assertEqual(report["ranked_gaps"]["gemini"], [])
+        self.assertEqual(report["ranked_gaps"]["grok"], [])
         self.assertEqual(report["ranked_gaps"]["kimi"], [])
         for role in registry_module.SWARM_CRITICAL_ROLES:
             with self.subTest(role=role):
@@ -207,6 +213,15 @@ class LaneAdapterRegistryTests(unittest.TestCase):
         self.assertFalse(
             (ROOT / "model-lanes/kimi/prompts/experimental-attacker.md").exists()
         )
+
+    def test_grok_registry_points_at_smokey_native_adapter(self) -> None:
+        main = (ROOT / "model-lanes/grok/main.yaml").read_text(encoding="utf-8")
+        self.assertIn(
+            "    smokey:\n      path: ./.grok/agents/smokey.yaml",
+            main,
+        )
+        adapter = ROOT / "model-lanes/grok/.grok/agents/smokey.yaml"
+        registry_module.validate_adapter_file(ROOT, "grok", adapter)
 
 
 if __name__ == "__main__":

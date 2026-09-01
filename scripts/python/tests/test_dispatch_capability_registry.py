@@ -10,6 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from dispatch_checkout import normal_checkout_root  # noqa: E402
+from ci_host_independence import skip_in_host_independent_ci  # noqa: E402
 
 # See dispatch_checkout: send-task.sh refuses to dispatch from a linked
 # worktree, and that refusal runs before the guards this suite tests -- so
@@ -36,11 +37,12 @@ class DispatchCapabilityRegistryTests(unittest.TestCase):
         optional = ""
         if mode is not None:
             optional += f"mode: {mode}\n"
-        # Every contract-bearing mode needs a run_id. An omitted `mode` is the
-        # `modeless` state, which derives a contract too -- only an explicit
-        # non-contract mode (e.g. `research`) skips derivation entirely.
-        if include_run_id and mode in {"project", "bounty", None}:
-            prefix = {"project": "PRJ", "bounty": "BTY", None: "MDL"}[mode]
+        # Every admitted launch context needs a run_id. An omitted `mode` is
+        # the `modeless` state, which derives a contract too.
+        if include_run_id:
+            prefix = {"project": "PRJ", "bounty": "BTY", None: "MDL"}.get(
+                mode, "LEG"
+            )
             optional += f"run_id: {prefix}-DISPATCH-REGISTRY-TEST\n"
         if capability is not None:
             optional += f"capability: {capability}\n"
@@ -52,11 +54,13 @@ to_model: {to_model}
 specialist: {specialist}
 source_namespace: {namespace}
 compatibility_namespace: {namespace}
-write_scope: []
+write_scope: [_state/test-dispatch.md]
+evidence_outputs: [_state/test-dispatch.md]
 parallel_safe: false
 direct_lane_work_allowed: true
 mandatory_review: false
 review_model: none
+reviews: none
 return_artifact: _state/test-dispatch.md
 {optional}---
 
@@ -80,17 +84,15 @@ return_artifact: _state/test-dispatch.md
             check=False,
         )
 
-    def test_dry_run_matrix_uses_registry_state(self) -> None:
+    @skip_in_host_independent_ci(
+        "needs the installed Codex lane executable after dispatch admission"
+    )
+    def test_admitted_dry_run_matrix_uses_registry_state(self) -> None:
         allowed = {
             "existing-valid": "Perform a repository-only review.",
             "brave-legacy-alias": "Use brave_search within the declared budget.",
             "apify-legacy-alias": "Use apify_search after target authorization.",
             "serper-canonical": "Use `Serper` within the credit ceiling.",
-        }
-        blocked = {
-            "registry-no": "Use `DigitalOcean API` for the deployment.",
-            "registry-needs-research": "Use `Nano Banana` for image generation.",
-            "codex-apply-unproven": "Use `codex apply` to apply the generated diff.",
         }
 
         for label, body in allowed.items():
@@ -98,6 +100,14 @@ return_artifact: _state/test-dispatch.md
                 result = self._dry_run(body)
                 self.assertEqual(result.returncode, 2, result.stderr)
                 self.assertIn("[DRY RUN]", result.stdout)
+
+    def test_blocked_dry_run_matrix_uses_registry_state(self) -> None:
+        blocked = {
+            "registry-no": "Use `DigitalOcean API` for the deployment.",
+            "registry-needs-research": "Use `Nano Banana` for image generation.",
+            "codex-apply-unproven": "Use `codex apply` to apply the generated diff.",
+        }
+
         for label, body in blocked.items():
             with self.subTest(label=label):
                 result = self._dry_run(body)
@@ -110,14 +120,14 @@ return_artifact: _state/test-dispatch.md
             to_model="gemini",
             specialist="research",
             namespace="research",
-            mode="research",
+            mode="modeless",
         )
         no_result = self._dry_run(
             "Use `DigitalOcean API` for the research task.",
             to_model="gemini",
             specialist="research",
             namespace="research",
-            mode="research",
+            mode="modeless",
         )
 
         self.assertEqual(yes_result.returncode, 2, yes_result.stderr)
@@ -125,7 +135,10 @@ return_artifact: _state/test-dispatch.md
         self.assertEqual(no_result.returncode, 1, no_result.stderr)
         self.assertIn("registry-state:no", no_result.stderr)
 
-    def test_capability_dispatch_dry_run_matrix(self) -> None:
+    @skip_in_host_independent_ci(
+        "needs the installed Codex lane executable after dispatch admission"
+    )
+    def test_capability_dispatch_admitted_dry_run_matrix(self) -> None:
         live = self._dry_run(
             "Build the declared application.", mode="project", capability="web-app"
         )
@@ -135,6 +148,16 @@ return_artifact: _state/test-dispatch.md
             capability="systems-low-level",
             acknowledgement="needs_tool",
         )
+
+        self.assertEqual(live.returncode, 2, live.stderr)
+        self.assertRegex(
+            live.stdout,
+            r"Capability snapshot: id=project/web-app state=live sha256=[0-9a-f]{64}",
+        )
+        self.assertEqual(acknowledged.returncode, 2, acknowledged.stderr)
+        self.assertIn("state=needs_tool", acknowledged.stdout)
+
+    def test_capability_dispatch_refusal_dry_run_matrix(self) -> None:
         hold = self._dry_run(
             "Attempt the degraded profile without acknowledgement.",
             mode="project",
@@ -150,13 +173,6 @@ return_artifact: _state/test-dispatch.md
             "Mode mismatch.", mode="research", capability="project/web-app"
         )
 
-        self.assertEqual(live.returncode, 2, live.stderr)
-        self.assertRegex(
-            live.stdout,
-            r"Capability snapshot: id=project/web-app state=live sha256=[0-9a-f]{64}",
-        )
-        self.assertEqual(acknowledged.returncode, 2, acknowledged.stderr)
-        self.assertIn("state=needs_tool", acknowledged.stdout)
         self.assertEqual(hold.returncode, 1, hold.stderr)
         self.assertIn("capability dispatch HOLD", hold.stderr)
         for result in (malformed, missing, mismatch):

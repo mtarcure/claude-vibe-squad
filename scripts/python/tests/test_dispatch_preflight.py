@@ -1,14 +1,16 @@
 from __future__ import annotations
 
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 import hashlib
 import io
 import json
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -49,9 +51,33 @@ class DispatchPreflightTests(unittest.TestCase):
             "shared/specialists/prompt-engineer.md",
             "departments/sysmgmt/specialists/harness-optimizer.md",
             "departments/content/specialists/technical-writer.md",
+            "model-lanes/specialist-lane-capabilities.v1.json",
+            "model-lanes/claude/.claude/agents/devops-engineer.md",
+            "model-lanes/gpt-codex/.codex/agents/devops-engineer.toml",
         ):
             self._copy(relative)
         (self.repo / "_state").mkdir(exist_ok=True)
+        subprocess.run(
+            ["git", "init", "-q"], cwd=self.repo, check=True, stdout=subprocess.DEVNULL
+        )
+        subprocess.run(
+            ["git", "add", "."], cwd=self.repo, check=True, stdout=subprocess.DEVNULL
+        )
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=Dispatch Preflight Test",
+                "-c",
+                "user.email=dispatch-preflight@example.invalid",
+                "commit",
+                "-qm",
+                "baseline",
+            ],
+            cwd=self.repo,
+            check=True,
+            stdout=subprocess.DEVNULL,
+        )
 
     def _packet(
         self,
@@ -60,6 +86,7 @@ class DispatchPreflightTests(unittest.TestCase):
         acknowledgement: bool = False,
         corrupt_contract_hash: bool = False,
         body: str = ORCHESTRATOR_BLINDNESS_SHAPE,
+        write_scope: tuple[str, ...] | None = None,
     ) -> Path:
         source_namespace = {
             "technical-writer": "content",
@@ -90,6 +117,8 @@ class DispatchPreflightTests(unittest.TestCase):
             if acknowledgement
             else ""
         )
+        return_artifact = "_state/v4-runtime/orchestration/result.md"
+        declared_scope = write_scope or ("_state/v4-runtime/orchestration/",)
         packet = self.repo / "packets" / f"{task_id}.md"
         packet.parent.mkdir(exist_ok=True)
         packet.write_text(
@@ -102,9 +131,9 @@ class DispatchPreflightTests(unittest.TestCase):
             f"compatibility_namespace: {source_namespace}\n"
             "mode: project\n"
             "result_type: normal\n"
-            "write_scope: [_state/v4-runtime/orchestration/]\n"
+            f"write_scope: [{', '.join(declared_scope)}]\n"
             "read_scope: []\n"
-            "return_artifact: _state/v4-runtime/orchestration/result.md\n"
+            f"return_artifact: {return_artifact}\n"
             "parallel_safe: false\n"
             "direct_lane_work_allowed: true\n"
             "mandatory_review: false\n"
@@ -121,7 +150,7 @@ class DispatchPreflightTests(unittest.TestCase):
     def test_preflight_module_stays_small(self) -> None:
         module = ROOT / "scripts" / "python" / "dispatch_preflight.py"
         nonblank = sum(bool(line.strip()) for line in module.read_text().splitlines())
-        self.assertLessEqual(nonblank, 490)
+        self.assertLessEqual(nonblank, 665)
 
     def test_exact_contract_violation_is_refused(self) -> None:
         packet = self._packet(
@@ -159,6 +188,207 @@ class DispatchPreflightTests(unittest.TestCase):
         self.assertTrue(verdict.warnings[0]["acknowledged"])
         self.assertRegex(verdict.warning_set_sha256 or "", r"^[0-9a-f]{64}$")
         self.assertRegex(verdict.ack_sha256 or "", r"^[0-9a-f]{64}$")
+
+    def test_acknowledged_owner_warning_and_advisory_can_coexist(self) -> None:
+        packet = self._packet(
+            specialist="technical-writer",
+            acknowledgement=True,
+            body=(
+                ORCHESTRATOR_BLINDNESS_SHAPE
+                + "\nUpdate `shared/specialists/triage.md` as part of the repair."
+            ),
+        )
+        verdict = preflight.evaluate_packet(self.repo, packet)
+        self.assertEqual(verdict.decision, "allow")
+        self.assertEqual(
+            [item["code"] for item in verdict.warnings],
+            [preflight.OWNER_MISMATCH, preflight.UNSCOPED_TRACKED_PATH],
+        )
+        self.assertRegex(verdict.ack_sha256 or "", r"^[0-9a-f]{64}$")
+
+    def test_code_commit_with_artifact_only_scope_warns_but_allows(self) -> None:
+        artifact = "_state/v4-runtime/orchestration/result.md"
+        packet = self._packet(
+            specialist="harness-optimizer",
+            body="Commit your CODE changes.",
+            write_scope=(artifact,),
+        )
+        verdict = preflight.evaluate_packet(self.repo, packet)
+        self.assertEqual(verdict.decision, "allow")
+        self.assertEqual(verdict.exit_code, preflight.EXIT_PASS)
+        self.assertEqual(
+            [item["code"] for item in verdict.warnings],
+            [preflight.CODE_COMMIT_ARTIFACT_ONLY],
+        )
+        self.assertFalse(verdict.warnings[0]["blocking"])
+
+    def test_code_commit_with_code_scope_stays_silent(self) -> None:
+        artifact = "_state/v4-runtime/orchestration/result.md"
+        packet = self._packet(
+            specialist="harness-optimizer",
+            body="Commit your CODE changes.",
+            write_scope=(artifact, "shared/specialists/triage.md"),
+        )
+        verdict = preflight.evaluate_packet(self.repo, packet)
+        self.assertEqual(verdict.decision, "allow")
+        self.assertEqual(verdict.warnings, ())
+
+    def test_mutated_tracked_path_outside_scope_warns_but_allows(self) -> None:
+        artifact = "_state/v4-runtime/orchestration/result.md"
+        packet = self._packet(
+            specialist="harness-optimizer",
+            body="Update `shared/specialists/triage.md` to clarify the route.",
+            write_scope=(artifact,),
+        )
+        verdict = preflight.evaluate_packet(self.repo, packet)
+        self.assertEqual(verdict.decision, "allow")
+        self.assertEqual(verdict.exit_code, preflight.EXIT_PASS)
+        warning = next(
+            item
+            for item in verdict.warnings
+            if item["code"] == preflight.UNSCOPED_TRACKED_PATH
+        )
+        self.assertEqual(warning["paths"], ["shared/specialists/triage.md"])
+        self.assertFalse(warning["blocking"])
+
+    def test_coupled_hash_pin_ordinary_packet_stays_silent(self) -> None:
+        artifact = "_state/v4-runtime/orchestration/result.md"
+        packet = self._packet(
+            specialist="harness-optimizer",
+            body="Update `shared/specialists/triage.md` to clarify the route.",
+            write_scope=(artifact, "shared/specialists/triage.md"),
+        )
+        self.assertEqual(preflight.authoring_warnings(self.repo, packet), ())
+
+    def test_dirty_tracked_write_scope_warns_but_allows(self) -> None:
+        target = self.repo / "shared/specialists/triage.md"
+        target.write_text(
+            target.read_text(encoding="utf-8") + "\ndirty\n", encoding="utf-8"
+        )
+        artifact = "_state/v4-runtime/orchestration/result.md"
+        packet = self._packet(
+            specialist="harness-optimizer",
+            body="Update `shared/specialists/triage.md` to clarify the route.",
+            write_scope=(artifact, "shared/specialists/triage.md"),
+        )
+        verdict = preflight.evaluate_packet(self.repo, packet)
+        self.assertEqual(verdict.decision, "allow")
+        self.assertEqual(verdict.exit_code, preflight.EXIT_PASS)
+        self.assertEqual(
+            [item["code"] for item in verdict.warnings],
+            [preflight.DIRTY_WRITE_SCOPE],
+        )
+        self.assertEqual(
+            verdict.warnings[0]["paths"], ["shared/specialists/triage.md"]
+        )
+
+    def test_read_only_tracked_path_reference_stays_silent(self) -> None:
+        artifact = "_state/v4-runtime/orchestration/result.md"
+        packet = self._packet(
+            specialist="harness-optimizer",
+            body="Inspect `shared/specialists/triage.md` and report the result.",
+            write_scope=(artifact,),
+        )
+        verdict = preflight.evaluate_packet(self.repo, packet)
+        self.assertEqual(verdict.decision, "allow")
+        self.assertEqual(verdict.warnings, ())
+
+    def test_empty_scope_does_not_treat_every_dirty_path_as_in_scope(self) -> None:
+        target = self.repo / "shared/specialists/triage.md"
+        target.write_text(
+            target.read_text(encoding="utf-8") + "\ndirty\n", encoding="utf-8"
+        )
+        packet = self._packet(
+            specialist="harness-optimizer",
+            body="Inspect the current dispatch design and report the result.",
+            write_scope=(),
+        )
+        packet.write_text(
+            packet.read_text(encoding="utf-8").replace(
+                "write_scope: [_state/v4-runtime/orchestration/]", "write_scope: []"
+            ).replace(
+                "return_artifact: _state/v4-runtime/orchestration/result.md",
+                'return_artifact: ""',
+            ),
+            encoding="utf-8",
+        )
+        self.assertEqual(preflight.authoring_warnings(self.repo, packet), ())
+
+    def test_advisory_failure_is_fail_open(self) -> None:
+        packet = self._packet(
+            specialist="harness-optimizer",
+            body="Update `shared/specialists/triage.md` to clarify the route.",
+        )
+        with mock.patch.object(
+            preflight, "_git_paths", side_effect=RuntimeError("diagnostic failed")
+        ):
+            verdict = preflight.evaluate_packet(self.repo, packet)
+        self.assertEqual(verdict.decision, "allow")
+        self.assertEqual(verdict.exit_code, preflight.EXIT_PASS)
+        self.assertEqual(verdict.warnings, ())
+
+    def test_malformed_advisory_output_is_fail_open(self) -> None:
+        packet = self._packet(specialist="harness-optimizer")
+        with mock.patch.object(
+            preflight,
+            "authoring_warnings",
+            return_value=({"gate": "advisory"},),
+        ):
+            status = preflight.main(
+                [
+                    "--repo-root",
+                    str(self.repo),
+                    "--packet",
+                    str(packet),
+                    "--authoring-warnings-only",
+                ]
+            )
+        self.assertEqual(status, preflight.EXIT_PASS)
+
+    def test_coupled_hash_pin_prints_in_dry_and_live_paths_without_gating(self) -> None:
+        artifact = "_state/v4-runtime/orchestration/result.md"
+        source = "model-lanes/specialist-lane-capabilities.v1.json"
+        pinners = [
+            "model-lanes/claude/.claude/agents/devops-engineer.md",
+            "model-lanes/gpt-codex/.codex/agents/devops-engineer.toml",
+        ]
+        packet = self._packet(
+            specialist="harness-optimizer",
+            body=f"Update `{source}` to change a projected capability.",
+            write_scope=(artifact, source),
+        )
+        live_stdout, live_stderr = io.StringIO(), io.StringIO()
+        with redirect_stdout(live_stdout), redirect_stderr(live_stderr):
+            live_status = preflight.main(
+                ["--repo-root", str(self.repo), "--packet", str(packet)]
+            )
+        dry_stdout, dry_stderr = io.StringIO(), io.StringIO()
+        with redirect_stdout(dry_stdout), redirect_stderr(dry_stderr):
+            dry_status = preflight.main(
+                [
+                    "--repo-root",
+                    str(self.repo),
+                    "--packet",
+                    str(packet),
+                    "--authoring-warnings-only",
+                ]
+            )
+        self.assertEqual((dry_status, live_status), (preflight.EXIT_PASS,) * 2)
+        rendered_live = json.loads(live_stdout.getvalue())
+        self.assertEqual(rendered_live["decision"], "allow")
+        warning = next(
+            item
+            for item in rendered_live["warnings"]
+            if item["code"] == preflight.COUPLED_HASH_PIN
+        )
+        self.assertEqual(warning["source_path"], source)
+        self.assertEqual(warning["missing_count"], len(pinners))
+        self.assertEqual(warning["paths"], pinners)
+        self.assertFalse(warning["blocking"])
+        self.assertEqual(dry_stdout.getvalue(), "")
+        for rendered in (dry_stderr.getvalue(), live_stderr.getvalue()):
+            self.assertIn(f"[{preflight.COUPLED_HASH_PIN}]", rendered)
+            self.assertIn(pinners[0], rendered)
 
     def test_same_shape_owned_by_harness_optimizer_is_clean(self) -> None:
         dispatch_log = self.repo / "_state" / "dispatch-log.jsonl"
@@ -245,6 +475,14 @@ class DispatchPreflightTests(unittest.TestCase):
         inbox_publish = sender.index("# ── copy to unified board inbox", common)
         self.assertLess(common, inbox_publish)
         self.assertEqual(sender.count('board_host_admit "$ACTUAL_TASK_FILE"'), 1)
+
+        wrapper = (ROOT / "scripts" / "send-task.sh").read_text(encoding="utf-8")
+        dry_advisory = wrapper.index("--authoring-warnings-only")
+        hardened = wrapper.index('"${HARDENED_DISPATCH}" "${DISPATCH_ARGS[@]}"')
+        self.assertLess(dry_advisory, hardened)
+        advisory_block = wrapper[dry_advisory - 300 : dry_advisory + 100]
+        self.assertIn('[[ "${DRY_RUN}" == "true"', advisory_block)
+        self.assertIn("|| true", advisory_block)
 
 
 if __name__ == "__main__":

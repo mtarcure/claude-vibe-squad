@@ -249,6 +249,7 @@ class Block1SymlinkedInbox(unittest.TestCase):
                 "source_namespace": "coding", "compatibility_namespace": "coding",
                 "run_id": "wave2-b1-symlinked-inbox",
                 "parallel_safe": "true", "direct_lane_work_allowed": "true",
+                "reviews": "none",
                 "write_scope": "[]",
                 "return_artifact": f"{dept}/outbox/{task_id}-response.md",
             }, "body"), encoding="utf-8")
@@ -313,10 +314,41 @@ class Block1SymlinkedInbox(unittest.TestCase):
             fixture_python = fixture_scripts / "python"
             fixture_python.mkdir()
             for entry in (REPO / "scripts" / "python").iterdir():
-                if entry.name not in {"dispatch_context_builder.py", "host_admission.py"}:
+                if entry.name not in {
+                    "board_process_truth.py",
+                    "dispatch_context_builder.py",
+                    "host_admission.py",
+                }:
                     (fixture_python / entry.name).symlink_to(
                         entry, target_is_directory=entry.is_dir()
                     )
+            (fixture_python / "board_process_truth.py").write_text(
+                "import hashlib, json, os, tempfile\n"
+                "from datetime import datetime, timezone\n"
+                "def utc_now():\n"
+                "    return datetime.now(timezone.utc).isoformat()\n"
+                "def observe_process(pid):\n"
+                "    pid = int(pid)\n"
+                "    return {'pid': pid, 'pgid': pid, "
+                "'process_start_token': 'fixture:physical-inbox', "
+                "'argv_sha256': hashlib.sha256(str(pid).encode()).hexdigest()}\n"
+                "def atomic_write_json(path, payload, *, exclusive=False):\n"
+                "    path = os.fspath(path)\n"
+                "    parent = os.path.dirname(path) or '.'\n"
+                "    fd, temporary = tempfile.mkstemp(prefix='.fixture-', dir=parent)\n"
+                "    try:\n"
+                "        with os.fdopen(fd, 'w', encoding='utf-8') as handle:\n"
+                "            json.dump(payload, handle, sort_keys=True)\n"
+                "            handle.write('\\n')\n"
+                "            handle.flush()\n"
+                "            os.fsync(handle.fileno())\n"
+                "        if exclusive and os.path.exists(path): return False\n"
+                "        os.replace(temporary, path)\n"
+                "        return True\n"
+                "    finally:\n"
+                "        if os.path.exists(temporary): os.unlink(temporary)\n",
+                encoding="utf-8",
+            )
             # Production binds the admission decision to the exact candidate
             # vector: host_admission.py computes candidate_vector_sha256 and
             # send-task.sh refuses a reply whose hash does not match, so a stub
@@ -367,6 +399,7 @@ class Block1SymlinkedInbox(unittest.TestCase):
                 "result_type": "normal", "read_scope": "[]",
                 "parallel_safe": "true", "direct_lane_work_allowed": "true",
                 "mandatory_review": "false", "review_model": "none",
+                "reviews": "none",
                 "model_override_reason": "hermetic physical inbox fixture",
                 "write_scope": f"[{artifact}]", "return_artifact": artifact,
             }, "body"), encoding="utf-8")
@@ -375,6 +408,7 @@ class Block1SymlinkedInbox(unittest.TestCase):
             env = {**os.environ, "VAULT_ROOT": str(vault), "SKIP_NUDGE": "1",
                    "SQUAD_DISPATCH_MODE": "board",
                    "SQUAD_BASE_BRANCH": "v2",
+                   "UV_CACHE_DIR": str(root / "uv-cache"),
                    "WAVE2_BOARD_LAUNCH_MARKER": str(launch_marker)}
             r = subprocess.run([str(SEND_TASK), str(pkt)], env=env,
                                capture_output=True, text=True, timeout=120)
@@ -437,12 +471,18 @@ class Block1SymlinkedInbox(unittest.TestCase):
                 "mode": "project", "run_id": "wave2-compat-pin",
                 "result_type": "normal", "review_triggers": "[]",
                 "parallel_safe": "true", "direct_lane_work_allowed": "true",
+                "reviews": "none",
                 "write_scope": "[]",
                 "return_artifact":
                     f"departments/coding/outbox/{task_id}-response.md",
             }, "body"), encoding="utf-8")
 
-            env = {**os.environ, "VAULT_ROOT": str(REPO), "SKIP_NUDGE": "1"}
+            env = {
+                **os.environ,
+                "VAULT_ROOT": str(root),
+                "SKIP_NUDGE": "1",
+                "SQUAD_BASE_BRANCH": "v2",
+            }
             r = subprocess.run([str(SEND_TASK), str(pkt), "--dry-run"], env=env,
                                capture_output=True, text=True, timeout=120)
             out = r.stdout + r.stderr
@@ -487,6 +527,7 @@ class Block1SymlinkedInbox(unittest.TestCase):
                         "review_triggers": "[]",
                         "source_namespace": "coding", "compatibility_namespace": "coding",
                         "parallel_safe": "true", "direct_lane_work_allowed": "true",
+                        "reviews": "none",
                         "write_scope": f"[departments/coding/outbox/{task_id}-response.md]",
                         "return_artifact": f"departments/coding/outbox/{task_id}-response.md",
                     }, "body"), encoding="utf-8")

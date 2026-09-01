@@ -119,8 +119,17 @@ for task_id in (FACTUAL, SECURITY):
     entry = held[task_id]
     assert entry["status"] == reconciler.REVIEW_REQUIRED
     assert entry["delivery_state"] == "terminal"
-assert held[FACTUAL]["notification_key"] == f"{FACTUAL}|review-required|7"
-assert held[SECURITY]["notification_key"] == f"{SECURITY}|review-required|3"
+# MON-04 made delivery two-phase: the key is only consumed once nudge_chrono
+# reports success, so under SQUAD_TEST_ISOLATION=1 (no real tmux) it stays
+# pending rather than becoming a delivered marker. Assert the pending contract.
+assert f"{FACTUAL}|review-required|7" in held[FACTUAL]["notification_pending_events"]
+assert f"{SECURITY}|review-required|3" in held[SECURITY]["notification_pending_events"]
+# Both halves are load-bearing. Pending-membership alone still passes if the
+# eager burn is reintroduced alongside it, which is the exact pre-MON-04 defect;
+# only the absence of the delivered marker pins "the key is consumed after
+# nudge_chrono succeeds, never before".
+assert "notification_key" not in held[FACTUAL]
+assert "notification_key" not in held[SECURITY]
 
 # A second watcher/reconcile cycle is idempotent for the same state/generation.
 queue_before = reconciler.CHRONO_QUEUE_PATH.read_text()
