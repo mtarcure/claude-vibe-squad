@@ -85,13 +85,21 @@ def _system_report_path(vault: Path) -> Path:
 class CleanupReportOnlyTest(unittest.TestCase):
     def test_weekly_auth_audit_labels_gemini_api_key_truthfully(self):
         completed = subprocess.CompletedProcess([], 0, stdout="ok", stderr="")
-        with (
-            mock.patch.object(run_weekly.shutil, "which", return_value="/fake/cli"),
-            mock.patch.object(run_weekly.subprocess, "run", return_value=completed),
-        ):
-            result = run_weekly.subscription_audit()
-        self.assertEqual(result["gemini"], "✓ gemini-api-key auth OK")
-        for lane in ("claude", "codex", "kimi"):
+        with tempfile.TemporaryDirectory() as directory:
+            agy = Path(directory) / "agy"
+            agy.write_text("fixture executable\n", encoding="utf-8")
+            agy.chmod(0o700)
+            with (
+                mock.patch.dict(run_weekly.LANE_CLI_PATHS, {"gemini": agy}),
+                mock.patch.object(
+                    run_weekly.shutil, "which", return_value="/fake/cli"
+                ),
+                mock.patch.object(
+                    run_weekly.subprocess, "run", return_value=completed
+                ),
+            ):
+                result = run_weekly.subscription_audit()
+        for lane in ("claude", "codex", "gemini", "kimi"):
             self.assertEqual(result[lane], "✓ subscription auth OK")
 
     def test_system_cleanup_cannot_apply_to_old_or_ambiguous_paths(self):

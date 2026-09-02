@@ -7,7 +7,6 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import stat
 import subprocess
 import sys
@@ -129,13 +128,15 @@ MAX_DISTILLED_ALIASES = 5
 MAX_DISTILLED_KEYWORDS = 8
 MAX_DISTILL_INPUT_CHARS = 12000
 # Lane CLI executables live in scripts/python/seatbelt_profile.py
-# (LANE_CLI_PATHS), which autocapture cannot import: the outbox watcher runs
-# this file with PYTHONPATH=plugins/chrono-vault under bare python3. These
-# are the same locations, searched rather than asserted.
-LANE_CLI_SEARCH = (
-    Path("/opt/homebrew/bin"),
-    Path.home() / ".local/bin",
-)
+# (LANE_CLI_PATHS). This file used to keep its own copy of the search
+# locations, because the outbox watcher runs it with
+# PYTHONPATH=plugins/chrono-vault under bare python3 and the authority is not
+# importable by default. That reasoning was sound and the consequence was not:
+# two independent answers to "which binary is this lane?" drifted apart when
+# the gemini lane moved to agy, and autocapture kept launching the retired
+# binary for 12 days. `_lane_executable` now adds scripts/python to sys.path
+# explicitly and reads the authority, so the constraint is satisfied without a
+# second copy.
 # Provider API keys shadow the subscription session on every lane CLI in
 # this repo; bin/dispatch-toolkit-verify.sh drops the same four.
 PROVIDER_KEY_VARS = (
@@ -631,14 +632,32 @@ def _distill_model_id() -> str:
 
 
 def _lane_executable(cli: str) -> Path:
-    found = shutil.which(cli)
-    if found:
-        return Path(found)
-    for directory in LANE_CLI_SEARCH:
-        candidate = directory / cli
-        if candidate.is_file() and os.access(candidate, os.X_OK):
-            return candidate
-    raise DistillationFailed(f"lane CLI not found: {cli}")
+    """Resolve a lane's executable through the SAME authority dispatch uses.
+
+    `scripts/python/seatbelt_profile.py` holds `LANE_CLI_PATHS`, which maps a
+    routing identifier to the binary that actually runs it. That mapping moved
+    the `gemini` lane onto Antigravity's `agy` when the standalone gemini CLI
+    was retired; this resolver did not move with it, and kept finding the dead
+    binary on PATH. Google then discontinued that tier, so every distillation
+    failed with IneligibleTierError -- 73 lost notes over seven days, with
+    doctor warning on every run and nothing escalating it.
+
+    The name lookup was never the bug. Having two independent answers to "which
+    binary is this lane?" was, so this now reads the one authority. Falling back
+    to a PATH search would restore the drift, so a lane the authority does not
+    name fails loudly instead.
+    """
+    try:
+        sys.path.insert(0, str(REPO_ROOT / "scripts" / "python"))
+        from seatbelt_profile import LANE_CLI_PATHS
+    except ImportError as exc:
+        raise DistillationFailed(f"lane CLI authority unavailable: {exc}") from exc
+    candidate = LANE_CLI_PATHS.get(cli)
+    if candidate is None:
+        raise DistillationFailed(f"lane {cli!r} is not in LANE_CLI_PATHS")
+    if not (candidate.is_file() and os.access(candidate, os.X_OK)):
+        raise DistillationFailed(f"lane CLI not executable: {candidate}")
+    return candidate
 
 
 def _distill_prompt(capture_fields: dict[str, str], context: dict[str, str]) -> str:
@@ -744,19 +763,23 @@ def distill(capture_fields: dict[str, str], context: dict[str, str]) -> dict[str
         for key, value in os.environ.items()
         if key not in PROVIDER_KEY_VARS
     }
-    # The CLI refuses to run headless in an untrusted directory, and it must
-    # not run in the repo: `-e none` plus plan (read-only) approval keeps it
-    # a pure text transform with no extensions and no write surface.
-    environment["GEMINI_CLI_TRUST_WORKSPACE"] = "true"
+    # Run outside the repo and select plan (read-only) mode so this remains a
+    # pure text transform with no repository write surface.
+    # agy's flag names, verified against the installed binary: --model,
+    # --effort (low|medium|high), --mode (accept-edits|plan), --output-format,
+    # --print. The retired gemini CLI's `-m`, `-e none` and `--approval-mode`
+    # are all rejected by it; `test_lane_agy_repoint.py:60-65` pins the same
+    # retired list for the dispatch rail. `--mode plan` keeps the distiller
+    # read-only, which is what `--approval-mode plan` was buying before.
     command = [
         str(executable),
-        "-m",
+        "--model",
         model_id,
-        "-e",
-        "none",
-        "--approval-mode",
+        "--mode",
         "plan",
-        "-p",
+        "--output-format",
+        "text",
+        "--print",
         _distill_prompt(capture_fields, context),
     ]
     with tempfile.TemporaryDirectory(prefix="chrono-distill-") as workdir:
@@ -797,7 +820,7 @@ def _distillation_enabled(sensitivity: str) -> bool:
     namespace or `bounty` mode -- unreported vulnerability evidence, on
     someone else's systems, under someone else's disclosure terms.
     `distill()` sends up to MAX_DISTILL_INPUT_CHARS of that body to an
-    external provider through the `gemini` CLI.
+    external provider through the agy-backed `gemini` lane.
 
     Autocapture was a purely local parse-and-write before distillation
     existed, so this was a new egress path for exactly the content class

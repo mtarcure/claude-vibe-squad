@@ -15,6 +15,7 @@ from runtime_envelope import (  # noqa: E402
     EnvelopeError,
     RuntimeEnvelopeClaims,
     launch_task,
+    projected_skill_contract,
     seal_runtime_envelope,
     verify_runtime_envelope,
 )
@@ -197,6 +198,58 @@ class RuntimeEnvelopeTests(unittest.TestCase):
                     now=1_500,
                     launcher=fake_launcher,
                 )
+
+    def test_projected_skills_reach_worker_contract_and_must_resolve(self) -> None:
+        key = b"supervisor-secret-key-material"
+        projected = ("data-flow-trace", "interface-ambiguity-check")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            role_path = root / "role.md"
+            overlay_path = root / "overlay.md"
+            role_path.write_text("# Role\n\nBuild.\n", encoding="utf-8")
+            overlay_path.write_text("# Lane\n\nUse Codex.\n", encoding="utf-8")
+            role = compile_role_context(
+                role_path,
+                overlay_path,
+                specialist="systems-engineer",
+                lane="gpt-codex",
+            )
+            bound_claims = replace(claims(), role_context_sha256=role.sha256)
+            envelope = seal_runtime_envelope(bound_claims, key)
+            captured: dict[str, object] = {}
+
+            def fake_launcher(
+                canary_runner: object, command: object, **kwargs: object
+            ) -> str:
+                captured["command"] = command
+                return "launched"
+
+            launch_task(
+                envelope,
+                key,
+                role,
+                executable=Path("/usr/bin/true"),
+                canary_runner=lambda: None,
+                expected_task_id=bound_claims.task_id,
+                expected_attempt_id=bound_claims.attempt_id,
+                expected_generation=bound_claims.generation,
+                now=1_500,
+                projected_skills=projected,
+                launcher=fake_launcher,
+            )
+
+        prompt = captured["command"][-1]
+        self.assertIn('"data-flow-trace","interface-ambiguity-check"', prompt)
+        self.assertIn("resolve every projected methodology", prompt)
+        self.assertIn("capability_gap", prompt)
+        self.assertIn("skills_applied", prompt)
+        self.assertIn("skill_gaps", prompt)
+
+    def test_projected_skills_reject_duplicates(self) -> None:
+        with self.assertRaisesRegex(EnvelopeError, "duplicate projected skill"):
+            projected_skill_contract(
+                ("data-flow-trace", "data-flow-trace")
+            )
 
 
 if __name__ == "__main__":

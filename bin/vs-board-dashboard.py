@@ -55,17 +55,37 @@ def _fg(text, color256, *extra):
     return _sgr(text, 38, 5, color256, *extra)
 
 
+SNAPSHOT_TIMEOUT = float(os.environ.get("VS_DASH_SNAPSHOT_TIMEOUT", "10") or "10")
+
+
 def _snapshot_lines():
+    """Returns (lines, error): `error` is None on success, else a short reason.
+
+    The exit status is load-bearing. A snapshot that dies prints nothing on
+    stdout, and a board with no spawns renders the serene idle hourglass -- so
+    a dashboard that had gone blind was byte-identical to a quiet squad. Every
+    way the read can fail (non-zero exit, hang, unlaunchable) has to come back
+    as an error the renderer can show, never as an empty spawn list.
+    """
     # Read piped snapshot data only when explicitly asked (--stdin, for tests);
     # otherwise always run the snapshot. Never block on an inherited non-tty stdin
     # (e.g. a frame loop or a pipe that never sends EOF).
     if "--stdin" in sys.argv:
-        return sys.stdin.read().splitlines()
-    proc = subprocess.run(
-        ["python3", str(VAULT / "bin" / "vs-board-snapshot.py")],
-        capture_output=True, text=True, timeout=10,
-    )
-    return proc.stdout.splitlines()
+        return sys.stdin.read().splitlines(), None
+    try:
+        proc = subprocess.run(
+            ["python3", str(VAULT / "bin" / "vs-board-snapshot.py")],
+            capture_output=True, text=True, timeout=SNAPSHOT_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        return [], f"snapshot did not answer within {SNAPSHOT_TIMEOUT:g}s"
+    except OSError as exc:
+        return [], f"snapshot could not be run: {exc}"
+    if proc.returncode != 0:
+        detail = " ".join((proc.stderr or "").split())[-200:]
+        reason = f"snapshot exited {proc.returncode}"
+        return [], f"{reason}: {detail}" if detail else reason
+    return proc.stdout.splitlines(), None
 
 
 AVATAR_W = 13  # a "terminal bust" frame is 13 cols x 6 rows
@@ -378,6 +398,28 @@ def _idle_state(width, cap):
     return out
 
 
+def _failure_state(width, reason):
+    """The board could not be read. Deliberately unlike _idle_state: no
+    hourglass, no "awaiting dispatch", no clock -- because the failure this
+    guards is a blind dashboard wearing the calm face of a quiet squad. The
+    reason travels into the pane, since the operator is looking at the pane and
+    not at the loop's stderr. A box, not a canvas: unlike _idle_state this does
+    not fill VS_DASH_HEIGHT, because main() already pads the frame to the pane
+    and erases below it."""
+    inner = max(20, width - 4)
+    body = [
+        _sgr(_dcenter("⛔  BOARD SNAPSHOT FAILED", inner), 1, 38, 5, 203),
+        "",
+        *(_fg(_dcenter(line, inner), 216) for line in _wrap2(reason, inner) if line),
+        "",
+        _fg(_dcenter("the dashboard is blind — this is NOT an idle board", inner), 245),
+        _fg(_dcenter("spawns may be running and unshown; check bin/vs-board-snapshot.py", inner), 245),
+    ]
+    rule = _fg("━" * width, 203)
+    body = [_fg("┃ ", 203) + _pad(line, inner) + _fg(" ┃", 203) for line in body]
+    return ["", rule, *body, rule]
+
+
 HIST_STATE = Path(os.environ.get("VS_DASH_HISTSTATE", "/tmp/vs-dash-history.state"))
 
 
@@ -439,10 +481,17 @@ def _write_hitmap(active, header_rows, cols, cw, hist_row=None, width=0):
 SWARM_STATUS = Path(os.environ.get("VS_SWARM_STATUS", "/tmp/vs-swarm.status"))
 
 
-def _write_swarm_status(active):
+def _write_swarm_status(active, snapshot_error=None):
     """Write the tmux status-bar segment: a coloured tag per dispatched specialist
-    (character name, lane colour) — like the 'chrono' tag but for the live swarm."""
+    (character name, lane colour) — like the 'chrono' tag but for the live swarm.
+
+    A failed read must not post the "idle" tag: the status bar is the
+    at-a-glance signal, so a blind dashboard reporting idle there is the same
+    lie as the idle canvas, in the place most likely to be believed."""
     try:
+        if snapshot_error is not None:
+            SWARM_STATUS.write_text("#[fg=colour203,bold] ⛔ board unreadable #[default]")
+            return
         if not active:
             SWARM_STATUS.write_text("#[fg=colour240]· idle ·#[default]")
             return
@@ -461,7 +510,8 @@ def _write_swarm_status(active):
 def main():
     active, done, defects = [], [], []
     pending_summary_for = None
-    for line in _snapshot_lines():
+    snapshot, snapshot_error = _snapshot_lines()
+    for line in snapshot:
         parts = line.split("\t")
         tag = parts[0]
         if tag == "@SPAWN" and len(parts) >= 7:
@@ -484,14 +534,19 @@ def main():
         elif tag == "@DEFECT" and len(parts) >= 5:
             defects.append(f"{parts[1]}/{parts[2]}: {parts[4]}")
 
-    _write_swarm_status(active)  # tmux status-bar specialist tag(s)
+    _write_swarm_status(active, snapshot_error)  # tmux status-bar specialist tag(s)
     lines = []
     n = len(active)
     cap = os.environ.get("VS_DASH_CAPACITY", "?")
     utc = time.strftime("%H:%M:%S UTC", time.gmtime())
     title = _sgr("◢ VIBE SQUAD · SPECIALIST SWARM ◣", 1, 38, 5, 45)
-    cnt = _fg(f"{n} dispatched", 78 if n else 245)
-    capstr = _fg(f" / {cap}", 245) if cap != "?" else ""
+    if snapshot_error is not None:
+        # "0 dispatched" would be a measurement; nothing was measured.
+        cnt = _fg("board unreadable", 203)
+        capstr = ""
+    else:
+        cnt = _fg(f"{n} dispatched", 78 if n else 245)
+        capstr = _fg(f" / {cap}", 245) if cap != "?" else ""
     status = f"{cnt}{capstr}   {_fg('·', 240)}   {_fg(utc, 245)}"
     if defects:
         status += "   " + _fg(f"⚠ {len(defects)} process defect(s): {defects[0]}", 203)
@@ -500,7 +555,10 @@ def main():
     lines.append("")
 
     header_rows = 3  # title, status, blank — the grid starts on row 3
-    if active:
+    if snapshot_error is not None:
+        cols, cw = 1, CARD_W
+        lines.extend(_failure_state(WIDTH, snapshot_error))
+    elif active:
         cols, cw = _layout(WIDTH, len(active))
         lines.extend(_grid([_render_card(s, cw) for s in active], cols))
     else:

@@ -1426,6 +1426,829 @@ class ReviewEnforcementTest(unittest.TestCase):
             self.result(factual_state, f)[0]["status"], "review-required"
         )
 
+    # ---- attestation binding: hash, authorship, status, lane (5) -----------
+    #
+    # `_validate_factual_attestation` and `_validate_security_review` each own
+    # clauses that no test asserted: both hash bindings, the attestation's
+    # `from: chrono` authorship, its `status: complete`, and the security
+    # reviewer's lane. The two builders below produce a fixture that settles,
+    # so each test can flip exactly one frontmatter field and attribute the
+    # refusal to that field alone.
+
+    def _factual_case(
+        self,
+        task_id: str,
+        review_ref: str,
+        *,
+        entry_over: dict | None = None,
+        drop: tuple[str, ...] = (),
+        **fm_over,
+    ):
+        """A factual task held for review, plus a settling Chrono attestation.
+
+        Returns ``(state, env, review_ref)`` already reconciled to
+        ``review-required``. ``fm_over`` replaces one attestation frontmatter
+        field, so the unmodified call is the positive control for every test
+        that mutates a single field out of it.
+        """
+        own = self._own_response(task_id, "claude", "needs_review")
+        own_path = f"departments/coding/outbox/{task_id}-response.md"
+        meta = {
+            "id": Path(review_ref).name.removesuffix(".md"),
+            "in_response_to": task_id,
+            "from": "chrono", "type": "REVIEW_ATTESTATION", "status": "complete",
+            "verdict": "APPROVE", "review_class": "factual",
+            "reviewer_lane": "gpt-codex", "reviewer_family": "openai",
+            "attested_response_sha256": hashlib.sha256(
+                own[own_path].encode("utf-8")
+            ).hexdigest(),
+        }
+        meta.update(fm_over)
+        for key in drop:
+            meta.pop(key, None)
+        responses = dict(own)
+        responses[review_ref] = envelope(
+            meta, body="Coordinator read the landed response and attested it."
+        )
+        entry = self._entry(
+            review_class="factual",
+            review_triggers=["deciding_measurement"],
+            **(entry_over or {}),
+        )
+        _root, state, env = self.fixture({task_id: entry}, responses)
+        self.run_reconcile(env, task_id)
+        return state, env, review_ref
+
+    def _security_case(
+        self,
+        task_id: str,
+        review_ref: str,
+        *,
+        entry_over: dict | None = None,
+        drop: tuple[str, ...] = (),
+        **fm_over,
+    ):
+        """A security-finding task held for review, plus a settling lane review.
+
+        Same contract as ``_factual_case``: unmodified it settles, so a single
+        overridden field is the whole difference a refusal can come from.
+        """
+        own = self._own_response(task_id, "claude", "needs_review")
+        own_path = f"departments/coding/outbox/{task_id}-response.md"
+        meta = {
+            "id": Path(review_ref).name.removesuffix(".md"),
+            "in_response_to": task_id,
+            "from": "gpt-codex", "to": "chrono", "type": "RESULT",
+            "status": "complete", "verdict": "APPROVE",
+            "reviewer_family": "openai",
+            "reviewed_response_sha256": hashlib.sha256(
+                own[own_path].encode("utf-8")
+            ).hexdigest(),
+        }
+        meta.update(fm_over)
+        for key in drop:
+            meta.pop(key, None)
+        responses = dict(own)
+        responses[review_ref] = envelope(
+            meta, body="Independent cross-family lane review of the finding."
+        )
+        entry = self._entry(
+            review_class="security-finding",
+            review_triggers=["adversarial_claim"],
+            **(entry_over or {}),
+        )
+        _root, state, env = self.fixture({task_id: entry}, responses)
+        self.run_reconcile(env, task_id)
+        return state, env, review_ref
+
+    def test_u5_factual_attestation_must_name_the_landed_response_bytes(self):
+        """Deleting the `attested_response_sha256` clause of
+        `_validate_factual_attestation` settles a response the coordinator
+        never read.
+
+        The attestation is the only artifact on the factual path; nothing else
+        binds it to the bytes that landed. Replace those two lines with
+        `if False:` and a worker may rewrite its response after the coordinator
+        has read and attested the previous version -- the swapped bytes settle
+        under the old approval. Before this test `attested_response_sha256`
+        occurred exactly once in the entire test tree, as a correct value in a
+        fixture, so no negative control existed anywhere: the mutation left
+        this suite and `bin/review-loop-guard-selftest.py` green (measured
+        2026-09-01).
+        """
+        # Positive control first: identical fixture, correct hash, settles.
+        ok = "TASK-2026-08-30-factual-hash-ok"
+        state, env, ref = self._factual_case(
+            ok, "departments/coding/outbox/TASK-ATT-HASH-OK-response.md"
+        )
+        self.run_settle(env, ok, ref)
+        self.assertEqual(self.result(state, ok)[0]["status"], "complete")
+
+        # The coordinator attested THESE bytes; the worker then landed others.
+        superseded = envelope({
+            "id": "TASK-2026-08-30-factual-hash-swap-response",
+            "in_response_to": "TASK-2026-08-30-factual-hash-swap",
+            "from": "claude", "to": "chrono", "type": "RESULT",
+            "status": "needs_review",
+        }, body="the bytes the coordinator actually read")
+        swapped = "TASK-2026-08-30-factual-hash-swap"
+        state, env, ref = self._factual_case(
+            swapped,
+            "departments/coding/outbox/TASK-ATT-HASH-SWAP-response.md",
+            attested_response_sha256=hashlib.sha256(
+                superseded.encode("utf-8")
+            ).hexdigest(),
+        )
+        refused = self.run_settle(env, swapped, ref, expected_returncode=2)
+        self.assertIn(
+            "factual coordinator attestation response hash mismatch",
+            refused.stderr,
+        )
+        self.assertEqual(
+            self.result(state, swapped)[0]["status"], "review-required"
+        )
+
+    def test_u6_security_review_must_name_the_landed_response_bytes(self):
+        """Deleting the `reviewed_response_sha256` clause of
+        `_validate_security_review` settles a response the reviewer never read.
+
+        Same defect as the factual path, same absent coverage:
+        `reviewed_response_sha256` also occurred exactly once in the test tree
+        as a correct fixture value, and replacing the clause with `if False:`
+        left this suite and `bin/review-loop-guard-selftest.py` green (measured
+        2026-09-01). A security finding settling against unreviewed bytes is
+        the sharpest form of it.
+        """
+        ok = "TASK-2026-08-30-security-hash-ok"
+        state, env, ref = self._security_case(
+            ok, "departments/coding/outbox/TASK-SEC-HASH-OK-response.md"
+        )
+        self.run_settle(env, ok, ref)
+        self.assertEqual(self.result(state, ok)[0]["status"], "complete")
+
+        superseded = envelope({
+            "id": "TASK-2026-08-30-security-hash-swap-response",
+            "in_response_to": "TASK-2026-08-30-security-hash-swap",
+            "from": "claude", "to": "chrono", "type": "RESULT",
+            "status": "needs_review",
+        }, body="the bytes the reviewer actually read")
+        swapped = "TASK-2026-08-30-security-hash-swap"
+        state, env, ref = self._security_case(
+            swapped,
+            "departments/coding/outbox/TASK-SEC-HASH-SWAP-response.md",
+            reviewed_response_sha256=hashlib.sha256(
+                superseded.encode("utf-8")
+            ).hexdigest(),
+        )
+        refused = self.run_settle(env, swapped, ref, expected_returncode=2)
+        self.assertIn(
+            "security-finding review response hash mismatch", refused.stderr
+        )
+        self.assertEqual(
+            self.result(state, swapped)[0]["status"], "review-required"
+        )
+
+    def test_u7_factual_attestation_must_be_authored_by_chrono(self):
+        """Deleting the `from: chrono` clause of
+        `_validate_factual_attestation` lets the executing lane author its own
+        approval.
+
+        `from` is the only field that makes the artifact a *coordinator*
+        attestation; `reviewer_lane` and `reviewer_family` are declarations the
+        author writes about someone else. With the clause replaced by
+        `if False:`, a `claude`-authored file that names `gpt-codex`/`openai`
+        as its reviewer passes every remaining check -- lane, family
+        anti-affinity, and hash all read the declared reviewer, not the author
+        -- so the worker self-settles. The suite and
+        `bin/review-loop-guard-selftest.py` stayed green (measured 2026-09-01).
+        """
+        ok = "TASK-2026-08-30-factual-author-ok"
+        state, env, ref = self._factual_case(
+            ok, "departments/coding/outbox/TASK-ATT-AUTHOR-OK-response.md"
+        )
+        self.run_settle(env, ok, ref)
+        self.assertEqual(self.result(state, ok)[0]["status"], "complete")
+
+        # Authored by the executing lane, still declaring the reviewer's lane
+        # and family in frontmatter: a worker approving its own work.
+        forged = "TASK-2026-08-30-factual-author-forged"
+        state, env, ref = self._factual_case(
+            forged,
+            "departments/coding/outbox/TASK-ATT-AUTHOR-FORGED-response.md",
+            **{"from": "claude"},
+        )
+        refused = self.run_settle(env, forged, ref, expected_returncode=2)
+        self.assertIn(
+            "factual coordinator attestation must be authored by from: chrono",
+            refused.stderr,
+        )
+        self.assertEqual(
+            self.result(state, forged)[0]["status"], "review-required"
+        )
+
+    def test_u8_factual_attestation_status_must_be_complete(self):
+        """Deleting the `status must be complete` clause of
+        `_validate_factual_attestation` settles on an unfinished attestation.
+
+        `needs_review` is the exact value the standard path deliberately
+        admits (`_validate_standard_review` accepts `complete` or
+        `needs_review`), so an attestation that is still open reads as
+        acceptable everywhere except this clause. Replace it with `if False:`
+        and a coordinator note that has not reached a conclusion closes the
+        task; the suite and `bin/review-loop-guard-selftest.py` stayed green
+        (measured 2026-09-01).
+        """
+        ok = "TASK-2026-08-30-factual-status-ok"
+        state, env, ref = self._factual_case(
+            ok, "departments/coding/outbox/TASK-ATT-STATUS-OK-response.md"
+        )
+        self.run_settle(env, ok, ref)
+        self.assertEqual(self.result(state, ok)[0]["status"], "complete")
+
+        open_att = "TASK-2026-08-30-factual-status-open"
+        state, env, ref = self._factual_case(
+            open_att,
+            "departments/coding/outbox/TASK-ATT-STATUS-OPEN-response.md",
+            status="needs_review",
+        )
+        refused = self.run_settle(env, open_att, ref, expected_returncode=2)
+        self.assertIn(
+            "factual coordinator attestation status must be complete",
+            refused.stderr,
+        )
+        self.assertEqual(
+            self.result(state, open_att)[0]["status"], "review-required"
+        )
+
+    def test_u9_security_review_must_come_from_the_configured_review_model(self):
+        """Deleting the reviewer-lane clause of `_validate_security_review`
+        lets any cross-family lane settle a finding assigned to another.
+
+        Family anti-affinity still fires on the mutant, so the hole is
+        narrower than the others -- but "some other model looked at it" is not
+        the contract. `review_model` names the assigned reviewer, and a
+        `gemini` review of a finding routed to `gpt-codex` is cross-family,
+        hash-bound, and still not the review that was ordered. With the clause
+        replaced by `if False:` it settles, and the suite plus
+        `bin/review-loop-guard-selftest.py` stayed green (measured
+        2026-09-01).
+        """
+        ok = "TASK-2026-08-30-security-lane-ok"
+        state, env, ref = self._security_case(
+            ok, "departments/coding/outbox/TASK-SEC-LANE-OK-response.md"
+        )
+        self.run_settle(env, ok, ref)
+        self.assertEqual(self.result(state, ok)[0]["status"], "complete")
+
+        # gemini is cross-family to the anthropic author, so every family
+        # check passes; only the assigned-reviewer clause objects.
+        unassigned = "TASK-2026-08-30-security-lane-unassigned"
+        state, env, ref = self._security_case(
+            unassigned,
+            "departments/coding/outbox/TASK-SEC-LANE-UNASSIGNED-response.md",
+            **{"from": "gemini", "reviewer_family": "google"},
+        )
+        refused = self.run_settle(env, unassigned, ref, expected_returncode=2)
+        self.assertIn(
+            "security-finding review must come from the configured review_model",
+            refused.stderr,
+        )
+        self.assertEqual(
+            self.result(state, unassigned)[0]["status"], "review-required"
+        )
+
+    def test_u10_factual_attestation_must_target_the_held_task(self):
+        """Deleting the `in_response_to` clause of
+        `_validate_factual_attestation` lets an attestation written for
+        another task settle this one.
+
+        This clause sits behind the hash binding, so the attacker has to
+        supply the held task's own response hash to reach it -- a coordinator
+        attestation retargeted, rather than fabricated. Narrow, but the clause
+        was unasserted on its own terms: replacing it with `if False:` left
+        the pre-existing 49 tests and `bin/review-loop-guard-selftest.py`
+        green (measured 2026-09-01). The one place the message appears in this
+        file, `test_b5`, asserts it is *absent*, which pins a different guard
+        and controls nothing here.
+        """
+        ok = "TASK-2026-08-30-factual-target-ok"
+        state, env, ref = self._factual_case(
+            ok, "departments/coding/outbox/TASK-ATT-TARGET-OK-response.md"
+        )
+        self.run_settle(env, ok, ref)
+        self.assertEqual(self.result(state, ok)[0]["status"], "complete")
+
+        # Correct hash for THIS task's landed response, but the attestation
+        # names a different task as its subject.
+        retargeted = "TASK-2026-08-30-factual-target-retargeted"
+        state, env, ref = self._factual_case(
+            retargeted,
+            "departments/coding/outbox/TASK-ATT-TARGET-OTHER-response.md",
+            in_response_to="TASK-2026-08-30-a-completely-different-task",
+        )
+        refused = self.run_settle(env, retargeted, ref, expected_returncode=2)
+        self.assertIn(
+            "factual coordinator attestation must target the held task",
+            refused.stderr,
+        )
+        self.assertEqual(
+            self.result(state, retargeted)[0]["status"], "review-required"
+        )
+
+    def test_u11_factual_attestation_requires_the_attestation_type(self):
+        """Deleting the `type: REVIEW_ATTESTATION` clause of
+        `_validate_factual_attestation` lets an ordinary coordinator RESULT
+        settle a factual review.
+
+        `type` is what distinguishes an artifact the coordinator issued *as a
+        settlement* from any other note it wrote about the task. With the
+        clause replaced by `if False:`, a `from: chrono` RESULT settles: every
+        remaining check reads a field a status note can carry. The type is
+        also half of what keeps the three settlement paths apart -- both
+        `_validate_security_review` and `_validate_standard_review` refuse an
+        artifact bearing this type, and this is the only clause that requires
+        it. Removing it left the pre-existing tests and
+        `bin/review-loop-guard-selftest.py` green (measured 2026-09-01).
+        """
+        ok = "TASK-2026-08-30-factual-type-ok"
+        state, env, ref = self._factual_case(
+            ok, "departments/coding/outbox/TASK-ATT-TYPE-OK-response.md"
+        )
+        self.run_settle(env, ok, ref)
+        self.assertEqual(self.result(state, ok)[0]["status"], "complete")
+
+        # A coordinator-authored RESULT: right author, not an attestation.
+        untyped = "TASK-2026-08-30-factual-type-result"
+        state, env, ref = self._factual_case(
+            untyped,
+            "departments/coding/outbox/TASK-ATT-TYPE-RESULT-response.md",
+            type="RESULT",
+        )
+        refused = self.run_settle(env, untyped, ref, expected_returncode=2)
+        self.assertIn(
+            "factual coordinator attestation requires type: REVIEW_ATTESTATION",
+            refused.stderr,
+        )
+        self.assertEqual(
+            self.result(state, untyped)[0]["status"], "review-required"
+        )
+
+    def test_u12_factual_attestation_must_echo_its_settlement_class(self):
+        """Deleting the `review_class: factual` clause of
+        `_validate_factual_attestation` lets an attestation issued for a
+        weaker class settle a factual task.
+
+        This is the read-side mirror of the defect `_review_class` documents
+        on the entry: a settlement that silently accepts a lesser class than
+        the one the task demanded. The entry says `factual`, so the factual
+        validator runs; without this clause nothing then requires the
+        attestation itself to agree, and one written against `standard`
+        settles. Removing it left the pre-existing tests and
+        `bin/review-loop-guard-selftest.py` green (measured 2026-09-01).
+        """
+        ok = "TASK-2026-08-30-factual-class-ok"
+        state, env, ref = self._factual_case(
+            ok, "departments/coding/outbox/TASK-ATT-CLASS-OK-response.md"
+        )
+        self.run_settle(env, ok, ref)
+        self.assertEqual(self.result(state, ok)[0]["status"], "complete")
+
+        # Attested against the weaker class the entry did not ask for.
+        downgraded = "TASK-2026-08-30-factual-class-downgraded"
+        state, env, ref = self._factual_case(
+            downgraded,
+            "departments/coding/outbox/TASK-ATT-CLASS-STANDARD-response.md",
+            review_class="standard",
+        )
+        refused = self.run_settle(env, downgraded, ref, expected_returncode=2)
+        self.assertIn(
+            "factual coordinator attestation must echo review_class: factual",
+            refused.stderr,
+        )
+        self.assertEqual(
+            self.result(state, downgraded)[0]["status"], "review-required"
+        )
+
+    # ---- standard-path settlement: the default class (7) -------------------
+    #
+    # `standard` is the class most tasks settle under; factual and
+    # security-finding are the special cases. Nine of its ten clauses had no
+    # test naming them. The builder below produces a review that settles, so
+    # each test flips exactly one field -- in the response, or in the
+    # controller-owned registry provenance -- and attributes the refusal to it.
+
+    def _standard_case(
+        self,
+        task_id: str,
+        review_ref: str,
+        *,
+        provenance_lane: str = "gpt-codex",
+        provenance_target: str | None = None,
+        entry_over: dict | None = None,
+        drop: tuple[str, ...] = (),
+        **fm_over,
+    ):
+        """A standard-class task held for review, plus a settling lane review.
+
+        Unmodified it settles, so a single overridden field is the whole
+        difference a refusal can come from. ``provenance_lane`` and
+        ``provenance_target`` edit the registry's review entry -- the
+        controller-owned side -- rather than the worker-authored response.
+        """
+        review_task = Path(review_ref).name.removesuffix("-response.md")
+        meta = {
+            "id": f"{review_task}-response", "in_response_to": review_task,
+            "reviews": task_id, "from": "gpt-codex", "reviewer_family": "openai",
+            "to": "chrono", "type": "RESULT", "status": "complete",
+            "verdict": "APPROVE",
+        }
+        meta.update(fm_over)
+        for key in drop:
+            meta.pop(key, None)
+        responses = self._own_response(task_id, "claude", "needs_review")
+        responses[review_ref] = envelope(meta)
+        entry = self._entry(author_family="anthropic", **(entry_over or {}))
+        entries = self._with_review_provenance(
+            {task_id: entry},
+            review_ref,
+            provenance_target if provenance_target is not None else task_id,
+            provenance_lane,
+        )
+        _root, state, env = self.fixture(entries, responses)
+        self.run_reconcile(env, task_id)
+        return state, env, review_ref
+
+    def test_x1_standard_review_rejects_a_coordinator_attestation(self):
+        """Deleting the `requires an independent lane response` clause of
+        `_validate_standard_review` lets the coordinator settle a standard
+        task with its own attestation.
+
+        This is the clause that keeps the factual path's artifact off the
+        default path. Note the honest limit of this control: with the clause
+        replaced by `if False:` the mutant still refuses, because
+        `must be a RESULT response` catches the type a line later and the
+        reviewer-lane clause catches `from: chrono`. It is defense in depth,
+        not a lone gate -- so this test asserts the specific message rather
+        than the settlement, and goes red on the message alone.
+        """
+        ok = "TASK-2026-08-30-standard-independent-ok"
+        state, env, ref = self._standard_case(
+            ok, "departments/coding/outbox/TASK-STD-INDEP-OK-response.md"
+        )
+        self.run_settle(env, ok, ref)
+        self.assertEqual(self.result(state, ok)[0]["status"], "complete")
+
+        attested = "TASK-2026-08-30-standard-independent-attested"
+        state, env, ref = self._standard_case(
+            attested,
+            "departments/coding/outbox/TASK-STD-INDEP-ATT-response.md",
+            type="REVIEW_ATTESTATION",
+            **{"from": "chrono"},
+        )
+        refused = self.run_settle(env, attested, ref, expected_returncode=2)
+        self.assertIn(
+            "standard review requires an independent lane response",
+            refused.stderr,
+        )
+        self.assertEqual(
+            self.result(state, attested)[0]["status"], "review-required"
+        )
+
+    def test_x2_standard_review_must_be_a_result_response(self):
+        """Deleting the `must be a RESULT response` clause of
+        `_validate_standard_review` settles on an envelope that is not a
+        result at all.
+
+        A worker-authored envelope of any other type -- a status note, a
+        question -- carries `from`, `status` and `verdict` fields that every
+        remaining clause reads happily. With this clause replaced by
+        `if False:` such an envelope settles the task.
+        """
+        ok = "TASK-2026-08-30-standard-type-ok"
+        state, env, ref = self._standard_case(
+            ok, "departments/coding/outbox/TASK-STD-TYPE-OK-response.md"
+        )
+        self.run_settle(env, ok, ref)
+        self.assertEqual(self.result(state, ok)[0]["status"], "complete")
+
+        noted = "TASK-2026-08-30-standard-type-status-note"
+        state, env, ref = self._standard_case(
+            noted,
+            "departments/coding/outbox/TASK-STD-TYPE-NOTE-response.md",
+            type="STATUS",
+        )
+        refused = self.run_settle(env, noted, ref, expected_returncode=2)
+        self.assertIn("standard review must be a RESULT response", refused.stderr)
+        self.assertEqual(
+            self.result(state, noted)[0]["status"], "review-required"
+        )
+
+    def test_x3_standard_review_provenance_must_target_the_held_task(self):
+        """Deleting the `registry provenance targets a different held task`
+        clause of `_validate_standard_review` lets a review dispatched for one
+        task settle another.
+
+        `test_b5` covers the case where the provenance is *absent*. This is
+        the case where it is present and points elsewhere: the registry says
+        the review task was dispatched to review a different task, and the
+        response omits the optional `reviews` echo entirely, which is what
+        isolates this clause: with the echo present the conflict is caught one
+        line earlier by `reviews conflicts with registry provenance`, so a
+        fixture that leaves it in tests that neighbour instead. Verified by
+        mutation: with this clause replaced by `if False:` and no echo to fall
+        back on, the review settles a task it was never dispatched to review.
+        """
+        ok = "TASK-2026-08-30-standard-target-ok"
+        state, env, ref = self._standard_case(
+            ok, "departments/coding/outbox/TASK-STD-TARGET-OK-response.md"
+        )
+        self.run_settle(env, ok, ref)
+        self.assertEqual(self.result(state, ok)[0]["status"], "complete")
+
+        borrowed = "TASK-2026-08-30-standard-target-borrowed"
+        state, env, ref = self._standard_case(
+            borrowed,
+            "departments/coding/outbox/TASK-STD-TARGET-OTHER-response.md",
+            provenance_target="TASK-2026-08-30-some-other-held-task",
+            drop=("reviews",),
+        )
+        refused = self.run_settle(env, borrowed, ref, expected_returncode=2)
+        self.assertIn(
+            "standard review registry provenance targets a different held task",
+            refused.stderr,
+        )
+        self.assertEqual(
+            self.result(state, borrowed)[0]["status"], "review-required"
+        )
+
+    def test_x4_standard_review_response_must_declare_its_author(self):
+        """Deleting the `response is missing from` clause of
+        `_validate_standard_review` settles an anonymous review.
+
+        Reported honestly, because the mutation says less than the name
+        suggests: this guard is **backstopped in every configuration a worker
+        can reach**. An empty `from` cannot equal a non-empty registry
+        reviewer lane, so `from conflicts with registry reviewer lane` catches
+        it; and if the registry lane is empty too, `must come from the
+        configured review_model` catches that. Deleting this clause therefore
+        changes the *diagnostic*, not the *outcome* -- the observed mutant
+        refusal is `... from conflicts with registry reviewer lane:
+        expected=gpt-codex observed=`.
+
+        The test is kept for what it does control: an anonymous review is
+        refused, and it is refused with the message that names the actual
+        defect rather than one that misdescribes it as a lane mismatch.
+        """
+        ok = "TASK-2026-08-30-standard-author-ok"
+        state, env, ref = self._standard_case(
+            ok, "departments/coding/outbox/TASK-STD-AUTHOR-OK-response.md"
+        )
+        self.run_settle(env, ok, ref)
+        self.assertEqual(self.result(state, ok)[0]["status"], "complete")
+
+        anon = "TASK-2026-08-30-standard-author-missing"
+        state, env, ref = self._standard_case(
+            anon,
+            "departments/coding/outbox/TASK-STD-AUTHOR-NONE-response.md",
+            **{"from": ""},
+        )
+        refused = self.run_settle(env, anon, ref, expected_returncode=2)
+        self.assertIn("standard review response is missing from", refused.stderr)
+        self.assertEqual(self.result(state, anon)[0]["status"], "review-required")
+
+    def test_x5_standard_review_author_must_match_registry_reviewer_lane(self):
+        """Deleting the `from conflicts with registry reviewer lane` clause of
+        `_validate_standard_review` lets a response name a lane other than the
+        one the review was dispatched to.
+
+        The registry owns which lane was asked to review; the response's `from`
+        is a worker assertion about itself. Without this clause the two are
+        never compared, so a lane that was never dispatched settles by
+        declaring itself the reviewer -- confirmed by mutation.
+
+        The response declares no `reviewer_family`. That is what isolates this
+        clause rather than weakening the test: a declared family would be
+        caught one clause later by the family-conflict check, and the fixture
+        would be exercising that neighbour instead. Omitting it leaves the
+        family derived from the registry lane, which is cross-family and
+        passes, so only the lane comparison objects.
+        """
+        ok = "TASK-2026-08-30-standard-lane-echo-ok"
+        state, env, ref = self._standard_case(
+            ok, "departments/coding/outbox/TASK-STD-LANE-ECHO-OK-response.md"
+        )
+        self.run_settle(env, ok, ref)
+        self.assertEqual(self.result(state, ok)[0]["status"], "complete")
+
+        mismatched = "TASK-2026-08-30-standard-lane-echo-mismatch"
+        state, env, ref = self._standard_case(
+            mismatched,
+            "departments/coding/outbox/TASK-STD-LANE-ECHO-BAD-response.md",
+            drop=("reviewer_family",),
+            **{"from": "gemini"},
+        )
+        refused = self.run_settle(env, mismatched, ref, expected_returncode=2)
+        self.assertIn(
+            "standard review response from conflicts with registry reviewer lane",
+            refused.stderr,
+        )
+        self.assertEqual(
+            self.result(state, mismatched)[0]["status"], "review-required"
+        )
+
+    def test_x6_standard_review_must_come_from_the_assigned_reviewer(self):
+        """Names the standard-path `must come from the configured review_model`
+        message in full, which no existing test does.
+
+        This one tightens a pin rather than closing a hole, and the
+        distinction is worth stating. The guard is already controlled:
+        deleting it makes the pre-existing `test_c4` fail (measured
+        2026-09-01), so it is not free to regress. But `test_c4:633` asserts
+        only `'configured review_model'` -- a fragment that appears in *both*
+        this message and `_validate_security_review`'s -- and it fails there
+        by falling through to `must be cross-family`, not by observing this
+        clause. So the existing control cannot say which path refused, or
+        that this clause is what refused.
+
+        The review here is genuinely cross-family to the anthropic author, and
+        the response agrees with the registry about its own lane, so every
+        other clause passes and only the assigned-reviewer clause objects.
+        With the clause deleted this fixture settles outright.
+        """
+        ok = "TASK-2026-08-30-standard-assigned-ok"
+        state, env, ref = self._standard_case(
+            ok, "departments/coding/outbox/TASK-STD-ASSIGNED-OK-response.md"
+        )
+        self.run_settle(env, ok, ref)
+        self.assertEqual(self.result(state, ok)[0]["status"], "complete")
+
+        unassigned = "TASK-2026-08-30-standard-assigned-other"
+        state, env, ref = self._standard_case(
+            unassigned,
+            "departments/coding/outbox/TASK-STD-ASSIGNED-OTHER-response.md",
+            provenance_lane="gemini",
+            **{"from": "gemini", "reviewer_family": "google"},
+        )
+        refused = self.run_settle(env, unassigned, ref, expected_returncode=2)
+        self.assertIn(
+            "standard review must come from the configured review_model",
+            refused.stderr,
+        )
+        self.assertEqual(
+            self.result(state, unassigned)[0]["status"], "review-required"
+        )
+
+    def test_x7_standard_review_status_must_be_terminal_enough_to_settle(self):
+        """Deleting the `status must be complete or needs_review` clause of
+        `_validate_standard_review` settles on a review that reached neither.
+
+        This path deliberately admits `needs_review` as well as `complete` --
+        a reviewer may land a verdict without closing its own task -- which
+        makes the clause easy to read as permissive. It is not: everything
+        outside those two, `blocked` included, must not settle.
+        """
+        ok = "TASK-2026-08-30-standard-status-ok"
+        state, env, ref = self._standard_case(
+            ok, "departments/coding/outbox/TASK-STD-STATUS-OK-response.md"
+        )
+        self.run_settle(env, ok, ref)
+        self.assertEqual(self.result(state, ok)[0]["status"], "complete")
+
+        # needs_review is the deliberately-admitted second value: it settles,
+        # which is what makes the refusal below attributable to the status
+        # itself rather than to the clause being a blanket terminal check.
+        lenient = "TASK-2026-08-30-standard-status-needs-review"
+        state, env, ref = self._standard_case(
+            lenient,
+            "departments/coding/outbox/TASK-STD-STATUS-NR-response.md",
+            status="needs_review",
+        )
+        self.run_settle(env, lenient, ref)
+        self.assertEqual(self.result(state, lenient)[0]["status"], "complete")
+
+        blocked = "TASK-2026-08-30-standard-status-blocked"
+        state, env, ref = self._standard_case(
+            blocked,
+            "departments/coding/outbox/TASK-STD-STATUS-BLOCKED-response.md",
+            status="blocked",
+        )
+        refused = self.run_settle(env, blocked, ref, expected_returncode=2)
+        self.assertIn(
+            "standard review status must be complete or needs_review",
+            refused.stderr,
+        )
+        self.assertEqual(
+            self.result(state, blocked)[0]["status"], "review-required"
+        )
+
+    def test_y1_factual_attestation_family_must_be_derived_from_the_lane(self):
+        """Deleting the `has invalid reviewer_family` clause of
+        `_validate_factual_attestation` lets a same-family review declare
+        itself cross-family and settle.
+
+        This does not merely settle one task wrongly -- it defeats the
+        cross-family requirement as a property. The clause immediately below
+        it consumes `reviewer_family`, and on this path that variable holds
+        the value the artifact *declared* about itself, not one derived from
+        the lane. This clause is the only thing binding the two. Replace it
+        with `if False:` and an attestation whose task and reviewer are both
+        openai declares `reviewer_family: anthropic`, the anti-affinity clause
+        compares the lie against the author family, and it passes.
+
+        Note the asymmetry with `_validate_security_review`, which derives the
+        family it compares and merely *echo-checks* the declared one; see
+        `test_y2`. The factual path trusts the declaration, which makes this
+        clause materially more load-bearing than its security-path twin.
+        """
+        # Positive control: an honest cross-family attestation still settles.
+        ok = "TASK-2026-08-30-factual-family-ok"
+        state, env, ref = self._factual_case(
+            ok, "departments/coding/outbox/TASK-ATT-FAMILY-OK-response.md"
+        )
+        self.run_settle(env, ok, ref)
+        self.assertEqual(self.result(state, ok)[0]["status"], "complete")
+
+        # Author and reviewer are both openai. The attestation says otherwise.
+        forged = "TASK-2026-08-30-factual-family-forged"
+        state, env, ref = self._factual_case(
+            forged,
+            "departments/coding/outbox/TASK-ATT-FAMILY-FORGED-response.md",
+            entry_over={"author_family": "openai"},
+            reviewer_family="anthropic",
+        )
+        refused = self.run_settle(env, forged, ref, expected_returncode=2)
+        self.assertIn(
+            "factual coordinator attestation has invalid reviewer_family",
+            refused.stderr,
+        )
+        self.assertEqual(
+            self.result(state, forged)[0]["status"], "review-required"
+        )
+
+    def test_y2_security_review_family_must_be_derivable_from_the_lane(self):
+        """Deleting the `has invalid reviewer family` clause of
+        `_validate_security_review` lets a lane with no known family settle a
+        security finding.
+
+        Reported precisely, because this clause guards two things and only one
+        of them is load-bearing:
+
+        - **The `not reviewer_family` half is a real gate.** A reviewer lane
+          absent from `LANE_AUTHOR_FAMILY` derives the empty family, and the
+          anti-affinity clause below compares `"" == author_family`, which is
+          false -- so an unrecognized lane reads as cross-family and settles.
+          That is what this test proves by mutation.
+        - **The echo half is inert, and that is a documented non-finding.**
+          Unlike the factual path, the anti-affinity clause here consumes the
+          *derived* family, never the declared one. A review that forges
+          `reviewer_family` is still judged on its lane's real family, so
+          deleting the clause changes the diagnostic, not the outcome. The
+          second assertion below pins that refusal without claiming it
+          prevents a settlement.
+        """
+        ok = "TASK-2026-08-30-security-family-ok"
+        state, env, ref = self._security_case(
+            ok, "departments/coding/outbox/TASK-SEC-FAMILY-OK-response.md"
+        )
+        self.run_settle(env, ok, ref)
+        self.assertEqual(self.result(state, ok)[0]["status"], "complete")
+
+        # A lane the family map does not know. Its derived family is empty,
+        # which is not equal to the author's -- so anti-affinity is satisfied
+        # by a lane whose family nobody can name.
+        unmapped = "TASK-2026-08-30-security-family-unmapped"
+        state, env, ref = self._security_case(
+            unmapped,
+            "departments/coding/outbox/TASK-SEC-FAMILY-UNMAPPED-response.md",
+            entry_over={"review_model": "mistral"},
+            drop=("reviewer_family",),
+            **{"from": "mistral"},
+        )
+        refused = self.run_settle(env, unmapped, ref, expected_returncode=2)
+        self.assertIn(
+            "security-finding review has invalid reviewer family", refused.stderr
+        )
+        self.assertEqual(
+            self.result(state, unmapped)[0]["status"], "review-required"
+        )
+
+        # The inert half: a forged echo on a mappable lane is refused here,
+        # but the anti-affinity clause would have judged it on the derived
+        # family anyway. Kept as a diagnostic control, not a settlement one.
+        echoed = "TASK-2026-08-30-security-family-forged-echo"
+        state, env, ref = self._security_case(
+            echoed,
+            "departments/coding/outbox/TASK-SEC-FAMILY-ECHO-response.md",
+            reviewer_family="anthropic",
+        )
+        refused = self.run_settle(env, echoed, ref, expected_returncode=2)
+        self.assertIn(
+            "security-finding review has invalid reviewer family", refused.stderr
+        )
+        self.assertEqual(
+            self.result(state, echoed)[0]["status"], "review-required"
+        )
+
     def test_v_reopen_uses_fixture_registry_and_derives_rework(self):
         t = "TASK-2026-07-20-fixture-reopen"
         settled = self._entry(

@@ -33,6 +33,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from repo_root import resolve_vault_root
+from seatbelt_profile import LANE_CLI_PATHS
 
 VAULT_ROOT = resolve_vault_root()
 STATE_DIR = VAULT_ROOT / "_state"
@@ -81,23 +82,34 @@ def subscription_audit() -> dict:
     results = {}
     env = oauth_env()
     # Claude — fall back to OAuth, ask one trivial question; success = login good
-    for cli, probe in [
-        ("claude", ["claude", "-p", "--permission-mode", "default", "Reply 'ok' literally."]),
-        ("codex", ["codex", "exec", "--skip-git-repo-check", "--sandbox", "read-only",
+    for cli, executable, probe in [
+        ("claude", "claude", ["claude", "-p", "--permission-mode", "default", "Reply 'ok' literally."]),
+        ("codex", "codex", ["codex", "exec", "--skip-git-repo-check", "--sandbox", "read-only",
                    "Reply 'ok' literally."]),
-        ("gemini", ["gemini", "-p", "Reply 'ok' literally."]),
-        ("kimi", ["kimi", "--quiet", "--no-thinking", "-p", "Reply 'ok' literally.",
+        (
+            "gemini",
+            str(LANE_CLI_PATHS["gemini"]),
+            [
+                str(LANE_CLI_PATHS["gemini"]),
+                "--mode",
+                "plan",
+                "--output-format",
+                "text",
+                "--print",
+                "Reply 'ok' literally.",
+            ],
+        ),
+        ("kimi", "kimi", ["kimi", "--quiet", "--no-thinking", "-p", "Reply 'ok' literally.",
                   "--max-steps-per-turn", "2"]),
     ]:
-        if not shutil.which(cli):
+        if not (Path(executable).is_file() if Path(executable).is_absolute() else shutil.which(executable)):
             results[cli] = "not installed"
             continue
         try:
             r = subprocess.run(probe, capture_output=True, text=True,
                                timeout=120, env=env)
             if r.returncode == 0 and "ok" in r.stdout.lower():
-                auth_class = "gemini-api-key" if cli == "gemini" else "subscription"
-                results[cli] = f"✓ {auth_class} auth OK"
+                results[cli] = "✓ subscription auth OK"
             else:
                 snippet = (r.stderr or r.stdout)[:200].strip().replace("\n", " ")
                 results[cli] = f"✗ exit {r.returncode}: {snippet}"

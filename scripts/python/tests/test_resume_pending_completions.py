@@ -108,18 +108,20 @@ class TestPendingCompletions(unittest.TestCase):
         # the latest operator instruction is never dropped
         self.assertIn("go", cap)
 
-    def test_pending_completions_invalid_utf8_returns_empty_list_not_a_crash(self):
+    def test_pending_completions_invalid_utf8_is_unknown_not_a_crash(self):
         """A corrupt queue (e.g. raw ANSI/control bytes) must not break the capsule.
 
         Fix round 2: `read_text(encoding="utf-8")` raises `UnicodeDecodeError`
         (a `ValueError` subclass) on invalid bytes; the prior `except OSError`
-        alone did not catch this.
+        alone did not catch this. This originally asserted `[]`, which made a
+        corrupt queue report the same "nothing owed" an empty one does; `None`
+        now means unknown, and only a missing file means empty.
         """
         with tempfile.TemporaryDirectory() as d:
             queue_path = Path(d) / "chrono-queue.md"
             # 0xFF is never valid as a UTF-8 lead byte.
             queue_path.write_bytes(b"2026-08-16T00:00:00Z | needs_review | coding/TASK-1 | \xff\xfe bad bytes\n")
-            self.assertEqual(resume.pending_completions(path=queue_path), [])
+            self.assertIsNone(resume.pending_completions(path=queue_path))
 
     def test_pending_completions_invalid_utf8_does_not_break_capsule_render(self):
         with tempfile.TemporaryDirectory() as d:
@@ -137,7 +139,10 @@ class TestPendingCompletions(unittest.TestCase):
                 cap = resume.render_capsule(
                     "sess-1", latest_operator_turn="go", max_tokens=3000
                 )
-        self.assertNotIn(resume.QUEUE_HEADING, cap)
+        # The capsule still renders, and now declares the blind spot rather
+        # than dropping the section (which read as "the queue is empty").
+        self.assertIn(resume.QUEUE_HEADING, cap)
+        self.assertIn("unavailable", cap)
         self.assertIn("go", cap)
 
 

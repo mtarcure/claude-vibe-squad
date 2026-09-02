@@ -76,7 +76,7 @@ done
 exit 1
 """
 
-_LANE_CLIS = ("claude", "codex", "gemini", "grok", "kimi")
+_LANE_CLIS = ("claude", "codex", "agy", "grok", "kimi")
 
 
 def write_stub(directory: Path, name: str, body: str = "#!/bin/bash\nexit 0\n") -> Path:

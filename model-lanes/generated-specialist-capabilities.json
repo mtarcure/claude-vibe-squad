@@ -1022,7 +1022,7 @@
       "lane": "grok",
       "limitations": [
         "best-effort non-primary (escalate) route; required capabilities remain anchored to the primary execution plan (gemini)",
-        "grok's only projected lane capability is the chrono-vault MCP (plus repo shell); native X/Twitter search (x_keyword_search) is live on the SuperGrok subscription session but is not present in the grok lane tool inventory (model-lanes/lane-capabilities.tsv adapter_tools is empty), so it is not projected here",
+        "grok 1.0.5 inspect enumerated 289 skills, 28 agents, and 15 MCP servers on 2026-09-01, including the bundled imagine skill; the sealed per-role capability plan and packet authority still decide what a worker may invoke",
         "web_search / web_fetch exist in the grok CLI but the launcher passes --disable-web-search, so no general web retrieval is available to a worker on this lane",
         "read_file hard-fails a 343KB document at a 25,000-token ceiling (it errors rather than truncating); this role returns cited grounded leads rather than ingesting whole corpora, but any single supplied audit/report above the ceiling must stay on the primary grounded route rather than escalate to grok",
         "authentication is the SuperGrok subscription session, not XAI_API_KEY"
@@ -6238,7 +6238,7 @@
       "lane": "grok",
       "limitations": [
         "best-effort non-primary (escalate) route; required capabilities remain anchored to the primary execution plan (gemini)",
-        "grok's only projected lane capability is the chrono-vault MCP (plus repo shell); native X/Twitter search (x_keyword_search) is live on the SuperGrok subscription session but is not present in the grok lane tool inventory (model-lanes/lane-capabilities.tsv adapter_tools is empty), so it is not projected here",
+        "grok 1.0.5 inspect enumerated 289 skills, 28 agents, and 15 MCP servers on 2026-09-01, including the bundled imagine skill; the sealed per-role capability plan and packet authority still decide what a worker may invoke",
         "web_search / web_fetch exist in the grok CLI but the launcher passes --disable-web-search, so no general web retrieval is available to a worker on this lane",
         "read_file hard-fails a 343KB document at a 25,000-token ceiling (it errors rather than truncating); by brief this role routes >100k-token corpora (large repos, big PDFs, long transcripts) to large-context-analyst, so grok escalation is for tractable corpora only and any single supplied input above the ceiling must stay on the primary/large-context route rather than escalate here",
         "authentication is the SuperGrok subscription session, not XAI_API_KEY"
@@ -9616,6 +9616,6 @@
   "policy_sha256": "50c47921e74b141a2f16bed9f63262cd48436a3122ac6b1eb2261d53d49fa917",
   "schema": "specialist-adapter-capability-index/v2",
   "source": "model-lanes/specialist-lane-capabilities.v1.json",
-  "source_sha256": "fab7adf72b833cd53566439936fa2dea09e4b630cc566d0ac94c45663c28dccf",
+  "source_sha256": "146310977227fae7833652053265e5f7f29bde12d6a39192ced810eeb32e58fd",
   "surface_count": 113
 }

@@ -208,7 +208,7 @@ class InterruptionRestartCanaries(unittest.TestCase):
                 "active_thread_charters",
                 return_value=[thread_charters.parse_charter(charter)],
             ),
-            mock.patch.object(resume, "_archived_debt_rows", return_value=[]),
+            mock.patch.object(resume, "_archived_debt_rows", return_value=([], False)),
             mock.patch.object(resume, "open_work_items", return_value=[]),
         ):
             stubbed = resume._render(

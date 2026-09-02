@@ -27,26 +27,12 @@ import dispatch_context_builder as context_builder
 VERDICT_SCHEMA = "dispatch-preflight/v1"
 ACK_FIELD = "dispatch_preflight_ack"
 OWNER_MISMATCH = "owner_mismatch"
-CODE_COMMIT_ARTIFACT_ONLY = "code_commit_artifact_only"
-UNSCOPED_TRACKED_PATH = "unscoped_tracked_path"
 DIRTY_WRITE_SCOPE = "dirty_write_scope"
 COUPLED_HASH_PIN = "coupled_hash_pin"
+ADVISORY_SCAN_FAILED = "advisory_scan_failed"
 KNOWN_ACKS = frozenset({OWNER_MISMATCH})
 TOOLKIT_BOUNDARY = "\n## Dispatch Context\n"
 RECENT_DISPATCH_WINDOW = 50
-
-CODE_COMMIT_RE = re.compile(
-    r"\bcommit\s+(?:(?:your|the|these)\s+)?(?:code|implementation)(?:\s+changes?)?\b"
-)
-MUTATION_RE = re.compile(
-    r"\b(?:add|append|author|change|create|edit|fix|implement|modify|move|patch|put|"
-    r"remove|rename|replace|rewrite|update|write)\w*\b"
-)
-NEGATED_MUTATION_RE = re.compile(
-    r"\b(?:do not|don't|must not|may not|never|no need to)\s+"
-    r"(?:(?:also|directly)\s+)?(?:add|append|author|change|create|edit|fix|implement|"
-    r"modify|move|patch|put|remove|rename|replace|rewrite|update|write)\w*\b"
-)
 
 EXIT_PASS = 0
 EXIT_INTERNAL = 2
@@ -267,7 +253,21 @@ def _author_task_text(contract: PacketContract) -> str:
     return _author_text(contract.fields, contract.body)
 
 
+class GitProbeError(RuntimeError):
+    """git could not answer -- distinct from git answering "nothing"."""
+
+
 def _git_paths(repo_root: Path, *arguments: str) -> tuple[str, ...]:
+    """Paths from a git query, or raise if the query never ran.
+
+    Swallowing failures here made a scan that could not run look exactly like a
+    scan that found nothing, so `_write_scope_advisories` returned `()` and the
+    caller read that as "clean". `_scan_failed_advisory` was written to prevent
+    precisely that, but it sits one level up and never saw these errors -- its
+    tests inject RuntimeError, which this function does not catch. Raising lets
+    the real failures reach it. The scan stays FAIL-OPEN (the advisory never
+    gates dispatch); it stops being fail-SILENT.
+    """
     try:
         result = subprocess.run(
             ("git", "-C", str(repo_root), *arguments),
@@ -276,30 +276,22 @@ def _git_paths(repo_root: Path, *arguments: str) -> tuple[str, ...]:
             stderr=subprocess.DEVNULL,
             timeout=3,
         )
-    except (OSError, subprocess.SubprocessError):
-        return ()
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise GitProbeError(f"git {arguments[0]} did not run: {exc}") from exc
     if result.returncode:
-        return ()
+        # `git grep` exits 1 for "no matches" -- a real answer, not a failure
+        # (measured). Every other nonzero exit means the query did not run:
+        # `ls-files` exits 128 outside a repository, for instance.
+        if arguments[:1] == ("grep",) and result.returncode == 1:
+            return ()
+        raise GitProbeError(
+            f"git {arguments[0]} failed with exit {result.returncode}"
+        )
     return tuple(
         item.decode("utf-8", "surrogateescape")
         for item in result.stdout.split(b"\0")
         if item
     )
-
-
-def _mutation_targets(text: str, tracked_paths: Sequence[str]) -> tuple[str, ...]:
-    lines = text.splitlines()
-    targets = set()
-    for path in tracked_paths:
-        needle = path.lower()
-        for index, line in enumerate(lines):
-            if needle not in line:
-                continue
-            context = " ".join(lines[max(0, index - 1) : index + 1])
-            if MUTATION_RE.search(context) and not NEGATED_MUTATION_RE.search(context):
-                targets.add(path)
-                break
-    return tuple(sorted(targets))
 
 
 def _write_scope_advisories(
@@ -310,48 +302,8 @@ def _write_scope_advisories(
         write_scope = context_builder.parse_scope(
             fields.get("write_scope", ""), field="write_scope"
         )
-        return_artifact = context_builder._safe_relative(  # noqa: SLF001
-            fields.get("return_artifact", ""), field="return_artifact"
-        )
-        task_text = _author_text(fields, body)
         warnings: list[Mapping[str, Any]] = []
-        if (
-            return_artifact
-            and len(write_scope) == 1
-            and PurePosixPath(write_scope[0]) == PurePosixPath(return_artifact)
-            and CODE_COMMIT_RE.search(task_text)
-        ):
-            warnings.append(
-                {
-                    "code": CODE_COMMIT_ARTIFACT_ONLY,
-                    "gate": "advisory",
-                    "blocking": False,
-                    "message": (
-                        "body asks to commit code, but write_scope contains only "
-                        "the return artifact"
-                    ),
-                    "return_artifact": return_artifact,
-                }
-            )
-
         tracked_paths = _git_paths(repo_root, "ls-files", "-z")
-        mutation_targets = _mutation_targets(task_text, tracked_paths)
-        unscoped = tuple(
-            path
-            for path in mutation_targets
-            if not any(_contains(scope, path) for scope in write_scope)
-        )
-        if unscoped:
-            warnings.append(
-                {
-                    "code": UNSCOPED_TRACKED_PATH,
-                    "gate": "advisory",
-                    "blocking": False,
-                    "message": "body asks to change tracked paths outside write_scope",
-                    "paths": list(unscoped),
-                }
-            )
-
         for source in sorted(set(write_scope) & set(tracked_paths)):
             digest = hashlib.sha256((repo_root / source).read_bytes()).hexdigest()
             pins = _git_paths(repo_root, "grep", "-lz", digest, "--")
@@ -398,8 +350,27 @@ def _write_scope_advisories(
                 }
             )
         return tuple(warnings)
-    except Exception:  # Diagnostics are deliberately fail-open, including future drift.
-        return ()
+    except Exception as exc:  # Fail-open, including future drift -- but not silent.
+        return (_scan_failed_advisory(exc),)
+
+
+def _scan_failed_advisory(exc: BaseException) -> Mapping[str, Any]:
+    """Loud marker: the scan did not finish, so its silence proves nothing.
+
+    Returning `()` said "scanned, no warnings" about a scan that never ran,
+    making a broken packet the cleanest-looking packet on the board. Shaped as
+    an advisory on purpose -- no `required_ack`, not blocking -- so it reports
+    the blind spot without becoming the gate these diagnostics may not be.
+    """
+    return {
+        "code": ADVISORY_SCAN_FAILED,
+        "gate": "advisory",
+        "blocking": False,
+        "message": (
+            f"authoring advisories could not be computed ({type(exc).__name__}: "
+            f"{exc}); an empty warning list below is not evidence of a clean packet"
+        ),
+    }
 
 
 def authoring_warnings(repo_root: Path, packet: Path) -> tuple[Mapping[str, Any], ...]:
@@ -408,8 +379,8 @@ def authoring_warnings(repo_root: Path, packet: Path) -> tuple[Mapping[str, Any]
             Path(packet).read_text(encoding="utf-8")
         )
         root = Path(repo_root).resolve(strict=True)
-    except Exception:
-        return ()
+    except Exception as exc:  # Unparsable packet: a scan that could not run.
+        return (_scan_failed_advisory(exc),)
     return _write_scope_advisories(root, fields, body)
 
 

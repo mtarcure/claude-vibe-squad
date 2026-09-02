@@ -409,7 +409,8 @@ autocapture_response_best_effort() {
     # stderr is KEPT, not discarded. It used to go to /dev/null, so the only
     # thing that reached the log was "auto-capture failed: <file>" -- never
     # WHY. A distillation failure writes no semantic note at all, and its
-    # cause (an unauthenticated `gemini`, a timeout, an unparseable reply) is
+    # cause (an unauthenticated agy-backed `gemini` lane, a timeout, or an
+    # unparseable reply) is
     # the entire content of the alert. Bounded to one line so a runaway
     # traceback cannot flood the watcher log; the full reason is also counted
     # in _state/autocapture-failures.jsonl, which outlives the log.

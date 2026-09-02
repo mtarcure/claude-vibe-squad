@@ -7,10 +7,10 @@ model: inherit
 max_turns: 30
 ---
 
-<!-- generated_by=lane-capability-registry/v1 registry_sha256=036f6a2da0cb9865544c8c6bcd04b9f03b9caa6caf9943c48c099d82227fad2d
+<!-- generated_by=lane-capability-registry/v1 registry_sha256=55eeb1e04b2465f5a723bcb1fddec4823f2751b08c72b701fcd2d542a836e29f
 # BEGIN SPECIALIST CAPABILITY PROJECTION
 capability_source: model-lanes/specialist-lane-capabilities.v1.json
-capability_source_sha256: b5693bab7ccdccf6ab1c1e1018fb93e3153a9fd1883e97f1f31c4fa4aee26e53
+capability_source_sha256: 146310977227fae7833652053265e5f7f29bde12d6a39192ced810eeb32e58fd
 capability_skills: ["color-theory"]
 capability_tools: ["generate_image"]
 capability_mcps: ["chrono-media-studio","chrono-vault","sequential-thinking"]

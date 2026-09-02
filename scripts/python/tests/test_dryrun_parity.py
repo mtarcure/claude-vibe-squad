@@ -30,6 +30,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -41,6 +42,7 @@ import dispatch_context_builder as dcb  # noqa: E402
 import dispatch_preflight  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ci_host_independence import (  # noqa: E402
+    hermetic_lane_cli_patch,
     skip_if_trusted_lane_executable_missing,
     skip_in_host_independent_ci,
 )
@@ -168,9 +170,13 @@ def build_fixture_repo(
 
 
 def staged_build(root: Path, packet: Path) -> dict[str, object]:
-    return dcb.build_context(
-        root, packet, attempt_id="d-" + "0" * 32, generation=1, staged=True
-    )
+    # These builder-level tests exercise invariants after executable admission;
+    # the CLI itself is never launched.  Satisfy that external prerequisite in
+    # this one helper so every sibling gets the same hermetic dependency.
+    with hermetic_lane_cli_patch(dcb.LANE_CLI_PATHS, (LANE,)):
+        return dcb.build_context(
+            root, packet, attempt_id="d-" + "0" * 32, generation=1, staged=True
+        )
 
 
 class ModeRuleHasOneHomeTests(unittest.TestCase):

@@ -604,12 +604,13 @@ echo "Resolved on this HOME's PATH (HOME=${HOME:-<unset>})." >> "${DOCTOR_LOG}"
 #     claude auth status   -> {"loggedIn": true, "authMethod": ..., "apiKeySource": ...}
 #     codex login status   -> Logged in using ChatGPT
 #
-# `gemini`, `grok`, and `kimi` expose no such subcommand, so they get a credential-at-rest
-# check instead -- deliberately reported as a WEAKER claim (see below).
+# `agy`, `grok`, and `kimi` expose no such subcommand. Grok and Kimi have bounded
+# credential-at-rest checks; agy's OAuth state has no stable zero-token file or
+# status contract here, so doctor reports it as UNKNOWN instead of guessing.
 #
 # WHY THE PROBE SHAPE IS A TABLE HERE AND THE POLICY IS NOT. The lane inventory
-# already carries auth-policy per lane (claude/codex subscription, gemini
-# gemini-api-key, kimi managed-login) and doctor must not restate it -- it reads
+# already carries auth-policy per lane (claude/codex/gemini subscription, kimi
+# managed-login) and doctor must not restate it -- it reads
 # it back below and reports any DISAGREEMENT between the declared policy and what
 # this probe observed, which is CLAUDE.md rule 9 applied to authentication. What
 # the inventory cannot supply is the probe COMMAND: `claude auth status` versus
@@ -621,22 +622,16 @@ echo "Resolved on this HOME's PATH (HOME=${HOME:-<unset>})." >> "${DOCTOR_LOG}"
 # Timeout is UNKNOWN, never "not logged in" -- doctor did not establish either.
 LANE_AUTH_OBSERVED=()
 
-# gemini: OAuth credentials at ~/.gemini/oauth_creds.json are what actually
-# authenticate this lane. GEMINI_API_KEY is the documented fallback and is
-# checked for PRESENCE only, never read.
 # kimi: ~/.kimi/credentials/kimi-code.json, written by `kimi login`.
 #
 # The check is for a REFRESH token, not for freshness, because freshness is the
 # wrong question and measuring it would produce a permanent false positive: both
-# files carry a short-lived access token beside the refresh token, and on the
-# maintainer's tree BOTH access tokens were already expired on a host whose lanes
-# work -- gemini's by 36 days, kimi's by 28 hours. Expiry of the access token is
-# the design, so only the durable half is evidence of anything.
+# file carries a short-lived access token beside the refresh token. Its expiry is
+# expected, so only the durable half is evidence of anything.
 #
 # Key presence only. No value from either file is read, printed, or logged.
 lane_credential_file() {
     case "$1" in
-        gemini) printf '%s\n' "${HOME}/.gemini/oauth_creds.json" ;;
         kimi)   printf '%s\n' "${HOME}/.kimi/credentials/kimi-code.json" ;;
         *)      return 1 ;;
     esac
@@ -647,12 +642,14 @@ CLI_PROBE_OUT="$(mktemp "${TMPDIR:-/tmp}/vs-doctor-cli.XXXXXXXX" 2>/dev/null)" \
 AUTH_PROBE_OUT="$(mktemp "${TMPDIR:-/tmp}/vs-doctor-auth.XXXXXXXX" 2>/dev/null)" \
     || AUTH_PROBE_OUT=""
 for lane in claude codex gemini grok kimi; do
-    lane_path="$(command -v "${lane}" 2>/dev/null || true)"
+    lane_cli="${lane}"
+    [[ "${lane}" == gemini ]] && lane_cli=agy
+    lane_path="$(command -v "${lane_cli}" 2>/dev/null || true)"
     if [[ -z "${lane_path}" ]]; then
         # Not installed is a setup step, not a fault: a clean install has none
         # of these yet and must still exit 0.
         note_warn "${lane} CLI not installed for this HOME" \
-            "${lane}: not on this HOME's PATH — install it, or put it on PATH"
+            "${lane}: ${lane_cli} is not on this HOME's PATH — install it, or put it on PATH"
         continue
     fi
     if [[ -z "${CLI_PROBE_OUT}" ]]; then
@@ -764,11 +761,13 @@ for lane in claude codex gemini grok kimi; do
                     "grok: XAI_API_KEY is not declared in .config/shell/secrets.zsh, so unattended Grok dispatches cannot authenticate."
             fi
             ;;
-        gemini|kimi)
+        gemini)
+            note_unknown "gemini login state not verifiable; agy exposes no zero-token auth status" \
+                "gemini: the lane runs through ${lane_path} using Antigravity OAuth. agy exposes no zero-token authentication status, so login state is UNKNOWN. Start agy interactively to verify or restore its OAuth session; GEMINI_API_KEY is not lane authentication."
+            ;;
+        kimi)
             LANE_CRED_FILE="$(lane_credential_file "${lane}")"
             LANE_CRED_HINT="run \`${lane} login\`"
-            [[ "${lane}" == gemini ]] \
-                && LANE_CRED_HINT="run \`gemini\` once and complete the OAuth flow, or set GEMINI_API_KEY"
             if [[ -r "${LANE_CRED_FILE}" ]] \
                 && grep -q '"refresh_token"' "${LANE_CRED_FILE}" 2>/dev/null; then
                 # A credential at rest is not a login result, and this must not
@@ -781,12 +780,6 @@ for lane in claude codex gemini grok kimi; do
             elif [[ -e "${LANE_CRED_FILE}" ]]; then
                 note_warn "${lane} credential file is present but carries no refresh token — ${LANE_CRED_HINT}" \
                     "${lane}: ${LANE_CRED_FILE#"${HOME}/"} exists but has no refresh token, so the lane cannot re-authenticate unattended. Fix: ${LANE_CRED_HINT}."
-            elif [[ "${lane}" == gemini ]] && [[ -n "${GEMINI_API_KEY:-}" ]]; then
-                # Presence of the NAME only. The value is never expanded into a
-                # message, a log line or a subprocess argument.
-                LANE_AUTH_OBSERVED+=("gemini=api-key-env")
-                note_unknown "gemini login state not verifiable; GEMINI_API_KEY is set in this environment" \
-                    "gemini: no OAuth credential at ${LANE_CRED_FILE#"${HOME}/"}, but GEMINI_API_KEY is set here (presence only — its value is never read). Whether that key is valid is UNDETERMINED."
             else
                 note_warn "${lane} has no credential — ${LANE_CRED_HINT}" \
                     "${lane}: no credential at ${LANE_CRED_FILE#"${HOME}/"}, so this lane is not authenticated and every ${lane} dispatch will fail. Fix: ${LANE_CRED_HINT}."
@@ -1042,8 +1035,9 @@ echo "## Instruction Drift" >> "${DOCTOR_LOG}"
 #   comment records why: "Including docs/ made this warning uncleanable, and a
 #   warning that cannot reach zero is one people learn to ignore." Two scans in
 #   one program asking the same question of different surfaces was the defect;
-#   this one now reads the same four LIVE surfaces the runtime itself reads. A
-#   dated audit saying "73 specialists" in July is an accurate record, not drift.
+#   this one now reads the live instruction surfaces plus bin/, whose launch and
+#   dashboard scripts print instructions directly to the operator. A dated audit
+#   saying "73 specialists" in July is an accurate record, not drift.
 #
 #   SEVERITY. A hit is a DEFECT when it is (a) on a surface the runtime reads as
 #   instruction and (b) checkably false -- a roster count that disagrees with
@@ -1081,23 +1075,60 @@ DRIFT_SCANNED=false
 # A missing grep used to leave the counts at 0 and print the clean line: the
 # scan that never happened reported as the scan that found nothing.
 if [[ "${GREP_USABLE}" == true ]]; then
-    # The four surfaces the runtime reads as instruction, identical to the
-    # referenced-script scan's list below.
-    DRIFT_PATHS=("${VAULT_ROOT}/README.md" "${VAULT_ROOT}/CLAUDE.md" \
+    # bin/ is a live operator-facing surface too: welcome banners, dashboards,
+    # and launch diagnostics are instructions even though agents do not ingest
+    # them as markdown. It was omitted when this scan copied the referenced-
+    # script scope below, which is how a four-lane welcome survived the move to
+    # five routed lanes.
+    MARKDOWN_DRIFT_PATHS=("${VAULT_ROOT}/README.md" "${VAULT_ROOT}/CLAUDE.md" \
         "${VAULT_ROOT}/chrono" "${VAULT_ROOT}/shared")
+    DRIFT_PATHS=("${MARKDOWN_DRIFT_PATHS[@]}" "${VAULT_ROOT}/bin")
     for _drift_path in "${DRIFT_PATHS[@]}"; do
         [[ -e "${_drift_path}" ]] && DRIFT_SCANNED=true
     done
     unset _drift_path
     SPECIALIST_COUNT=$(awk -F '\t' 'NR > 1 && $1 != "" {count++} END {print count + 0}' \
         "${VAULT_ROOT}/shared/specialist-runtime-map.tsv" 2>/dev/null)
+    # Resolve the routed lane roster from BOTH machine authorities before using
+    # it to judge operator text. A disagreement is not permission to guess: the
+    # specialist validator owns that routing defect, and this sub-check becomes
+    # UNKNOWN instead of manufacturing drift findings from one side.
+    ROUTED_LANES=$(awk -F '\t' '
+        NR == 1 {
+            for (i = 1; i <= NF; i++) if ($i ~ /_lane$/) lane_column[i] = 1
+            next
+        }
+        {
+            for (i in lane_column) if ($i != "" && $i != "none") lanes[$i] = 1
+        }
+        END { for (lane in lanes) print lane }
+    ' "${VAULT_ROOT}/shared/specialist-runtime-map.tsv" 2>/dev/null | sort)
+    PROFILE_LANES=$(awk -F '\t' '
+        NR == 1 {
+            for (i = 1; i <= NF; i++) if ($i == "lane") lane_column = i
+            next
+        }
+        lane_column && $lane_column != "" && $lane_column != "none" {
+            lanes[$lane_column] = 1
+        }
+        END { for (lane in lanes) print lane }
+    ' "${VAULT_ROOT}/shared/registries/profiles.tsv" 2>/dev/null | sort)
+    LANE_ROSTER_SCANNED=false
+    LANE_COUNT=0
+    if [[ -n "${ROUTED_LANES}" && "${ROUTED_LANES}" == "${PROFILE_LANES}" ]]; then
+        LANE_COUNT=$(printf '%s\n' "${ROUTED_LANES}" | awk 'NF {count++} END {print count + 0}')
+        LANE_ROSTER_SCANNED=true
+    else
+        note_unknown "operator lane-roster drift scan could not establish one authority roster" \
+            "shared/specialist-runtime-map.tsv and shared/registries/profiles.tsv did not yield the same non-empty lane set — operator lane-count/list claims were NOT checked"
+    fi
     # DEFECT class 1: a roster total that disagrees with the live registry.
     while IFS= read -r _drift_hit; do
         [[ -n "${_drift_hit}" ]] || continue
         drift_hit_is_on_a_live_surface "${_drift_hit}" || continue
         DRIFT_DEFECTS=$((DRIFT_DEFECTS + 1))
         [[ -n "${DRIFT_EXAMPLE}" ]] || DRIFT_EXAMPLE="${_drift_hit}"
-    done < <(grep -RInE '[0-9][0-9]+ specialists' "${DRIFT_PATHS[@]}" 2>/dev/null \
+    done < <(grep -RInE '[0-9][0-9]+ specialists' "${MARKDOWN_DRIFT_PATHS[@]}" 2>/dev/null \
         | awk -v expected="${SPECIALIST_COUNT:-0}" '
             {
                 text = $0
@@ -1120,24 +1151,72 @@ if [[ "${GREP_USABLE}" == true ]]; then
         DRIFT_DEFECTS=$((DRIFT_DEFECTS + 1))
         [[ -n "${DRIFT_EXAMPLE}" ]] || DRIFT_EXAMPLE="${_drift_hit}"
     done < <(grep -RInE 'currently has FILL placeholders|<FILL:' \
-        "${DRIFT_PATHS[@]}" 2>/dev/null)
+        "${MARKDOWN_DRIFT_PATHS[@]}" 2>/dev/null)
+    # DEFECT class 3: numeric lane totals printed by a shell surface must agree
+    # with the routing authorities. Restrict this to executable output
+    # statements: historical comments such as "used to run 8 lanes" are true
+    # records and must never become permanent noise.
+    if [[ "${LANE_ROSTER_SCANNED}" == true ]]; then
+        while IFS= read -r _drift_hit; do
+            [[ -n "${_drift_hit}" ]] || continue
+            DRIFT_DEFECTS=$((DRIFT_DEFECTS + 1))
+            [[ -n "${DRIFT_EXAMPLE}" ]] || DRIFT_EXAMPLE="${_drift_hit}"
+        done < <(grep -RInE '^[[:space:]]*(echo|printf)[[:space:]].*[0-9]+[[:space:]]+lanes?' \
+            "${VAULT_ROOT}/bin" 2>/dev/null \
+            | awk -v expected="${LANE_COUNT}" '
+                {
+                    text = $0
+                    while (match(text, /[0-9]+[[:space:]]+lanes?/)) {
+                        claim = substr(text, RSTART, RLENGTH)
+                        sub(/[[:space:]].*$/, "", claim)
+                        if ((claim + 0) != expected) {
+                            print $0
+                            break
+                        }
+                        text = substr(text, RSTART + RLENGTH)
+                    }
+                }
+            ')
+
+        # A hardcoded Peers/Dashboard roster naming at least two lanes is a
+        # claim of completeness. Dynamic ($-expanded) rosters are intentionally
+        # skipped: their truth is established at render time from the registry,
+        # and treating their source placeholders as omissions would be a false
+        # positive on the healthy implementation this check is meant to prefer.
+        while IFS= read -r _drift_hit; do
+            [[ -n "${_drift_hit}" ]] || continue
+            [[ "${_drift_hit}" == *'$'* ]] && continue
+            _named_lanes=0
+            while IFS= read -r _lane; do
+                [[ -n "${_lane}" ]] || continue
+                [[ "${_drift_hit}" == *"${_lane}"* ]] \
+                    && _named_lanes=$((_named_lanes + 1))
+            done <<< "${ROUTED_LANES}"
+            if [[ "${_named_lanes}" -ge 2 && "${_named_lanes}" -ne "${LANE_COUNT}" ]]; then
+                DRIFT_DEFECTS=$((DRIFT_DEFECTS + 1))
+                [[ -n "${DRIFT_EXAMPLE}" ]] || DRIFT_EXAMPLE="${_drift_hit}"
+            fi
+        done < <(grep -RInE '^[[:space:]]*(echo|printf)[[:space:]].*(Peers \(|Dashboard:)' \
+            "${VAULT_ROOT}/bin" 2>/dev/null)
+        unset _lane _named_lanes
+    fi
     # SMELL class: a live surface routing a reader to a dated historical doc.
     while IFS= read -r _drift_hit; do
         [[ -n "${_drift_hit}" ]] || continue
         drift_hit_is_on_a_live_surface "${_drift_hit}" || continue
         DRIFT_SMELLS=$((DRIFT_SMELLS + 1))
     done < <(grep -RInE 'docs/handoffs/[0-9]{4}-|docs/specs/spec-[0-9]|docs/plans/[0-9]{4}-' \
-        "${DRIFT_PATHS[@]}" 2>/dev/null)
+        "${MARKDOWN_DRIFT_PATHS[@]}" 2>/dev/null)
     unset _drift_hit
 fi
-DRIFT_GREP_HINT="grep -RInE '[0-9][0-9]+ specialists|<FILL:' README.md CLAUDE.md chrono shared"
+DRIFT_GREP_HINT="grep -RInE '[0-9][0-9]+ specialists|<FILL:|[0-9]+ lanes' README.md CLAUDE.md chrono shared bin"
 if [[ "${DRIFT_SCANNED}" != true ]]; then
     note_unknown "instruction drift scan did not run" \
         "no instruction surface was readable (grep usable=${GREP_USABLE}) — drift is UNKNOWN, not clean"
 else
     if [[ "${DRIFT_DEFECTS}" -gt 0 ]]; then
         note_issue "instruction drift: ${DRIFT_DEFECTS} live instruction surface(s) state something checkably false" \
-            "${DRIFT_DEFECTS} defect(s) on surfaces the runtime reads as instruction — a stale specialist-roster count (live registry: ${SPECIALIST_COUNT:-unknown}) or an unfilled <FILL:> template. Every agent that reads them acts on a false fact. First: ${DRIFT_EXAMPLE#"${VAULT_ROOT}/"}. Reproduce with: ${DRIFT_GREP_HINT}"
+            "${DRIFT_DEFECTS} defect(s) on live instruction/operator surfaces — a stale specialist count (registry: ${SPECIALIST_COUNT:-unknown}), an unfilled <FILL:> template, or a hardcoded operator lane roster that disagrees with the ${LANE_COUNT:-unknown}-lane routing authorities. A reader acts on a false fact. First: ${DRIFT_EXAMPLE#"${VAULT_ROOT}/"}. Reproduce with: ${DRIFT_GREP_HINT}"
     fi
     if [[ "${DRIFT_SMELLS}" -gt 0 ]]; then
         note_warn "instruction drift: ${DRIFT_SMELLS} live surface reference(s) to dated handoffs/specs/plans" \
@@ -1145,7 +1224,7 @@ else
     fi
     if [[ "${DRIFT_DEFECTS}" -eq 0 && "${DRIFT_SMELLS}" -eq 0 ]]; then
         note_ok "instruction drift clean" \
-            "No stale roster count, unfilled template, or dated-doc pointer on the four live instruction surfaces (README.md, CLAUDE.md, chrono/, shared/). Self-declared archives are excluded; historical documents under docs/ are out of scope by the same rule the referenced-script scan uses."
+            "No stale roster count, unfilled template, operator lane-roster claim, or dated-doc pointer on the five live instruction/operator surfaces (README.md, CLAUDE.md, chrono/, shared/, bin/). Self-declared archives are excluded; historical documents under docs/ remain out of scope."
     fi
 fi
 
@@ -1842,7 +1921,7 @@ fi
 [[ -n "${UPKEEP_OUT}" ]] && rm -f "${UPKEEP_OUT}"
 
 # Auto-capture write-path health -- the OTHER end of the loop from promotion.
-# `autocapture.distill()` shells out to the `gemini` CLI, and a failure there
+# `autocapture.distill()` shells out to the agy-backed `gemini` lane, and a failure there
 # means NO semantic note is written: the raw capture survives in the episodic
 # tier, but memory stops growing. None of spec §11's four measurements moves,
 # because they all describe notes that exist rather than notes never written.

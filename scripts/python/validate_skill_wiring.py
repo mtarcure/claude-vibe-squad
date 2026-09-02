@@ -40,8 +40,8 @@ WHAT IT ENFORCES (hard failures -> exit 1)
        - gemini bridge: ``model-lanes/gemini/.agents/skills`` must be a regular materialized
          directory whose loadable entries correspond to shared-home skills (gemini's cwd is
          model-lanes/gemini; without the bridge it sees only built-in skills).
-       - kimi launcher: ``bin/board-supervisor.sh`` must pass ``--skills-dir`` (kimi does
-         not auto-discover project skills from cwd).
+       - kimi launcher: ``bin/board-supervisor.sh`` must pass ``--skills-dir`` to override
+         kimi's broader default discovery with the shared specialist skill home.
   5. Audience routing (who a skill is FOR — see ``model-lanes/SKILL-HOMES.md``):
        - every wired skill declares ``audience: chrono`` or ``audience: specialist``.
          The test is not "could a specialist read this" but "does a specialist ever
@@ -71,8 +71,9 @@ WHAT IT REPORTS (informational -> never fails the gate)
     skills it can actually enumerate and by what mechanism, plus coverage gaps (a
     ``.claude/skills`` skill not mirrored to ``.agents/skills`` = unreachable by the
     non-claude lanes; an ``.agents``-native skill = unreachable by claude). This replaces
-    the earlier "lanes never checked (enumeration unproven)" stance: all four paths were
-    enumerated live 2026-08-18 (TASK-2026-08-18-1633-3c7b63ef).
+    the earlier "lanes never checked (enumeration unproven)" stance: the original paths
+    were enumerated live 2026-08-18 (TASK-2026-08-18-1633-3c7b63ef), and Kimi was
+    re-probed against installed 1.40.0 on 2026-09-01.
 
   To promote the backlog to a hard gate once the rollout completes, change the final
   ``return 1 if errors else 0`` to ``return 1 if errors or backlog else 0``. Left as a
@@ -140,26 +141,22 @@ PENDING_DEMOTION = {
 }
 
 # ---- Per-lane skill reach ---------------------------------------------------
-# Every board lane can now reach project skills; the paths below were each proven
-# live 2026-08-18 (TASK-2026-08-18-1633-3c7b63ef) by enumerating the lane's own
-# discovery mechanism, superseding the earlier "gemini/kimi/gpt-codex unproven"
-# stance. The mechanisms differ per CLI:
+# Every board lane can now reach project skills. The original paths were proven
+# live 2026-08-18 (TASK-2026-08-18-1633-3c7b63ef); kimi was re-probed against
+# installed kimi 1.40.0 on 2026-09-01 after a contradictory later claim. The
+# mechanisms differ per CLI:
 #   - claude    reads `<cwd=worktree-root>/.claude/skills/`  (its proven load path)
 #   - gpt-codex reads `<cwd=worktree-root>/.agents/skills/`  (resolves probe-canary bare)
-#   - gemini    reads `<cwd>/.agents/skills/` where cwd is model-lanes/gemini, so it
-#               reaches the shared home through the tracked regular-file materialization
-#               `model-lanes/gemini/.agents/skills` (proven: `gemini skills list --all`
-#               from that cwd returned project skills with the bridge, only built-ins
-#               without it).
-#   - kimi      HAS NO SKILL TOOL. Live-probed 2026-08-18 (TASK-2026-08-18-2154-615581ec):
-#               the runtime exposes 16 native tools plus lead-brokered MCP and no skill
-#               enumeration or invocation mechanism at all. The `--skills-dir` flag on
-#               bin/board-supervisor.sh is accepted by the CLI and does nothing. Kimi is
-#               deliberately ABSENT from the lane table below: reporting reach for a lane
-#               that cannot resolve a skill is the declared-not-delivered failure this
-#               validator exists to catch.
-#   - (historical) kimi was assumed to read dirs passed via `--skills-dir` (it does not auto-discover from
-#               cwd); bin/board-supervisor.sh wires `--skills-dir .agents/skills`.
+#   - gemini    is the routing identifier for the agy-backed lane. Its cwd is
+#               model-lanes/gemini, so the tracked regular-file materialization at
+#               `model-lanes/gemini/.agents/skills` remains the lane-local skill home.
+#   - kimi      reads skills natively. Live probe: `kimi --help` described repeatable
+#               `--skills-dir` as overriding default discovery; an isolated session `/help`
+#               listed `/skill:live-probe-7c91` when supplied by that flag; the same slash
+#               command was `Unknown` without it. A no-flag session at the repository root
+#               also advertised project skills, proving default project discovery exists.
+#               The supervisor's explicit `.agents/skills` override is therefore a scope
+#               boundary: it selects the specialist home and excludes controller-only skills.
 # The non-claude lanes share `.agents/skills/`, which mirrors cross-lane
 # `.claude/skills` entries as byte-identical regular-file copies. The named canonical
 # winner is `.claude/skills` (Hard Rule 10; see model-lanes/SKILL-HOMES.md), and
@@ -176,7 +173,10 @@ LANE_REACH = (
     ("gpt-codex", ".", AGENTS_SKILLS_REL,
      "cwd .agents/skills (codex resolved probe-canary bare)"),
     ("gemini", "model-lanes/gemini", AGENTS_SKILLS_REL,
-     "cwd .agents/skills via model-lanes/gemini/.agents bridge (gemini skills list from lane cwd)"),
+     "cwd .agents/skills via the model-lanes/gemini/.agents bridge used by agy"),
+    ("kimi", ".", AGENTS_SKILLS_REL,
+     "explicit --skills-dir .agents/skills; in-session /help listed injected canary "
+     "(kimi 1.40.0 live probe, 2026-09-01)"),
 )
 
 # ---- Trigger-distinctness (collision) check ---------------------------------
@@ -351,6 +351,23 @@ def wired_skills(root: Path) -> dict[str, Path]:
     return out
 
 
+def check_skill_directories(root: Path) -> list[str]:
+    """Every immediate skill directory in the live Claude home must be loadable."""
+    errors: list[str] = []
+    base = root / CLAUDE_SKILLS_REL
+    if not base.is_dir():
+        return errors
+    for entry in sorted(base.iterdir(), key=lambda path: path.name.casefold()):
+        if not entry.is_dir():
+            continue
+        skill_file = entry / "SKILL.md"
+        if not skill_file.is_file():
+            errors.append(
+                f"{CLAUDE_SKILLS_REL}/{entry.name}: skill directory contains no SKILL.md"
+            )
+    return errors
+
+
 def _skill_dirs(base: Path) -> dict[str, Path]:
     """name -> SKILL.md for every ``<base>/<name>/SKILL.md`` (follows symlinked dirs)."""
     out: dict[str, Path] = {}
@@ -480,7 +497,7 @@ def check_gemini_bridge(root: Path) -> list[str]:
 
 
 def check_kimi_launcher(root: Path) -> list[str]:
-    """The kimi launch must pass ``--skills-dir`` (kimi does not auto-discover skills)."""
+    """The kimi launch must select the shared specialist home with ``--skills-dir``."""
     errors: list[str] = []
     sup = root / SUPERVISOR_REL
     if not sup.is_file():
@@ -488,8 +505,9 @@ def check_kimi_launcher(root: Path) -> list[str]:
     text = sup.read_text(encoding="utf-8", errors="ignore")
     if "--skills-dir" not in text:
         errors.append(
-            f"{SUPERVISOR_REL}: no `--skills-dir` wiring for kimi — kimi runs with cwd "
-            f"at the worktree root but discovers no project skills without it")
+            f"{SUPERVISOR_REL}: no `--skills-dir` wiring for kimi — default project "
+            f"discovery can surface controller-only skills; explicitly select "
+            f"{AGENTS_SKILLS_REL} as the specialist home")
     return errors
 
 
@@ -714,7 +732,8 @@ def run(root: Path, verbose: bool = True) -> int:
     coverage_errors, coverage_report = per_lane_coverage(root)
     audience_errors, audience_notes = check_audience(root, wired)
     errors = (
-        check_integrity(root, wired)
+        check_skill_directories(root)
+        + check_integrity(root, wired)
         + check_dual_home_drift(root, wired)
         + collision_errors
         + coverage_errors
@@ -767,12 +786,41 @@ def self_test() -> int:
         if run(root, verbose=False) != 0:
             print("self-test FAILED: a well-formed wired skill should pass")
             return 1
+        # 1b. a directory on the live skill path without SKILL.md is not loadable -> FAIL
+        empty = root / CLAUDE_SKILLS_REL / "empty-skill"
+        empty.mkdir()
+        if run(root, verbose=False) == 0:
+            print("self-test FAILED: a skill directory without SKILL.md should fail")
+            return 1
+        empty.rmdir()
         # 2. add a wired skill with NO description -> FAIL
+        #
+        # Every defect below is isolated: the fixture carries a valid `audience:` so the
+        # ONLY thing wrong with it is the one branch under test. The earlier version
+        # omitted `audience:`, so check_audience failed the fixture on its own and the
+        # exit-code assertion passed with all three check_integrity branches deleted --
+        # the self-test claimed integrity coverage it did not have.
         dead = root / CLAUDE_SKILLS_REL / "dead-skill"
         dead.mkdir(parents=True)
-        (dead / "SKILL.md").write_text("---\nname: dead-skill\n---\n\n# Dead skill\n")
+        (dead / "SKILL.md").write_text(
+            "---\nname: dead-skill\naudience: specialist\n---\n\n# Dead skill\n")
         if run(root, verbose=False) == 0:
             print("self-test FAILED: a description-less wired skill should fail")
+            return 1
+        # 2b. a description too short to be trigger-shaped -> FAIL
+        (dead / "SKILL.md").write_text(
+            "---\nname: dead-skill\naudience: specialist\ndescription: Too short.\n"
+            "---\n\n# Dead skill\n")
+        if run(root, verbose=False) == 0:
+            print("self-test FAILED: a short-description wired skill should fail")
+            return 1
+        # 2c. frontmatter name disagreeing with the directory -> FAIL
+        (dead / "SKILL.md").write_text(
+            "---\nname: not-dead-skill\naudience: specialist\ndescription: "
+            "Use when demonstrating that a frontmatter name which disagrees with its "
+            "directory is caught.\n---\n\n# Dead skill\n")
+        if run(root, verbose=False) == 0:
+            print("self-test FAILED: a name/directory mismatch should fail")
             return 1
         # 3. fix it -> PASS again
         (dead / "SKILL.md").write_text(
@@ -1066,7 +1114,7 @@ def self_test() -> int:
             print("self-test FAILED: an appended queue resolution should clear the report")
             return 1
 
-    print("self-test PASSED (integrity: pass clean / fail on missing description / pass fixed; "
+    print("self-test PASSED (integrity: pass clean / fail on missing SKILL.md or description / pass fixed; "
           "dual-home: fail on drift / pass in agreement; "
           "collision: truth/verification cluster fails, then passes after retire + disambiguate; "
           "per-lane: valid multi-lane tree passes, byte-different / symlink / dangling mirrors, "

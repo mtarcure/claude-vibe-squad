@@ -52,9 +52,22 @@ class DispatchPreflightTests(unittest.TestCase):
             "departments/sysmgmt/specialists/harness-optimizer.md",
             "departments/content/specialists/technical-writer.md",
             "model-lanes/specialist-lane-capabilities.v1.json",
-            "model-lanes/claude/.claude/agents/devops-engineer.md",
-            "model-lanes/gpt-codex/.codex/agents/devops-engineer.toml",
         ):
+            self._copy(relative)
+        source = ROOT / "model-lanes/specialist-lane-capabilities.v1.json"
+        digest = hashlib.sha256(source.read_bytes()).hexdigest()
+        grep = subprocess.run(
+            ["git", "grep", "-lz", digest, "--"],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+        )
+        self.coupled_hash_pinners = tuple(
+            path.decode()
+            for path in grep.stdout.split(b"\0")
+            if path and path.decode() != source.relative_to(ROOT).as_posix()
+        )
+        for relative in self.coupled_hash_pinners:
             self._copy(relative)
         (self.repo / "_state").mkdir(exist_ok=True)
         subprocess.run(
@@ -148,9 +161,12 @@ class DispatchPreflightTests(unittest.TestCase):
         return packet
 
     def test_preflight_module_stays_small(self) -> None:
+        # Ratchet, not a target. Raised 665 -> 682 for `_scan_failed_advisory`:
+        # the two advisory handlers used to answer a crashed scan with `()`,
+        # which is the same answer a clean packet gets.
         module = ROOT / "scripts" / "python" / "dispatch_preflight.py"
         nonblank = sum(bool(line.strip()) for line in module.read_text().splitlines())
-        self.assertLessEqual(nonblank, 665)
+        self.assertLessEqual(nonblank, 682)
 
     def test_exact_contract_violation_is_refused(self) -> None:
         packet = self._packet(
@@ -189,67 +205,27 @@ class DispatchPreflightTests(unittest.TestCase):
         self.assertRegex(verdict.warning_set_sha256 or "", r"^[0-9a-f]{64}$")
         self.assertRegex(verdict.ack_sha256 or "", r"^[0-9a-f]{64}$")
 
-    def test_acknowledged_owner_warning_and_advisory_can_coexist(self) -> None:
+    def test_acknowledged_owner_warning_and_dirty_advisory_can_coexist(self) -> None:
+        target = self.repo / "shared/specialists/triage.md"
+        target.write_text(
+            target.read_text(encoding="utf-8") + "\ndirty\n", encoding="utf-8"
+        )
         packet = self._packet(
             specialist="technical-writer",
             acknowledgement=True,
-            body=(
-                ORCHESTRATOR_BLINDNESS_SHAPE
-                + "\nUpdate `shared/specialists/triage.md` as part of the repair."
+            body=ORCHESTRATOR_BLINDNESS_SHAPE,
+            write_scope=(
+                "_state/v4-runtime/orchestration/result.md",
+                "shared/specialists/triage.md",
             ),
         )
         verdict = preflight.evaluate_packet(self.repo, packet)
         self.assertEqual(verdict.decision, "allow")
         self.assertEqual(
             [item["code"] for item in verdict.warnings],
-            [preflight.OWNER_MISMATCH, preflight.UNSCOPED_TRACKED_PATH],
+            [preflight.OWNER_MISMATCH, preflight.DIRTY_WRITE_SCOPE],
         )
         self.assertRegex(verdict.ack_sha256 or "", r"^[0-9a-f]{64}$")
-
-    def test_code_commit_with_artifact_only_scope_warns_but_allows(self) -> None:
-        artifact = "_state/v4-runtime/orchestration/result.md"
-        packet = self._packet(
-            specialist="harness-optimizer",
-            body="Commit your CODE changes.",
-            write_scope=(artifact,),
-        )
-        verdict = preflight.evaluate_packet(self.repo, packet)
-        self.assertEqual(verdict.decision, "allow")
-        self.assertEqual(verdict.exit_code, preflight.EXIT_PASS)
-        self.assertEqual(
-            [item["code"] for item in verdict.warnings],
-            [preflight.CODE_COMMIT_ARTIFACT_ONLY],
-        )
-        self.assertFalse(verdict.warnings[0]["blocking"])
-
-    def test_code_commit_with_code_scope_stays_silent(self) -> None:
-        artifact = "_state/v4-runtime/orchestration/result.md"
-        packet = self._packet(
-            specialist="harness-optimizer",
-            body="Commit your CODE changes.",
-            write_scope=(artifact, "shared/specialists/triage.md"),
-        )
-        verdict = preflight.evaluate_packet(self.repo, packet)
-        self.assertEqual(verdict.decision, "allow")
-        self.assertEqual(verdict.warnings, ())
-
-    def test_mutated_tracked_path_outside_scope_warns_but_allows(self) -> None:
-        artifact = "_state/v4-runtime/orchestration/result.md"
-        packet = self._packet(
-            specialist="harness-optimizer",
-            body="Update `shared/specialists/triage.md` to clarify the route.",
-            write_scope=(artifact,),
-        )
-        verdict = preflight.evaluate_packet(self.repo, packet)
-        self.assertEqual(verdict.decision, "allow")
-        self.assertEqual(verdict.exit_code, preflight.EXIT_PASS)
-        warning = next(
-            item
-            for item in verdict.warnings
-            if item["code"] == preflight.UNSCOPED_TRACKED_PATH
-        )
-        self.assertEqual(warning["paths"], ["shared/specialists/triage.md"])
-        self.assertFalse(warning["blocking"])
 
     def test_coupled_hash_pin_ordinary_packet_stays_silent(self) -> None:
         artifact = "_state/v4-runtime/orchestration/result.md"
@@ -282,17 +258,6 @@ class DispatchPreflightTests(unittest.TestCase):
             verdict.warnings[0]["paths"], ["shared/specialists/triage.md"]
         )
 
-    def test_read_only_tracked_path_reference_stays_silent(self) -> None:
-        artifact = "_state/v4-runtime/orchestration/result.md"
-        packet = self._packet(
-            specialist="harness-optimizer",
-            body="Inspect `shared/specialists/triage.md` and report the result.",
-            write_scope=(artifact,),
-        )
-        verdict = preflight.evaluate_packet(self.repo, packet)
-        self.assertEqual(verdict.decision, "allow")
-        self.assertEqual(verdict.warnings, ())
-
     def test_empty_scope_does_not_treat_every_dirty_path_as_in_scope(self) -> None:
         target = self.repo / "shared/specialists/triage.md"
         target.write_text(
@@ -314,7 +279,13 @@ class DispatchPreflightTests(unittest.TestCase):
         )
         self.assertEqual(preflight.authoring_warnings(self.repo, packet), ())
 
-    def test_advisory_failure_is_fail_open(self) -> None:
+    def test_advisory_failure_is_fail_open_but_not_fail_silent(self) -> None:
+        """A crashed advisory scan still allows dispatch, and now says it crashed.
+
+        This used to assert `warnings == ()` -- the same verdict a clean packet
+        produces, so a scan that never ran was indistinguishable from a scan
+        that found nothing. Fail-open is about the decision, not the reporting.
+        """
         packet = self._packet(
             specialist="harness-optimizer",
             body="Update `shared/specialists/triage.md` to clarify the route.",
@@ -325,7 +296,11 @@ class DispatchPreflightTests(unittest.TestCase):
             verdict = preflight.evaluate_packet(self.repo, packet)
         self.assertEqual(verdict.decision, "allow")
         self.assertEqual(verdict.exit_code, preflight.EXIT_PASS)
-        self.assertEqual(verdict.warnings, ())
+        self.assertEqual(
+            [warning["code"] for warning in verdict.warnings],
+            [preflight.ADVISORY_SCAN_FAILED],
+        )
+        self.assertIn("diagnostic failed", verdict.warnings[0]["message"])
 
     def test_malformed_advisory_output_is_fail_open(self) -> None:
         packet = self._packet(specialist="harness-optimizer")
@@ -348,10 +323,8 @@ class DispatchPreflightTests(unittest.TestCase):
     def test_coupled_hash_pin_prints_in_dry_and_live_paths_without_gating(self) -> None:
         artifact = "_state/v4-runtime/orchestration/result.md"
         source = "model-lanes/specialist-lane-capabilities.v1.json"
-        pinners = [
-            "model-lanes/claude/.claude/agents/devops-engineer.md",
-            "model-lanes/gpt-codex/.codex/agents/devops-engineer.toml",
-        ]
+        pinners = list(self.coupled_hash_pinners)
+        self.assertTrue(pinners, "fixture must include a tracked digest pinner")
         packet = self._packet(
             specialist="harness-optimizer",
             body=f"Update `{source}` to change a projected capability.",
@@ -383,7 +356,14 @@ class DispatchPreflightTests(unittest.TestCase):
         )
         self.assertEqual(warning["source_path"], source)
         self.assertEqual(warning["missing_count"], len(pinners))
-        self.assertEqual(warning["paths"], pinners)
+        # `paths` is a deliberate SAMPLE -- dispatch_preflight caps it at
+        # `missing[:10]` so a warning cannot dump 166 paths into a dispatch
+        # envelope. `missing_count` above already pins the true total, so
+        # comparing the sample to the full list asserted the cap did not exist.
+        # It only passed while the fixture happened to have fewer than ten
+        # pinners; regenerating the capability source took it to 166.
+        self.assertEqual(warning["paths"], pinners[:10])
+        self.assertLessEqual(len(warning["paths"]), 10)
         self.assertFalse(warning["blocking"])
         self.assertEqual(dry_stdout.getvalue(), "")
         for rendered in (dry_stderr.getvalue(), live_stderr.getvalue()):

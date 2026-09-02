@@ -109,7 +109,15 @@ class FixtureRobustnessTests(unittest.TestCase):
                 f"{label}: positive fixture {name} regressed: {result['errors']}",
             )
         for name, (text, expected_codes) in suite.negatives.items():
-            result = validator.validate_text(text, f"<{label}-{name}>", None)
+            result = validator.validate_text(
+                text,
+                f"<{label}-{name}>",
+                (
+                    validator.root / suite.negative_expected_paths[name]
+                    if name in suite.negative_expected_paths
+                    else None
+                ),
+            )
             actual = {error["code"] for error in result["errors"]}
             self.assertEqual(
                 result["status"], "fail", f"{label}: negative fixture {name} stopped failing"

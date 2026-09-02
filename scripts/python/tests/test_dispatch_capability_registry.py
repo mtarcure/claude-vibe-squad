@@ -10,7 +10,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from dispatch_checkout import normal_checkout_root  # noqa: E402
-from ci_host_independence import skip_in_host_independent_ci  # noqa: E402
+from ci_host_independence import (  # noqa: E402
+    hermetic_lane_cli_environment,
+)
 
 # See dispatch_checkout: send-task.sh refuses to dispatch from a linked
 # worktree, and that refusal runs before the guards this suite tests -- so
@@ -22,6 +24,15 @@ TOOLKIT = REPO_ROOT / "shared/dispatch-toolkit.sh"
 
 
 class DispatchCapabilityRegistryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # This suite tests capability-registry decisions through --dry-run; it
+        # never launches either lane CLI.  Give every sibling the same admitted
+        # executable fixture instead of depending on the host's installations.
+        self.dispatch_environment = hermetic_lane_cli_environment(
+            self,
+            ("codex", "gemini"),
+        )
+
     def _dry_run(
         self,
         body: str,
@@ -72,7 +83,7 @@ return_artifact: _state/test-dispatch.md
             handle.write(packet)
             path = Path(handle.name)
         self.addCleanup(path.unlink, missing_ok=True)
-        env = dict(os.environ)
+        env = dict(self.dispatch_environment)
         env["VAULT_ROOT"] = str(REPO_ROOT)
         return subprocess.run(
             [str(SEND_TASK), str(path), "--dry-run"],
@@ -84,9 +95,6 @@ return_artifact: _state/test-dispatch.md
             check=False,
         )
 
-    @skip_in_host_independent_ci(
-        "needs the installed Codex lane executable after dispatch admission"
-    )
     def test_admitted_dry_run_matrix_uses_registry_state(self) -> None:
         allowed = {
             "existing-valid": "Perform a repository-only review.",
@@ -135,9 +143,6 @@ return_artifact: _state/test-dispatch.md
         self.assertEqual(no_result.returncode, 1, no_result.stderr)
         self.assertIn("registry-state:no", no_result.stderr)
 
-    @skip_in_host_independent_ci(
-        "needs the installed Codex lane executable after dispatch admission"
-    )
     def test_capability_dispatch_admitted_dry_run_matrix(self) -> None:
         live = self._dry_run(
             "Build the declared application.", mode="project", capability="web-app"

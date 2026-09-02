@@ -2,27 +2,22 @@
 # Claude-Vibe-Squad nightly routine — invoked by launchd LaunchAgent.
 # Runs while operator is asleep / away.
 #
-# Phases, in the order they are invoked below. Keep this list matching the
-# run_phase calls; it named four content phases that were deleted 2026-08-16 and
-# omitted four that do run, which is how a stale header stops being a summary.
-#    1. Vault snapshot (FIRST — the only copy of squad memory; must predate any cleanup)
-#    2. Doctor (CLI/MCP/browser/disk/usage health + bleed detection)
-#    3. Registry reconciler (close landed responses and log drift)
-#    4. Product hygiene
-#    5. Memory audit
-#    6. Sweep active
-#    7. Browser session keep-alive (refresh the persistent CDP browser session)
-#    8. Prune board scratch and settled worktrees
-#    9. Log rotation (daemon stdout/stderr + tmux pane captures; AFTER doctor)
-#   10. System cleanup (light)
-#   11. Brain cleanup (KG contradiction sweep)
-#   12. Daily morning brief generator (synthesizes everything)
+# The phase list is the `run_phase` calls below, read top to bottom; each one
+# carries its own reason and its own ordering constraint. A numbered copy of
+# that list used to live here and had to be hand-synced, which it was not: it
+# named four content phases deleted 2026-08-16 and omitted four that do run. A
+# summary that can disagree with the thing it summarises is worse than no
+# summary (CLAUDE.md hard rule 10: one fact, one home).
 #   Sunday only: the weekly deep run (bin/run-weekly.sh).
 #   Email brief is retained as a manual fallback, no longer invoked by default.
 #   DEPRECATED: dream-light, improvement-extractor, newsletter-format, podcast-script, newsletter-tts, telegram-deliver.
 #
-# Each phase logs separately. Failures don't block subsequent phases.
-# All output ends up in _state/morning-briefs/<date>.md as the unified brief.
+# Each phase logs separately. Failures don't block subsequent phases, but they
+# DO deny the run a zero exit: see the phase-outcome accounting above run_phase.
+# The operator verdict lands in _state/morning-briefs/<date>.md. Correction to
+# 2600f02e's commit body: that change claimed the brief repeated launchd's
+# verdict, but the brief did not read this log and ran before the summary. The
+# claim was not true until the reader and ordering below were added.
 
 set -uo pipefail  # NOT -e — we want phases to continue even if one fails
 
@@ -62,6 +57,45 @@ log() {
     echo "[$(date -u +%FT%TZ)] $*" | tee -a "${DAILY_LOG}"
 }
 
+# Phase outcomes are accumulated rather than acted on where they happen, because
+# the two halves of "did the night go well" have different answers. Whether to
+# KEEP GOING: yes -- the phases are independent maintenance jobs, so a failed
+# vault snapshot must not cost the night its log rotation, hence no `set -e`
+# above, and that stays. Whether to REPORT SUCCESS: no. Until 2026-08-31 this
+# script exited 0 unconditionally, so launchd recorded a successful run while
+# product-hygiene had failed at 10:02:50 (_state/nightly-failures/2026-08-31.log).
+# A nightly that cannot report failure manufactures evidence of health, and the
+# morning brief previously had no reader that could correct it.
+FAILED_PHASES=""
+SKIPPED_PHASES=""
+MORNING_BRIEF_FAILED=0
+
+# A missing pushed artifact cannot distinguish "nothing happened" from "all
+# clear." Leave the next dated brief in an explicit NOT RUN state; tomorrow's
+# invocation replaces it with RUNNING before doing work and morning-brief.sh
+# replaces that with the final reader view. The write is atomic because this is
+# shared operator state, not an incidental log.
+write_brief_placeholder() {
+    local brief_date="$1"
+    local verdict="$2"
+    local explanation="$3"
+    local brief_path="${STATE_DIR}/morning-briefs/${brief_date}.md"
+    local temporary
+
+    temporary="$(mktemp "${brief_path}.tmp.XXXXXX")" || return 1
+    if ! {
+        printf '# Daily Brief — %s\n\n' "${brief_date}"
+        printf '## Nightly automation\n'
+        printf '%s\n' "${verdict}"
+        printf '%s\n' "${explanation}"
+    } > "${temporary}"; then
+        rm -f -- "${temporary}"
+        return 1
+    fi
+    sync "${temporary}" 2>/dev/null || sync
+    mv -f "${temporary}" "${brief_path}"
+}
+
 run_phase() {
     local phase_name="$1"
     local phase_script="$2"
@@ -77,13 +111,38 @@ run_phase() {
             log "=== OK    phase: ${phase_name} ==="
         else
             log "=== FAIL  phase: ${phase_name} (continuing) ==="
+            FAILED_PHASES="${FAILED_PHASES} ${phase_name}"
+            [[ "${phase_name}" == "morning-brief" ]] && MORNING_BRIEF_FAILED=1
         fi
     else
         log "=== SKIP  phase: ${phase_name} (script not yet implemented: ${phase_script}) ==="
+        SKIPPED_PHASES="${SKIPPED_PHASES} ${phase_name}"
+        [[ "${phase_name}" == "morning-brief" ]] && MORNING_BRIEF_FAILED=1
     fi
 }
 
 log "=== Claude-Vibe-Squad nightly start: ${DATE} ==="
+if ! write_brief_placeholder \
+    "${DATE}" \
+    '🟡 **NIGHTLY RUNNING** — the scheduled run started but has no final verdict yet.' \
+    'If this remains after the run window, the nightly started but did not finish.'; then
+    log "=== FAIL  phase: nightly-verdict-writer (continuing) ==="
+    FAILED_PHASES="${FAILED_PHASES} nightly-verdict-writer"
+fi
+
+if NEXT_DATE="$(date -u -v+1d +%Y-%m-%d 2>/dev/null)"; then
+    :
+else
+    NEXT_DATE="$(date -u -d 'tomorrow' +%Y-%m-%d)"
+fi
+NEXT_BRIEF="${STATE_DIR}/morning-briefs/${NEXT_DATE}.md"
+if [[ ! -e "${NEXT_BRIEF}" ]] && ! write_brief_placeholder \
+    "${NEXT_DATE}" \
+    '🔴 **NIGHTLY NOT RUN** — no scheduled run has started for this date.' \
+    'This dead-man placeholder is replaced when the next nightly starts.'; then
+    log "=== FAIL  phase: nightly-verdict-writer (continuing) ==="
+    FAILED_PHASES="${FAILED_PHASES} nightly-verdict-writer"
+fi
 
 # FIRST, before anything that mutates or cleans: the vault is the only copy of
 # squad memory and had no backup at all until 2026-08-09. A snapshot taken after
@@ -110,7 +169,10 @@ fi
 # of becoming a flag nobody passes. run_phase already forwards extra arguments.
 run_phase "doctor"               "${VAULT_ROOT}/bin/doctor.sh" --deep
 run_phase "registry-reconciler"  "${VAULT_ROOT}/bin/registry-reconciler.sh"
-run_phase "product-hygiene"      "${VAULT_ROOT}/bin/product-hygiene.sh"
+# doctor --deep above already runs and reports the publication audit. Do not
+# invoke product-hygiene a second time here: its default mode is the operator's
+# strict local cleanup-decision gate, while --public-export certifies the
+# projector's candidate tree rather than this private daily-driver checkout.
 run_phase "memory-audit"         "${VAULT_ROOT}/bin/memory-audit.sh"
 run_phase "sweep-active"         "${VAULT_ROOT}/bin/sweep-active.sh"
 run_phase "browser-keep-alive"   "${VAULT_ROOT}/bin/browser-keep-alive.sh"
@@ -139,13 +201,37 @@ run_phase "brain-cleanup"        "${VAULT_ROOT}/bin/brain-cleanup.sh"
 # judgment expressed as a program, and judgment belongs in a specialist brief
 # under project mode, which already covers content work. Nothing referenced it
 # from any mode or specialist brief; it was parallel machinery.
-run_phase "morning-brief"        "${VAULT_ROOT}/bin/morning-brief.sh"
-# Email fallback retained but retired from default nightly delivery.
-
 # Sunday: also run weekly deep
 if [[ "$(date +%u)" == "7" ]]; then
     log "=== Sunday: running weekly deep run ==="
     run_phase "weekly-deep" "${VAULT_ROOT}/bin/run-weekly.sh"
 fi
 
+# This is deliberately the LAST phase. A reader placed at its old position
+# could not see weekly-deep or the final phase set and therefore could still
+# print a clean night while later work failed. The brief reads this run's FAIL
+# and SKIP records directly; run-nightly supplies a minimal fallback only when
+# the reader itself is the failed phase.
+run_phase "morning-brief"        "${VAULT_ROOT}/bin/morning-brief.sh"
+# Email fallback retained but retired from default nightly delivery.
+
+if [[ "${MORNING_BRIEF_FAILED}" -eq 1 ]]; then
+    write_brief_placeholder \
+        "${DATE}" \
+        '🔴 **NIGHTLY PHASE FAILURE** — the run completed, but maintenance was incomplete.' \
+        "Failed or skipped phases:${FAILED_PHASES}${SKIPPED_PHASES}" || true
+fi
+
 log "=== Claude-Vibe-Squad nightly complete: ${DATE} ==="
+
+# A failed phase and a phase that never ran are both maintenance that did not
+# happen, so both deny the run a zero exit. Separate lines because they need
+# different fixes: FAIL is a broken phase, SKIP a missing or non-executable
+# script -- the quieter of the two failures. All 13 phase scripts exist and are
+# executable, so counting SKIP costs a healthy run nothing. Space-joined strings
+# rather than arrays: phase names never contain spaces, and macOS ships bash 3.2
+# where "${empty[*]}" is an unbound-variable error under `set -u`.
+[[ -n "${FAILED_PHASES}" ]] && log "=== FAILED phases:${FAILED_PHASES} ==="
+[[ -n "${SKIPPED_PHASES}" ]] && log "=== SKIPPED phases:${SKIPPED_PHASES} ==="
+[[ -z "${FAILED_PHASES}${SKIPPED_PHASES}" ]] || exit 1
+exit 0

@@ -6,19 +6,23 @@
 ## The problem
 
 Each CLI discovers project skills from a *different convention directory*, and no
-single physical directory can serve all four lanes:
+single physical directory can serve the four measured lane paths below; Grok's
+path remains explicitly unmeasured:
 
 | Lane | process cwd | reads skills from |
 |------|-------------|-------------------|
 | claude | worktree root | `<cwd>/.claude/skills/` |
 | gpt-codex | worktree root | `<cwd>/.agents/skills/` |
 | gemini | `model-lanes/gemini` | `<cwd>/.agents/skills/` (cwd-relative, **not** `--include-directories`) |
-| kimi | worktree root | dirs passed via `--skills-dir` (no cwd auto-discovery) |
+| kimi | worktree root | `<worktree>/.agents/skills/` passed via `--skills-dir` (an explicit override of default project discovery) |
 | grok | worktree root | **UNMEASURED** — the lane landed 2026-08-30 and its skill-discovery path has never been probed live. Do not assume it matches another lane. |
 
-The first four paths were enumerated **live** on 2026-08-18; grok is not yet enumerated (see the task response). Gemini
-is the only lane whose cwd is not the worktree root, so its `<cwd>/.agents/skills`
-does not exist unless bridged.
+The first four paths were enumerated **live** on 2026-08-18; Kimi was re-probed against
+installed `kimi` 1.40.0 on 2026-09-01. Its session `/help` advertised a canary supplied by
+`--skills-dir`, the canary slash command was unknown without that flag in an isolated cwd,
+and a no-flag session at the repository root advertised project skills through default
+discovery. Grok is not yet enumerated (see the task response). Gemini is the only lane whose
+cwd is not the worktree root, so its `<cwd>/.agents/skills` does not exist unless bridged.
 
 ## The decision (Hard Rule 10: one fact, one home)
 
@@ -34,8 +38,10 @@ does not exist unless bridged.
   Its loadable entries must correspond to skills in the shared `.agents/skills` home;
   symlinked, empty, malformed, or unrelated bridge content fails validation. Without this
   cwd-relative bridge gemini enumerates only its built-in skills.
-- **Kimi** is wired in `bin/board-supervisor.sh` with `--skills-dir <worktree>/.agents/skills`
-  (the superset — passing `.claude/skills` too would surface each mirrored skill twice).
+- **Kimi** is wired in `bin/board-supervisor.sh` with `--skills-dir <worktree>/.agents/skills`.
+  Kimi 1.40.0 also auto-discovers project skill homes, but this explicit flag overrides that
+  broader discovery so a specialist receives the shared specialist home and not controller-only
+  `.claude/skills` entries. Passing `.claude/skills` too would surface duplicate names.
 - **`probe-canary` is intentionally NOT mirrored:** it is a distinct per-path canary in
   each home (`.claude/skills/probe-canary` proves the claude path; `.agents/skills/probe-canary`
   proves the `.agents` path). Each is a real directory with its own body.
@@ -84,7 +90,8 @@ Run: `python3 scripts/python/validate_skill_wiring.py --root <repo>` (or `--self
   `probe-canary` are not identity mirrors.
 - **Gemini bridge:** `model-lanes/gemini/.agents/skills` must be a nonempty regular materialized
   bridge whose loadable entries all correspond to shared-home skills.
-- **Kimi launcher:** `bin/board-supervisor.sh` must pass `--skills-dir`.
+- **Kimi launcher:** `bin/board-supervisor.sh` must pass `--skills-dir` to select only the shared
+  specialist home instead of Kimi's broader default project discovery.
 - **Per-lane reach report:** how many skills each lane can enumerate, plus coverage gaps
   (`audience: chrono` skills are intentionally not mirrored, so they are not counted as gaps).
 

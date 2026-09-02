@@ -1,8 +1,8 @@
 # Getting started
 
 Vibe Squad is currently macOS-first, and setup is manual. The normal experience
-is one conversation with Chrono; Codex, Claude, Gemini, and Kimi run as fresh
-native CLI processes behind the board.
+is one conversation with Chrono; Codex, Claude, the agy-backed Gemini lane,
+Grok, and Kimi run as fresh native CLI processes behind the board.
 
 This page is the narrated walkthrough. For the step-by-step install path with a
 check after every step, see [docs/install](install/README.md).
@@ -13,25 +13,25 @@ You need:
 
 - `tmux`, `fswatch`, `jq`, and `curl`
 - Python 3.13 and `uv`
-- the `claude`, `codex`, `gemini`, and `kimi` CLIs
+- the `claude`, `codex`, `agy`, `grok`, and `kimi` CLIs
 
 ```bash
 brew install jq tmux fswatch
 ```
 
-All four provider CLIs are required — `bin/squad up` exits 1 if any is missing —
-and they use four different installers:
+All five provider CLIs are required — `bin/squad up` exits 1 if any is missing:
 
 ```bash
 curl -fsSL https://claude.ai/install.sh | bash   # claude
 npm install -g @openai/codex                     # codex
-npm install -g @google/gemini-cli                # gemini
+# install Antigravity's agy CLI from its provider distribution
+# install the grok CLI from the xAI provider distribution
 uv tool install kimi-cli                         # kimi
 ```
 
-Claude, Codex, and Kimi authenticate through their supported subscription or
-managed-login paths. Gemini is the explicit exception: its native CLI lane
-requires `GEMINI_API_KEY`. Model inference always runs through those native
+Claude, Codex, Gemini-through-agy, Grok, and Kimi authenticate through their
+supported subscription, OAuth, or managed-login paths. `GEMINI_API_KEY` is not
+Gemini lane authentication. Model inference always runs through those native
 CLIs, never through an MCP server.
 
 Per-CLI authentication steps, postcondition checks, and the `PATH` gotcha for
@@ -40,7 +40,8 @@ Per-CLI authentication steps, postcondition checks, and the `PATH` gotcha for
 Check before moving on:
 
 ```bash
-for dep in tmux fswatch jq curl claude codex gemini kimi; do
+source shared/launch-dependencies.sh
+for dep in "${SQUAD_REQUIRED_COMMANDS[@]}"; do
   command -v "$dep" >/dev/null 2>&1 || echo "MISSING: $dep"
 done
 ```
@@ -79,8 +80,10 @@ safety boundary.
 
 ## 4. Configure authentication and optional tools
 
-Make `GEMINI_API_KEY` available through your local secret store or shell
-environment. Do not add it, or any other credential, to the repository.
+If you enable the optional Gemini-backed media provider, make its
+`GEMINI_API_KEY` available through your local secret store or shell environment.
+The agy lane itself uses OAuth and does not consume that key. Do not add it, or
+any other credential, to the repository.
 
 Utility MCPs provide memory, research, browser, and media tools; they are not
 model transports. Review what the bootstrap would change before registering

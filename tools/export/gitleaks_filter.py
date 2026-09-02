@@ -23,6 +23,40 @@ class Fingerprint:
     secret_sha256: str
 
 
+def project_public_paths(
+    *,
+    tracked_nul_path: Path,
+    policy_path: Path,
+    output_path: Path,
+) -> tuple[int, int, int]:
+    """Write the policy-public subset of tracked paths as a NUL-delimited list."""
+    try:
+        from path_policy import PolicyError, load_policy, read_nul_paths
+
+        policy = load_policy(policy_path)
+        tracked_paths = read_nul_paths(tracked_nul_path)
+        public_paths = [
+            path for path in tracked_paths if policy.classify(path) == "public"
+        ]
+    except (OSError, PolicyError) as error:
+        raise FilterError(f"cannot project public gitleaks paths: {error}") from error
+
+    if not public_paths:
+        raise FilterError("projected gitleaks candidate would be empty")
+    try:
+        output_path.write_bytes(
+            b"".join(
+                path.encode("utf-8", errors="surrogateescape") + b"\0"
+                for path in public_paths
+            )
+        )
+    except OSError as error:
+        raise FilterError(
+            f"cannot write projected gitleaks paths {output_path}: {error}"
+        ) from error
+    return len(tracked_paths), len(public_paths), len(tracked_paths) - len(public_paths)
+
+
 def _load_allowlist(path: Path) -> set[Fingerprint]:
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
@@ -128,7 +162,34 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def build_projection_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Project policy-public tracked paths for the candidate leak scan."
+    )
+    parser.add_argument("--tracked-nul", required=True)
+    parser.add_argument("--policy", required=True)
+    parser.add_argument("--output", required=True)
+    return parser
+
+
 def main() -> int:
+    if sys.argv[1:2] == ["project-paths"]:
+        args = build_projection_parser().parse_args(sys.argv[2:])
+        try:
+            tracked, public, excluded = project_public_paths(
+                tracked_nul_path=Path(args.tracked_nul),
+                policy_path=Path(args.policy),
+                output_path=Path(args.output),
+            )
+            print(
+                f"Gitleaks candidate paths: tracked={tracked} "
+                f"public={public} policy_excluded={excluded}"
+            )
+            return 0
+        except (OSError, FilterError) as error:
+            print(f"gitleaks-filter error: {error}", file=sys.stderr)
+            return 2
+
     args = build_parser().parse_args()
     try:
         root = Path(args.root).resolve(strict=True)

@@ -15,7 +15,7 @@ SAFETY, read before touching anything here
 ------------------------------------------
 No test in this file runs a real CLI, reaches a network, or reads a real
 credential. Doctor prepends ``$HOME/.local/bin`` to PATH, so the lane stubs
-placed there WIN over the operator's real ``claude``/``codex``/``gemini``/
+placed there WIN over the operator's real ``claude``/``codex``/``agy``/
 ``grok``/``kimi``, and every credential file a test looks at is one the test just wrote
 inside its own temporary HOME.
 
@@ -92,10 +92,6 @@ CREDENTIAL_WITHOUT_REFRESH = json.dumps(
 )
 
 
-def gemini_credential(home: Path) -> Path:
-    return home / ".gemini" / "oauth_creds.json"
-
-
 def kimi_credential(home: Path) -> Path:
     return home / ".kimi" / "credentials" / "kimi-code.json"
 
@@ -128,10 +124,9 @@ class DoctorAuthRunner(unittest.TestCase):
             local_bin = home / ".local" / "bin"
             doctor_fixture.write_stub(local_bin, "ps", doctor_fixture.EMPTY_PS)
             doctor_fixture.stub_launch_dependencies(local_bin, ROOT)
-            for lane in ("claude", "codex", "gemini", "grok", "kimi"):
+            for lane in ("claude", "codex", "agy", "grok", "kimi"):
                 doctor_fixture.write_stub(local_bin, lane, LANE_CLI_WITH_AUTH)
             if credentials:
-                write_credential(gemini_credential(home), CREDENTIAL_WITH_REFRESH)
                 write_credential(kimi_credential(home), CREDENTIAL_WITH_REFRESH)
                 grok_secrets = home / ".config" / "shell" / "secrets.zsh"
                 grok_secrets.parent.mkdir(parents=True, exist_ok=True)
@@ -293,20 +288,17 @@ class CodexAuthProbeTest(DoctorAuthRunner):
 
 
 class CredentialFileLaneTest(DoctorAuthRunner):
-    """gemini, grok, and kimi expose no zero-token status subcommand."""
+    """agy, grok, and kimi expose no zero-token status subcommand."""
 
     def test_refresh_credential_is_unknown_never_a_pass(self):
         """A credential at rest is not a login result, and must not read as one."""
         _result, summary, report = self.run_doctor()
         for lane in ("gemini", "kimi"):
             self.assertTrue(
-                any(
-                    lane in unknown and "login state not verifiable" in unknown
-                    for unknown in summary["unknowns"]
-                ),
+                any(lane in unknown and "login state not verifiable" in unknown for unknown in summary["unknowns"]),
                 (lane, summary["unknowns"]),
             )
-        self.assertIn(".gemini/oauth_creds.json", report)
+        self.assertIn("agy exposes no zero-token auth status", report)
         self.assertIn(".kimi/credentials/kimi-code.json", report)
         self.assertTrue(
             any(
@@ -327,10 +319,7 @@ class CredentialFileLaneTest(DoctorAuthRunner):
             ),
             summary["warnings"],
         )
-        self.assertTrue(
-            any("gemini has no credential" in warning for warning in summary["warnings"]),
-            summary["warnings"],
-        )
+        self.assertFalse(any("gemini has no credential" in warning for warning in summary["warnings"]))
 
     def test_credential_without_a_refresh_token_is_a_warning(self):
         """An access token alone cannot re-authenticate a headless dispatch."""
@@ -347,32 +336,17 @@ class CredentialFileLaneTest(DoctorAuthRunner):
             summary["warnings"],
         )
 
-    def test_api_key_value_never_reaches_the_report(self):
-        """The secret-handling claim, pinned. Presence of the NAME only.
-
-        API keys have leaked through this system before, so this asserts the
-        value appears in NOTHING doctor writes or prints -- while the finding
-        that the key is set still reaches the reader.
-        """
+    def test_api_key_value_never_reaches_the_report_or_counts_as_lane_auth(self):
+        """The retired lane key is neither logged nor accepted as agy auth."""
         secret = "AIzaSy-doctor-fixture-secret-value-do-not-log"
-
-        def setup(_root, home, _local_bin, _environment):
-            gemini_credential(home).unlink(missing_ok=True)
-
         result, summary, report = self.run_doctor(
-            env={"GEMINI_API_KEY": secret}, credentials=True, setup=setup
+            env={"GEMINI_API_KEY": secret}, credentials=True
         )
         self.assertNotIn(secret, report)
         self.assertNotIn(secret, result.stdout)
         self.assertNotIn(secret, result.stderr)
         self.assertNotIn(secret, json.dumps(summary))
-        self.assertTrue(
-            any(
-                "GEMINI_API_KEY is set in this environment" in unknown
-                for unknown in summary["unknowns"]
-            ),
-            summary["unknowns"],
-        )
+        self.assertTrue(any("agy exposes no zero-token auth status" in unknown for unknown in summary["unknowns"]))
 
 
 # Doctor probes the dispatch rail's lane inventory only when HOME matches the

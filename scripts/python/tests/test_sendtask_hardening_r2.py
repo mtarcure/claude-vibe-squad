@@ -537,10 +537,28 @@ class PostRegistrationSettlementTests(SendTaskFixture):
         task_id = "TASK-2026-08-08-9004-admission-denied"
         completed = self.dispatch(
             vault, task_id=task_id, return_artifact="_state/denied/out.md",
-            extra_env={"HOST_ADMISSION_TEST_DENY": "1"},
+            # Budget 6s against the 5s backoff, so the sender sleeps once,
+            # RE-RUNS admission, and only then exhausts -- a genuine retry
+            # loop rather than an immediate give-up. The uncapped default is
+            # 900s, which ran this single case into the suite's 180s ceiling.
+            #
+            # That timeout was hiding a stale assertion: this case asserted on
+            # "queued candidate vector", a string `0a27c9e7` removed from
+            # send-task.sh. Because the run died on the clock before reaching
+            # the assertion, a broken expectation rendered as a slow test for
+            # every run since. Assert the message the sender actually emits.
+            #
+            # Do NOT "fix" this by having the stub return `refuse`: that turns
+            # it into a terminal-refusal test and deletes the queue-exhaustion
+            # coverage this case exists for.
+            extra_env={
+                "HOST_ADMISSION_TEST_DENY": "1",
+                "SQUAD_ADMISSION_MAX_WAIT_SECONDS": "6",
+            },
         )
         self.assertNotEqual(completed.returncode, 0)
-        self.assertIn("queued candidate vector", completed.stdout + completed.stderr)
+        self.assertIn("still queued after", completed.stdout + completed.stderr)
+        self.assertIn('"action": "queue"', completed.stdout + completed.stderr)
         self.assertFalse((vault / f"departments/coding/inbox/{task_id}.md").exists())
         self.assertFalse((vault / "_state/active-tasks.json").exists())
         self.assertEqual(list(vault.parent.glob(f"{task_id}.working.md.*")), [])

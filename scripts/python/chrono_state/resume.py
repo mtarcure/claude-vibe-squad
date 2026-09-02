@@ -64,8 +64,17 @@ UNCLASSIFIED_CAUSE = "UNCLASSIFIED-CAUSE"
 _LEGACY_NEEDS_REVIEW = "NEEDS-REVIEW"
 _STATUS_TOKEN_RE = re.compile(r"[^A-Z0-9]+")
 
+# Loud markers. A read that failed must never render as a read that found
+# nothing owed -- root CLAUDE.md § Session Resume: "nothing owed is ever
+# silently absent". Each of these is the failure's own line in the capsule.
+ARCHIVED_DEBT_SCAN_FAILED = "- archived-charter debt scan failed"
+QUEUE_UNREADABLE_LINE = (
+    "- pending completion count unavailable (_state/chrono-queue.md exists but "
+    "could not be read — owed work may be hidden here; read it directly)"
+)
 
-def _archived_debt_rows(root=None) -> list[str]:
+
+def _archived_debt_rows(root=None) -> tuple[list[str], bool]:
     """Bounded, warn-only rows naming charters archived while still owed.
 
     Every reader of charter state stops at ``active/``; archiving is a bare
@@ -80,8 +89,22 @@ def _archived_debt_rows(root=None) -> list[str]:
     """
     try:
         owed = load_archived_debt(ARCHIVED_DEBT_ROOT if root is None else root)
-    except Exception:
-        return []
+    except Exception as exc:  # noqa: BLE001 — the capsule must render regardless
+        # A scan that blew up is not a scan that found nothing. Returning []
+        # here rendered a broken archive rail exactly like a clean one, which
+        # is the ambiguity this whole block exists to kill.
+        # Return the failure as a FLAG, not only as prose. `_render` protects
+        # this row from the token-bound cascade, and recovering that decision by
+        # re-parsing the row's own wording meant a reword silently disabled the
+        # protection -- collapsing the marker into a charter count nobody
+        # measured.
+        return (
+            [
+                f"{ARCHIVED_DEBT_SCAN_FAILED} ({exc}) — read "
+                "_state/chrono/thread-charters/{complete,parked} directly"
+            ],
+            True,
+        )
     rows = []
     for charter in owed[:8]:
         bits = []
@@ -92,7 +115,7 @@ def _archived_debt_rows(root=None) -> list[str]:
         rows.append(f"- {charter.path.name}: {', '.join(bits)}")
     if len(owed) > 8:
         rows.append(f"- … and {len(owed) - 8} more")
-    return rows
+    return rows, False
 
 
 THREAD_HEADING = "## Active thread / Owed attention"
@@ -247,21 +270,33 @@ def pending_completions(path=None):
     status and the namespace (text before the first `/`) are used. `#`-prefixed
     and blank lines are skipped. A malformed line (fewer than 3 `|`-fields) is
     skipped rather than raising — one bad line must not blank the whole section.
-    Returns `[]`, never raises, when the file is absent, unreadable, or not
-    valid UTF-8 (`read_text` raises `UnicodeDecodeError`, a `ValueError`
-    subclass, on invalid bytes — caught alongside `OSError` here because a
-    corrupt queue must never break capsule generation any more than a missing
-    one does; fix round 2, controller ruling: the watcher that writes these
-    summaries has separately produced verbatim error captures containing raw
-    ANSI escapes, so invalid-UTF-8 input is a real risk, not a hypothetical
-    one). Sorted by count descending, then by `(namespace, status)` for a
-    stable order.
+    Never raises: a corrupt queue must not break capsule generation any more
+    than a missing one does (`read_text` raises `UnicodeDecodeError`, a
+    `ValueError` subclass, on invalid bytes; fix round 2, controller ruling: the
+    watcher that writes these summaries has separately produced verbatim error
+    captures containing raw ANSI escapes, so invalid-UTF-8 input is a real risk,
+    not a hypothetical one).
+
+    The two failure modes are NOT the same answer. `[]` means the queue is
+    absent or holds nothing — nothing is owed. `None` means the queue is there
+    and could not be read — the count is *unknown*, and `_render` says so on its
+    own line rather than dropping the section. Sorted by count descending, then
+    by `(namespace, status)` for a stable order.
     """
     dest = Path(path) if path else QUEUE_PATH
     try:
         text = dest.read_text(encoding="utf-8")
-    except (OSError, ValueError):
+    except FileNotFoundError:
+        # Genuinely absent: a queue nobody has written owes nothing.
         return []
+    except (OSError, ValueError):
+        # Present but unreadable/undecodable. Returning [] here made a corrupt
+        # queue render exactly like an empty one, so hundreds of parked
+        # completions could vanish behind one bad byte. None means unknown and
+        # is rendered as a loud line, the same way an unreadable audit trail is
+        # (`unreconciled_contradiction_count`). Still never raises: capsule
+        # generation must not depend on the queue being well-formed.
+        return None
     counts = {}
     for line in text.splitlines():
         stripped = line.strip()
@@ -439,13 +474,22 @@ def _render(latest_operator_turn, view, max_tokens=3000, unreconciled=None):
         task for task in view["deferred"] if task.get("state") != "needs_human"
     ]
     pending = pending_completions()
+    # None means the queue could not be read, which is not the same fact as an
+    # empty queue and must not share its (silent) rendering.
+    queue_unreadable = pending is None
+    if queue_unreadable:
+        pending = []
     pending_groups = pending_completion_groups(pending)
     pending_cause_summary = ", ".join(
         f"{cause}={sum(count for _, count in rows)}"
         for cause, rows in pending_groups
     )
     charters = active_thread_charters()
-    debt_rows = _archived_debt_rows()
+    # A failed scan is one line and must survive the token-bound cascade
+    # intact: collapsing it into the "N still owed" count line would state a
+    # charter count nobody measured. The flag comes back from the scan itself,
+    # never from re-reading the row's wording.
+    debt_rows, debt_scan_failed = _archived_debt_rows()
     open_items = open_work_items()
 
     def build(
@@ -471,7 +515,9 @@ def _render(latest_operator_turn, view, max_tokens=3000, unreconciled=None):
         # "nothing is owed", which is the ambiguity the block exists to kill.
         if debt_rows:
             lines += ["", ARCHIVED_DEBT_HEADING]
-            if show_debt:
+            if debt_scan_failed:
+                lines += debt_rows
+            elif show_debt:
                 lines += [
                     "Closed while still carrying unfinished business. Resolve "
                     "each into `_state/chrono/OPEN-WORK.md` or finish it.",
@@ -514,7 +560,12 @@ def _render(latest_operator_turn, view, max_tokens=3000, unreconciled=None):
                     f"- (+{dropped_deferred} more deferred, omitted for the token "
                     "bound — query _state/active-tasks.json by status)"
                 ]
-        if pending:
+        if queue_unreadable:
+            # The one case the section must NOT stay quiet about: the queue is
+            # there and unread. An absent heading here would say "the queue is
+            # empty" about a file nobody could open.
+            lines += ["", QUEUE_HEADING, QUEUE_UNREADABLE_LINE]
+        elif pending:
             # Silent when dropped is the exact ambiguity this section exists to
             # kill (fix round 2): a missing heading must never be mistaken for
             # "the queue is empty" the way an omitted live/deferred task must

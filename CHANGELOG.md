@@ -2,7 +2,65 @@
 
 ## Unreleased
 
-_Nothing yet._
+### Security
+
+- `vault_get` (chrono-vault MCP) joined the caller's path onto the vault URL without normalising it, so `../../etc/passwd` read outside the vault. Measured before the fix: `../commands/` resolved to `/commands/`. All five traversal shapes now return `invalid vault path`.
+- `prior_art_check` (chrono-dedup) fetched any URL it was given, including after a redirect, so a model-supplied address could reach loopback and RFC1918 hosts. Public destinations only, re-checked on every hop: 127.0.0.1, 169.254.169.254 and 10.0.0.5 are refused; ordinary public hosts still resolve.
+- The README claimed each task "runs in its own sandbox" and "cannot touch anything else", contradicting a correct sentence 45 lines later. Worker actions are isolated by git worktree, not sandboxed, and the README now says so.
+
+### Checks that could not fail
+
+- `dispatch_preflight` swallowed real git failures. `_git_paths` caught `OSError`/`TimeoutExpired` and returned `()` one level below the handler that exists to emit `advisory_scan_failed`, so a git that timed out, a missing git binary, and a non-repository root all produced the output of a clean scan. The three tests covering that handler inject `RuntimeError`, which the function does not catch — they proved the handler works while never exercising how git actually fails. Still fail-open; no longer fail-silent. `git grep`'s exit 1 for "no matches" stays a real answer.
+
+### CI
+
+- One gate, not thirty test bugs. `dispatch_context_builder` refuses when a lane executable is absent, and 30 test files inherit it, so a runner without the five CLIs failed them all. Four rounds of patching the individually-named failures could not converge. A single stub fixture replaces the per-test patches those rounds added, and a negative control proves `SQUAD_CI_HOST_INDEPENDENT=1` does not weaken the production gate. The registry suite now runs all 7 tests instead of hiding 2.
+- `git commit` ends by spawning `git maintenance run --auto --quiet --detach`, which daemonizes and keeps repacking a fixture repo the test is already deleting, so cleanup died with `Directory not empty`. 31 test files build such a repo. Reproduced on Linux at 266 of 300 trials, 0 of 300 with the guard. `gc.auto=0` alone does not fix it on every git version; `maintenance.auto` names the spawner.
+
+### Documentation
+
+- README counts were overstated: 250 skills is 99 once `.agents/` and gemini mirrors collapse, and 16 MCP servers is 12. The version badge said v1.1.4 while the text below it said v1.1.5.
+- README linked to two paths the public export strips, one of them holding a single denied file — so the directory did not exist publicly at all. A gate now refuses any published document that links to a stripped path, using the projector's own policy module so the two cannot disagree.
+
+## v1.1.5
+
+A reliability release. Almost nothing here adds a feature — it makes the system tell the truth about itself. One defect shape recurred throughout: **something broken that reported success.** Shipped on top of v1.1.4 (`git tag v1.1.4`, 2026-08-31).
+
+### Work that was being destroyed
+
+- The nightly reaper preserved untracked residue on one branch of a fork and force-removed the other branch without looking inside it. Both branches now share one census, so the divergence cannot be rewritten.
+- A second path found later: `git status` reports an unreadable directory as a **warning with exit 0** and emits no entry for it, so a scan that ran blind over a subtree was indistinguishable from one that found it empty. That had never cost a file only because the same permission problem also blocked the delete.
+- Shutdown's group census started at "in scope" and stayed there if the census itself failed to run, so a transient failure could group-kill an unrelated process. Late-forked children were escaping the shutdown snapshot and surviving as orphans.
+
+### Checks that could not fail
+
+- Nine health checks reported green while the thing they guarded was broken. Each was verified by deliberately breaking its subject. The MCP probe never invoked a tool — `usable=true` meant a handshake completed. `memory-audit` passed with an entire department's memory deleted. `dispatch-toolkit-verify` passed when the toolkit could not run at all, because it only read the documentation.
+- `bash -n a.sh b.sh c.sh` checks the **first** file and binds the rest as arguments. Both CI workflows had it, so the syntax gate was checking one file of sixty-six.
+- The capability validator's `--self-test` passed while `main()` was stubbed to `return 0`.
+- `launch-squad.sh` exited 0 whether or not the coordinator started. Two separate causes had been fixed without ever adding the gate; it now proves the coordinator is live before reporting success.
+
+### Review and settlement
+
+- Eight review rules had no test. Removing any one let a task close itself silently while every existing test passed. Negative controls added, each proven by mutation.
+- `docs/standards/settlement-guard-coverage.md` now maps all 36 settlement guards and which are genuinely under test — **including the ones that are not**. Indexed by guard message rather than line number, after the first version's line numbers went stale by +67 within three commits.
+
+### Capability corrections
+
+- Memory autocapture had been dead for 12 days and 73 notes, because two parts of the system disagreed about which CLI to run and nothing checked they agreed.
+- Kimi **can** load skills; a code comment denied it on the strength of a probe that had since expired.
+- `dispatch-toolkit-verify` was auditing the retired `gemini` binary rather than `agy`, producing six phantom warnings that buried one real finding.
+- Projected specialist skills were collected and never surfaced to the worker.
+
+### Cleanup
+
+- 4 GB reclaimed with receipts; 1,218 archive files and 1,366 orphaned outbox files removed; 22 local and 20 remote merged branches deleted.
+- **Six of eight proposed deletions were refused after verification.** One "dead" function was called from 17 of 21 sites; one "removable" tool was claimed by six documents and its removal failed a gate.
+
+### Known and recorded, not fixed
+
+- `claude-fable-5-1` silently runs as Opus 5 on this account — the CLI validates the id, the model self-reports as 5.1, and only the usage record shows otherwise. See `docs/probes/`.
+- The V1 settlement rail has no unforgeable binding between a landed response and its attempt.
+- One error made during the cleanup itself: three referenced outbox files were deleted by a filter that compared paths without normalising both sides. Recorded with its root cause, and the two committed reapers were verified not to share the flaw.
 
 ## v1.1.4
 

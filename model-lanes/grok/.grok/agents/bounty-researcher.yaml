@@ -11,7 +11,7 @@ mcpInheritance:
     - chrono-vault
 # BEGIN SPECIALIST CAPABILITY PROJECTION
 capability_source: model-lanes/specialist-lane-capabilities.v1.json
-capability_source_sha256: fab7adf72b833cd53566439936fa2dea09e4b630cc566d0ac94c45663c28dccf
+capability_source_sha256: 146310977227fae7833652053265e5f7f29bde12d6a39192ced810eeb32e58fd
 mcps: ["chrono-vault"]
 # END SPECIALIST CAPABILITY PROJECTION
 ---

@@ -138,9 +138,9 @@ WORKLOAD_CLASS_BY_CAPABILITY = {
 LANE_NETWORK_SCOPE = {
     "codex": "openai-subscription",
     "claude": "anthropic-subscription",
-    # Gemini remains a native-CLI lane, but its supported authentication is
-    # the explicit API-key exception rather than subscription OAuth.
-    "gemini": "gemini-api-key",
+    # The routing identifier remains gemini, while Antigravity's agy CLI uses
+    # the operator's OAuth session with provider API keys removed.
+    "gemini": "google-oauth",
     "grok": "xai-api-key",
     "kimi": "moonshot-subscription",
 }
@@ -698,7 +698,7 @@ def lane_policy_evidence_for(repo_root: Path, lane: str) -> dict[str, str]:
     expected = {
         "codex": "subscription",
         "claude": "subscription",
-        "gemini": "gemini-api-key",
+        "gemini": "subscription",
         "grok": "xai-api-key",
         "kimi": "managed-login",
     }.get(lane)

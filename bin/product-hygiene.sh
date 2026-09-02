@@ -147,6 +147,8 @@ tracked_nul="${TMP_DIR}/tracked-paths.nul"
 gitleaks_raw_report="${TMP_DIR}/gitleaks-raw.json"
 gitleaks_report="${TMP_DIR}/gitleaks-sanitized.json"
 gitleaks_output="${TMP_DIR}/gitleaks-output.txt"
+gitleaks_candidate="${TMP_DIR}/gitleaks-candidate"
+gitleaks_candidate_paths="${TMP_DIR}/gitleaks-candidate-paths.nul"
 content_report="${TMP_DIR}/content-scan.txt"
 content_error="${TMP_DIR}/content-scan-error.txt"
 policy_error="${TMP_DIR}/path-policy-error.txt"
@@ -208,12 +210,48 @@ if [[ "$PUBLIC_EXPORT" -eq 1 ]]; then
     # These scanners are independent signals. A path-policy failure must not
     # suppress them: a gate already red for one reason still has to prove it
     # can detect and name a simultaneous secret or private-identifier leak.
-    "$GITLEAKS_BIN" dir "$VAULT_ROOT" --no-banner --no-color --redact=0 \
-        --timeout "$GITLEAKS_TIMEOUT" --report-format json --report-path "$gitleaks_raw_report" \
+    #
+    # Gitleaks scans the policy-projected tracked candidate, which is the data
+    # that can leave this machine. Scanning VAULT_ROOT here used to traverse
+    # private runtime state and board worktrees that are neither tracked nor
+    # publishable, exhausting the scanner deadline before it could reach a
+    # complete verdict.
+    python3 "$gitleaks_filter" project-paths --tracked-nul "$tracked_nul" \
+        --policy "$POLICY_PATH" --output "$gitleaks_candidate_paths" \
         > "$gitleaks_output" 2>&1
-    gitleaks_raw_status=$?
-    if [[ "$gitleaks_raw_status" -eq 0 || "$gitleaks_raw_status" -eq 1 ]]; then
-        python3 "$gitleaks_filter" --root "$VAULT_ROOT" --report "$gitleaks_raw_report" \
+    gitleaks_projection_status=$?
+    if [[ "$gitleaks_projection_status" -eq 0 ]]; then
+        mkdir -p "$gitleaks_candidate"
+        git -C "$VAULT_ROOT" checkout-index --force --ignore-skip-worktree-bits --stdin -z \
+            --prefix="${gitleaks_candidate}/" \
+            < "$gitleaks_candidate_paths" >> "$gitleaks_output" 2>&1
+        gitleaks_projection_status=$?
+    fi
+    if [[ "$gitleaks_projection_status" -eq 0 ]]; then
+        echo "Gitleaks scan scope: policy-projected tracked publication candidate" \
+            >> "$gitleaks_output"
+        # `--exit-code 2` separates "found leaks" from "could not finish".
+        #
+        # By default gitleaks exits 1 for BOTH, so a deadline-truncated run is
+        # indistinguishable from a clean scan that found something -- and worse,
+        # a truncated run that had not yet hit a finding exits 0 and PASSES.
+        # A cross-family review demonstrated that fail-open on 2026-08-31. It is
+        # the dangerous direction for a publication gate: the scan that did not
+        # finish is exactly the one you must not trust.
+        "$GITLEAKS_BIN" dir "$gitleaks_candidate" --no-banner --no-color --redact=0 \
+            --exit-code 2 \
+            --timeout "$GITLEAKS_TIMEOUT" --report-format json --report-path "$gitleaks_raw_report" \
+            >> "$gitleaks_output" 2>&1
+        gitleaks_raw_status=$?
+    else
+        gitleaks_raw_status="$gitleaks_projection_status"
+        echo "Gitleaks candidate projection failed; scanner not run." >> "$gitleaks_output"
+    fi
+    # 0 = completed clean, 2 = completed with findings (filter them). Anything
+    # else -- including 1, which now means a real scanner error or timeout --
+    # fails the gate rather than being filtered into a verdict.
+    if [[ "$gitleaks_raw_status" -eq 0 || "$gitleaks_raw_status" -eq 2 ]]; then
+        python3 "$gitleaks_filter" --root "$gitleaks_candidate" --report "$gitleaks_raw_report" \
             --allowlist "$gitleaks_allowlist" --output "$gitleaks_report" \
             >> "$gitleaks_output" 2>&1
         gitleaks_status=$?
@@ -335,7 +373,15 @@ done
         "${VAULT_ROOT}/examples" 2>/dev/null; then
         :
     fi
+    # This check hunts for LIVE instructions that point at historical artifacts.
+    # The historical directories themselves are excluded as SOURCES: a handoff
+    # that names its own filename ("cat docs/handoffs/<this file>") is not
+    # instruction drift, it is an archive being an archive -- and that single
+    # self-reference was failing the nightly's product-hygiene phase every run.
+    # CLAUDE.md § Session Resume already classes docs/handoffs, old plans and
+    # old specs as historical; this makes the scan agree with that.
     if grep -RInE 'docs/handoffs/[0-9]{4}-|docs/specs/spec-[0-9]|docs/plans/[0-9]{4}-' \
+        --exclude-dir=handoffs --exclude-dir=specs --exclude-dir=plans \
         "${VAULT_ROOT}/README.md" "${VAULT_ROOT}/CLAUDE.md" "${VAULT_ROOT}/chrono" \
         "${VAULT_ROOT}/docs" "${VAULT_ROOT}/shared" 2>/dev/null; then
         :
@@ -400,6 +446,7 @@ fi
         if [[ -s "$policy_error" ]]; then sed 's/^/- error: /' "$policy_error"; fi
         echo ""
         echo "## Maintained secret scan (gitleaks)"
+        echo "- Scope: policy-projected tracked publication candidate"
         echo "- Exit status: ${gitleaks_status}"
         if [[ -s "$gitleaks_report" ]]; then sed 's/^/- /' "$gitleaks_report"; else echo "- (no findings report)"; fi
         if [[ -s "$gitleaks_output" ]]; then sed 's/^/- scanner: /' "$gitleaks_output"; fi

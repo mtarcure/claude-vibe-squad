@@ -93,7 +93,7 @@ operator-gated (Hard Rule 6). See the Memory Curation Sweep note below.
 |---|---|
 | [Environment / repo health](../capabilities/public/project/environment-repo-health.md) | repo/env hygiene, cleanup, upgrades, refactors |
 | [Dependency / release integrity](../capabilities/public/project/dependency-release-integrity.md) | dep trust / supply-chain / advisory — signing/attestation is `needs_tool` |
-| [Memory / vault hygiene](../capabilities/public/project/memory-vault-hygiene.md) | durable-knowledge curation — legacy `chrono-kg` runtime-retired and protected pending migration |
+| [Memory / vault hygiene](../capabilities/public/project/memory-vault-hygiene.md) | durable-knowledge curation — legacy KG SQLite retired; live `chrono-kg` is a vault-backed compatibility alias |
 | [Harness audit / compatibility](../capabilities/public/project/harness-audit-compatibility.md) | prompt/tool/script drift + MCP reachability (audit-only) |
 | Personal operations | routines / reminders / draft — send + calendar-write are `needs_tool` |
 

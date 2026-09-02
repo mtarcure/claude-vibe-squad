@@ -20,8 +20,9 @@ A zero-key checkout gets this protocol and its validation metadata as documentat
 
 **When to use:** curate durable knowledge — deduplicate, repair links, detect contradictions, apply reviewed
 lifecycle transitions, and keep the public/private boundary clean. `chrono-vault` is the canonical
-Markdown-backed store and recall path; `chrono-obsidian` is an optional human browse lens. Legacy KG material
-is migration input, never a live recall path.
+Markdown-backed store and recall path; `chrono-obsidian` is an optional human browse lens. Legacy KG SQLite
+material is migration input, never a live recall path; the `chrono-kg` name remains callable only as a
+compatibility alias onto canonical vault operations.
 
 | Step | Specialists | Tools `` | Skills `(type)` | Gate / Overlay |
 |---|---|---|---|---|
@@ -34,8 +35,9 @@ is migration input, never a live recall path.
 
 **Notes.** `chrono-vault` owns record, recall, and lifecycle over canonical private Markdown; its FTS5/BM25
 index is disposable. `chrono-obsidian` may help a human browse the same material but is never correctness
-authority. Legacy KG material is retired from runtime but remains a protected P4 migration source; it is not
-removed until migration, restore, stability, and separate approval pass. Wrong or stale notes move to
+authority. Legacy KG SQLite material is retired from runtime but remains a protected P4 migration source;
+the live `chrono-kg` compatibility namespace does not revive that backend. The material is not removed until
+migration, restore, stability, and separate approval pass. Wrong or stale notes move to
 `invalidated`, `superseded`, or `archived`; they are not silently erased. The vault has a **10k-note / 250 MiB
 capacity threshold**: approaching it triggers an operator-reviewed archival/compaction proposal. PII in notes
 fires the privacy overlay (`privacy-steward`) and public/private-boundary checks (`memory-curator`).

@@ -11,6 +11,7 @@ import os
 import sqlite3
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import quote, unquote, urlsplit
 
 from mcp.server.fastmcp import FastMCP
 from clearance import (
@@ -466,6 +467,39 @@ def health() -> dict[str, Any]:
 OBSIDIAN_REST_BASE = "http://127.0.0.1:27123"
 
 
+def _vault_file_url(path: str) -> str:
+    """Return a URL whose caller-supplied value can only occupy path segments."""
+    if not isinstance(path, str) or not path:
+        raise ValueError("invalid vault path")
+
+    candidate = path
+    while True:
+        if any(ord(character) < 0x20 for character in candidate):
+            raise ValueError("invalid vault path")
+        if "\\" in candidate or "?" in candidate or "#" in candidate:
+            raise ValueError("invalid vault path")
+        try:
+            parsed = urlsplit(candidate)
+        except ValueError as exc:
+            raise ValueError("invalid vault path") from exc
+        segments = candidate.split("/")
+        if (
+            parsed.scheme
+            or parsed.netloc
+            or candidate.startswith("/")
+            or any(segment in {"", ".", ".."} for segment in segments)
+        ):
+            raise ValueError("invalid vault path")
+
+        decoded = unquote(candidate)
+        if decoded == candidate:
+            break
+        candidate = decoded
+
+    encoded_path = "/".join(quote(segment, safe="") for segment in path.split("/"))
+    return f"{OBSIDIAN_REST_BASE}/vault/{encoded_path}"
+
+
 def _load_httpx() -> Any | None:
     """Load the optional Obsidian REST dependency only for human browse tools."""
     try:
@@ -518,6 +552,10 @@ def vault_list(glob_pattern: str = "") -> dict[str, Any]:
 def vault_get(path: str) -> dict[str, Any]:
     """Get a single vault file's content."""
     require_memory_operation("browse")
+    try:
+        url = _vault_file_url(path)
+    except ValueError:
+        return _degraded("invalid vault path")
     if not _obsidian_headers():
         return _degraded("missing OBSIDIAN_REST_API_KEY")
     httpx = _load_httpx()
@@ -526,7 +564,7 @@ def vault_get(path: str) -> dict[str, Any]:
     try:
         with httpx.Client(timeout=10.0) as client:
             r = client.get(
-                f"{OBSIDIAN_REST_BASE}/vault/{path}",
+                url,
                 headers=_obsidian_headers(),
             )
             r.raise_for_status()

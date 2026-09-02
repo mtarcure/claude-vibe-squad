@@ -1,15 +1,15 @@
 # Provider CLIs
 
-`bin/squad up` checks for `claude`, `codex`, `gemini`, and `kimi` and exits 1 if
-any is missing:
+`bin/squad up` checks for `claude`, `codex`, `agy`, `grok`, and `kimi` and exits
+1 if any is missing:
 
 ```text
 ERROR: missing required command(s): claude kimi
 Fix: install/login the missing CLIs, and install core tools with: brew install jq tmux fswatch
 ```
 
-All four are required. They use four different installers, which is why "follow
-each provider's instructions" was not an actionable step.
+All five are required. `shared/launch-dependencies.sh` is the executable
+authority for the complete required-command set.
 
 Model inference always runs through these native CLIs. Vibe Squad never
 substitutes an MCP relay or a direct model API for a model lane.
@@ -20,7 +20,8 @@ substitutes an MCP relay or a direct model API for a model lane.
 |---|---|---|---|
 | `claude` | Anthropic native installer | `https://claude.ai/install.sh` | `claude` → `/login` (subscription or managed login) |
 | `codex` | npm (global) | `@openai/codex` | `codex login` |
-| `gemini` | npm (global) | `@google/gemini-cli` | `GEMINI_API_KEY` (**API key required**) |
+| `agy` (the `gemini` lane) | Antigravity provider distribution | Antigravity CLI | personal OAuth |
+| `grok` | xAI provider distribution | Grok CLI | policy in `model-lanes/lane-capabilities.tsv` |
 | `kimi` | `uv tool` | `kimi-cli` (PyPI) | `kimi` → follow its login prompt |
 
 Package identities were confirmed against the live npm and PyPI registries on
@@ -62,28 +63,18 @@ Check:
 command -v codex && codex --version
 ```
 
-## gemini
+## gemini lane (`agy`)
 
-```bash
-npm install -g @google/gemini-cli
-```
-
-Gemini is the **explicit exception** to subscription login: its native CLI lane
-requires an API key.
-
-```bash
-export GEMINI_API_KEY="…"
-```
-
-Put it in your shell configuration or your local secret store. Do not add it, or
-any other credential, to the repository. Treat spend and rate limits as part of
-this lane's contract.
+Install Antigravity's `agy` binary from its provider distribution, then run it
+interactively to complete personal OAuth. The routing identifier remains
+`gemini`, but the standalone `gemini` binary and its API-key lane are retired.
+`GEMINI_API_KEY` is used only by optional metered media-provider operations; it
+does not authenticate this model lane.
 
 Check:
 
 ```bash
-command -v gemini && gemini --version
-[ -n "$GEMINI_API_KEY" ] && echo "GEMINI_API_KEY is set" || echo "GEMINI_API_KEY is NOT set"
+command -v agy && agy --version
 ```
 
 ## kimi
@@ -101,12 +92,25 @@ Check:
 command -v kimi && kimi --version
 ```
 
-## Verify all four at once
+## grok
+
+Install the Grok CLI from the xAI provider distribution. Follow the auth policy
+declared for the lane in `model-lanes/lane-capabilities.tsv`; do not infer lane
+authentication from the separate native-search subscription.
+
+Check:
+
+```bash
+command -v grok && grok --version
+```
+
+## Verify all five at once
 
 This is the same list `bin/launch-squad.sh` checks:
 
 ```bash
-for dep in tmux fswatch jq curl claude codex gemini kimi; do
+source shared/launch-dependencies.sh
+for dep in "${SQUAD_REQUIRED_COMMANDS[@]}"; do
   command -v "$dep" >/dev/null 2>&1 || echo "MISSING: $dep"
 done
 ```
@@ -124,7 +128,7 @@ does not prompt you to log in.
 
 ## PATH note
 
-Two of the four install outside Homebrew, into `~/.local/bin`. If `claude` or
+Two of the five install outside Homebrew, into `~/.local/bin`. If `claude` or
 `kimi` are reported missing right after a successful install, that directory is
 almost certainly not on your `PATH`:
 

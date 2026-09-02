@@ -9,6 +9,9 @@
 #   squad           — launch / attach (alias: `squad up`, `squad start`)
 #   squad up --safe — suppress the first-run warning and skip doctor; permissions are unchanged
 #   squad stop      — stop + verify the daemon, update live state, then kill the session (aliases: `down`, `close`)
+#   squad restart   — stop, reap survivors, VERIFY the squad is down, then launch
+#                     (`stop && up` is not equivalent: it relaunches onto a
+#                     daemon and a status poller that both survived the stop)
 #   squad status    — print where-are-we summary (no attach)
 #   squad doctor    — run health check + MCP/runtime audit
 #   squad attach    — attach to existing session (no launch)
@@ -30,6 +33,25 @@ cmd="${1:-up}"
 # Canonical value: launchd/com.vibesquad.daemon.plist. The lifecycle regression
 # test enforces this local shell copy because the wrapper cannot import plist XML.
 DAEMON_LABEL="com.vibesquad.daemon"
+
+# The session bin/launch-squad.sh creates and bin/squad-stop.sh tears down, with
+# the same default and the same override as both of them. Under a custom name a
+# hardcoded literal here would verify the WRONG session absent and cheerfully
+# relaunch on top of the live one -- the shape of the bug bin/squad-stop.sh
+# already fixed (Plan B Task 7) by honouring this variable at every call site.
+SESSION="${SQUAD_SESSION:-squad}"
+
+# Grace period between the TERM and the KILL of a survivor. Overridable so the
+# test suite does not pay a full second per case.
+SQUAD_REAP_GRACE="${SQUAD_REAP_GRACE:-1}"
+
+# Where bin/squad-stop.sh names what it knowingly left running. EXPORTED, so the
+# stop this script is about to run and the verification that follows it are
+# talking about one file by construction rather than by two copies of a path
+# expression that could drift. bin/squad-stop.sh defaults to the same location
+# when run on its own.
+SQUAD_STOP_SURVIVOR_REPORT="${SQUAD_STOP_SURVIVOR_REPORT:-${VAULT_ROOT}/_state/runtime/squad-stop/${SESSION}-survivors.txt}"
+export SQUAD_STOP_SURVIVOR_REPORT
 
 stop_daemon() {
     local launchd_domain service_target print_rc bootout_rc attempt
@@ -99,17 +121,279 @@ stop_daemon() {
     return 1
 }
 
+# poller_census: set POLLER_CENSUS to the live pollers for this root, or FAIL.
+#
+# The two call sites below captured `$(find_live_vs_lane_status_pollers | ...)`
+# and discarded the exit status. If that function is ever renamed or split,
+# bash returns 127, the capture is empty, and an unrunnable census renders
+# identically to a verified-clean one -- then verification prints a green
+# checkmark and the launch adopts the live poller it was meant to catch.
+#
+# Same fail-open shape as the group census in squad-stop.sh, and the same fix:
+# an answer nobody could compute is not the permissive answer.
+#
+# Self-contained: test_squad_restart.py extracts this verbatim.
+poller_census() {
+    local out
+    out="$(find_live_vs_lane_status_pollers)" || return $?
+    POLLER_CENSUS="$(printf '%s' "${out}" | tr '\n' ' ')"
+    POLLER_CENSUS="${POLLER_CENSUS% }"
+    return 0
+}
+
+# --- restart -----------------------------------------------------------------
+# `squad stop && squad up` is not a restart, and that is the whole reason this
+# verb exists. Two resident processes survive that pair and are then adopted,
+# still running whatever code they were started with:
+#
+#   * The launchd daemon. bin/launch-squad.sh's start_daemon() returns early
+#     with "✓ Daemon already loaded in launchd" whenever the label is registered
+#     from the expected plist, and `launchctl bootstrap` does not replace a
+#     loaded job. So a stop that failed to boot it out is invisible to the next
+#     up -- which reports a healthy daemon it did not start.
+#   * The status poller. bin/squad-stop.sh reaps it through ONE pidfile and
+#     deliberately refuses to scan the process table (an argv substring scan is
+#     what killed the operator's live watcher fleet once already, Plan B Task
+#     8), so a poller that pidfile never named outlives the stop, keeps its
+#     status file fresh, and bin/launch-squad.sh's vs_lane_status_poller_alive()
+#     then ADOPTS it -- "Adopting untracked live status poller (PID ...)
+#     instead of spawning a duplicate" -- rather than starting a current one.
+#
+# Hence stop -> reap -> VERIFY ABSENCE -> up, in that order, with the
+# verification load-bearing: nothing is launched over a state that was not shown
+# to be down. A stop can print "✓ Squad closed" with a coordinator and orphans
+# still alive, so "the stop said it worked" is not evidence and is not accepted
+# as any.
+SQUAD_IDENTITY_READY=0
+
+# Reap the status pollers belonging to THIS root that bin/squad-stop.sh
+# structurally cannot: it reaps by pidfile, and an untracked poller has no
+# pidfile entry to reap by.
+#
+# Identity comes from shared/process-identity.sh -- the same exact-positional
+# argv predicate the launcher uses to decide whether to adopt, and the stopper
+# uses to decide whether to kill. One home for one fact (CLAUDE.md rule 10): if
+# this asked the question differently, restart would kill pollers the launcher
+# would have adopted, or spare ones it would not.
+#
+# Scope, deliberately: VAULT_ROOT. Pollers belonging to another checkout --
+# measured on this host, four of them under /tmp/vs/d-<id>/.../vault -- are
+# named by the predicate as not ours and left alone. A restart of this squad is
+# not licence to kill another one's processes.
+squad_reap_untracked_pollers() {
+    local pid signal pollers
+
+    if [[ "${SQUAD_IDENTITY_READY}" != "1" ]]; then
+        echo "  NOT reaping status pollers: ${VAULT_ROOT}/shared/process-identity.sh failed to load, so no PID can be shown to BE a poller for this root, and killing by bare PID is unsafe. Verification below will refuse the launch rather than guess." >&2
+        return 0
+    fi
+
+    if ! poller_census; then
+        echo "  NOT reaping status pollers: the census could not run, so no PID can be shown to BE a poller for this root. Verification below will refuse the launch rather than guess." >&2
+        return 0
+    fi
+    pollers="${POLLER_CENSUS}"
+    if [[ -z "${pollers}" ]]; then
+        echo "  No live status poller for ${VAULT_ROOT}."
+        return 0
+    fi
+
+    echo "  Reaping status poller(s) the stop's pidfile did not name: ${pollers}"
+    for signal in TERM KILL; do
+        for pid in ${pollers}; do
+            # Re-checked before EVERY signal rather than once at selection: the
+            # predicate is the only thing separating this root's poller from a
+            # recycled PID, and the TERM/KILL pair straddles a grace period long
+            # enough for a PID to be reused.
+            #
+            # Bare PID, never a process group: a poller is a single process, and
+            # its group can contain the shell that launched it. Group kills
+            # belong in bin/squad-stop.sh's descendant sweep, where the group's
+            # membership has been snapshotted first.
+            pid_is_vs_lane_status_poller "${pid}" || continue
+            kill "-${signal}" "${pid}" 2>/dev/null || true
+        done
+        if [[ "${signal}" == "TERM" ]]; then
+            sleep "${SQUAD_REAP_GRACE}"
+        fi
+    done
+    return 0
+}
+
+# Report every part of the squad still standing. rc 0 only when all three are
+# provably down; an UNVERIFIABLE state counts as standing, because the launch it
+# gates is not safe to make on an assumption.
+squad_verify_absent() {
+    local remaining=0 print_rc pollers service_target
+    local named tag pid what recorded_cmd current_cmd
+
+    if ! command -v tmux >/dev/null 2>&1; then
+        # Without this, `tmux has-session` exits 127 (command not found), the
+        # `if` reads that as "no session", and an absent tmux would report the
+        # session verified gone -- a check satisfied by nothing.
+        echo "  UNVERIFIED: tmux is unavailable, so session '${SESSION}' cannot be shown absent." >&2
+        remaining=1
+    elif tmux has-session -t "${SESSION}" 2>/dev/null; then
+        echo "  STILL UP: tmux session '${SESSION}'." >&2
+        remaining=1
+    else
+        echo "  ✓ tmux session '${SESSION}' is gone."
+    fi
+
+    service_target="gui/$(id -u)/${DAEMON_LABEL}"
+    if command -v launchctl >/dev/null 2>&1; then
+        launchctl print "${service_target}" >/dev/null 2>&1
+        print_rc=$?
+        case "${print_rc}" in
+            113)
+                echo "  ✓ launchd daemon is absent: ${service_target}"
+                ;;
+            0)
+                echo "  STILL UP: launchd daemon ${DAEMON_LABEL} (${service_target}). Relaunching would adopt it -- launchctl bootstrap does not replace a loaded job -- so the new session would run against the old daemon's code." >&2
+                remaining=1
+                ;;
+            *)
+                echo "  UNVERIFIED: launchctl print could not determine the state of ${service_target} (rc=${print_rc})." >&2
+                remaining=1
+                ;;
+        esac
+    else
+        echo "  UNVERIFIED: launchctl is unavailable, so ${DAEMON_LABEL} cannot be shown absent." >&2
+        remaining=1
+    fi
+
+    if [[ "${SQUAD_IDENTITY_READY}" == "1" ]]; then
+        if ! poller_census; then
+            echo "  UNVERIFIED: the poller census could not run, so no PID can be shown NOT to be a live poller for this root." >&2
+            remaining=1
+        elif [[ -n "${POLLER_CENSUS}" ]]; then
+            echo "  STILL UP: status poller(s) for this root: ${POLLER_CENSUS}. The next launch would adopt one instead of spawning a current one." >&2
+            remaining=1
+        else
+            echo "  ✓ No status poller is running for ${VAULT_ROOT}."
+        fi
+    else
+        echo "  UNVERIFIED: shared/process-identity.sh failed to load, so live status pollers cannot be identified." >&2
+        remaining=1
+    fi
+
+    # The three checks above are the three things this script can look for by
+    # itself, and they are not the whole squad. bin/squad-stop.sh does not kill
+    # an identity-matched `background-job` coordinator -- it preserves it by
+    # design -- and a descendant can outlive both of its sweep passes. Neither
+    # is a tmux session, a launchd job or a poller, so all three checks passed
+    # while a live coordinator stood, and this verb then launched a second one
+    # over it. The stop names what it left; this reads those names back.
+    if [[ -f "${SQUAD_STOP_SURVIVOR_REPORT}" ]]; then
+        named=0
+        # `|| [[ -n "${tag}" ]]`: `read` returns non-zero on a final line with
+        # no trailing newline AFTER assigning it, so without this the last
+        # survivor in a truncated file is parsed and then thrown away.
+        while read -r tag pid what recorded_cmd || [[ -n "${tag:-}" ]]; do
+            [[ "${tag}" == "survivor" ]] || continue
+            [[ "${pid}" =~ ^[0-9]+$ ]] || continue
+            kill -0 "${pid}" 2>/dev/null || continue
+            # Read back, never trusted blind: a PID recorded minutes ago can
+            # since have been recycled onto something unrelated, and refusing a
+            # relaunch over a stranger's process is its own failure. Nothing is
+            # KILLED on the strength of this comparison -- it only decides
+            # whether to report -- so a plain string compare is the right
+            # weight of evidence, and an unreadable command reports rather than
+            # assumes.
+            current_cmd="$(ps -o command= -p "${pid}" 2>/dev/null | tr -s '[:space:]' ' ' | sed 's/^ //; s/ $//')"
+            if [[ "${recorded_cmd:-}" != "-" && -n "${recorded_cmd:-}" && -n "${current_cmd}" \
+                  && "${current_cmd}" != "${recorded_cmd}" ]]; then
+                echo "  Not counting pid ${pid} from the stop's survivor report: it is alive but is now running a different command, so the PID was recycled and this is not our survivor." >&2
+                continue
+            fi
+            echo "  STILL UP: ${what} at pid ${pid} (${current_cmd:-command unreadable}), named by bin/squad-stop.sh as surviving the stop. Launching now would run a second one alongside it." >&2
+            named=$((named + 1))
+        done < "${SQUAD_STOP_SURVIVOR_REPORT}"
+        if [[ "${named}" -eq 0 ]]; then
+            echo "  ✓ Nothing the stop reported as surviving is still running."
+        else
+            remaining=1
+        fi
+    else
+        echo "  UNVERIFIED: bin/squad-stop.sh wrote no survivor report at ${SQUAD_STOP_SURVIVOR_REPORT}, so a preserved coordinator or an orphaned descendant cannot be shown absent. An absent report is not an empty one -- the stop truncates it before it does anything else." >&2
+        remaining=1
+    fi
+
+    return "${remaining}"
+}
+
+squad_restart() {
+    local daemon_rc=0 stop_rc=0
+
+    if ! [[ "${SQUAD_REAP_GRACE}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+        echo "ERROR: SQUAD_REAP_GRACE must be a non-negative number." >&2
+        return 64
+    fi
+
+    SQUAD_IDENTITY_READY=1
+    # shellcheck source=../shared/process-identity.sh disable=SC1091
+    source "${VAULT_ROOT}/shared/process-identity.sh" || SQUAD_IDENTITY_READY=0
+
+    echo "[1/4] Stopping the launchd daemon..."
+    stop_daemon || daemon_rc=$?
+    if [[ "${daemon_rc}" -ne 0 ]]; then
+        # Reported, not fatal. The daemon is separate infra; abandoning the
+        # restart here would leave the tmux session and every orphan under it
+        # running -- strictly more than the operator asked to keep. Nor is the
+        # failure forgiven: a daemon still loaded fails verification below, and
+        # verification is what gates the launch.
+        echo "WARNING: stopping the daemon failed (rc=${daemon_rc}). Continuing with the session stop; the relaunch stays blocked unless the daemon verifies absent." >&2
+    fi
+
+    echo ""
+    echo "[2/4] Stopping the session..."
+    # No arguments forwarded on purpose: bin/squad-stop.sh parses none, and
+    # `squad restart --safe` means "--safe" for the LAUNCH at the other end.
+    bash "${VAULT_ROOT}/bin/squad-stop.sh" || stop_rc=$?
+    if [[ "${stop_rc}" -ne 0 ]]; then
+        echo "WARNING: bin/squad-stop.sh exited ${stop_rc}. Continuing to the sweep and the verification so the report names what is actually left." >&2
+    fi
+
+    echo ""
+    echo "[3/4] Reaping survivors the stop cannot reach..."
+    squad_reap_untracked_pollers
+
+    echo ""
+    echo "[4/4] Verifying the squad is down..."
+    if ! squad_verify_absent; then
+        echo "" >&2
+        echo "✗ REFUSING TO RELAUNCH: the squad is not fully down (see above)." >&2
+        echo "  Launching now would adopt whatever is still running, which is the" >&2
+        echo "  defect this verb exists to prevent -- not a state to build on." >&2
+        echo "  Fix the named survivor, then run: squad restart" >&2
+        return 1
+    fi
+
+    echo ""
+    echo "Squad verified down. Launching..."
+    squad_up "$@"
+}
+
+# The one launch path, so `restart` cannot drift into a second one. In
+# particular the launcher is still exec'd from THIS process with no wrapper
+# between it and the panes it creates, which is what keeps LIFE-03b's
+# "claude is the pane shell's direct exec child" true for a restart as well.
+squad_up() {
+    local unsafe="${SQUAD_UNSAFE_AUTONOMY:-1}"
+    [[ "${1:-}" == "--safe" ]] && unsafe=0
+    SQUAD_UNSAFE_AUTONOMY="${unsafe}" bash "${VAULT_ROOT}/bin/launch-squad.sh" "$@"
+}
+
 case "${cmd}" in
     up|start|launch|"")
-        if [[ "${2:-}" == "--safe" ]]; then
-            SQUAD_UNSAFE_AUTONOMY=0 bash "${VAULT_ROOT}/bin/launch-squad.sh" --safe "${@:3}"
-        else
-            SQUAD_UNSAFE_AUTONOMY="${SQUAD_UNSAFE_AUTONOMY:-1}" bash "${VAULT_ROOT}/bin/launch-squad.sh" "${@:2}"
-        fi
+        squad_up "${@:2}"
         ;;
     stop|down|close|exit|kill)
         stop_daemon || exit $?
         bash "${VAULT_ROOT}/bin/squad-stop.sh" "${@:2}"
+        ;;
+    restart|reboot|bounce)
+        squad_restart "${@:2}"
         ;;
     status|where|state)
         bash "${VAULT_ROOT}/bin/where-are-we.sh"
@@ -142,11 +426,11 @@ case "${cmd}" in
     help|-h|--help)
         # Range tracks the comment header above; extending the header without
         # extending this truncates the help silently.
-        sed -n '2,22p' "$0" | sed 's/^# //; s/^#//'
+        sed -n '2,25p' "$0" | sed 's/^# //; s/^#//'
         ;;
     *)
         echo "unknown subcommand: ${cmd}"
-        echo "usage: squad [up [--safe|--unsafe]|stop|status|doctor|attach|detach|help]"
+        echo "usage: squad [up [--safe|--unsafe]|stop|restart|status|doctor|attach|detach|help]"
         exit 1
         ;;
 esac

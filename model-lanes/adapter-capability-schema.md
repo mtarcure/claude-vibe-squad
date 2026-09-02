@@ -22,9 +22,10 @@ must never be hand-authored.
 
 The existing `cli`, `auth_policy`, and `child_mcp_policy` columns are the lane
 environment authority. Provider keys are dropped for subscription/managed-login
-workers; `gemini-api-key-only` is the sole model-key exception. Any direct or
-lead-brokered `chrono-vault` surface requires `CHRONO_VAULT_ROOT`; its validity is
-defined only by `plugins/chrono-vault/vaultroot.py`, not by a second lane table.
+workers; the `gemini` routing identifier resolves to Antigravity's `agy` CLI and
+uses its OAuth session, not `GEMINI_API_KEY`. Any direct or lead-brokered
+`chrono-vault` surface requires `CHRONO_VAULT_ROOT`; its validity is defined only
+by `plugins/chrono-vault/vaultroot.py`, not by a second lane table.
 
 ## Structured fields
 

@@ -7,10 +7,10 @@ model: inherit
 max_turns: 30
 ---
 
-<!-- generated_by=lane-capability-registry/v1 registry_sha256=81f24835ebeead2cf72deda8be5483210b2751bbb9c5319e41c4f0fd70885206
+<!-- generated_by=lane-capability-registry/v1 registry_sha256=55eeb1e04b2465f5a723bcb1fddec4823f2751b08c72b701fcd2d542a836e29f
 # BEGIN SPECIALIST CAPABILITY PROJECTION
 capability_source: model-lanes/specialist-lane-capabilities.v1.json
-capability_source_sha256: b5693bab7ccdccf6ab1c1e1018fb93e3153a9fd1883e97f1f31c4fa4aee26e53
+capability_source_sha256: 146310977227fae7833652053265e5f7f29bde12d6a39192ced810eeb32e58fd
 capability_skills: ["rule6-rights-gate"]
 capability_mcps: ["chrono-vault","sequential-thinking"]
 # END SPECIALIST CAPABILITY PROJECTION

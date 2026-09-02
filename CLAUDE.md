@@ -20,7 +20,7 @@ Chrono is the only controller and the only operator-facing voice. Model leads ex
 - Tool/skill triggers (when to reach for what): `docs/standards/tool-trigger-map.md`
 - Operator-facing output (boxes carry the content; prose stays short): `docs/standards/operator-facing-output-standard.md`
 
-Generated adapters, stale handoffs, old specs, and runtime logs are not source of truth. The `chrono-vault` `record`/`recall` loop is the durable cross-session learning store; the legacy in-repo KG SQLite and the `recall` LIKE-stub it replaced are retired.
+Generated adapters, stale handoffs, old specs, and runtime logs are not source of truth. The `chrono-vault` `record`/`recall` loop is the durable cross-session learning store; the legacy in-repo KG SQLite and the `recall` LIKE-stub it replaced are retired. The `chrono-kg` MCP namespace remains live as a compatibility alias backed by those canonical Markdown-vault operations; it does not revive SQLite.
 
 ## Versions — three numbering systems, all real
 

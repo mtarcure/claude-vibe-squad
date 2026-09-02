@@ -491,11 +491,16 @@ unverified, which a periodic sweep — not this mechanism — would have to clos
 #### Reconciliation pin/fence echoes
 
 For a capability-pinned task, the envelope must echo the exact dispatched
-`capability_card_sha256`; a missing or mismatched echo keeps the task open, including before cross-family review
-settlement. Reconciliation compares the current card hash separately and records/surfaces
-`capability_card_drift`, but drift does not rewrite the pinned ID, hash, derived state, or gates and does not by
-itself block a correctly pinned response. A single task carrying the optional frozen-question
-`swarm_spec_sha256` provenance pin must likewise echo it. A legacy assigned-worker task must echo its full
+`capability_card_sha256`; a mismatched echo keeps the task open, including before cross-family review
+settlement. A **missing** echo is judged by who wrote the response. When the envelope echoes the exact
+`delivery_attempt_id` / `delivery_generation` that the launch authority minted at registry insertion and never
+put in the packet, an absent row can only be our own promotion path dropping it — no finished worker can add it
+back — so it is recorded as an advisory and settlement proceeds on the registry's own pin. Without that proof
+the response is unidentified, which is settlement question 1, and the task stays open; Chrono clears it with
+`--repair-envelope`, which re-renders the row from the locked registry. Reconciliation compares the current
+card hash separately and records/surfaces `capability_card_drift`, but drift does not rewrite the pinned ID,
+hash, derived state, or gates and does not by itself block a correctly pinned response. A single task carrying
+the optional frozen-question `swarm_spec_sha256` provenance pin must likewise echo it. A legacy assigned-worker task must echo its full
 delivery fence (`delivery_attempt_id`, `delivery_generation`, `delivery_worker_id`, `worker_epoch`,
 `lease_generation`, `delivery_lane`, plus `replica_index` / `member_id` when assigned).
 
@@ -504,6 +509,12 @@ required pin/fence into the launch authority as `reconciliation_echo` — from t
 locked registry, **never from worker metadata** — and output promotion re-emits them into the published
 envelope. A worker-authored value for one of these keys is discarded and replaced by the authority's, so a
 stale or forged echo cannot settle a task.
+
+That guarantee is **board-rail-scoped and does not generalise**. On the V1 compatibility rail
+`registry_reconciler.landed_response` validates nothing about the response it selects — not `id`, not
+`in_response_to`, not `type`, not the attempt fence, and it does not reject duplicate frontmatter keys — and
+`worker_response_issue` returns early for any task with no `delivery_worker_id`. That is why the missing-echo
+rule above turns on the attempt fence the authority actually wrote, not on the rail the task happens to be on.
 
 ### Surfacing needs to Chrono (`## NEEDS FROM CHRONO`)
 

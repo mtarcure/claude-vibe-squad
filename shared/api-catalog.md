@@ -436,177 +436,126 @@ Codex CLI flags — verified live via `codex --help` capture and targeted live-f
 ## 3. Google / Gemini
 
 ### Gemini direct API credential
-- access: Metered direct API; separate from Gemini CLI OAuth
+- access: Metered direct API; separate from the `agy` lane's personal OAuth
 - specialists: ai-engineer and approved media wrappers only
 - verified: partial — `GEMINI_API_KEY` and `GOOGLE_API_KEY` are present in the 2026-07-21 Codex launch environment; no provider request was made
 - last_checked: 2026-07-21
 - test_reference: environment-variable name/presence probe only; values were never printed
 - notes: Credential presence does not prove a model or operation. Direct calls remain behind provider/model allowlists and numeric spend ceilings.
 
-Gemini CLI flags — verified live via `gemini --help` capture on 2026-05-02. Subscription auth (personal OAuth) used via env-drop pattern.
+The `gemini` routing lane runs through Antigravity's `agy` CLI under personal
+OAuth. The standalone `gemini` CLI and its API-key launch path are retired.
+The surface below was captured literally with
+`env -u GEMINI_API_KEY -u GOOGLE_API_KEY agy --help` on 2026-09-01; `agy`
+reported version 1.1.23 and the help command exited 0.
 
-### gemini -m / --model <model>
+### agy --model <model>
 - url: N/A (CLI flag)
-- access: Subscription (personal OAuth)
-- specialists: all gemini-pane specialists (Content)
-- verified: yes
-- last_checked: 2026-05-02
-- test_reference: `gemini --help` capture
-- notes: Use `gemini-3.1-pro-preview` for thinking-capable model. `--thinking` flag does NOT exist (see entry below).
+- access: Personal OAuth
+- specialists: all gemini-lane specialists
+- verified: yes-as-flag
+- last_checked: 2026-09-01
+- test_reference: `agy--help@2026-09-01:exit-0`
+- notes: The board passes the literal `model_id` owned by `shared/registries/profiles.tsv`.
 
-### gemini --thinking
-- url: N/A
-- access: N/A
-- specialists: N/A
-- verified: no
-- last_checked: 2026-05-02
-- test_reference: `env -u GEMINI_API_KEY -u GOOGLE_API_KEY gemini --help | grep -i -E "thinking|reasoning|effort"` returned NO matches
-- notes: **Flag does NOT exist.** Thinking is implicit at model level. Use `--model gemini-3.1-pro-preview` for thinking-capable model. Do NOT cite this flag in any specialist file.
-- research_task: confirm whether thinking-mode is implicit-per-model (`gemini-3.1-pro-preview` always thinks) or whether a non-help-documented mechanism (`-c` flag, settings.json key) toggles it
-
-### gemini -p / --prompt <text>
+### agy --effort {low,medium,high}
 - url: N/A (CLI flag)
-- access: Subscription
-- specialists: all headless gemini dispatch
-- verified: yes
-- last_checked: 2026-05-02
-- test_reference: `gemini --help` capture
-- notes: Non-interactive (headless) mode.
+- access: Personal OAuth
+- specialists: direct Antigravity sessions
+- verified: yes-as-flag
+- last_checked: 2026-09-01
+- test_reference: `agy--help@2026-09-01:exit-0`
+- notes: The board rail currently selects a profile model but does not pass a Gemini-lane effort flag.
 
-### gemini -i / --prompt-interactive <text>
+### agy --print / --prompt <text>
 - url: N/A (CLI flag)
-- access: Subscription
-- specialists: hybrid interactive workflows
-- verified: yes
-- last_checked: 2026-05-02
-- test_reference: `gemini --help` capture
-- notes: Execute then drop into interactive.
+- access: Personal OAuth
+- specialists: headless gemini-lane dispatch
+- verified: yes-as-flag
+- last_checked: 2026-09-01
+- test_reference: `agy--help@2026-09-01:exit-0`
+- notes: Non-interactive single-prompt mode.
 
-### gemini -w / --worktree [name]
+### agy --mode {accept-edits,plan}
 - url: N/A (CLI flag)
-- access: Subscription
-- specialists: feature-dev workflows on gemini pane
-- verified: yes
-- last_checked: 2026-05-02
-- test_reference: `gemini --help` text "Start Gemini in a new git worktree"
-- notes: Native worktree.
+- access: Personal OAuth
+- specialists: headless gemini-lane dispatch
+- verified: yes-as-flag
+- last_checked: 2026-09-01
+- test_reference: `agy--help@2026-09-01:exit-0`
+- notes: Board dispatch does not pass this flag; memory distillation uses `plan`.
 
-### gemini -y / --yolo
+### agy --add-dir <directory>
 - url: N/A (CLI flag)
-- access: Subscription
-- specialists: fully-unattended dispatch
-- verified: yes
-- last_checked: 2026-05-02
-- test_reference: `gemini --help` capture
-- notes: Auto-approve all actions. Use with caution.
+- access: Personal OAuth
+- specialists: board dispatch harness
+- verified: yes-as-flag
+- last_checked: 2026-09-01
+- test_reference: `agy--help@2026-09-01:exit-0`
+- notes: Adds a workspace directory; repeatable.
 
-### gemini --approval-mode {default,auto_edit,yolo,plan}
+### agy --dangerously-skip-permissions
 - url: N/A (CLI flag)
-- access: Subscription
-- specialists: headless dispatch
-- verified: yes
-- last_checked: 2026-05-02
-- test_reference: `gemini --help` enum capture
-- notes: Granular approval policy.
+- access: Personal OAuth
+- specialists: board dispatch harness
+- verified: yes-as-flag
+- last_checked: 2026-09-01
+- test_reference: `agy--help@2026-09-01:exit-0`
+- notes: Suppresses provider permission prompts; repository gates remain authoritative.
 
-### gemini --include-directories <dirs...>
+### agy --sandbox
 - url: N/A (CLI flag)
-- access: Subscription
-- specialists: cross-dir specialists
-- verified: yes
-- last_checked: 2026-05-02
-- test_reference: `gemini --help` capture
-- notes: Like `--add-dir` on other CLIs.
+- access: Personal OAuth
+- specialists: bounded probes and direct sessions
+- verified: yes-as-flag
+- last_checked: 2026-09-01
+- test_reference: `agy--help@2026-09-01:exit-0`
+- notes: Enables Antigravity terminal restrictions.
 
-### gemini --allowed-mcp-server-names <array>
+### agy --json-schema <schema>
 - url: N/A (CLI flag)
-- access: Subscription
-- specialists: board dispatch harness (when MCPs eventually installed on gemini)
-- verified: yes
-- last_checked: 2026-05-02
-- test_reference: `gemini --help` capture
-- notes: Per-launch MCP scoping. Currently moot — gemini has zero MCPs configured (Task 6 will install Hybrid Path A set).
+- access: Personal OAuth
+- specialists: structured-output workflows
+- verified: yes-as-flag
+- last_checked: 2026-09-01
+- test_reference: `agy--help@2026-09-01:exit-0`
+- notes: Accepts a schema string or schema-file path.
 
-### gemini -e / --extensions <list>
+### agy --output-format {text,json,stream-json}
 - url: N/A (CLI flag)
-- access: Subscription
-- specialists: gemini-extension-using specialists
-- verified: yes
-- last_checked: 2026-05-02
-- test_reference: `gemini --help` capture
-- notes: Gemini's extension surface (analogous to claude plugins).
+- access: Personal OAuth
+- specialists: structured-output workflows
+- verified: yes-as-flag
+- last_checked: 2026-09-01
+- test_reference: `agy--help@2026-09-01:exit-0`
+- notes: The board currently requests text output.
 
-### gemini --policy <files> / --admin-policy <files>
-- url: N/A (CLI flag)
-- access: Subscription
-- specialists: governance/security harness
-- verified: yes
-- last_checked: 2026-05-02
-- test_reference: `gemini --help` capture
-- notes: Policy-file injection.
-
-### gemini --acp / --experimental-acp
-- url: N/A (CLI flag)
-- access: Subscription
-- specialists: ACP-bridge workflows
-- verified: yes
-- last_checked: 2026-05-02
-- test_reference: `gemini --help` capture
-- notes: ACP (Agent Communication Protocol) mode.
-
-### gemini -o / --output-format {text,json,stream-json}
-- url: N/A (CLI flag)
-- access: Subscription
-- specialists: structured-output specialists
-- verified: yes
-- last_checked: 2026-05-02
-- test_reference: `gemini --help` enum capture
-- notes: Structured output for downstream parsing.
-
-### gemini mcp {add,remove,list,enable,disable}
+### agy mcp {add,remove,list,enable,disable}
 - url: N/A (subcommand)
-- access: Subscription
-- specialists: harness-optimizer (Task 6 will use `gemini mcp add` for Hybrid Path A install)
-- verified: yes-as-subcommand
-- last_checked: 2026-05-02
-- test_reference: `gemini mcp --help` Commands block
-- notes: MCP management surface.
-
-### gemini extensions
-- url: N/A (subcommand)
-- access: Subscription
+- access: Personal OAuth
 - specialists: harness-optimizer
 - verified: yes-as-subcommand
-- last_checked: 2026-05-02
-- test_reference: `gemini --help` Commands block
-- notes: Extension management.
+- last_checked: 2026-09-01
+- test_reference: `agy--help@2026-09-01:exit-0`
+- notes: Persistent MCP management; no per-invocation MCP selector is exposed.
 
-### gemini skills
+### agy agent / agents
 - url: N/A (subcommand)
-- access: Subscription
+- access: Personal OAuth
 - specialists: harness-optimizer
 - verified: yes-as-subcommand
-- last_checked: 2026-05-02
-- test_reference: `gemini --help` Commands block "Manage agent skills"
-- notes: Native skill surface.
+- last_checked: 2026-09-01
+- test_reference: `agy--help@2026-09-01:exit-0`
+- notes: Lists available agents.
 
-### gemini hooks
+### agy plugin / plugins
 - url: N/A (subcommand)
-- access: Subscription
+- access: Personal OAuth
 - specialists: harness-optimizer
 - verified: yes-as-subcommand
-- last_checked: 2026-05-02
-- test_reference: `gemini --help` Commands block
-- notes: Hook management.
-
-### gemini gemma (local Gemma model routing)
-- url: N/A (subcommand)
-- access: Subscription / local
-- specialists: local-model-experiment-flow specialists
-- verified: yes-as-subcommand
-- last_checked: 2026-05-02
-- test_reference: `gemini --help` Commands block "Manage local Gemma model routing"
-- notes: Routes to local Gemma. Squad-relevant for offline/local fallback.
+- last_checked: 2026-09-01
+- test_reference: `agy--help@2026-09-01:exit-0`
+- notes: Installs, removes, lists, enables, or disables plugins.
 
 ### Nano Banana Pro / Nano Banana 2
 - url: https://aistudio.google.com (likely)
@@ -614,7 +563,7 @@ Gemini CLI flags — verified live via `gemini --help` capture on 2026-05-02. Su
 - specialists: image-designer (potential)
 - verified: needs-research
 - last_checked: 2026-05-02
-- research_task: identify whether accessed via `gemini` CLI subcommand, via Google AI Studio web only, or via API
+- research_task: identify whether accessed through an `agy` plugin, Google AI Studio web, or a direct API
 - notes: Image-gen models. Access path unconfirmed.
 
 ### Veo 3
@@ -623,7 +572,7 @@ Gemini CLI flags — verified live via `gemini --help` capture on 2026-05-02. Su
 - specialists: video-director (video)
 - verified: needs-research
 - last_checked: 2026-05-02
-- research_task: identify access path — gemini CLI vs API vs web only
+- research_task: identify access path — agy plugin vs API vs web only
 - notes: Video generation.
 
 ### Imagen
@@ -641,7 +590,7 @@ Gemini CLI flags — verified live via `gemini --help` capture on 2026-05-02. Su
 - specialists: research
 - verified: needs-research
 - last_checked: 2026-05-02
-- research_task: confirm built into `gemini-3.1-pro-preview` by default; verify with sample grounded query
+- research_task: confirm grounding on the profile registry's current `gemini-3.1-pro-high` escalation model with a sample grounded query
 - notes: Likely implicit. Critical for content-pane research after Hybrid Path A omits chrono-research-arsenal on gemini.
 
 ### Jules (Google coding agent)
@@ -960,15 +909,15 @@ Per-pane verification matrix for each chrono-* family MCP. Claude pane verificat
   - security pane (claude): yes — same (claude global config)
   - sysmgmt pane (claude): yes — same
   - coding pane (codex): yes — `codex mcp list` shows enabled in chrono-* config (ENV: CHRONO_VAULT_ROOT, OBSIDIAN_REST_API_KEY, OBSIDIAN_VAULT_ROOT)
-  - content pane (gemini): yes — verified post-Task 6 (gemini mcp list -d shows configured + Connected); paths absolute
+  - content lane (gemini via agy): declared in `model-lanes/lane-capabilities.tsv`; current live connection status requires an `agy mcp list` probe
   - research pane (kimi): yes — `kimi mcp list` shows configured
-- last_checked: 2026-05-03 for claude panes; 2026-05-02 for codex/kimi; 2026-05-02 for gemini (absent)
+- last_checked: 2026-05-03 for claude panes; 2026-05-02 for codex/kimi; Gemini declaration reconciled 2026-09-01, live connection status not re-probed
 
 ### chrono-kg MCP
-- status: retired — do not invoke or advertise in a lane `mcp_surface`
-- replacement: `chrono-vault` record/recall is the durable memory and knowledge surface
-- historical note: the separate `--namespace kg` endpoint may still respond in older configurations; reachability does not make it supported
-- retired_checked: 2026-07-21
+- status: live compatibility namespace backed by `chrono-vault`; no SQLite state remains
+- purpose: preserve archived role-agent calls while executing canonical Markdown-vault `record_attempt`, `record_finding`, and `recall` operations
+- implementation: `plugins/chrono-vault/mcp_server.py --namespace kg`
+- last_checked: 2026-09-01 from the registered `FastMCP("chrono-kg")` server and namespace dispatch path
 
 ### chrono-obsidian MCP
 - purpose: Obsidian REST-API bridge for vault read/write
@@ -1056,7 +1005,7 @@ Claude Code plugins available on the `claude` / `chrono` panes. Not part of the 
 - verified per pane:
   - claude: yes — existing fresh-browser MCPs; authenticated raw-CDP `:9222` remains a separate Claude-specific path.
   - codex: yes — repo-local `model-lanes/gpt-codex/.codex/config.toml` pins `@playwright/mcp@0.0.78` and `chrome-devtools-mcp@1.6.0`; `codex mcp list` reported both enabled and direct MCP handshakes returned tool lists.
-  - gemini: yes — repo-local `model-lanes/gemini/.gemini/settings.json` pins the same servers; `gemini mcp list` reported both connected and direct MCP handshakes returned tool lists.
+  - gemini: declared for the agy-backed lane in `model-lanes/lane-capabilities.tsv`; persistent `agy` MCP state requires a current live probe before connection is claimed.
   - kimi: no inherited child MCP — `lead-broker-only`; browser work must be brokered by the lead or use the host CLI after a task-local probe.
 - Playwright PATH CLI: `/opt/homebrew/bin/playwright`, version `1.61.0`, probe receipt `2026-07-20:shell-playwright-cli:exit-0`.
 - MCP receipts: `2026-07-20:codex-playwright+chrome-devtools:exit-0`; `2026-07-20:gemini-playwright+chrome-devtools:exit-0`.

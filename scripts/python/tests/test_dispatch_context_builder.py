@@ -180,7 +180,7 @@ class DispatchContextBuilderTests(unittest.TestCase):
             {
                 "codex": "openai-subscription",
                 "claude": "anthropic-subscription",
-                "gemini": "gemini-api-key",
+                "gemini": "google-oauth",
                 "grok": "xai-api-key",
                 "kimi": "moonshot-subscription",
             },
@@ -279,7 +279,7 @@ class DispatchContextBuilderTests(unittest.TestCase):
             {
                 "claude": "subscription",
                 "codex": "subscription",
-                "gemini": "gemini-api-key",
+                "gemini": "subscription",
                 "grok": "xai-api-key",
                 "kimi": "managed-login",
             },
@@ -830,6 +830,39 @@ class DispatchContextBuilderTests(unittest.TestCase):
             )
             self.assertIn(str(packet.relative_to(root)), authority["read_scope"])
             self.assertIn(packet.stem, context["task_prompt"])
+
+    def test_ci_profile_does_not_bypass_missing_executable_admission(self) -> None:
+        """The host-independent test profile is never a production bypass."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            root, packet = self._fake_repo_for_lane(
+                Path(directory), lane="codex", model="gpt-codex"
+            )
+            unavailable = root / "missing-codex"
+            with (
+                mock.patch.dict(
+                    dcb.LANE_CLI_PATHS,
+                    {"codex": unavailable},
+                    clear=True,
+                ),
+                mock.patch.dict(
+                    os.environ,
+                    {"SQUAD_CI_HOST_INDEPENDENT": "1"},
+                    clear=False,
+                ),
+                self.assertRaisesRegex(
+                    dcb.DispatchContextError,
+                    "trusted lane executable is unavailable",
+                ),
+            ):
+                dcb.build_context(
+                    root,
+                    packet,
+                    attempt_id="d-" + "1" * 32,
+                    generation=1,
+                    now=1_784_800_000,
+                    nonce="2" * 64,
+                )
 
     def test_exact_authority_context_builds_for_all_five_lanes(self) -> None:
         models = {

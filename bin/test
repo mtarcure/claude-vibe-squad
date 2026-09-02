@@ -4,6 +4,42 @@
 
 set -o pipefail
 
+# Fixture git repos must not spawn background maintenance.
+#
+# `git commit` ends by spawning `git maintenance run --auto --quiet --detach`
+# (measured with GIT_TRACE2_EVENT: one child_start per commit, argv exactly
+# that). `--detach` daemonizes, so `git commit` RETURNS while that child is
+# still alive and holding the repo. ~31 test files build a scratch repo with
+# `git init` + `git add` + `git commit` inside a `tempfile.TemporaryDirectory`
+# and delete it the moment the test body ends. The detached process can create
+# an entry in `.git` between shutil.rmtree's scan and its final rmdir, and
+# cleanup dies with `OSError: [Errno 39] Directory not empty: .../.git`.
+#
+# That is a race, not a broken test: the failing test's own assertions all
+# passed, and the runner's dedicated orphan-process gate stayed green because
+# nothing LEAKED -- the maintenance child is short-lived and legitimate. It hit
+# ubuntu-latest twice and never reproduced on macOS (measured: 6 isolated runs
+# sampling .git for 4s after the body returned, zero late writes).
+#
+# Setting it here rather than in each fixture: GIT_CONFIG_* is inherited by the
+# whole process tree, so one export covers every `git init` in the suite and
+# cannot drift out of sync across 31 files.
+#
+# `maintenance.auto` is the key that names the spawner, and it defaults to true
+# from git's BUILTIN defaults -- so the `GIT_CONFIG_GLOBAL=/dev/null` hermeticity
+# several fixtures already set never reached it. `gc.auto=0` is kept alongside
+# because which key suffices is version-dependent (measured, both directions):
+#
+#   git 2.50.1 (macOS)  gc.auto=0 alone -> still spawns   maintenance.auto -> 0
+#   git 2.55.0 (Linux)  gc.auto=0 alone -> suppressed     both             -> 0
+#
+# Controlled: 1 detached child without these vars, 0 with; and under Linux
+# stress, 266/300 fixture cleanups hit ENOTEMPTY unguarded versus 0/300 guarded.
+# Pinned by scripts/python/tests/test_git_fixture_maintenance.py.
+export GIT_CONFIG_COUNT=2
+export GIT_CONFIG_KEY_0=maintenance.auto GIT_CONFIG_VALUE_0=false
+export GIT_CONFIG_KEY_1=gc.auto          GIT_CONFIG_VALUE_1=0
+
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 # Resolved before the `cd "$ROOT"` below, because the suite inventory reads this
 # file back to prove that every suite it declares still has a live call site.

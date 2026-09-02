@@ -17,7 +17,6 @@
 #
 # Usage:
 #   bash bin/squad-monitor.sh            # normal cron mode
-#   bash bin/squad-monitor.sh --test     # simulate stuck pane (coding) for demo
 
 set -uo pipefail
 export PATH="${HOME}/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:${PATH}"
@@ -41,15 +40,11 @@ THRASH_WINDOW=1800     # 30 min in seconds
 # to_model executing lane, not the namespace default lead.
 REGISTRY="${VAULT_ROOT}/_state/active-tasks.json"
 PYTHON_DIR="${VAULT_ROOT}/scripts/python"
-MODEL_LANES_LIST=(gpt-codex claude gemini kimi)
 STALL_DIAG_LOG="${STATE_DIR}/stall-diagnostics.log"   # Fix 3: on-stall stop_reason capture
 # The watchdog is ALERT-ONLY: there is no auto-nudge path and no env toggle. A
 # robust "pane is idle, safe to nudge" classifier proved unattainable (it can
 # misread active work as idle — gpt-codex review TASK-2026-07-12-1854-93b52a53),
 # so recovery is Chrono-in-the-loop: it verifies pane activity, then decides.
-
-TEST_MODE=false
-[[ "${1:-}" == "--test" ]] && TEST_MODE=true
 
 mkdir -p "${STATE_DIR}"
 
@@ -221,31 +216,6 @@ task_has_completion_evidence() {
             ;;
     esac
     return 1
-}
-
-# Hash all 4 model-lane panes once per run; reset the idle timestamp on change.
-# Keyed by lane (not namespace) so a to_model override is tracked on the real
-# executing pane, not the namespace default lead.
-update_lane_hashes() {
-    local lane key pane current_hash hash_file ts_file stored_hash
-    for lane in "${MODEL_LANES_LIST[@]}"; do
-        key=$(runtime_window_name "$lane")
-        pane="${SESSION}:${key}"
-        if $TEST_MODE && [[ "$key" == "claude" ]]; then
-            current_hash="deadbeef00000000deadbeef00000000deadbeef00000000deadbeef00000000  -"
-        else
-            current_hash=$(tmux capture-pane -t "${pane}" -p 2>/dev/null | tail -50 | shasum -a 256 || echo "")
-        fi
-        [[ -z "$current_hash" ]] && continue   # pane not running
-        hash_file="${STATE_DIR}/lane-${key}-pane.hash"
-        ts_file="${STATE_DIR}/lane-${key}-pane.ts"
-        stored_hash=""
-        [[ -f "$hash_file" ]] && stored_hash=$(cat "$hash_file")
-        if [[ "$current_hash" != "$stored_hash" ]]; then
-            echo "$current_hash" > "$hash_file"
-            echo "$now"          > "$ts_file"
-        fi
-    done
 }
 
 # (No positive-idle classifier: the auto-nudge path was removed. A finite negative
@@ -632,9 +602,6 @@ auto_archive_completed() {
 }
 
 # ── run all detectors ─────────────────────────────────────────────────────────
-
-# Keep per-lane pane snapshots for diagnostics; task idle comes from the registry.
-update_lane_hashes
 
 for namespace in "${COMPATIBILITY_NAMESPACES[@]}"; do
     archive_completed_inbox "$namespace"

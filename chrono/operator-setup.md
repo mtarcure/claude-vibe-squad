@@ -12,10 +12,11 @@ live in `chrono/CLAUDE.md`, `chrono/SOUL.md`, `shared/routing.md`, and `shared/p
 
 | Window | CLI | Auth expectation |
 |---|---|---|
-| `chrono` | Claude Code | subscription/OAuth |
-| `gpt-codex` | Codex | ChatGPT login |
-| `claude` | Claude Code | subscription/OAuth |
-| `gemini` | Gemini CLI | personal OAuth |
+| `chrono` | Claude Code (`claude`) | subscription/OAuth |
+| `gpt-codex` | Codex (`codex`) | ChatGPT login |
+| `claude` | Claude Code (`claude`) | subscription/OAuth |
+| `gemini` | Antigravity CLI (`agy`) | personal OAuth |
+| `grok` | Grok CLI (`grok`) | declared lane auth policy |
 | `kimi` | Kimi CLI | `kimi login` |
 
 Launch rails unset API-key env vars for paid CLIs so subscription auth is preferred. Pay-per-token or external paid provider routes stay opt-in.

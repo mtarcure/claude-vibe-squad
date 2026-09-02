@@ -28,6 +28,7 @@ _FRESH_LANE_COMMAND = {
     "kimi": "-p",
 }
 _RESUME_ARGUMENTS = frozenset({"resume", "--resume", "--continue", "continue"})
+PROJECTED_SKILL_CONTRACT_MAX_BYTES = 4096
 
 
 class EnvelopeError(ValueError):
@@ -232,6 +233,30 @@ class SealedRuntimeEnvelope:
         }
 
 
+def projected_skill_contract(skills: tuple[str, ...]) -> str:
+    """Make projected methodologies explicit without claiming native delivery."""
+
+    _validate_string_tuple(skills, "projected skill", required=False)
+    if not skills:
+        return ""
+    encoded = json.dumps(
+        list(skills), separators=(",", ":"), ensure_ascii=True
+    )
+    if len(encoded.encode("ascii")) > PROJECTED_SKILL_CONTRACT_MAX_BYTES:
+        raise EnvelopeError("projected skill contract exceeds its byte limit")
+    return (
+        "\n\n## Projected specialist methodologies\n\n"
+        f"Authenticated projected skill names: `{encoded}`.\n"
+        "This list is an assignment, not proof that the runtime loaded the "
+        "skill bodies. Before task execution, resolve every projected "
+        "methodology by its runtime skill mechanism and follow the ones that "
+        "apply. If any name cannot be resolved, stop and report "
+        "`capability_gap` instead of silently proceeding without it. In the "
+        "result, report `skills_resolved`, `skills_applied`, and `skill_gaps`.\n"
+        "\n"
+    )
+
+
 def _key(signing_key: bytes) -> bytes:
     if not isinstance(signing_key, bytes) or len(signing_key) < 16:
         raise EnvelopeError("supervisor signing key must contain at least 16 bytes")
@@ -373,6 +398,7 @@ def launch_task(
     expected_generation: int,
     now: int,
     lane_args: Sequence[str] = (),
+    projected_skills: Sequence[str] = (),
     timeout: float = 30,
     launcher: Callable[..., object] | None = None,
 ) -> object:
@@ -402,8 +428,10 @@ def launch_task(
         raise EnvelopeError("role context lane does not match sealed envelope")
 
     projection_json = _canonical_json(envelope.worker_projection()).decode("ascii")
+    skill_contract = projected_skill_contract(tuple(projected_skills))
     prompt = (
         f"{role_context.prompt.rstrip()}\n\n"
+        f"{skill_contract.lstrip()}"
         "## Read-only task runtime envelope\n\n"
         f"```json\n{projection_json}\n```\n"
     )
@@ -432,6 +460,7 @@ __all__ = [
     "EnvelopeError",
     "RuntimeEnvelopeClaims",
     "SealedRuntimeEnvelope",
+    "projected_skill_contract",
     "seal_runtime_envelope",
     "verify_runtime_envelope",
     "launch_task",

@@ -378,11 +378,20 @@ class CodexVaultContextConfigTests(unittest.TestCase):
         )
         start = source.index('GUARDED_MCP_PREFIX = "guarded-"')
         end = source.index("\ndef _validated_trusted_host_path", start)
+        # The slice starts below board-supervisor.sh's import block, so every
+        # name that block provides has to be handed in here. Miss one and the
+        # exec'd code raises NameError at call time -- which is how this class
+        # sat RED at 6 errors while the suite it belongs to was reported
+        # "pre-existing, not mine" for weeks. Import from the real module
+        # rather than restating the value, so the two cannot drift.
+        from lane_capability_enforcement import RESEARCH_API_KEY_NAMES
+
         namespace = {
             "json": json,
             "os": os,
             "Path": Path,
             "re": re,
+            "RESEARCH_API_KEY_NAMES": RESEARCH_API_KEY_NAMES,
         }
         exec(compile(source[start:end], "board-supervisor.sh", "exec"), namespace)
         return namespace["_prepare_codex_home"]

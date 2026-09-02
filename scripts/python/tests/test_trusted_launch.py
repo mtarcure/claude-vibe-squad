@@ -1354,6 +1354,106 @@ class TransportOutputQuarantineTests(unittest.TestCase):
 class BlockedReceiptStaysBlockedTests(unittest.TestCase):
     """The rail: recovery makes work REACHABLE, never settles a blocked receipt."""
 
+    @staticmethod
+    def _install_hermetic_launch_stubs(root: Path, executable: Path) -> Path:
+        """Stub only the host preflight and approved offline executable.
+
+        The shipped supervisor program still authenticates, provisions, launches
+        the real fixture process, classifies its nonzero exit, and authors the
+        receipt.  Seatbelt's live-host canary is outside this test's subject and
+        cannot run on Linux, so ``sitecustomize`` patches those two imported
+        inputs in the supervisor subprocess before its embedded program starts.
+        """
+
+        sitecustomize = root / "sitecustomize.py"
+        sitecustomize.write_text(
+            """\
+import hashlib
+import os
+from pathlib import Path
+import subprocess
+
+import launch_hygiene
+import seatbelt_profile
+
+fixture_executable = Path(os.environ["TRUSTED_LAUNCH_STUB_CLI"])
+seatbelt_profile.OFFLINE_LAUNCH_EXECUTABLES = (
+    *seatbelt_profile.OFFLINE_LAUNCH_EXECUTABLES,
+    fixture_executable,
+)
+
+# Some hermetic runners prohibit creating a new session even though the
+# fixture process is already bounded and synchronous.  Keep the shipped
+# launcher's Popen path, but remove that one unavailable host operation.
+real_popen = subprocess.Popen
+
+
+def hermetic_popen(*args, **kwargs):
+    kwargs.pop("start_new_session", None)
+    return real_popen(*args, **kwargs)
+
+
+subprocess.Popen = hermetic_popen
+
+
+class HermeticListener:
+    def getsockname(self):
+        return ("127.0.0.1", 1)
+
+    def close(self):
+        return None
+
+
+def hermetic_preflight(
+    task_root,
+    *,
+    request_sha256="",
+    audited_scopes=(),
+    retain_launch=False,
+):
+    if not retain_launch:
+        raise AssertionError("trusted-launch fixture must retain its preflight")
+    scope_sha256 = hashlib.sha256(
+        "\\n".join(str(scope.path) for scope in audited_scopes).encode("utf-8")
+    ).hexdigest()
+    canary = launch_hygiene.CanaryResult(
+        profile_sha256="f" * 64,
+        allowed_write=True,
+        denied_write=True,
+        exact_broker_port=True,
+        wrong_port_denied=True,
+        fd3_closed=True,
+        request_sha256=request_sha256,
+        scope_sha256=scope_sha256,
+        details=("hermetic trusted-launch classification fixture",),
+    )
+    compatibility = seatbelt_profile.HostCompatibility(
+        sandbox_exec=Path("/usr/bin/true"),
+        macos_build="hermetic-fixture",
+        canary_sha256="e" * 64,
+    )
+    profile = seatbelt_profile.CompiledProfile(
+        text="",
+        sha256=canary.profile_sha256,
+        compatibility=compatibility,
+    )
+    return launch_hygiene.PreparedLaunch(
+        profile=profile,
+        broker_listener=HermeticListener(),
+        canary=canary,
+        task_root=Path(task_root),
+        environment={"PATH": "/usr/bin:/bin:/usr/sbin:/sbin"},
+        scopes=tuple(audited_scopes),
+        owned_scopes=(),
+    )
+
+
+launch_hygiene.run_preflight_canary = hermetic_preflight
+""",
+            encoding="utf-8",
+        )
+        return sitecustomize.parent
+
     @unittest.skipIf(
         HEAD_IS_DETACHED,
         "request validation refuses a detached checkout before the worker CLI "
@@ -1362,8 +1462,9 @@ class BlockedReceiptStaysBlockedTests(unittest.TestCase):
     def test_a_real_supervisor_block_reports_recovery_and_still_exits_75(self) -> None:
         """End-to-end through the shipped script, not a fixture of it.
 
-        `/usr/bin/false` is an approved inert probe executable, so this drives a
-        genuine provision -> launch -> nonzero -> `block_after_provision` run.
+        The test-only executable is admitted as an inert offline probe by the
+        subprocess fixture, so this drives a genuine provision -> launch ->
+        nonzero -> `block_after_provision` run.
         The receipt must now carry a machine-readable `work_recovery` outcome --
         the whole point being that Chrono stops having to notice a log line --
         while the status and the exit code are unchanged.
@@ -1371,12 +1472,15 @@ class BlockedReceiptStaysBlockedTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            executable = root / "nonzero-cli"
+            executable.write_text("#!/bin/sh\nexit 23\n", encoding="utf-8")
+            executable.chmod(0o700)
+            stub_root = self._install_hermetic_launch_stubs(root, executable)
             payload = TrustedLaunchTests()._fixture_payload(
                 root,
                 task_id="TASK-2026-08-28-9919-blockpath",
                 attempt_id="d-" + "e" * 32,
             )
-            executable = Path("/usr/bin/false")
             payload["authority"]["executable"] = str(executable)
             payload["authority"]["executable_sha256"] = hashlib.sha256(
                 Path(os.path.realpath(executable)).read_bytes()
@@ -1396,6 +1500,8 @@ class BlockedReceiptStaysBlockedTests(unittest.TestCase):
                         "VAULT_ROOT": str(ROOT),
                         "TRUSTED_LAUNCH_TEST_MODE": "1",
                         "SQUAD_BASE_BRANCH": BASE_BRANCH,
+                        "PYTHONPATH": os.pathsep.join((str(stub_root), str(PYTHON_DIR))),
+                        "TRUSTED_LAUNCH_STUB_CLI": str(executable),
                     },
                 )
             finally:

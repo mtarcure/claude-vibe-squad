@@ -7,6 +7,7 @@ import datetime as dt
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import shutil
 import subprocess
@@ -24,6 +25,24 @@ import doctor_fixture  # noqa: E402
 # without this the result depends on checkout shape, not on behaviour.
 # The helper returns the root unchanged in a main checkout.
 ROOT = normal_checkout_root(Path(__file__).resolve().parents[3])
+VERIFY = ROOT / "bin" / "dispatch-toolkit-verify.sh"
+
+
+def verifier_lane_clis() -> dict[str, str]:
+    """Read the lane-to-CLI pairing from the verifier's parallel arrays."""
+    source = VERIFY.read_text(encoding="utf-8")
+    arrays = {}
+    for name in ("LANES", "CLIS"):
+        match = re.search(rf"^{name}=\(([^)]*)\)", source, re.M)
+        if match is None:
+            raise RuntimeError(f"{name}=(...) not found in {VERIFY}")
+        arrays[name] = match.group(1).split()
+    if len(arrays["LANES"]) != len(arrays["CLIS"]):
+        raise RuntimeError("verifier LANES and CLIS arrays are misaligned")
+    return dict(zip(arrays["LANES"], arrays["CLIS"]))
+
+
+LANE_CLIS = verifier_lane_clis()
 
 _EMPTY_PS = doctor_fixture.EMPTY_PS
 
@@ -121,6 +140,15 @@ class DispatchToolkitTriStateTest(unittest.TestCase):
         self.temporary.cleanup()
 
     def write_toolkit(self, codex_expected: str = "alpha") -> Path:
+        """A RUNNABLE stand-in, invoked as `bash <toolkit> <namespace> <lane>`.
+
+        This fixture used to be the bare `case` branches with no surrounding
+        script -- a file bash cannot parse. That went unnoticed because the
+        verifier only ever read the toolkit's source text (G-N1); it now runs
+        the subject, so the fixture has to be a real script. The breakage
+        shapes that the old fixture accidentally embodied are asserted red in
+        test_dispatch_toolkit_verify_subject.py.
+        """
         toolkit = self.root / "dispatch-toolkit.sh"
         blocks = {
             "gpt-codex": codex_expected,
@@ -129,48 +157,94 @@ class DispatchToolkitTriStateTest(unittest.TestCase):
             "grok": "echo",
             "kimi": "delta",
         }
+        branches = "".join(
+            f"    {lane})\n"
+            "        cat <<'EOF'\n"
+            "\n"
+            "## Expected Model Lane Tool Surface\n"
+            "\n"
+            f"This lane expects `{name}`. Later tools include `not_a_server`.\n"
+            "EOF\n"
+            "        ;;\n"
+            for lane, name in blocks.items()
+        )
         toolkit.write_text(
-            "\n".join(
-                f"    {lane})\n"
-                "## Expected Model Lane Tool Surface\n"
-                f"This lane expects `{name}`. Later tools include `not_a_server`.\n"
-                "        ;;"
-                for lane, name in blocks.items()
-            )
-            + "\n",
+            '#!/bin/bash\ncase "${2:-}" in\n' + branches + "esac\n",
             encoding="utf-8",
         )
         return toolkit
 
     def write_clean_inventories(self):
-        (self.inventory / "codex.txt").write_text(
-            json.dumps([{"name": "alpha"}]), encoding="utf-8"
-        )
-        (self.inventory / "claude.txt").write_text(
-            "Checking MCP server health…\n"
-            "bravo: /bin/bravo - ✔ Connected\n",
-            encoding="utf-8",
-        )
-        (self.inventory / "gemini.txt").write_text(
-            "Configured MCP servers:\n"
-            "✓ charlie: /bin/charlie (stdio) - Connected\n",
-            encoding="utf-8",
-        )
-        (self.inventory / "grok.txt").write_text(
-            "MCP Servers (1)\n└── echo (stdio)\n", encoding="utf-8"
-        )
-        (self.inventory / "kimi.txt").write_text(
-            "delta /bin/delta enabled\n", encoding="utf-8"
+        fixture_by_lane = {
+            "gpt-codex": json.dumps([{"name": "alpha"}]),
+            "claude": "Checking MCP server health…\nbravo: /bin/bravo - ✔ Connected\n",
+            "gemini": (
+                "NAME                     TYPE   STATUS   COMMAND/URL\n"
+                "charlie                  stdio  enabled  /bin/charlie\n"
+            ),
+            "grok": "MCP Servers (1)\n└── echo (stdio)\n",
+            "kimi": "delta /bin/delta enabled\n",
+        }
+        for lane, contents in fixture_by_lane.items():
+            (self.inventory / f"{LANE_CLIS[lane]}.txt").write_text(
+                contents, encoding="utf-8"
+            )
+
+    def run_verify(self, toolkit: Path, *, extra_env: dict[str, str] | None = None):
+        environment = {
+            "DISPATCH_TOOLKIT_UNDER_TEST": str(toolkit),
+            "DISPATCH_TOOLKIT_MCP_LIST_DIR_UNDER_TEST": str(self.inventory),
+        }
+        if extra_env:
+            environment.update(extra_env)
+        return run_bash(
+            VERIFY,
+            env=environment,
         )
 
-    def run_verify(self, toolkit: Path):
-        return run_bash(
-            ROOT / "bin/dispatch-toolkit-verify.sh",
-            env={
-                "DISPATCH_TOOLKIT_UNDER_TEST": str(toolkit),
-                "DISPATCH_TOOLKIT_MCP_LIST_DIR_UNDER_TEST": str(self.inventory),
-            },
-        )
+    def write_cli_stubs(self) -> Path:
+        """Install deterministic native-inventory twins ahead of the real CLIs."""
+        stub_bin = self.root / "bin"
+        stub_bin.mkdir()
+        outputs = {
+            "codex": "printf '[{\"name\": \"alpha\"}]\\n'\n",
+            "claude": (
+                '/bin/sleep "${FAKE_CLAUDE_DELAY_SECONDS:-0}"\n'
+                "printf 'Checking MCP server health…\\n'\n"
+                "printf 'bravo: /bin/bravo - ✔ Connected\\n'\n"
+            ),
+            "agy": (
+                "printf 'NAME                     TYPE   STATUS   COMMAND/URL\\n'\n"
+                "printf 'charlie                  stdio  enabled  /bin/charlie\\n'\n"
+            ),
+            "grok": "printf 'MCP Servers (1)\\n└── echo (stdio)\\n'\n",
+            "kimi": "printf 'delta /bin/delta enabled\\n'\n",
+        }
+        for cli, body in outputs.items():
+            path = stub_bin / cli
+            path.write_text("#!/bin/bash\n" + body, encoding="utf-8")
+            path.chmod(0o755)
+        return stub_bin
+
+    def run_verify_with_cli_stubs(
+        self,
+        toolkit: Path,
+        *,
+        claude_delay_seconds: int,
+        timeout_override_seconds: int | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        stub_bin = self.write_cli_stubs()
+        environment = {
+            "DISPATCH_TOOLKIT_UNDER_TEST": str(toolkit),
+            "DISPATCH_TOOLKIT_MCP_LIST_DIR_UNDER_TEST": "",
+            "FAKE_CLAUDE_DELAY_SECONDS": str(claude_delay_seconds),
+            "PATH": f"{stub_bin}{os.pathsep}{os.environ['PATH']}",
+        }
+        if timeout_override_seconds is not None:
+            environment["DISPATCH_TOOLKIT_MCP_LIST_TIMEOUT_SECONDS"] = str(
+                timeout_override_seconds
+            )
+        return run_bash(VERIFY, env=environment)
 
     def test_clean_exact_sets_pass(self):
         self.write_clean_inventories()
@@ -191,6 +265,123 @@ class DispatchToolkitTriStateTest(unittest.TestCase):
         result = self.run_verify(self.write_toolkit())
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
         self.assertIn("COULD NOT DETERMINE", result.stdout)
+
+    def test_default_timeout_scales_past_a_healthy_nine_second_probe(self):
+        result = self.run_verify_with_cli_stubs(
+            self.write_toolkit(), claude_delay_seconds=9
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("PASS:", result.stdout)
+
+    def test_timeout_override_keeps_a_timeout_indeterminate(self):
+        result = self.run_verify_with_cli_stubs(
+            self.write_toolkit(),
+            claude_delay_seconds=2,
+            timeout_override_seconds=1,
+        )
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn(
+            "COULD NOT DETERMINE: claude MCP inventory failed or timed out (exit 124)",
+            result.stdout,
+        )
+        self.assertNotIn("PASS:", result.stdout)
+
+    def test_registered_compatibility_alias_is_visible_without_failure(self):
+        self.write_clean_inventories()
+        codex_inventory = self.inventory / f"{LANE_CLIS['gpt-codex']}.txt"
+        codex_inventory.write_text(
+            json.dumps([{"name": "alpha"}, {"name": "chrono-kg"}]),
+            encoding="utf-8",
+        )
+        kimi_inventory = self.inventory / f"{LANE_CLIS['kimi']}.txt"
+        kimi_inventory.write_text(
+            "delta /bin/delta enabled\nchrono-kg /bin/chrono-kg enabled\n",
+            encoding="utf-8",
+        )
+
+        result = self.run_verify(self.write_toolkit())
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("NOTE: codex lists 'chrono-kg'", result.stdout)
+        self.assertIn("NOTE: kimi lists 'chrono-kg'", result.stdout)
+        self.assertIn("compatibility-only", result.stdout)
+        self.assertNotIn("WARN: codex lists 'chrono-kg'", result.stdout)
+        self.assertNotIn("WARN: kimi lists 'chrono-kg'", result.stdout)
+
+    def test_future_registry_declared_compatibility_alias_needs_no_code_change(self):
+        self.write_clean_inventories()
+        codex_inventory = self.inventory / f"{LANE_CLIS['gpt-codex']}.txt"
+        codex_inventory.write_text(
+            json.dumps([{"name": "alpha"}, {"name": "legacy-bridge"}]),
+            encoding="utf-8",
+        )
+        registry = self.root / "skill-tool-registry.tsv"
+        registry.write_text(
+            "\t".join(
+                (
+                    "name",
+                    "record_kind",
+                    "type",
+                    "path_or_source",
+                    "lanes",
+                    "invocation",
+                    "verified_state",
+                    "cost_tier",
+                    "evidence",
+                    "notes",
+                    "purpose",
+                    "hunting_type",
+                    "target_class",
+                )
+            )
+            + "\n"
+            + "\t".join(
+                (
+                    "legacy-bridge",
+                    "tool",
+                    "mcp",
+                    "/bin/legacy-bridge",
+                    "codex",
+                    "archive compatibility calls; prefer canonical-next for new callers",
+                    "yes",
+                    "subscription",
+                    "fixture:1",
+                    "Compatibility alias backed by the canonical server.",
+                    "dispatch",
+                    "—",
+                    "—",
+                )
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        result = self.run_verify(
+            self.write_toolkit(),
+            extra_env={"DISPATCH_TOOLKIT_REGISTRY_UNDER_TEST": str(registry)},
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("NOTE: codex lists 'legacy-bridge'", result.stdout)
+        self.assertIn("compatibility-only", result.stdout)
+        self.assertNotIn("WARN: codex lists 'legacy-bridge'", result.stdout)
+
+    def test_ordinary_installed_but_unadvertised_server_still_fails(self):
+        self.write_clean_inventories()
+        codex_inventory = self.inventory / f"{LANE_CLIS['gpt-codex']}.txt"
+        codex_inventory.write_text(
+            json.dumps([{"name": "alpha"}, {"name": "ordinary-extra"}]),
+            encoding="utf-8",
+        )
+
+        result = self.run_verify(self.write_toolkit())
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(
+            "WARN: codex lists 'ordinary-extra' but gpt-codex does not enumerate it",
+            result.stdout,
+        )
+        self.assertIn("FAIL: 1 mismatch(es) found", result.stdout)
 
 
 class WriteScopeGuardTriStateTest(unittest.TestCase):

@@ -10,7 +10,7 @@ from pathlib import Path
 EXPORT_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(EXPORT_DIR))
 
-from gitleaks_filter import filter_report  # noqa: E402
+from gitleaks_filter import filter_report, project_public_paths  # noqa: E402
 
 
 ALLOWLIST = EXPORT_DIR / "policy" / "gitleaks-fingerprints.json"
@@ -76,6 +76,22 @@ class GitleaksFilterTests(unittest.TestCase):
         )
         self.assertEqual(allowed, 0)
         self.assertEqual(len(changed), 1)
+
+    def test_project_public_paths_excludes_private_and_unknown_tracked_paths(self) -> None:
+        tracked_nul = self.root / "tracked.nul"
+        projected_nul = self.root / "projected.nul"
+        tracked_nul.write_bytes(
+            b"README.md\0_state/private.log\0novel-surface/unknown.txt\0"
+        )
+
+        counts = project_public_paths(
+            tracked_nul_path=tracked_nul,
+            policy_path=EXPORT_DIR / "policy" / "path-policy.json",
+            output_path=projected_nul,
+        )
+
+        self.assertEqual(counts, (3, 1, 2))
+        self.assertEqual(projected_nul.read_bytes(), b"README.md\0")
 
 
 if __name__ == "__main__":

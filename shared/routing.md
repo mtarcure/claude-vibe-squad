@@ -36,7 +36,7 @@ Every specialist row carries a full chain, resolved from the profile registry:
 |------|--------------------------|----------|---------------------|
 | codex | `gpt-5.6-sol` (high) | `gpt-5.6-sol` Ultra/max | implementation · tests · PoC · experimental probing · code review mechanics · graphics/runtime |
 | claude | `claude-fable-5` (xhigh) | `claude-fable-5` max | judgment · planning · safety/security reasoning · security defense · research/synthesis/long-context · developmental content · game/level/audio design |
-| gemini | `gemini-3.7-flash` | `gemini-3.1-pro-preview` (deep) | content/text · design · media/multimodal · large-context analysis · **search grounding (live · API-key-backed — Google Search grounding, first-class Rule-8 route)** |
+| gemini | `gemini-3.7-flash-medium` | `gemini-3.1-pro-high` (deep) | content/text · design · media/multimodal · large-context analysis · **search grounding (live · OAuth-backed — Google Search grounding, first-class Rule-8 route)** |
 | kimi | `kimi-code/k3` (high, thinking) | `kimi-code/k3-256k` | allowlisted primaries (summarization and blank-advisor parity); otherwise throughput-only |
 | grok | `grok-4.6` (default) | `grok-4.5` | `smokey` advisor; escalate route for `research` and `bounty-researcher`. Native X/Twitter search, subscription-backed. `read_file` ceiling ~25k tokens — use shell or paged ingest for large documents |
 

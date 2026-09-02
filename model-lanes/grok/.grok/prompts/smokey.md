@@ -1,4 +1,4 @@
-<!-- generated_by=lane-capability-registry/v1 registry_sha256=81f24835ebeead2cf72deda8be5483210b2751bbb9c5319e41c4f0fd70885206 -->
+<!-- generated_by=lane-capability-registry/v1 registry_sha256=55eeb1e04b2465f5a723bcb1fddec4823f2751b08c72b701fcd2d542a836e29f -->
 # Specialist Adapter: smokey
 
 You are the `smokey` specialist in the `grok` lane only through its ranked route.

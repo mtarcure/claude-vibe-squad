@@ -1557,43 +1557,6 @@ PATH_PREFIX='export PATH="$HOME/.local/bin:$HOME/go/bin:$PATH"'
 # an existing tmux server does not necessarily inherit the launcher's environment.
 MEDIA_AUTH_PREFIX="export CHRONO_VAULT_ROOT=${CHRONO_VAULT_ROOT_SHELL} CHRONO_VAULT_AUDIT_DIR=${CHRONO_VAULT_AUDIT_DIR_SHELL} CHRONO_DOCTOR_LOG_DIR=${CHRONO_DOCTOR_LOG_DIR_SHELL}; unset ANTHROPIC_API_KEY GEMINI_API_KEY GOOGLE_API_KEY"
 
-acknowledge_gemini_agents() {
-    python3 - "$VAULT_ROOT" <<'PY'
-import hashlib
-import json
-import sys
-from pathlib import Path
-
-root = Path(sys.argv[1])
-project_root = root / "model-lanes" / "gemini"
-agents_dir = project_root / ".gemini" / "agents"
-if not agents_dir.exists():
-    raise SystemExit(0)
-
-ack_path = Path.home() / ".gemini" / "acknowledgments" / "agents.json"
-try:
-    data = json.loads(ack_path.read_text()) if ack_path.exists() else {}
-except json.JSONDecodeError:
-    data = {}
-
-project = str(project_root)
-data.setdefault(project, {})
-for path in sorted(agents_dir.glob("*.md")):
-    if path.name.startswith("_"):
-        continue
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    data[project][path.stem] = digest
-
-ack_path.parent.mkdir(parents=True, exist_ok=True)
-tmp = ack_path.with_suffix(".json.tmp")
-tmp.write_text(json.dumps(data, indent=2) + "\n")
-tmp.replace(ack_path)
-PY
-}
-
-# (Phase 3) acknowledge_gemini_agents no longer called at startup — board-supervisor.sh
-# handles the Gemini agent-file acknowledgement per fresh spawn now.
-
 # (Phase 3 cutover) The per-lane CLI command strings that used to live here were
 # DELETED 2026-08-05, not disabled. They assigned CODEX_CMD/CLAUDE_CMD/CONTENT_CMD/
 # RESEARCH_CMD and nothing read them -- persistent per-model lane windows are retired
@@ -1737,7 +1700,85 @@ build_coordinator_exit_capture() {
 CX_EXIT_DIR="${CHRONO_COORDINATOR_EXIT_DIR:-${VAULT_ROOT}/_state/runtime/chrono-coordinator/exit}"
 CX_PIDFILE="${CHRONO_COORDINATOR_PIDFILE:-${VAULT_ROOT}/_state/runtime/chrono-coordinator/${SESSION}.pid}"
 COORDINATOR_EXIT_CAPTURE="$(build_coordinator_exit_capture "${CX_EXIT_DIR}" "${SESSION}" "${CX_PIDFILE}")"
-tmux send-keys -t "${SESSION}:chrono" "bash ${VAULT_ROOT}/bin/vs-welcome.sh; ${COORDINATOR_EXIT_CAPTURE}" C-m
+
+# Write the startup program to a file and SOURCE it, rather than typing 1,552
+# bytes at an interactive prompt.
+#
+# zsh's `banghist` is on by default, and the exit capture contains `*[!0-9]*`
+# (the pidfile-identity check added by 4caac92c). Typed at a prompt that is
+# history expansion: the line dies with `zsh: event not found: 0` before
+# vs-welcome.sh ever runs, and the operator gets a squad with no coordinator
+# while the launcher still exits 0. Measured twice on 2026-09-01. Sourced from
+# a file the identical text parses fine, because history expansion applies to
+# interactive input only -- verified directly, both ways.
+#
+# `!` is only the character that bit. Backtick, `$(` and `#` are the same class,
+# and this string grew from 956 to 1,552 bytes in one day, so escaping the
+# current offender would just defer the next one. Sending a short fixed path
+# removes the entire class: nothing but `source <path>` crosses the prompt.
+#
+# SOURCE, never `bash <file>`. LIFE-03b requires claude to remain the pane
+# shell's DIRECT exec child -- `bash vs-welcome.sh` execs claude in place, so
+# the pane shell's `$?` IS claude's exit status and `pgrep -P` finds it.
+# Executing the file would insert a process between them and break both.
+#
+# Named off the pidfile, so the path is per-SESSION like the pidfile is. A
+# single fixed name under the shared chrono-coordinator/ directory would have
+# two sessions writing one file, and the loser would source the winner's
+# VAULT_ROOT and exit capture. Per-session there is exactly one writer, which is
+# also why the write needs no temp-and-rename: nothing reads this file until the
+# send-keys below, three lines later, asks for it.
+# wait_for_coordinator_start <pidfile> [timeout_seconds]: poll until the
+# coordinator has proved it started, or fail.
+#
+# Two causes of a coordinator-less squad have been fixed (a mangled send-keys,
+# then a shared launch file). Neither touched the FAILURE MODE: this launcher
+# fired send-keys and exited 0 whether or not anything ran, so every new cause
+# arrived silently -- five times now. An unwritable runtime dir or a full disk
+# still lands the pane at a bare prompt.
+#
+# The evidence already exists: bin/vs-welcome.sh writes this pidfile with the
+# coordinator's real pid BEFORE it execs claude. Polling for it is the live
+# probe Hard Rule 9 asks for, not a new mechanism.
+#
+# Self-contained on purpose: test_launcher_pane_readiness.py extracts this
+# function verbatim, so a helper it does not extract would be undefined, return
+# 127, and read as false -- silently disabling the guard it is meant to prove.
+wait_for_coordinator_start() {
+    local pidfile="$1" deadline="${2:-30}" waited=0 pid=""
+    while (( waited < deadline )); do
+        if [[ -s "${pidfile}" ]]; then
+            pid="$(sed -n 's/^pid \([0-9][0-9]*\)$/\1/p' "${pidfile}" | head -1)"
+            if [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null; then
+                return 0
+            fi
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
+    echo "ERROR: coordinator did not start within ${deadline}s." >&2
+    if [[ -s "${pidfile}" ]]; then
+        echo "       ${pidfile} exists but names no live process: $(cat "${pidfile}" | tr '\n' ' ')" >&2
+    else
+        echo "       ${pidfile} was never written -- the chrono pane is at a bare prompt." >&2
+        echo "       Check that its directory is writable and re-run." >&2
+    fi
+    return 1
+}
+
+COORDINATOR_LAUNCH_FILE="${CX_PIDFILE%.pid}-launch.sh"
+mkdir -p "$(dirname -- "${COORDINATOR_LAUNCH_FILE}")"
+printf '%s\n' "bash ${VAULT_ROOT}/bin/vs-welcome.sh; ${COORDINATOR_EXIT_CAPTURE}" \
+    > "${COORDINATOR_LAUNCH_FILE}"
+tmux send-keys -t "${SESSION}:chrono" "source ${COORDINATOR_LAUNCH_FILE}" C-m
+
+# Prove the coordinator actually started. Without this the launcher reports
+# success for a squad with an empty chrono pane -- the failure the operator has
+# hit five times, each time traced to a different cause.
+if ! wait_for_coordinator_start "${CX_PIDFILE}" "${COORDINATOR_START_TIMEOUT:-45}"; then
+    echo "ERROR: squad launched but the coordinator is NOT running." >&2
+    exit 1
+fi
 
 # Optional local convenience: pre-trust chrono MCP servers in Codex config so
 # the coding pane does not prompt for MCP approval mid-task. This mutates
@@ -1754,7 +1795,7 @@ fi
 # (Phase 3 cutover) Persistent per-model lane windows RETIRED. Specialists now run as
 # fresh, capability-scoped CLIs spawned per task by the board (SQUAD_DISPATCH_MODE=board,
 # the default since 2d51612). No model-lead windows are launched at startup. The provider
-# CLI binaries are still required (the board execs codex/claude/gemini/kimi per spawn) —
+# CLI binaries are still required (the board execs codex/claude/agy/grok/kimi per spawn) —
 # see the dependency check above. Rollback: revert the cutover commits + relaunch.
 
 # Window 5: watchers — outbox watchers per source namespace plus reconciliation.

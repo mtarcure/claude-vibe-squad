@@ -100,12 +100,20 @@ cat > "${FIXTURE_ROOT}/task.md" <<'EOF'
 ---
 id: TASK-2099-01-01-0000-test
 run_id: none
-to_model: claude
+# to_model must match the specialist's primary lane in
+# shared/specialist-runtime-map.tsv, or admission demands a
+# model_override_reason. This fixture is not testing overrides.
+to_model: gpt-codex
 specialist: backend-engineer
 source_namespace: coding
 compatibility_namespace: coding
 review_model: none
 mandatory_review: false
+# `reviews: none` is the declared form for ordinary work. d14f1120 (2026-08-30)
+# made this field required at admission; this fixture predates it and the suite
+# has been red since.
+reviews: none
+review_triggers: []
 write_scope: [departments/coding/outbox/TASK-2099-01-01-0000-test-response.md]
 return_artifact: departments/coding/outbox/TASK-2099-01-01-0000-test-response.md
 parallel_safe: true

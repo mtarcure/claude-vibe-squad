@@ -246,10 +246,24 @@ def parse_charter(path: Path, now: datetime | None = None) -> ThreadCharter:
 
 
 def load_active_charters(path: Path, now: datetime | None = None) -> list[ThreadCharter]:
-    """Load active Markdown charters in stable name order; absence means none."""
+    """Load active Markdown charters in stable name order.
+
+    Absence means none: a rail that was never created owes nothing, so a
+    missing directory is an empty list. A rail that exists but cannot be listed
+    means *unknown*, and raises. Both callers already wrap this in a loud
+    handler that names the failed source (``resume.active_thread_charters``
+    projects a marker charter; ``validate_skill_wiring.thread_charter_reports``
+    reports it) -- the swallow here made both of them dead code and turned an
+    unreadable rail into a confident "no active threads".
+
+    ``iterdir`` rather than ``glob`` on purpose: pathlib's globbing suppresses
+    the underlying ``scandir`` error, so an unreadable rail read as empty even
+    before the handler was reached. The name filter matches what ``*.md`` did,
+    dotfiles included.
+    """
     try:
-        entries = sorted(path.glob("*.md"))
-    except OSError:
+        entries = sorted(entry for entry in path.iterdir() if entry.suffix == ".md")
+    except FileNotFoundError:
         return []
     return [parse_charter(entry, now=now) for entry in entries]
 
@@ -337,9 +351,15 @@ def load_archived_debt(root: Path, now: datetime | None = None) -> list[ThreadCh
     found: list[ThreadCharter] = []
     for rel in ARCHIVED_RELS:
         directory = root / rel
+        # `iterdir`, not `glob`, for the same reason as `load_active_charters`:
+        # pathlib's globbing suppresses the underlying `scandir` error, so an
+        # unreadable rail read as empty and the `except OSError` below it was
+        # dead code. `_archived_debt_rows` only builds its marker when this
+        # RAISES, so the swallow made the likeliest real failure invisible and
+        # rendered an unreadable archive identically to a clean one.
         try:
-            entries = sorted(directory.glob("*.md"))
-        except OSError:
+            entries = sorted(e for e in directory.iterdir() if e.suffix == ".md")
+        except FileNotFoundError:
             continue
         for entry in entries:
             charter = parse_charter(entry, now=now)

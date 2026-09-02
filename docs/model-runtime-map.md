@@ -9,7 +9,13 @@ Vibe Squad routes work as:
 Operator -> Chrono -> board dispatch -> one fresh specialist CLI per task
 ```
 
-Chrono is the only controller. Each specialist runs as a freshly spawned, capability-scoped CLI in its own git worktree, bound to the model its runtime-map row selects — model binding is **per specialist**, and `codex`/`claude`/`gemini`/`kimi` are the CLI vehicles that carry it, not standing lanes. The `departments/` tree is compatibility storage for canonical specialist markdown, memory, and mailboxes until it can be safely renamed or retired.
+Chrono is the only controller. Each specialist runs as a freshly spawned,
+capability-scoped CLI in its own git worktree, bound to the model its runtime-map
+row selects — model binding is **per specialist**. `codex`, `claude`, `kimi`, and
+`grok` name their executables; the `gemini` routing identifier resolves to
+Antigravity's `agy` executable. These are task vehicles, not standing lanes. The
+`departments/` tree is compatibility storage for canonical specialist markdown,
+memory, and mailboxes until it can be safely renamed or retired.
 
 ## Canonical Data
 
@@ -58,7 +64,7 @@ Model binding is per specialist. These are the CLIs a specialist row can be boun
 | Claude Code (`chrono`) | Anthropic | operator conversation, planning, dispatch, conflict prevention, synthesis — the coordinator, not a routable specialist |
 | `codex` | OpenAI | implementation, repo edits, tests, refactors, PoC mechanics |
 | `claude` | Anthropic | judgment, safety review, privacy/auth reasoning, memory hygiene, adversarial challenge |
-| `gemini` | Google | multimodal analysis, media generation routes, visual/design review, grounded content |
+| `gemini` (`agy` executable) | Google | multimodal analysis, media generation routes, visual/design review, grounded content |
 | `kimi` | Moonshot | two allowlisted primaries (`summarizer`, `kestrel`); otherwise throughput-only bulk/mechanical work under an explicit downshift gate |
 | `grok` | xAI | one primary (`smokey`, the blank advisor); escalate route for `research` and `bounty-researcher`. Native X/Twitter search under a SuperGrok subscription. `read_file` hard-fails past ~25k tokens — large documents need shell or paged ingest |
 

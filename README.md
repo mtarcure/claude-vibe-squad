@@ -7,7 +7,7 @@
 ![models](https://img.shields.io/badge/models-Codex%20%C2%B7%20Claude%20%C2%B7%20Gemini%20%C2%B7%20Kimi%20%C2%B7%20Grok-informational)
 ![license](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![orchestration](https://img.shields.io/badge/orchestration-native%20CLIs%20%C2%B7%20isolated%20worktrees-success)
-![version](https://img.shields.io/badge/version-v1.1.4-blue)
+![version](https://img.shields.io/badge/version-v1.1.5-blue)
 
 <br>
 
@@ -31,8 +31,10 @@ You can ask it to:
 
 - **The right model for each job** — every specialist is tied to the model that suits its work, not
   to whichever one you happen to be chatting with.
-- **Each task runs in its own sandbox** — a copy of the repo, with a written list of the files it
-  may change. It cannot touch anything else, and nothing merges until its checks pass.
+- **Each task runs in its own worktree** — a copy of the repo, with a written list of the files it
+  may change, and nothing merges until its checks pass. That list is enforced when changes are
+  integrated, not while the worker runs: a worker executes on your host with your permissions, so
+  treat this as an autonomy tool, not a containment boundary. See the note under Quickstart.
 - **A different model checks the work** — so no model signs off on its own reasoning.
 - **It remembers** — what a run learns is written down and read back before the next one, so a
   lesson paid for once isn't paid for twice.
@@ -41,7 +43,7 @@ The product is the instruction layer, and it is Markdown all the way down. Modes
 
 ## Quickstart
 
-macOS, for now. You need `tmux`, `fswatch`, `jq`, `curl`, Python 3.13, `uv`, and authenticated native CLIs for Claude, Codex, Gemini, Kimi, and Grok.
+macOS, for now. You need `tmux`, `fswatch`, `jq`, `curl`, Python 3.13, `uv`, and authenticated native CLIs for Claude, Codex, Gemini (`agy`), Kimi, and Grok.
 
 Memory lives outside the public repository. Create a private vault once:
 
@@ -89,37 +91,21 @@ You ask in plain language. Chrono maps it into exactly one of two workflows.
 
 Project and Bounty are the modes. Triage is a dispatch technique, not an extra mode; parallel work is just several independently dispatched single tasks, not a special "panel" or "swarm" transport.
 
-## How it works
+
+## Dispatch, settlement, and the board
 
 ```mermaid
 flowchart LR
     OP([You]) --> CO[Chrono]
-    CO --> PLAN[Markdown plan<br/>and capability]
+    CO --> PLAN[Markdown task<br/>and capability]
     PLAN --> RUN[Fresh native CLI<br/>in isolated worktree]
     RUN --> CHECK[Tests and<br/>independent review]
     CHECK --> RESULT[Atomic result<br/>back to Chrono]
     RESULT --> OP
 ```
 
-1. **Chrono is the only operator-facing voice.** Specialists report to Chrono instead of interrupting you from separate chats.
-2. **Routing is by fit, not by preference.** Each specialist is bound to the model that suits its work, with a different-family backup and review route. Every binding lives in one file, [`shared/specialist-runtime-map.tsv`](shared/specialist-runtime-map.tsv) — not in anything you pick per request.
-
-   ```text
-   71 specialists          claude  ███████████████████████████████  31
-                           codex   █████████████████████            21
-                           gemini  ████████████████                 16
-                           kimi    ██                                2
-                           grok    █                                 1
-   ```
-3. **Workers are isolated.** Mutating attempts get their own git worktree and a narrowly declared write scope.
-4. **Results settle atomically.** Artifacts are written before their completion envelope, so partially published work never reads as done.
-5. **Dangerous actions are refused before a worker starts, not asked about later.** Things like deleting files, changing credentials, or publishing are withheld at launch. A worker is never in a position to ask permission mid-task, and deletion is refused a second time at merge unless an exact, pre-approved file list allows it.
-
-## Specialists and dispatch
-
-Seventy specialist briefs live under `departments/` and `shared/specialists/`, and every one of them is validated on every push by CI — and on every commit too, once you enable the tracked pre-commit hook with `git config core.hooksPath .githooks` (see the Quickstart; it is opt-in per clone and never set for you). A brief is prose: what the role is for, how it should think, what it must refuse. Adding a specialist means writing Markdown, not registering a class.
-
-A task is a Markdown file: which specialist, which model, what it may read, what it may change, and what counts as done. That file is the contract.
+**A task is a Markdown file, and that file is the contract.** Which specialist, which model, what it
+may read, what it may change, and what counts as done:
 
 ```yaml
 ---
@@ -136,35 +122,74 @@ Audit the session-handling path and report anything exploitable.
 Do not change behaviour; findings only.
 ```
 
-Everything the worker is allowed to do is on that page. Nothing is implied. Workers never talk to each other or to you — each writes one result, and Chrono integrates it. Because every run leaves its task file and its receipt behind, a failure can be diagnosed afterwards from those rather than from a chat log.
+Everything the worker may do is on that page. Workers never talk to each other or to you — each
+writes one result and Chrono integrates it.
 
-Work that outlives one conversation goes on a single running list, so something raised and not finished gets picked up next time instead of being lost when the thread ends.
+Four things hold that together:
+
+1. **Chrono is the only operator-facing voice.** Specialists report to Chrono, not to you.
+2. **Routing is by fit, not preference.** Each specialist is bound to the model that suits its work,
+   with a different-family backup and review route, all in one file:
+   [`shared/specialist-runtime-map.tsv`](shared/specialist-runtime-map.tsv).
+3. **Workers are isolated and results settle atomically.** Each mutating attempt gets its own git
+   worktree and a narrow write scope; artifacts are written before their completion envelope, so
+   partially published work never reads as done.
+4. **Dangerous actions are refused before a worker starts, not asked about later.** Deleting files,
+   changing credentials, publishing — withheld at launch, and deletion refused again at merge unless
+   an exact pre-approved file list allows it.
+
+**Review is part of settling, not a separate ceremony.** Every specialist has a route to a reviewer
+from another model family, mandatory for security- and judgment-critical work and skipped for
+ordinary low-risk work. The reviewer's job is to find a concrete reason the work is wrong; `REJECT`
+is a useful result, not a failed run. The machine checks reviewer independence and evidence
+identity — it does not vote on whether the work is any good. Which of those rules are actually under
+test is written down in a tracked census that names the untested ones too.
+
+**The board carries work across conversations.** Every run leaves its task file and receipt behind,
+so a failure is diagnosed from those rather than from a chat log, and something raised but not
+finished is picked up next session instead of dying with the thread.
 
 ## Memory that compounds
 
-Durable memory is private Markdown outside the repository. Chrono records what a run learned and recalls it before the next one, so a lesson paid for once is not paid for twice.
+Durable memory is private Markdown outside the repository. Chrono records what a run learned and
+recalls it before the next one, so a lesson paid for once is not paid for twice.
 
-Each note carries where it came from and how sensitive it is, and gets flagged when a later note contradicts it. A contested claim comes back marked as contested rather than quietly winning because it is newer. Obsidian is an optional way to read the same files by hand.
+Each note carries where it came from and how sensitive it is, and gets flagged when a later note
+contradicts it. A contested claim comes back marked contested rather than quietly winning because it
+is newer. Obsidian is an optional way to read the same files by hand.
 
 There is no graph database here, and no fashionable label applied for its own sake.
 
-## Models, tools, and probes
+## Specialists, skills, and tools
 
-All five families run through their providers' **native CLIs**. Claude, Codex, Kimi, and Grok use their supported subscription or managed-login paths. Gemini's native CLI is the explicit API-key-backed exception, with spend and rate controls treated as part of its lane contract. Vibe Squad does not swap a model lane for an MCP relay or a direct API fallback.
+**71 specialist briefs** live under `departments/` and `shared/specialists/`, each validated on every
+push by CI — and on every commit once you enable the tracked pre-commit hook (see the Quickstart; it
+is opt-in per clone). A brief is prose: what the role is for, how it should think, what it must
+refuse. Adding one means writing Markdown, not registering a class.
 
-Utility services are separate. Memory, research, sequential thinking, security tooling, and media generation may use MCP, local CLIs, or a gated provider API where the capability genuinely needs one.
+```text
+71 specialists          claude  ███████████████████████████████  31
+                        codex   █████████████████████            21
+                        gemini  ████████████████                 16
+                        kimi    ██                                2
+                        grok    █                                 1
+```
 
-One rule governs all of it: **a configured tool is not a working tool until a live probe says so.** Declared, delivered, and actual are three different things, and only actual counts.
+Around them sit **99 skills** (methodology documents a specialist reads when the work calls for
+it), **six plugins**, and **12 MCP servers** covering memory, research, recon, media, and security
+tooling.
 
-That probe is [`bin/canary.sh`](bin/canary.sh). It reports **PASS**, **FAIL**, or **NOT MEASURED** — it never lets "did not run" pass for "works" — and its `--self-test` breaks each capability against a fixture to prove the probe fails when the capability does. The [MCP surface a board-spawned worker actually receives](docs/board-mcp-surface.md) is enumerated live at probe time, not read from a config file. See [`CHANGELOG.md`](CHANGELOG.md) for what changed across releases.
+All five families run through their providers' **native CLIs** on subscription or managed-login
+paths — never swapped for an MCP relay or a direct API fallback. Utility services are separate.
 
-## Independent review without review theater
+One rule governs all of it: **a configured tool is not a working tool until a live probe says so.**
+Declared, delivered, and actual are three different things, and only actual counts. That probe is
+[`bin/canary.sh`](bin/canary.sh), which reports **PASS**, **FAIL**, or **NOT MEASURED** — it never
+lets "did not run" pass for "works".
 
-Every specialist has a route to a reviewer from another model family. Review is mandatory for security- and judgment-critical work. Ordinary low-risk work does not pretend that every task needs a committee.
-
-The reviewer's job is to find a concrete reason the work is wrong. `REJECT` is a useful result, not a failed run. The machine checks reviewer independence and evidence identity. It does not vote on whether prose, design, or code is good; Chrono and the models still make that call.
-
-Research on model self-correction and heterogeneous verification motivates this design, but no paper validates this exact architecture. We treat that as a hypothesis under test, not a marketing fact.
+The rule earns its keep. A model id can be accepted by the CLI, self-report correctly, and still be
+served by a different model; only the usage record shows it. Findings like that are recorded as
+dated probes, each with the literal command and its literal result.
 
 ## Design principles
 
@@ -177,7 +202,7 @@ Research on model self-correction and heterogeneous verification motivates this 
 
 ## Status
 
-**v1.1.4** is the current release; **v1.1.1** was the first public one. It runs as the maintainer's
+**v1.1.5** is the current release; **v1.1.1** was the first public one. It runs as the maintainer's
 daily driver rather than as a demo. [CHANGELOG.md](CHANGELOG.md) records what each release changed,
 including the parts that are still rough.
 

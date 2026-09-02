@@ -19,7 +19,7 @@
 # Per-pane MCP enumeration is sourced from:
 #   _state/capability-inventory-2026-05-02.md (verified per-pane install state)
 #   _state/incident-2026-05-03-claude-mcp-tilde.md (post-fix Claude MCP set)
-#   gemini mcp list -d (post-Hybrid-Path-A install on 2026-05-03)
+#   agy mcp list for the gemini routing lane (live repoint verified 2026-09-01)
 #
 # Provider availability changes over time, so the status block below is rendered
 # from the canonical skill/tool registry on every dispatch.
@@ -474,7 +474,7 @@ EOF
 - `brand-voice` · operator voice consistency check
 - `video-editor` · video trim/edit/captions
 
-**Research tools:** `gemini-3.1-pro-preview` carries native Google Search grounding. For other research tools, use the registry-derived status block and verify the current runtime.
+**Research tools:** the Gemini escalation profile currently resolves to `gemini-3.1-pro-high` in `shared/registries/profiles.tsv` and carries native Google Search grounding. For other research tools, use the registry-derived status block and verify the current runtime.
 
 **Routing reminder:** for deeper multi-source synthesis beyond a quick grounded check, hand off to research namespace.
 
@@ -533,7 +533,7 @@ case "${TO_MODEL}" in
 
 ## Expected Model Lane Tool Surface
 
-GPT/Codex lane is expected to have repo shell commands, file edits, tests, `chrono-research-arsenal`, `chrono-vault`, `chrono-obsidian`, `chrono-media-studio` when relevant, and `sequential-thinking`.
+GPT/Codex lane is expected to have repo shell commands, file edits, tests, `chrono-dedup`, `chrono-recon`, `chrono-research-arsenal`, `chrono-vault`, `chrono-obsidian`, `chrono-media-studio` when relevant, and `sequential-thinking`.
 
 This is an expected surface, not proof of live availability. Verify the tool exists in your current runtime before using it. If missing, report `capability_gap` and use the task-approved fallback.
 EOF
@@ -553,7 +553,7 @@ EOF
 
 ## Expected Model Lane Tool Surface
 
-Gemini lane is expected to have native Gemini grounding, `chrono-research-arsenal`, `chrono-media-studio`, `chrono-vault`, `chrono-obsidian`, `sequential-thinking`, and media/design tools when the packet allows them. `chrono-media-studio` currently exposes wrapper tools such as `generate_image`, `generate_video`, and `generate_audio`; ElevenLabs/Higgsfield child tool names are not available in this lane unless the live schema exposes them.
+Gemini lane is expected to have native Gemini grounding, `chrono-research-arsenal`, `chrono-media-studio`, `chrono-vault`, `chrono-obsidian`, and media/design tools when the packet allows them. `chrono-media-studio` currently exposes wrapper tools such as `generate_image`, `generate_video`, and `generate_audio`; ElevenLabs/Higgsfield child tool names are not available in this lane unless the live schema exposes them.
 
 This is an expected surface, not proof of live availability. Verify the tool exists in your current runtime before using it. If missing, report `capability_gap` and use the task-approved fallback.
 EOF
@@ -573,7 +573,7 @@ EOF
 
 ## Expected Model Lane Tool Surface
 
-Kimi lane is expected to have `chrono-research-arsenal`, `chrono-vault`, `chrono-obsidian`, `chrono-media-studio` when relevant, and `sequential-thinking`. Use the registry-derived status block for research add-ons and verify the current runtime before invocation.
+Kimi lane is expected to have `chrono-recon`, `chrono-research-arsenal`, `chrono-vault`, `chrono-obsidian`, `chrono-media-studio` when relevant, and `sequential-thinking`. Use the registry-derived status block for research add-ons and verify the current runtime before invocation.
 
 This is an expected surface, not proof of live availability. Verify the tool exists in your current runtime before using it. If missing, report `capability_gap` and use the task-approved fallback.
 EOF

@@ -11,8 +11,44 @@ source "${VAULT_ROOT}/bin/doctor-log-home.sh" || exit $?
 DATE="$(date -u +%Y-%m-%d)"
 DAY_OF_WEEK="$(date -u +%A)"
 BRIEF="${VAULT_ROOT}/_state/morning-briefs/${DATE}.md"
+DAILY_LOG="${VAULT_ROOT}/_state/nightly-failures/${DATE}.log"
 
 mkdir -p "$(dirname "${BRIEF}")"
+
+# This script is the operator-facing reader of run-nightly.sh's phase verdict.
+# It must run after every other nightly phase: the latest-run slice below resets
+# at the last START marker so a clean same-day retry cannot inherit an earlier
+# attempt's failures. If no START exists, absence is loud rather than rendered
+# as the same clean status as a run with no findings.
+NIGHTLY_STARTED=0
+NIGHTLY_FAILED_PHASES=""
+NIGHTLY_SKIPPED_PHASES=""
+if [[ -f "${DAILY_LOG}" ]]; then
+    NIGHTLY_STARTED="$(awk '
+        /=== Claude-Vibe-Squad nightly start:/ { seen=1 }
+        END { print seen ? 1 : 0 }
+    ' "${DAILY_LOG}")"
+    NIGHTLY_FAILED_PHASES="$(awk '
+        /=== Claude-Vibe-Squad nightly start:/ { failures=""; seen=1; next }
+        seen && /=== FAIL  phase:/ {
+            phase=$0
+            sub(/^.*=== FAIL  phase: /, "", phase)
+            sub(/ .*/, "", phase)
+            failures=failures (failures ? " " : "") phase
+        }
+        END { print failures }
+    ' "${DAILY_LOG}")"
+    NIGHTLY_SKIPPED_PHASES="$(awk '
+        /=== Claude-Vibe-Squad nightly start:/ { skipped=""; seen=1; next }
+        seen && /=== SKIP  phase:/ {
+            phase=$0
+            sub(/^.*=== SKIP  phase: /, "", phase)
+            sub(/ .*/, "", phase)
+            skipped=skipped (skipped ? " " : "") phase
+        }
+        END { print skipped }
+    ' "${DAILY_LOG}")"
+fi
 
 # Pull info from earlier phase logs
 DOCTOR_SUMMARY="${CHRONO_DOCTOR_LOG_DIR}/${DATE}-summary.json"
@@ -67,6 +103,20 @@ cat > "${BRIEF}" <<EOF
 # Daily Brief — ${DAY_OF_WEEK} ${DATE}
 
 EOF
+
+echo "## Nightly automation" >> "${BRIEF}"
+if [[ -n "${NIGHTLY_FAILED_PHASES}${NIGHTLY_SKIPPED_PHASES}" ]]; then
+    echo "🔴 **NIGHTLY PHASE FAILURE** — the run completed, but maintenance was incomplete." >> "${BRIEF}"
+    [[ -n "${NIGHTLY_FAILED_PHASES}" ]] \
+        && echo "- Failed phases:${NIGHTLY_FAILED_PHASES}" >> "${BRIEF}"
+    [[ -n "${NIGHTLY_SKIPPED_PHASES}" ]] \
+        && echo "- Skipped phases:${NIGHTLY_SKIPPED_PHASES}" >> "${BRIEF}"
+elif [[ "${NIGHTLY_STARTED}" -eq 1 ]]; then
+    echo "🟢 **NIGHTLY CLEAN** — every scheduled maintenance phase ran successfully." >> "${BRIEF}"
+else
+    echo "🔴 **NIGHTLY NOT RUN** — no nightly start was recorded for ${DATE}." >> "${BRIEF}"
+fi
+echo "" >> "${BRIEF}"
 
 # Status section
 echo "## Status" >> "${BRIEF}"

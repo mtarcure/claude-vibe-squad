@@ -9,6 +9,7 @@ import json
 import re
 import subprocess
 import sys
+import tempfile
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -785,6 +786,18 @@ def parse_specialists(cell: str, line_number: int) -> tuple[list[str], list[Find
     return names, findings
 
 
+def duplicate_catalog_names(names: list[str]) -> list[str]:
+    """Names listed more than once in the skill catalog.
+
+    `validate_catalog_registry` reported `catalog_count` and `catalog_unique_count`
+    side by side and never compared them, so a duplicated catalog line printed
+    "154 / 153, status: pass" and exited 0. A per-name registry lookup cannot
+    substitute: each occurrence of a duplicate resolves to the same single
+    registry row, so every one of them passes on its own.
+    """
+    return sorted({name for name, count in Counter(names).items() if count > 1})
+
+
 class Validator:
     def __init__(self, root: Path) -> None:
         self.root = root
@@ -813,7 +826,13 @@ class Validator:
             findings = [Finding("catalog-read", str(exc))]
             catalog_names = []
         else:
-            findings = []
+            findings = [
+                Finding(
+                    "catalog-duplicate",
+                    f"catalog skill {name!r} is listed more than once",
+                )
+                for name in duplicate_catalog_names(catalog_names)
+            ]
             for name in catalog_names:
                 count = self.registry_names[name]
                 if count == 0:
@@ -830,6 +849,23 @@ class Validator:
                             f"catalog skill {name!r} has {count} registry rows; expected exactly one",
                         )
                     )
+            for name, rows in sorted(self.skills.items()):
+                for row in rows:
+                    if row.get("type") != "invokable":
+                        continue
+                    declared_path = row.get("path_or_source", "").strip()
+                    path = Path(declared_path)
+                    if not declared_path or declared_path.startswith("~") or path.is_absolute():
+                        continue
+                    skill_file = self.root / path
+                    if not skill_file.is_file():
+                        findings.append(
+                            Finding(
+                                "registry-skill-file-missing",
+                                f"invokable skill {name!r} declares missing repository file "
+                                f"{declared_path!r}",
+                            )
+                        )
         return {
             "type": "catalog-registry",
             "file": display_path,
@@ -1418,8 +1454,18 @@ class FixtureSuite:
 
     positives: dict[str, str]
     negatives: dict[str, tuple[str, set[str]]]
+    negative_expected_paths: dict[str, Path]
     dead_key_fixtures: dict[str, str]
     preconditions: list[str]
+
+
+REQUIRED_SELF_TEST_NEGATIVES: dict[str, frozenset[str]] = {
+    "frontmatter-required": frozenset({"frontmatter-required"}),
+    "id-path-mismatch": frozenset({"id-path-mismatch"}),
+    "metered-without-guard": frozenset({"metered-cost-note"}),
+    "steps-missing": frozenset({"steps-missing"}),
+    "tool-state-invalid": frozenset({"tool-state-invalid"}),
+}
 
 
 def policy_fixture(
@@ -1574,6 +1620,38 @@ cost_note: —
         "capability_state: live",
         "state-overclaim",
     )
+    structural_fixture = policy_fixture(
+        "structural-negative",
+        "live",
+        "—",
+        cost_note="subscription only",
+    )
+    frontmatter_required_fixture = guarded_replace(
+        structural_fixture,
+        "title: Policy fixture structural-negative\n",
+        "",
+        "frontmatter-required",
+    )
+    steps_missing_fixture = "\n".join(
+        structural_fixture.splitlines()[:11]
+        + [
+            "| Step | Specialists | Tools `(lane · state · cost_tier)` | Skills `(type)` | Gate / Overlay |",
+            "|---|---|---|---|---|",
+            "",
+        ]
+    )
+    tool_state_invalid_fixture = policy_fixture(
+        "tool-state-invalid",
+        "needs_tool",
+        f"`{ABSENT_TOOL}` (unknown · impossible-state · unknown)",
+        cost_note="unknown",
+    )
+    id_path_mismatch_fixture = policy_fixture(
+        "id-path-mismatch",
+        "live",
+        "—",
+        cost_note="subscription only",
+    )
 
     # -- golden-card fixtures: anchored on structure, never on status -------
     web_app_card = golden_text[WEB_APP_CARD]
@@ -1682,6 +1760,13 @@ cost_note: —
     xai_unbounded = tool_ref("xai_search", "kimi", "kimi-metered-unbounded", cost="metered")
 
     negatives: dict[str, tuple[str, set[str]]] = {
+        "frontmatter-required": (
+            frontmatter_required_fixture,
+            {"frontmatter-required"},
+        ),
+        "id-path-mismatch": (id_path_mismatch_fixture, {"id-path-mismatch"}),
+        "steps-missing": (steps_missing_fixture, {"steps-missing"}),
+        "tool-state-invalid": (tool_state_invalid_fixture, {"tool-state-invalid"}),
         "composite": (
             broken,
             {
@@ -1811,9 +1896,66 @@ cost_note: —
     return FixtureSuite(
         positives=positives,
         negatives=negatives,
+        negative_expected_paths={
+            "id-path-mismatch": Path(
+                "shared/capabilities/project/different-path-authority.md"
+            ),
+        },
         dead_key_fixtures=dead_key_fixtures,
         preconditions=preconditions,
     )
+
+
+def catalog_negative_controls(validator: Validator) -> dict[str, bool]:
+    """Exercise catalog validation through real files, including both failure branches."""
+    known_skill = next(iter(sorted(validator.skills)), None)
+    if known_skill is None:
+        return {
+            "duplicate-rejected": False,
+            "registry-missing-rejected": False,
+            "unique-control-passes": False,
+        }
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        registry_target = root / REGISTRY_RELATIVE
+        runtime_target = root / "shared/specialist-runtime-map.tsv"
+        catalog_target = root / "shared/skills/catalog.txt"
+        registry_target.parent.mkdir(parents=True)
+        catalog_target.parent.mkdir(parents=True)
+        registry_target.write_bytes((validator.root / REGISTRY_RELATIVE).read_bytes())
+        runtime_target.write_bytes(
+            (validator.root / "shared/specialist-runtime-map.tsv").read_bytes()
+        )
+        for rows in validator.skills.values():
+            for row in rows:
+                declared_path = row.get("path_or_source", "").strip()
+                path = Path(declared_path)
+                if (
+                    row.get("type") != "invokable"
+                    or not declared_path
+                    or declared_path.startswith("~")
+                    or path.is_absolute()
+                ):
+                    continue
+                fixture_skill = root / path
+                fixture_skill.parent.mkdir(parents=True, exist_ok=True)
+                fixture_skill.write_text("self-test repository skill fixture\n", encoding="utf-8")
+
+        catalog_target.write_text(
+            f"{known_skill}\n{known_skill}\n{ABSENT_SKILL}\n", encoding="utf-8"
+        )
+        negative = Validator(root).validate_catalog_registry()
+        negative_codes = {error["code"] for error in negative["errors"]}
+
+        catalog_target.write_text(f"{known_skill}\n", encoding="utf-8")
+        positive = Validator(root).validate_catalog_registry()
+
+    return {
+        "duplicate-rejected": "catalog-duplicate" in negative_codes,
+        "registry-missing-rejected": "catalog-registry-missing" in negative_codes,
+        "unique-control-passes": positive["status"] == "pass",
+    }
 
 
 def self_test(validator: Validator) -> int:
@@ -1841,7 +1983,15 @@ def self_test(validator: Validator) -> int:
         for name, text in suite.positives.items()
     }
     negative_results = {
-        name: validator.validate_text(text, f"<self-test-{name}>", None)
+        name: validator.validate_text(
+            text,
+            f"<self-test-{name}>",
+            (
+                validator.root / suite.negative_expected_paths[name]
+                if name in suite.negative_expected_paths
+                else None
+            ),
+        )
         for name, (text, _) in suite.negatives.items()
     }
     negative_codes = {
@@ -1881,6 +2031,23 @@ def self_test(validator: Validator) -> int:
     )
     positives_ok = all(item["status"] == "pass" for item in policy_positive_results.values())
     typed_failures_ok = all(typed_failure_checks.values())
+    # Exercised directly, the way `typed_failure_checks` exercises `unavailable_reason`:
+    # the catalog check reads a real file, so there is no card fixture that can reach it.
+    catalog_duplicate_checks = {
+        "flags-a-repeat": duplicate_catalog_names(["a", "b", "a"]) == ["a"],
+        "quiet-when-unique": duplicate_catalog_names(["a", "b"]) == [],
+    }
+    catalog_duplicates_ok = all(catalog_duplicate_checks.values())
+    catalog_controls = catalog_negative_controls(validator)
+    catalog_controls_ok = all(catalog_controls.values())
+    negative_fixture_manifest = {
+        name: (
+            name in suite.negatives
+            and expected_codes.issubset(suite.negatives[name][1])
+        )
+        for name, expected_codes in REQUIRED_SELF_TEST_NEGATIVES.items()
+    }
+    negative_fixture_manifest_ok = all(negative_fixture_manifest.values())
     result = {
         "type": "self-test",
         "status": (
@@ -1893,6 +2060,9 @@ def self_test(validator: Validator) -> int:
             and dead_reasons_ok
             and preconditions_ok
             and typed_failures_ok
+            and catalog_duplicates_ok
+            and catalog_controls_ok
+            and negative_fixture_manifest_ok
             else "fail"
         ),
         "golden_statuses": {result["file"]: result["status"] for result in golden_results},
@@ -1916,6 +2086,13 @@ def self_test(validator: Validator) -> int:
         "dead_key_fixtures": suite.dead_key_fixtures,
         "fixture_preconditions": "pass" if preconditions_ok else "fail",
         "typed_failure_checks": typed_failure_checks,
+        "catalog_duplicate_checks": catalog_duplicate_checks,
+        "catalog_negative_controls": "pass" if catalog_controls_ok else "fail",
+        "catalog_negative_control_checks": catalog_controls,
+        "negative_fixture_manifest": (
+            "pass" if negative_fixture_manifest_ok else "fail"
+        ),
+        "negative_fixture_manifest_checks": negative_fixture_manifest,
     }
     if not preconditions_ok:
         result["fixture_precondition_failures"] = suite.preconditions

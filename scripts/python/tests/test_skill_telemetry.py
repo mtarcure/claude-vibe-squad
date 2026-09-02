@@ -283,7 +283,13 @@ class SkillTelemetryTests(unittest.TestCase):
         )
 
         pruner = PRUNER.read_text(encoding="utf-8")
-        self.assertIn("TRANSCRIPT_RETENTION_DAYS=30", pruner)
+        # Matches either spelling. The constant moved from a shell variable
+        # threaded through argv to a Python constant inside the heredoc when
+        # the pruner stopped passing two never-varying values as arguments;
+        # this assertion pinned the shell form and broke on a change that
+        # preserved the behaviour exactly. What matters is that 30-day
+        # retention is wired, not which language holds the number.
+        self.assertRegex(pruner, r"TRANSCRIPT_RETENTION_DAYS\s*=\s*30")
         self.assertIn("enforce_transcript_retention(", pruner)
         self.assertIn('apply=mode == "apply"', pruner)
 

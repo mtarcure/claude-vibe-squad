@@ -1,5 +1,5 @@
 #!/bin/bash
-# Bootstrap chrono MCP servers across Codex, Gemini, agy, and Kimi.
+# Bootstrap chrono MCP servers across Codex, the agy-backed gemini lane, and Kimi.
 # Claude Code uses ~/.claude/settings.json + chrono plugins, managed separately.
 #
 # Idempotent: if an MCP is already registered, skip. If missing, register.
@@ -61,7 +61,17 @@ MCPS=(
     # (kimi refused to start at all). Verified 2026-08-17 by spawning the server
     # under `env -i` with just the two names below.
     "chrono-obsidian|${CHRONO_PLUGINS}/chrono-vault/mcp_server.py --namespace obsidian|CHRONO_VAULT_ROOT OBSIDIAN_REST_API_KEY OBSIDIAN_VAULT_ROOT"
-    "chrono-research-arsenal|${CHRONO_PLUGINS}/chrono-research-arsenal/mcp_server.py|APIFY_TOKEN BRAVE_API_KEY FIRECRAWL_API_KEY PERPLEXITY_API_KEY SERPER_API_KEY XAI_API_KEY"
+    # Exactly the three names `RESEARCH_API_KEY_NAMES`
+    # (scripts/python/lane_capability_enforcement.py) owns, and exactly the three
+    # the server reads: XAI_API_KEY (xai_search), PERPLEXITY_API_KEY
+    # (perplexity_search), FIRECRAWL_API_KEY (firecrawl_scrape/_crawl/_parse).
+    # APIFY_TOKEN/BRAVE_API_KEY/SERPER_API_KEY were listed here with no reader in
+    # the server, and `bin/doctor.sh` derives its expected-secret set by parsing
+    # THIS array -- so the three dead names made doctor warn about keys nothing
+    # could use. The literal stays because doctor reads the source text, not a
+    # runtime value; scripts/python/tests/test_research_credential_single_source.py
+    # pins it (and the two other copies) to the owning tuple.
+    "chrono-research-arsenal|${CHRONO_PLUGINS}/chrono-research-arsenal/mcp_server.py|XAI_API_KEY PERPLEXITY_API_KEY FIRECRAWL_API_KEY"
     "chrono-media-studio|${CHRONO_PLUGINS}/chrono-media-studio/mcp_server.py|GEMINI_API_KEY OPENAI_API_KEY XAI_API_KEY"
 )
 
@@ -77,17 +87,6 @@ build_env_flags_codex() {
     echo "${out}"
 }
 
-build_env_flags_gemini() {
-    local out=""
-    for v in $1; do
-        local val="${!v:-}"
-        if [[ -n "${val}" ]]; then
-            out+=" -e ${v}=${val}"
-        fi
-    done
-    echo "${out}"
-}
-
 # Mask actual key values in dry-run output (keep var name, show *****)
 mask_env_flags() {
     local input="$1"
@@ -95,15 +94,9 @@ mask_env_flags() {
 }
 
 # Snapshot current registrations
-# `gemini mcp list` is unreliable (silent on user-scope) so we parse settings.json.
 echo "=== Discovering existing MCP registrations ==="
 CODEX_LIST=""
 cli_available codex && CODEX_LIST=$(codex mcp list 2>/dev/null || echo "")
-GEMINI_SETTINGS="${HOME}/.gemini/settings.json"
-GEMINI_LIST=""
-if [[ -f "${GEMINI_SETTINGS}" ]] && command -v jq >/dev/null 2>&1; then
-    GEMINI_LIST=$(jq -r '.mcpServers // {} | keys[]' "${GEMINI_SETTINGS}" 2>/dev/null || echo "")
-fi
 KIMI_LIST=""
 cli_available kimi && KIMI_LIST=$(kimi mcp list 2>&1 | grep -v 'AuthlibDeprecation\|authlib.jose\|It will be compatible\|from authlib' || echo "")
 AGY_LIST=""
@@ -131,7 +124,6 @@ show_status() {
 }
 
 show_status "codex" "${CODEX_LIST}" "Codex CLI"
-show_status "gemini" "${GEMINI_LIST}" "Gemini CLI"
 show_status "agy" "${AGY_LIST}" "Antigravity CLI (gemini lane)"
 show_status "kimi" "${KIMI_LIST}" "Kimi CLI"
 
@@ -217,28 +209,6 @@ register_codex() {
     fi
 }
 
-register_gemini() {
-    local name="$1"; local args_str="$2"; local env_vars="$3"
-    if echo "${GEMINI_LIST}" | grep -q "${name}"; then
-        echo "  [gemini] ${name}: already registered"
-        return
-    fi
-    local env_flags
-    env_flags=$(build_env_flags_gemini "${env_vars}")
-    # shellcheck disable=SC2206
-    local args_arr=(${args_str})
-    if [[ ${DRY_RUN} -eq 1 ]]; then
-        echo "  [gemini] would: gemini mcp add -s user$(mask_env_flags "${env_flags}") ${name} ${CHRONO_PY} ${args_arr[*]}"
-        return
-    fi
-    # shellcheck disable=SC2086
-    if gemini mcp add -s user ${env_flags} "${name}" "${CHRONO_PY}" "${args_arr[@]}" >/dev/null 2>&1; then
-        echo "  [gemini] ${name}: ✓ added"
-    else
-        echo "  [gemini] ${name}: ✗ failed"
-    fi
-}
-
 register_agy() {
     local name="$1"; local args_str="$2"; local env_vars="$3"
     if echo "${AGY_LIST}" | grep -Eq "^[[:space:]]*${name}([[:space:]]|$)"; then
@@ -306,7 +276,6 @@ for entry in "${MCPS[@]}"; do
     echo ""
     echo "${name}:"
     register_codex "${name}" "${args_str}" "${env_vars}"
-    register_gemini "${name}" "${args_str}" "${env_vars}"
     register_agy "${name}" "${args_str}" "${env_vars}"
     register_kimi "${name}" "${args_str}" "${env_vars}"
 done

@@ -13,6 +13,55 @@ set -u
 
 # shellcheck source-path=SCRIPTDIR source=../shared/repo-root.sh disable=SC1091
 source "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")/.." && pwd -P)/shared/repo-root.sh"
+# shellcheck source=../shared/lead-windows.sh disable=SC1091
+source "${VAULT_ROOT}/shared/lead-windows.sh"
+
+# Operator-facing lane facts come from the two routing authorities, never from
+# a copied count or list in this banner. If the authorities disagree, print no
+# guessed roster; validate-specialists/doctor will name the underlying defect.
+routed_lanes_from_map() {
+    awk -F '\t' '
+        NR == 1 {
+            for (i = 1; i <= NF; i++) if ($i ~ /_lane$/) lane_column[i] = 1
+            next
+        }
+        {
+            for (i in lane_column) if ($i != "" && $i != "none") lanes[$i] = 1
+        }
+        END { for (lane in lanes) print lane }
+    ' "${VAULT_ROOT}/shared/specialist-runtime-map.tsv" 2>/dev/null | sort
+}
+
+routed_lanes_from_profiles() {
+    awk -F '\t' '
+        NR == 1 {
+            for (i = 1; i <= NF; i++) if ($i == "lane") lane_column = i
+            next
+        }
+        lane_column && $lane_column != "" && $lane_column != "none" {
+            lanes[$lane_column] = 1
+        }
+        END { for (lane in lanes) print lane }
+    ' "${VAULT_ROOT}/shared/registries/profiles.tsv" 2>/dev/null | sort
+}
+
+ROUTED_LANE_IDS="$(routed_lanes_from_map)"
+PROFILE_LANE_IDS="$(routed_lanes_from_profiles)"
+ROUTED_LANE_NAMES=()
+if [[ -n "${ROUTED_LANE_IDS}" && "${ROUTED_LANE_IDS}" == "${PROFILE_LANE_IDS}" ]]; then
+    while IFS= read -r _lane; do
+        [[ -n "${_lane}" ]] && ROUTED_LANE_NAMES+=("$(runtime_window_name "${_lane}")")
+    done <<< "${ROUTED_LANE_IDS}"
+fi
+ROUTED_LANE_COUNT="${#ROUTED_LANE_NAMES[@]}"
+ROUTED_LANE_LIST=""
+for _lane in ${ROUTED_LANE_NAMES[@]+"${ROUTED_LANE_NAMES[@]}"}; do
+    [[ -n "${ROUTED_LANE_LIST}" ]] && ROUTED_LANE_LIST+=" · "
+    ROUTED_LANE_LIST+="${_lane}"
+done
+CHRONO_WINDOW="$(lead_window_name chrono)"
+WATCHERS_WINDOW="$(lead_window_name watchers)"
+unset _lane
 
 # --- Chrono coordinator pidfile (coordinator-side, LIFE-01) -----------------
 # Record WHO and WHERE the live coordinator is, so bin/squad-stop.sh DISCOVERS
@@ -118,14 +167,20 @@ CYAN=$(c 74); TEXT=$(c 252); DIM=$(c 240); R=$'\033[0m'; B=$'\033[1m'
 
 clear
 printf '\n'
-printf '  %s%s▎ vibe-squad%s  %s· 4 lanes standing by%s\n\n' "$CYAN" "$B" "$R" "$DIM" "$R"
+if [[ "${ROUTED_LANE_COUNT}" -gt 0 ]]; then
+    printf '  %s%s▎ vibe-squad%s  %s· %s lanes standing by%s\n\n' "$CYAN" "$B" "$R" "$DIM" "${ROUTED_LANE_COUNT}" "$R"
+else
+    printf '  %s%s▎ vibe-squad%s  %s· lane roster unavailable%s\n\n' "$CYAN" "$B" "$R" "$DIM" "$R"
+fi
 printf '  %sYou are talking to %s%schrono%s%s — the coordinator.%s\n' "$TEXT" "$R" "$CYAN" "$R" "$TEXT" "$R"
-printf '  %sPeers (codex · claude · gemini · kimi) work in the lanes.%s\n\n' "$DIM" "$R"
+if [[ "${ROUTED_LANE_COUNT}" -gt 0 ]]; then
+    printf '  %sPeers (%s) carry routed specialist work.%s\n\n' "$DIM" "${ROUTED_LANE_LIST}" "$R"
+fi
 printf '  %s──────────────────────────────────────────────%s\n' "$DIM" "$R"
-printf '  %sfan-out%s  %s"send this to all four"%s\n'      "$TEXT" "$R" "$DIM" "$R"
+printf '  %sfan-out%s  %s"send this to every lane"%s\n'    "$TEXT" "$R" "$DIM" "$R"
 printf '  %sroute%s    %s"ask gemini about X"%s\n'         "$TEXT" "$R" "$DIM" "$R"
 printf '  %sstatus%s   %s"what is each lane on?"%s\n'      "$TEXT" "$R" "$DIM" "$R"
-printf '  %speek%s     %sC-b 1-4 lanes · C-b Space reset view · C-b d detach%s\n' "$TEXT" "$R" "$DIM" "$R"
+printf '  %speek%s     %sC-b g key guide (%s / %s) · C-b Space reset · C-b d detach%s\n' "$TEXT" "$R" "$DIM" "${CHRONO_WINDOW}" "${WATCHERS_WINDOW}" "$R"
 printf '  %s/stop%s    %sinterrupt the active dispatch%s\n' "$TEXT" "$R" "$DIM" "$R"
 printf '  %s──────────────────────────────────────────────%s\n\n' "$DIM" "$R"
 

@@ -80,9 +80,15 @@ class AdmissionDecision:
     snapshot_sha256: str
     candidate_vector_sha256: str = ""
     backoff_seconds: int = 5
+    clearable: bool = True
     @property
     def action(self) -> str:
-        return "admit" if self.admitted else "queue"
+        # Boundary-Blocking Doctrine (shared/protocol.md): block only where the
+        # blocked owner can clear it. `queue` makes bin/send-task.sh sleep and
+        # re-run the identical decision, so it is honest only for host weather.
+        # Malformed authority, an uncalibrated policy and an over-cap vector are
+        # inputs: they refuse now instead of burning the whole retry budget.
+        return "admit" if self.admitted else "queue" if self.clearable else "refuse"
     def to_json(self) -> str:
         payload = asdict(self)
         payload["action"] = self.action
@@ -91,6 +97,7 @@ def _decision(
     failed: Mapping[int, str],
     snapshots: Sequence[HostSnapshot] = (),
     evidence: Sequence[object] = (),
+    clearable: bool = True,
 ) -> AdmissionDecision:
     canonical = json.dumps(
         [[asdict(snapshot) for snapshot in snapshots], list(evidence)],
@@ -102,6 +109,7 @@ def _decision(
         failed_clauses=tuple(sorted(failed)),
         reasons=tuple(f"clause-{number}: {failed[number]}" for number in sorted(failed)),
         snapshot_sha256=hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+        clearable=clearable,
     )
 def _snapshot_schema_valid(snapshot: HostSnapshot) -> bool:
     numeric = (
@@ -130,9 +138,12 @@ def _snapshot_schema_valid(snapshot: HostSnapshot) -> bool:
     ):
         return False
     return (
-        snapshot.pressure_level in {"normal", "warn", "critical"}
+        snapshot.pressure_level in {"normal", "warn", "critical", "unknown"}
         and snapshot.physical_bytes > 0
-        and snapshot.swap_total_bytes > 0
+        # No swap_total_bytes > 0 clause: macOS grows swap on demand, so a host
+        # that never needed a swap file reports total = free = 0, and requiring
+        # positivity made that healthy machine permanently inadmissible. Coherence
+        # is still enforced below; real swap behaviour is clause 3.
         and snapshot.swap_free_bytes <= snapshot.swap_total_bytes
         and 0 <= snapshot.pressure_free_percent <= 100
         and snapshot.pid_limit > 0
@@ -144,9 +155,9 @@ def _under_admission(
     live_snapshot: Callable[[], tuple[HostSnapshot, HostSnapshot] | None],
     now: float | None = None,
 ) -> AdmissionDecision:
-    """Evaluate one whole candidate vector; every unknown queues."""
+    """Evaluate one vector: unknown host state queues, bad authority refuses."""
     if not candidates or len({item.task_id for item in candidates}) != len(candidates):
-        return _decision({1: "candidate vector is empty or has duplicate task ids"})
+        return _decision({1: "candidate vector is empty or has duplicate task ids"}, clearable=False)
     evidence = [
         {key: str(value) if isinstance(value, Path) else value for key, value in asdict(item).items()}
         for item in (*live_attempts, *candidates)
@@ -160,14 +171,23 @@ def _under_admission(
         if isinstance(item, Candidate):
             valid = valid and isinstance(item.packet_path, Path) and bpt.SHA256.fullmatch(item.packet_sha256)
         if family is None or policy is None or not valid:
-            clause = 4 if policy is None else 1
-            return _decision({clause: "candidate or live-attempt authority is invalid"}, evidence=evidence)
+            # Two conditions wear these clauses. A candidate's own authority is
+            # malformed again on the identical retry, so no wait clears it. A LIVE
+            # attempt's clears when that attempt ends -- the retry re-runs
+            # discover_live_attempts, which drops it once its receipt lands.
+            clause, live = (4 if policy is None else 1), not isinstance(item, Candidate)
+            return _decision({clause: "candidate or live-attempt authority is invalid"}, evidence=evidence, clearable=live)
         family_counts[family] = family_counts.get(family, 0) + 1
         if isinstance(item, Candidate):
             policies.append(policy)
     over = sorted(name for name, count in family_counts.items() if count > FAMILY_TARGET)
     if over:
-        return _decision({1: f"family target {FAMILY_TARGET} exceeded: {','.join(over)}"}, evidence=evidence)
+        # Two conditions wear clause 1. More same-family candidates than the cap
+        # can never fit it however long anyone waits; going over only once live
+        # attempts are counted is contention those attempts clear when they end.
+        families = [LANE_FAMILY[item.lane] for item in candidates]
+        return _decision({1: f"family target {FAMILY_TARGET} exceeded: {','.join(over)}"}, evidence=evidence,
+                         clearable=all(families.count(name) <= FAMILY_TARGET for name in over))
     try:
         snapshots = live_snapshot()
     except Exception as exc:
@@ -205,7 +225,10 @@ def _under_admission(
         + selected_reserve
     )
     pressure_budget = int(second.physical_bytes * 0.85)
-    if not all(policy.calibrated for policy in policies) or projected > pressure_budget:
+    # Only clause 4's calibration half is terminal: `calibrated` is a constant of
+    # WORKLOAD_POLICIES no idle host flips; the projection half is backpressure.
+    uncalibrated = not all(policy.calibrated for policy in policies)
+    if uncalibrated or projected > pressure_budget:
         failed[4] = "workload is uncalibrated or projected resident use exceeds budget"
     # Clause 6 absorbs the former clause 5: that clause compared free space in the
     # CURRENT swap file against max(1 GiB, 10% of swap_total), but macOS swap is
@@ -229,7 +252,7 @@ def _under_admission(
         or second.runnable_processes > max((os.cpu_count() or 1) * 4, 16)
     ):
         failed[7] = "disk, PID, load, or runnable-process limit failed"
-    return _decision(failed, snapshots, evidence)
+    return _decision(failed, snapshots, evidence, clearable=not uncalibrated)
 def discover_live_attempts(repo_root: Path) -> tuple[LiveAttempt, ...]:
     """Count only exact live V2 descriptors without a matching terminal receipt."""
     board = Path(repo_root) / "_state" / "board-dispatch"
@@ -317,7 +340,7 @@ def admit(
             raise HostStateError(f"candidate packet binding changed: {changed}")
         live = discover_live_attempts(repo_root)
     except (HostStateError, OSError, ValueError) as exc:
-        return _decision({1: f"authoritative board state failed closed: {exc}"})
+        return _decision({1: f"authoritative board state failed closed: {exc}"}, clearable=False)
     source = (
         (lambda: snapshots)
         if snapshots is not None
@@ -330,7 +353,7 @@ def admit(
         now=now,
     )
     if decision.admitted and (changed := _binding_changed(candidates)):
-        return _decision({1: f"candidate packet changed during telemetry: {changed}"})
+        return _decision({1: f"candidate packet changed during telemetry: {changed}"}, clearable=False)
     return replace(decision, candidate_vector_sha256=_candidate_vector_sha256(candidates))
 def _run(command: Sequence[str]) -> str:
     completed = subprocess.run(
@@ -389,8 +412,33 @@ def parse_memory_pressure(output: str) -> tuple[str, float]:
     if not match:
         raise ValueError("memory_pressure percentage missing")
     lowered = output.lower()
-    level = "critical" if "critical" in lowered else "warn" if "warn" in lowered else "normal"
+    level = next((word for word in ("critical", "warn", "normal") if word in lowered), "unknown")
     return level, float(match.group(1))
+
+# Codes are dispatch/source.h's DISPATCH_MEMORYPRESSURE_NORMAL/_WARN/_CRITICAL
+# (0x01/0x02/0x04), and `man 1 memory_pressure` documents the same three-state
+# model. Deliberately NOT XNU's 0-based vm_pressure_level_t, which numbers five
+# states differently; this host reads 1 while idle at 66% free, which is
+# "normal" under these codes and "warning" under those. Nothing else is mapped:
+# 0 and 3 are exactly what that other encoding would use, so guessing either
+# way could report a starved host as healthy.
+PRESSURE_LEVELS = {1: "normal", 2: "warn", 4: "critical"}
+PRESSURE_LEVEL_SYSCTL = ("/usr/sbin/sysctl", "-n", "kern.memorystatus_vm_pressure_level")
+
+def parse_pressure_level(output: str) -> str:
+    try:
+        return PRESSURE_LEVELS.get(int(output.strip()), "unknown")
+    except ValueError:
+        return "unknown"
+
+def read_pressure_level() -> str:
+    # Any failure degrades to "unknown", never to a level. Raising would fail
+    # telemetry collection and queue every dispatch on clause 2; returning a
+    # level would invent one. Broad on purpose: no read path may report health.
+    try:
+        return parse_pressure_level(_run(PRESSURE_LEVEL_SYSCTL))
+    except Exception:
+        return "unknown"
 
 def parse_swapusage(output: str) -> tuple[int, int]:
     total = re.search(r"total\s*=\s*([0-9.]+)([KMG])", output)
@@ -404,7 +452,11 @@ def collect_snapshot(
     task_path: Path,
 ) -> HostSnapshot:
     vm = parse_vm_stat(_run(("/usr/bin/vm_stat",)))
-    pressure_level, pressure_free = parse_memory_pressure(_run(("/usr/bin/memory_pressure", "-Q")))
+    # The sysctl states a level; `memory_pressure -Q` does not on this host, so
+    # its text level is only a fallback for a host whose -Q does print one.
+    text_level, pressure_free = parse_memory_pressure(_run(("/usr/bin/memory_pressure", "-Q")))
+    sysctl_level = read_pressure_level()
+    pressure_level = sysctl_level if sysctl_level != "unknown" else text_level
     swap_total, swap_free = parse_swapusage(_run(("/usr/sbin/sysctl", "vm.swapusage")))
     physical = int(_run(("/usr/sbin/sysctl", "-n", "hw.memsize")).strip())
     pid_limit = int(_run(("/usr/sbin/sysctl", "-n", "kern.maxproc")).strip())
@@ -464,7 +516,7 @@ def _main(argv: Sequence[str]) -> int:
         if _candidate_vector_sha256(candidates) != args.vector_sha256:
             raise HostStateError("candidate vector binding mismatch")
     except (HostStateError, OSError, ValueError) as exc:
-        decision = _decision({1: f"candidate parsing failed closed: {exc}"})
+        decision = _decision({1: f"candidate parsing failed closed: {exc}"}, clearable=False)
     else:
         decision = admit(repo_root=args.repo_root, candidates=candidates)
     print(decision.to_json())

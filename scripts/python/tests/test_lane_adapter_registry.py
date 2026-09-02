@@ -82,7 +82,7 @@ class LaneAdapterRegistryTests(unittest.TestCase):
             {
                 "gpt-codex": "codex",
                 "claude": "claude",
-                "gemini": "gemini",
+                "gemini": "agy",
                 "grok": "grok",
                 "kimi": "kimi",
             },
@@ -92,7 +92,7 @@ class LaneAdapterRegistryTests(unittest.TestCase):
             {
                 "gpt-codex": "subscription-drop-provider-keys",
                 "claude": "subscription-drop-provider-keys",
-                "gemini": "gemini-api-key-only",
+                "gemini": "subscription-drop-provider-keys",
                 "grok": "xai-api-key-only",
                 "kimi": "managed-login-drop-provider-keys",
             },

@@ -392,7 +392,7 @@ class InboxBacklogAgeTest(DoctorCalibrationRunner):
 
 
 def seed_instruction_surfaces(root: Path, *, specialists: int = 4) -> None:
-    """Give the fixture the four live surfaces and a registry of known size."""
+    """Give the fixture the live surfaces and a registry of known size."""
     (root / "README.md").write_text("# Fixture\n", encoding="utf-8")
     (root / "CLAUDE.md").write_text("# Fixture root instructions\n", encoding="utf-8")
     (root / "chrono").mkdir(parents=True, exist_ok=True)
@@ -401,6 +401,24 @@ def seed_instruction_surfaces(root: Path, *, specialists: int = 4) -> None:
     registry.parent.mkdir(parents=True, exist_ok=True)
     rows = "\n".join(f"spec-{index}\tclaude" for index in range(specialists))
     registry.write_text(f"specialist\tto_model\n{rows}\n", encoding="utf-8")
+
+
+def seed_five_lane_authorities(root: Path) -> None:
+    """Write the five-lane routing facts independently of doctor's parser."""
+    lanes = ("claude", "codex", "gemini", "grok", "kimi")
+    registry = root / "shared" / "specialist-runtime-map.tsv"
+    registry.write_text(
+        "specialist\tprimary_lane\n"
+        + "".join(f"spec-{lane}\t{lane}\n" for lane in lanes),
+        encoding="utf-8",
+    )
+    profiles = root / "shared" / "registries" / "profiles.tsv"
+    profiles.parent.mkdir(parents=True, exist_ok=True)
+    profiles.write_text(
+        "profile_id\tlane\n"
+        + "".join(f"{lane}.fixture\t{lane}\n" for lane in lanes),
+        encoding="utf-8",
+    )
 
 
 class InstructionDriftSeverityTest(DoctorCalibrationRunner):
@@ -451,6 +469,66 @@ class InstructionDriftSeverityTest(DoctorCalibrationRunner):
             any("checkably false" in issue for issue in summary["issues"]),
             summary["issues"],
         )
+
+    def test_stale_lane_count_in_bin_is_an_issue(self):
+        """Operator shell output is live instruction, not implementation detail."""
+
+        def setup(root, _local_bin, _environment):
+            seed_instruction_surfaces(root, specialists=5)
+            seed_five_lane_authorities(root)
+            (root / "bin" / "fixture-banner.sh").write_text(
+                "#!/bin/bash\necho '4 lanes standing by'\n", encoding="utf-8"
+            )
+
+        result, summary, report = self.run_doctor(setup=setup)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertTrue(
+            any("checkably false" in issue for issue in summary["issues"]),
+            summary["issues"],
+        )
+        self.assertIn("operator lane roster", report)
+
+    def test_partial_hardcoded_lane_roster_in_bin_is_an_issue(self):
+        """A named operator roster must not silently omit a routed lane."""
+
+        def setup(root, _local_bin, _environment):
+            seed_instruction_surfaces(root, specialists=5)
+            seed_five_lane_authorities(root)
+            (root / "bin" / "fixture-sidebar.sh").write_text(
+                "#!/bin/bash\n"
+                "echo 'Dashboard: gpt-codex, claude, gemini, kimi.'\n",
+                encoding="utf-8",
+            )
+
+        result, summary, report = self.run_doctor(setup=setup)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertTrue(
+            any("checkably false" in issue for issue in summary["issues"]),
+            summary["issues"],
+        )
+        self.assertIn("operator lane roster", report)
+
+    def test_derived_lane_output_in_bin_is_not_a_finding(self):
+        """The gate accepts output whose roster is resolved at runtime."""
+
+        def setup(root, _local_bin, _environment):
+            seed_instruction_surfaces(root, specialists=5)
+            seed_five_lane_authorities(root)
+            (root / "bin" / "fixture-banner.sh").write_text(
+                "#!/bin/bash\n"
+                "echo \"${LANE_COUNT} lanes standing by\"\n"
+                "echo \"Dashboard: ${LANE_LIST}.\"\n",
+                encoding="utf-8",
+            )
+
+        result, summary, report = self.run_doctor(setup=setup)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(
+            [issue for issue in summary["issues"] if "drift" in issue],
+            [],
+            summary["issues"],
+        )
+        self.assertIn("No stale roster count, unfilled template", report)
 
     def test_self_declared_archive_is_not_a_live_surface(self):
         """chrono/current.md's own title says ARCHIVE, NOT LIVE STATE."""

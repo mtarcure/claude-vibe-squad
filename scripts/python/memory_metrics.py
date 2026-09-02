@@ -160,7 +160,7 @@ def autocapture_write_failures(repo_root: Path | None = None, days: int = 7) -> 
     """Captures that produced NO semantic note in the window.
 
     The write path now depends on a live model lane: `autocapture.distill()`
-    shells out to the `gemini` CLI, and a `DistillationFailed` means the raw
+    shells out to the agy-backed `gemini` lane, and a `DistillationFailed` means the raw
     capture is spooled to the episodic tier but no note is written. Memory
     stops growing, and none of spec §11's four measurements moves --
     `reachability` and `utilisation_breadth` describe the notes that exist,

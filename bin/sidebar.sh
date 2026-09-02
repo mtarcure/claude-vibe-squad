@@ -1,10 +1,9 @@
 #!/bin/bash
 # Sidebar — splits the chrono window so Chrono takes the left side and a
-# right column shows clean status for each visible model lane.
+# right column shows clean status for live specialist work.
 #
-# The sidebar is one dashboard pane, not four shell panes. It draws four
-# model-lane cards itself, avoiding pane labels like "bash" and keeping the
-# right column visually balanced.
+# The sidebar is one dashboard pane, not a set of standing lane shells. It
+# draws live specialist-task cards and keeps the right column visually balanced.
 #
 # Toggle off with `bin/sidebar-off.sh`.
 
@@ -29,8 +28,8 @@ fi
 
 WATCH="VS_DASH_CAPACITY=${VS_DASH_CAPACITY:-10} bash ${VAULT_ROOT}/bin/vs-dashboard-loop.sh"
 
-# Main-left layout: Chrono stays large on the left; the four model-lane tiles
-# stack at equal height on the right. This keeps the visual grid stable across
+# Main-left layout: Chrono stays large on the left and the specialist swarm
+# dashboard stays on the right. This keeps the visual grid stable across
 # terminal resizes.
 tmux split-window -h -p 42 -t "${SESSION}:chrono"
 sleep 0.2
@@ -69,7 +68,7 @@ bash "${VAULT_ROOT}/bin/vs-ensure-bindings.sh" "${SESSION}" >/dev/null 2>&1 || t
 # Focus stays on chrono main pane
 tmux select-pane -t "${SESSION}:chrono.0"
 
-echo "✓ Sidebar enabled with model-lane dashboard."
+echo "✓ Sidebar enabled with specialist-swarm dashboard."
 echo "  Type to Chrono in the main left pane."
-echo "  Dashboard: gpt-codex, claude, gemini, kimi."
+echo "  Dashboard: live specialist swarm."
 echo "  Refresh: 2s default. To toggle off: bash ${VAULT_ROOT}/bin/sidebar-off.sh"

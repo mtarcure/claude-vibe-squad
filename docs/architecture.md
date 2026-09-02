@@ -53,7 +53,7 @@ Markdown task packet in departments/<namespace>/inbox/
 detached board supervisor ── one git worktree per attempt
    │
    ▼
-fresh codex | claude | gemini | kimi CLI
+fresh `codex` | `claude` | `agy` | `grok` | `kimi` CLI
    │
    ├─ writes declared artifact
    └─ writes response envelope
@@ -81,10 +81,12 @@ of the board; they do not control worker execution.
 ## Native model transport and utility tools
 
 All specialist model inference runs through the provider's native CLI:
-`codex`, `claude`, `gemini`, or `kimi`. Codex and Claude use their approved
-subscription login paths, Kimi uses its managed login, and Gemini's native CLI
-is the explicit API-key exception. Profiles resolve to exact model and effort
-settings through
+`codex`, `claude`, Antigravity's `agy` for the `gemini` routing lane, `grok`, or
+`kimi`. Each rail uses the auth policy declared in
+`model-lanes/lane-capabilities.tsv`; `agy` uses personal OAuth with provider API
+keys removed. `shared/launch-dependencies.sh` owns the exact required-command
+set used by launch and doctor checks.
+Profiles resolve to exact model and effort settings through
 [`shared/registries/profiles.tsv`](../shared/registries/profiles.tsv).
 
 MCP servers are tools, not model transports. They can provide private memory,

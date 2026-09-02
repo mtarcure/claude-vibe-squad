@@ -263,7 +263,12 @@ import sys
 try:
     with open(sys.argv[1], encoding="utf-8") as stream:
         receipt = json.load(stream)
-except Exception:
+except Exception as exc:
+    # Printing nothing here meant "this response is not quarantined" -- the
+    # same answer a healthy receipt gives. Say instead that we could not tell,
+    # and let the caller carry that into the blocked reason. Still exit 0: an
+    # unreadable receipt must not break dispatch.
+    print(f"unreadable: {type(exc).__name__}")
     raise SystemExit(0)
 marker = sys.argv[2]
 if (
@@ -285,8 +290,14 @@ PYQUARANTINE
     # round trip into the log to learn whether the packet was too large, the mode
     # unknown, return_artifact missing, or the response envelope malformed -- four
     # distinct causes that presented identically. Fail-open: an unreadable receipt
-    # falls back to the previous generic line rather than breaking dispatch.
+    # falls back to the previous generic line rather than breaking dispatch --
+    # but it says so, because "not quarantined" and "we could not tell" are
+    # different facts and used to print the same empty string.
     if [[ "$quarantined_response" != "yes" ]]; then
+      receipt_note=""
+      if [[ "$quarantined_response" == unreadable:* ]]; then
+        receipt_note="receipt unreadable (${quarantined_response#unreadable: }) so quarantine state is UNKNOWN, not clear | "
+      fi
       blocked_detail="$(
         "$python_bin" - "$receipt_path" <<'PYBLOCKED' 2>/dev/null || true
 import json, sys
@@ -307,7 +318,7 @@ PYBLOCKED
         --lane "$lane" \
         --return-artifact "$return_artifact" \
         --compatibility-namespace "$compatibility_namespace" \
-        --reason "${blocked_detail:+${blocked_detail} | }detached board supervisor status ${supervisor_status:-invalid} exit ${supervisor_rc}; inspect ${log_path}"; then
+        --reason "${receipt_note}${blocked_detail:+${blocked_detail} | }detached board supervisor status ${supervisor_status:-invalid} exit ${supervisor_rc}; inspect ${log_path}"; then
         printf "blocked completion publication failed\n" >"$failure_marker"
         exit 70
       fi
@@ -492,10 +503,9 @@ def deny(reason, failure_class=None):
 # Because that cwd is this lane dir (not the worktree root),
 # skills are reachable only through the tracked bridge symlink
 # `model-lanes/gemini/.agents -> ../../.agents`, which makes `<cwd>/.agents/skills`
-# resolve to the worktree-root shared home. Without that symlink gemini sees only its
-# built-in skills (proven 2026-08-18: `gemini skills list --all` from this cwd
-# returned only `antigravity-support` + `skill-creator`; with the bridge it returns
-# the full shared set). scripts/python/validate_skill_wiring.py enforces the bridge.
+# resolve to the worktree-root shared home. The bridge was retained when the lane
+# moved to `agy`; scripts/python/validate_skill_wiring.py enforces its materialized
+# shape so lane-local and shared skill content cannot silently diverge.
 GEMINI_LANE_CWD_RELATIVE = "model-lanes/gemini"
 
 # Set True once a launcher has streamed the child's stdout live to the board
@@ -729,7 +739,7 @@ if strict_context or trusted_context:
             or value == "0" * 64
         ):
             deny(f"launch authority has an invalid {hash_field}")
-    if authority["auth_class"] not in {"subscription", "managed-login", "gemini-api-key", "xai-api-key"}:
+    if authority["auth_class"] not in {"subscription", "managed-login", "xai-api-key"}:
         deny("launch authority has an invalid auth_class")
     context = {
         "task_id": authority["task_id"],
@@ -823,7 +833,12 @@ try:
         validate_verification_contract,
         verification_contract_sha256,
     )
-    from runtime_envelope import RuntimeEnvelopeClaims, launch_task, seal_runtime_envelope
+    from runtime_envelope import (
+        RuntimeEnvelopeClaims,
+        launch_task,
+        projected_skill_contract,
+        seal_runtime_envelope,
+    )
     from launch_hygiene import (
         HygieneError,
         ProcessGroupReaper,
@@ -957,49 +972,12 @@ if sha256_file(resolved_executable, "cli_missing") != authority["executable_sha2
     deny("lane executable content does not match authenticated authority")
 
 
-def load_gemini_api_key():
-    home = os.environ.get("HOME", "")
-    if not home or "\x00" in home:
-        deny("Gemini credential home is unavailable")
-    try:
-        completed = subprocess.run(
-            (
-                "/bin/zsh",
-                "-f",
-                "-c",
-                'source "$HOME/.config/shell/secrets.zsh" 2>/dev/null; '
-                'print -rn -- "${GEMINI_API_KEY:-}"',
-            ),
-            check=False,
-            capture_output=True,
-            text=True,
-            stdin=subprocess.DEVNULL,
-            env={
-                "HOME": home,
-                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-            },
-            timeout=10,
-            close_fds=True,
-        )
-    except (OSError, subprocess.SubprocessError) as exc:
-        deny(f"Gemini credential source failed: {exc}")
-    value = completed.stdout
-    if (
-        completed.returncode != 0
-        or not value
-        or len(value) > 16384
-        or "\x00" in value
-        or "\n" in value
-    ):
-        deny("Gemini credential source did not provide one safe GEMINI_API_KEY")
-    return value
-
-
 def load_solodit_api_key():
     # The guarded-solodit MCP (Cyfrin Solodit findings search) authenticates
     # with SOLODIT_API_KEY, which lives only in the off-repo secret store — it
-    # is never ambient in the board process. Source it the same bounded way as
-    # the Gemini key, but BEST-EFFORT: a missing/unreadable key returns None so
+    # is never ambient in the board process. Source it with the same bounded
+    # subprocess pattern as the adjacent legacy loader, but BEST-EFFORT: a
+    # missing/unreadable key returns None so
     # guarded-solodit degrades to an upstream 401 at call time instead of
     # failing every board launch. This is not a launch gate.
     home = os.environ.get("HOME", "")
@@ -1712,32 +1690,6 @@ def controller_vault_denied_subtrees():
             values.add(Path(value))
     values.update(Path(os.path.realpath(value)) for value in tuple(values))
     return tuple(sorted(values, key=str))
-
-
-def acknowledge_gemini_agents(project_root):
-    agents_dir = project_root / ".gemini" / "agents"
-    if not agents_dir.exists():
-        return
-    ack_path = (
-        Path(trusted_environment["HOME"])
-        / ".gemini"
-        / "acknowledgments"
-        / "agents.json"
-    )
-    try:
-        data = json.loads(ack_path.read_text()) if ack_path.exists() else {}
-    except (OSError, json.JSONDecodeError):
-        data = {}
-    project = str(project_root)
-    data.setdefault(project, {})
-    for path in sorted(agents_dir.glob("*.md")):
-        if path.name.startswith("_"):
-            continue
-        data[project][path.stem] = hashlib.sha256(path.read_bytes()).hexdigest()
-    ack_path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = ack_path.with_suffix(".json.tmp")
-    temporary.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    temporary.replace(ack_path)
 
 
 capability_projection = {
@@ -3031,6 +2983,7 @@ def block_after_provision(
         "scheduler_reservation_snapshot_sha256": scheduler_snapshot_sha256,
         "role_context_sha256": getattr(globals().get("role"), "sha256", ""),
         "capability_projection_sha256": capability_projection_sha256,
+        "projected_skills": list(capability_projection["skills"]),
         "capability_enforcement": capability_enforcement,
         "authorized_mcps": authorized_mcps,
         "brokered_mcps": brokered_mcps,
@@ -3244,13 +3197,12 @@ try:
             )
         )
     if execution_kind == "lane" and lane == "kimi":
-        # Kimi runs with cwd=worktree root but does NOT auto-discover project skills
-        # from cwd; its `--skills-dir DIRECTORY` (repeatable) overrides discovery.
-        # Point it at the shared non-claude home `.agents/skills` (the SUPERSET: it
-        # mirrors every cross-lane `.claude/skills` entry via symlink plus the few
-        # `.agents`-native gate skills). Passing ONLY this dir — not also
-        # `.claude/skills` — avoids duplicate skill names, since the mirror symlinks
-        # would otherwise surface each cross-lane skill twice. See model-lanes/SKILL-HOMES.md.
+        # Kimi 1.40.0 auto-discovers project skill homes, and its repeatable
+        # `--skills-dir DIRECTORY` overrides that discovery. Point it only at the
+        # shared specialist home `.agents/skills`: its regular-file mirrors carry
+        # cross-lane specialist skills, while the override excludes controller-only
+        # `.claude/skills` entries and avoids duplicate names. Live-probed 2026-09-01;
+        # see model-lanes/SKILL-HOMES.md.
         capability_lane_args.extend(
             (
                 "--agent-file",
@@ -3349,6 +3301,8 @@ try:
     )
     signing_key = authority_signing_key
     envelope = seal_runtime_envelope(claims, signing_key)
+    projected_skills = tuple(capability_projection["skills"])
+    skill_contract = projected_skill_contract(projected_skills)
 
     if sha256_file(Path(os.path.realpath(executable)), "cli_missing") != authority["executable_sha256"]:
         raise ValueError("lane executable changed after profile compilation")
@@ -3628,6 +3582,7 @@ try:
             + "\n\n## Trusted task instruction\n\n"
             + trusted_task_prompt.strip()
             + path_contract
+            + skill_contract
             + "\n## Read-only task runtime envelope\n\n"
             + "```json\n"
             + projection_json
@@ -3670,6 +3625,7 @@ try:
         )
         concise_prompt = (
             trusted_task_prompt.strip()
+            + skill_contract
             + "\n\n## Read-only task runtime envelope\n\n"
             + "```json\n"
             + projection_json
@@ -3757,6 +3713,7 @@ try:
         )
         concise_prompt = (
             trusted_task_prompt.strip()
+            + skill_contract
             + "\n\n## Read-only task runtime envelope\n\n"
             + "```json\n"
             + projection_json
@@ -3851,6 +3808,7 @@ try:
             expected_generation=int(generation),
             now=now,
             lane_args=tuple(capability_lane_args) + tuple(authority["lane_args"]),
+            projected_skills=projected_skills,
             timeout=launch_timeout,
             launcher=lane_launcher,
         )
@@ -4031,6 +3989,7 @@ try:
             else "trusted-host-normal-env"
         ),
         "capability_projection_sha256": capability_projection_sha256,
+        "projected_skills": list(capability_projection["skills"]),
         "capability_enforcement": capability_enforcement,
         "authorized_mcps": authorized_mcps,
         "brokered_mcps": brokered_mcps,

@@ -1,16 +1,27 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 import subprocess
+import sys
 import unittest
 from unittest import mock
 
 from scripts.python.tests.ci_host_independence import (
     HOST_INDEPENDENT_ENV,
+    hermetic_lane_cli_environment,
+    hermetic_lane_cli_patch,
     skip_if_trusted_lane_executable_missing,
     skip_in_host_independent_ci,
 )
 
+
+# The sample executable paths below deliberately avoid the runner's real
+# home-directory path. The publication content scan rejects EVERY absolute
+# home-shaped path in a published file -- a blanket rule, so it never has to
+# decide whose home is safe -- and this file is published. The path here is
+# arbitrary test data; only its absoluteness and its appearance in the message
+# matter, so a hostedtoolcache path exercises the behaviour identically.
 
 class HostIndependentSkipPolicyTests(unittest.TestCase):
     @staticmethod
@@ -52,7 +63,7 @@ class TrustedLaneExecutableSkipTests(unittest.TestCase):
         completed = self.completed(
             stderr=(
                 "dispatch_context_builder.py: error: trusted lane executable "
-                "is unavailable: /home/runner/.local/bin/agy\n"
+                "is unavailable: /opt/hostedtoolcache/bin/agy\n"
             )
         )
 
@@ -62,7 +73,7 @@ class TrustedLaneExecutableSkipTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 unittest.SkipTest,
                 r"host-dependent: trusted lane executable is unavailable: "
-                r"/home/runner/\.local/bin/agy",
+                r"/opt/hostedtoolcache/bin/agy",
             ):
                 skip_if_trusted_lane_executable_missing(completed)
 
@@ -91,6 +102,49 @@ class TrustedLaneExecutableSkipTests(unittest.TestCase):
 
         self.assertIs(returned, completed)
 
+
+class HermeticLaneCliFixtureTests(unittest.TestCase):
+    def test_in_process_patch_is_scoped_and_uses_a_real_executable(self) -> None:
+        paths = {"codex": Path("/missing/codex")}
+
+        with hermetic_lane_cli_patch(paths, ("codex",)):
+            fixture = paths["codex"]
+            self.assertTrue(fixture.is_absolute())
+            self.assertTrue(fixture.is_file())
+            self.assertTrue(os.access(fixture, os.X_OK))
+
+        self.assertEqual(paths, {"codex": Path("/missing/codex")})
+
+    def test_subprocess_fixture_changes_only_the_named_lanes(self) -> None:
+        environment = hermetic_lane_cli_environment(
+            self,
+            ("codex", "gemini"),
+            base=os.environ,
+        )
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import seatbelt_profile as s; "
+                    "print(s.LANE_CLI_PATHS['codex']); "
+                    "print(s.LANE_CLI_PATHS['gemini']); "
+                    "print(s.LANE_CLI_PATHS['claude'])"
+                ),
+            ],
+            env=environment,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        codex, gemini, claude = completed.stdout.splitlines()
+        self.assertEqual(codex, gemini)
+        fixture = Path(codex)
+        self.assertTrue(fixture.is_file())
+        self.assertTrue(os.access(fixture, os.X_OK))
+        self.assertNotEqual(claude, codex)
 
 if __name__ == "__main__":
     unittest.main()

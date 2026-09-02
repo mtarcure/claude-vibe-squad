@@ -1406,6 +1406,10 @@ class LaneCapabilityEnforcementTests(unittest.TestCase):
             planned += 1
         self.assertEqual(planned, len(adapters))
 
+    @unittest.skipUnless(
+        Path(seatbelt_profile.LANE_CLI_PATHS["claude"]).is_file(),
+        "requires the installed Claude CLI",
+    )
     @skip_in_host_independent_ci(
         "runs installed Claude CLI against live MCP/plugin inventory"
     )
@@ -1417,6 +1421,10 @@ class LaneCapabilityEnforcementTests(unittest.TestCase):
             project_config_path=ROOT / "model-lanes/claude/.mcp.json",
         )
 
+    @unittest.skipUnless(
+        Path(seatbelt_profile.LANE_CLI_PATHS["gemini"]).is_file(),
+        "requires the installed agy CLI",
+    )
     @skip_in_host_independent_ci(
         "runs installed agy CLI against its persistent global MCP inventory"
     )

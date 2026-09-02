@@ -271,6 +271,42 @@ class ProductHygieneGateTests(unittest.TestCase):
         self.assertNotIn(config_key, report)
         self.assertNotIn("eyJhbGci", report)
 
+    def test_gitleaks_scans_projection_and_still_rejects_a_seventh_secret(self) -> None:
+        fake_secret = "sk_" + "live_51ScopeRegressionFakeCredential999999"
+        private_runtime = self.root / "_state/private-runtime.log"
+        private_runtime.write_text(f"STRIPE_KEY={fake_secret}\n", encoding="utf-8")
+
+        private_only = self._gate()
+        self.assertEqual(private_only.returncode, 0, private_only.stdout + private_only.stderr)
+        private_report = (self.reports / "gate.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "Scope: policy-projected tracked publication candidate",
+            private_report,
+        )
+        self.assertIn("unresolved=0", private_report)
+
+        self._track("README.md", f"STRIPE_KEY={fake_secret}\n")
+        published = self._gate()
+        self.assertEqual(published.returncode, 1, published.stdout + published.stderr)
+        published_report = (self.reports / "gate.md").read_text(encoding="utf-8")
+        self.assertIn("stripe-access-token", published_report)
+        self.assertIn("unresolved=1", published_report)
+
+    def test_skip_worktree_bit_cannot_hide_a_public_secret(self) -> None:
+        fake_secret = "sk_" + "live_51SparseCandidateFakeCredential999999"
+        self._track("README.md", f"STRIPE_KEY={fake_secret}\n")
+        self._run(
+            ["git", "update-index", "--skip-worktree", "README.md"],
+            check=True,
+        )
+
+        result = self._gate()
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        report = (self.reports / "gate.md").read_text(encoding="utf-8")
+        self.assertIn("stripe-access-token", report)
+        self.assertIn("unresolved=1", report)
+
     def test_current_drift_documentation_passes_but_stale_names_and_fill_values_fail(self) -> None:
         self._track(
             "docs/adding-a-specialist.md",

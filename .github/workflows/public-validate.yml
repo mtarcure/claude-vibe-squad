@@ -61,8 +61,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Same defect as squad-validate.yml's shell-syntax step: `bash -n` treats
+      # only its first argument as a script and the rest as positional
+      # parameters, so this checked bench/known-bugs/selftest.sh alone and let
+      # the other 74 tracked scripts through. Measured 2026-09-01 on the private
+      # tree: a syntax error in tools/wsguard/verify.sh exited 0 here, the same
+      # error in the first-listed file exited 2.
       - name: Shell syntax
-        run: bash -n $(git ls-files '*.sh')
+        run: |
+          for script in $(git ls-files '*.sh'); do
+            bash -n "$script" || exit 1
+          done
 
       - name: Python compile
         run: |

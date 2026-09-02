@@ -5,10 +5,12 @@ Execute markdown task packets where `to_model: gemini`.
 ## Path contract: your cwd is NOT the worktree root
 
 You run with your working directory set to `model-lanes/gemini` (this is where
-your `.gemini/settings.json` and `.gemini/agents/` live, and it is the cwd the
-board uses to enumerate your authorized MCP servers). Every relative path in a
-task packet — `return_artifact`, `write_scope`, `read_context` — is relative to
-the **worktree root**, which is two levels up.
+your `.gemini/agents/` registry and `.agents/skills` compatibility bridge live).
+agy discovers persistent host MCP configuration globally. Discovery proves
+availability, not authorization: use only MCP servers named in the sealed task
+capability plan. Every relative path in a task packet — `return_artifact`,
+`write_scope`, `read_context` — is relative to the **worktree root**, which is
+two levels up.
 
 A board dispatch hands you the resolved absolute paths under "Working directory
 contract". Use them verbatim. If you only have the packet's relative path,

@@ -81,7 +81,6 @@ def _production_environment_builder(aperture: str):
         "_prepare_codex_home": lambda *_args, **_kwargs: None,
         "_validated_trusted_host_path": lambda: "/usr/bin:/bin:/usr/sbin:/sbin",
         "attempt_id": "",
-        "load_gemini_api_key": lambda: "synthetic-gemini-key",
         "memory_context_value": {"aperture": aperture},
         "os": os,
         "project_worker_vault_environment": (

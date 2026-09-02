@@ -32,8 +32,27 @@ class RuntimeToolSummaryTests(unittest.TestCase):
             if any(tool["id"] == "perplexity_search" for tool in entry["tools"])
         ]
         self.assertTrue(perplexity_entries)
-        self.assertTrue(
-            all(lane in {"claude", "gpt-codex"} for _specialist, lane in perplexity_entries)
+        with (ROOT / "shared/registries/skill-tool-registry.tsv").open(
+            encoding="utf-8", newline=""
+        ) as stream:
+            registry_rows = list(csv.DictReader(stream, delimiter="\t"))
+
+        def registry_source_lanes(name: str) -> set[str]:
+            matching = [
+                row
+                for row in registry_rows
+                if row["name"] == name
+            ]
+            self.assertEqual(len(matching), 1)
+            return {
+                module.LANE_NAMES[lane]
+                for lane in matching[0]["lanes"].split("|")
+            }
+
+        allowed_lanes = registry_source_lanes("perplexity_search")
+        self.assertEqual(
+            [entry for entry in perplexity_entries if entry[1] not in allowed_lanes],
+            [],
         )
         self.assertFalse(
             any(
@@ -44,14 +63,20 @@ class RuntimeToolSummaryTests(unittest.TestCase):
         )
         rows = module.project_runtime_tools(ROOT)
         self.assertEqual(rows["backend-engineer"]["required_tools"], ())
+        runtime_rows = module.load_runtime_rows(ROOT)
+        backend_lane = module.LANE_NAMES[
+            runtime_rows["backend-engineer"]["primary_lane"]
+        ]
+        expected_backend_tools = {
+            "chrono-research-arsenal",
+            "chrono-vault",
+            "sequential-thinking",
+        }
+        if backend_lane in registry_source_lanes("context7"):
+            expected_backend_tools.add("context7")
         self.assertEqual(
             rows["backend-engineer"]["preferred_tools"],
-            (
-                "chrono-research-arsenal",
-                "chrono-vault",
-                "context7",
-                "sequential-thinking",
-            ),
+            tuple(sorted(expected_backend_tools, key=str.casefold)),
         )
         self.assertEqual(
             rows["frontend-engineer"]["required_tools"],

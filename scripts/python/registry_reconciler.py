@@ -2366,19 +2366,188 @@ def append_terminal_event(
     return True
 
 
-def capability_response_issue(entry: dict[str, Any], response: Path) -> str:
-    """Return a pin-echo failure; empty means the dispatched snapshot matches."""
+def _authority_attempt_fence_echoed(
+    entry: dict[str, Any], meta: dict[str, str]
+) -> bool:
+    """True when a response echoes the exact attempt fence only we can know.
+
+    ``delivery_attempt_id`` is a fresh uuid4 minted at registry insertion
+    (``bin/send-task.sh``) and is not in the packet, and a board worker's
+    worktree registry is a stub.
+
+    **What this proof does and does not establish.** It blocks CROSS-DISPATCH
+    replay: a response carrying another dispatch's fence names a different
+    attempt and is refused. It does NOT block the worker of *this* attempt from
+    authoring the pair, because ``dispatch_context_builder`` puts the id in the
+    worker's own launch prompt verbatim (``:1408``, reaching ``task_prompt`` at
+    ``:1678``/``:1779``): "this launch is already bound to the registry attempt
+    {attempt_id}, generation {generation}". An earlier version of this docstring
+    claimed a worker could not author the pair. That was wrong -- "not in the
+    packet" is true and does not imply "unknown to the worker", and the gap
+    between those two is the whole residual hole. See
+    ``docs/standards/settlement-guard-coverage.md``. On the board rail
+    :func:`landed_response` already refuses any response whose fence does not
+    match this entry, so the proof is free there and nothing changes; on the
+    V1 rail, where that function checks nothing, this is the only proof there
+    is. ``publish_blocked_completion`` writes the same two rows, which is what
+    keeps the authority's own pre-launch block settleable.
+    """
+    attempt = str(entry.get("delivery_attempt_id") or "")
+    generation = entry.get("delivery_generation")
+    generation = 1 if generation is None else generation
+    if not attempt or isinstance(generation, bool) or not isinstance(generation, int):
+        return False
+    return (
+        meta.get("delivery_attempt_id", "").strip() == attempt
+        and meta.get("delivery_generation", "").strip() == str(generation)
+    )
+
+
+def capability_pin_echo(entry: dict[str, Any], response: Path) -> tuple[str, str]:
+    """Return ``(blocking_issue, absence_note)`` for the dispatched card pin.
+
+    Settlement's kernel admits a pin check only as its first question -- *is
+    this the current admitted attempt?* (``shared/protocol.md``, "a finished
+    attempt settles on exactly these four questions"). The two echo outcomes
+    answer that question very differently.
+
+    A **mismatched** echo answers it affirmatively and negatively: the response
+    asserts a capability snapshot the registry never dispatched, so it is not
+    the admitted attempt. That still blocks.
+
+    An **absent** echo answers nothing on its own, and its meaning depends
+    entirely on who wrote the response. ``shared/protocol.md`` promises that a
+    worker cannot author this row -- ``packet_reconciliation_echo`` lifts it
+    from the packet, output promotion re-emits it, a worker-authored value is
+    discarded -- but it makes that promise **on the board rail**, and the V1
+    compatibility rail does not carry it. There :func:`landed_response`
+    validates nothing about the response it selects (not ``id``, not
+    ``in_response_to``, not ``type``, not the attempt fence, and it does not
+    reject duplicate frontmatter keys), and :func:`worker_response_issue`
+    returns early for any entry without ``delivery_worker_id``. On that rail
+    the pin echo is the only thing binding a landed response to the dispatched
+    attempt, so waiving its absence unconditionally waives all of it.
+
+    So absence is judged by whether the launch authority provably wrote the
+    row -- see :func:`_authority_attempt_fence_echoed`. When it did, absence
+    means our own promotion path dropped it: exactly audit CC-03, where
+    promotion emitted only the seven identity rows and every pinned completion
+    became unsettleable, and exactly what ``publish_blocked_completion`` still
+    does when the dispatcher blocks a pinned task before launch. The finished
+    worker cannot go back and add the row, and the registry's own
+    ``capability_card_sha256`` -- not the echo -- is what settlement already
+    trusts. That absence is an advisory to record and announce.
+
+    When the authority cannot be shown to have written it, the response is
+    simply unidentified, which is settlement question 1, and it blocks. Its
+    owner clears it at this boundary: Chrono runs ``--repair-envelope``, which
+    re-renders the envelope from the locked registry pins, this row included.
+    """
     pinned = str(entry.get("capability_card_sha256") or "").strip()
     if not pinned:
-        return ""
-    echoed = strip_frontmatter(read_text(response)).get(
-        "capability_card_sha256", ""
-    ).strip()
+        return "", ""
+    text = read_text(response)
+    echoed = strip_frontmatter(text).get("capability_card_sha256", "").strip()
+    absent = "missing capability_card_sha256 echo"
     if not echoed:
-        return "missing capability_card_sha256 echo"
+        # The PROOF alone is read with duplicates rejected. A repeated row is
+        # not something the deterministic renderer emits, so a file carrying
+        # one is not the authority's, and last-value-wins would otherwise let a
+        # forged response append the real fence after a decoy and buy the
+        # waiver. The pin comparison above keeps its ordinary parse, so nothing
+        # that settles today stops settling for a reason it is not told.
+        if not _authority_attempt_fence_echoed(
+            entry, strip_frontmatter(text, reject_duplicates=True)
+        ):
+            return (
+                f"{absent}, and no launch-authority attempt fence shows the "
+                "row was ours to write",
+                "",
+            )
+        return "", absent
     if echoed != pinned:
-        return f"capability_card_sha256 mismatch: dispatched={pinned} response={echoed}"
-    return ""
+        return (
+            f"capability_card_sha256 mismatch: dispatched={pinned} response={echoed}",
+            "",
+        )
+    return "", ""
+
+
+def capability_response_issue(entry: dict[str, Any], response: Path) -> str:
+    """Return a *blocking* pin-echo failure; empty means nothing blocks."""
+    return capability_pin_echo(entry, response)[0]
+
+
+def worker_lease_absence(entry: dict[str, Any]) -> str:
+    """Return an advisory when an assigned task carries no worker lease.
+
+    A missing ``lease_expires_at`` is a registry defect, never a response
+    defect. ``bin/send-task.sh`` writes it as ``None`` and
+    :func:`ensure_compatibility_defaults` re-``setdefault``s that; only the
+    scheduler ever writes a real one, and the key is not among
+    ``dispatch_context_builder.RECONCILIATION_ECHO_KEYS``, so no promoted
+    envelope can carry it. The worker cannot write the registry, so the owner
+    this would block has no way to clear it at this boundary -- the third
+    clause of the block-a-boundary rule. It warns instead of denying.
+    """
+    if not entry.get("delivery_worker_id"):
+        return ""
+    if parse_dt(entry.get("lease_expires_at")) is not None:
+        return ""
+    return "assigned worker task is missing lease_expires_at"
+
+
+def record_settlement_advisories(
+    entry: dict[str, Any],
+    task_id: str,
+    namespace: str,
+    messages: list[str],
+    events: list[tuple[str, str, str, str]],
+    capability_echo_absent: str,
+) -> bool:
+    """Record non-blocking settlement observations; True when the entry moved.
+
+    These are the conditions settlement is allowed to *notice* but not to deny
+    on, because the finished attempt neither caused them nor can clear them
+    here. ``shared/protocol.md`` prescribes the alternative directly -- such a
+    check "must queue, warn, or run at the boundary that owns it" -- so each
+    note is written onto the registry entry and announced once, and the task
+    settles. Re-announcing is suppressed while a note is unchanged, and the key
+    is dropped the moment the condition clears, so a later repair is visible.
+
+    The set is closed, and both call sites -- the sweep and ``--settle-review``
+    -- owe all of it. So the table is here rather than assembled by each caller
+    from a key the caller has to spell right; the only thing a caller knows
+    that this cannot work out for itself is the pin-echo absence, which comes
+    from the response.
+    """
+    # (registry key the note is stored under, the token the message prints,
+    # the note). Both identifiers are stable: a reader who greps either one
+    # lands here, on the condition that produces it.
+    advisories = (
+        ("capability_echo_absence", "capability-echo-absent", capability_echo_absent),
+        ("worker_lease_absence", "worker-lease-absent", worker_lease_absence(entry)),
+    )
+    changed = False
+    for key, label, note in advisories:
+        if note:
+            if str(entry.get(key) or "") != note:
+                changed = True
+                messages.append(f"{label} {task_id} -> {note}")
+                events.append(
+                    (
+                        "SETTLEMENT-ADVISORY",
+                        f"{namespace}/{task_id}",
+                        note,
+                        f"SETTLEMENT ADVISORY: {task_id} {note}. The task "
+                        "SETTLES; this is a dispatch/registry defect no worker "
+                        "could have prevented, recorded on the entry for repair.",
+                    )
+                )
+            entry[key] = note
+        elif entry.pop(key, None) is not None:
+            changed = True
+    return changed
 
 
 def worker_response_issue(
@@ -2393,12 +2562,18 @@ def worker_response_issue(
     state = str(entry.get("worker_assignment_state") or "")
     if state in {"expired", "silent"} or entry.get("worker_cancel_reason"):
         return f"worker assignment is terminal: {state}"
+    # A lease we never wrote cannot be a reason to hold a finished response;
+    # see :func:`worker_lease_absence`. When a lease IS present, an overrun
+    # still holds: the attempt was admitted only for that window, so a response
+    # landing outside it is not the admitted attempt. Every remaining check
+    # below is an authority-written echo the response genuinely does carry, so
+    # dropping the absence case narrows nothing else.
     expiry = parse_dt(entry.get("lease_expires_at"))
-    if expiry is None:
-        return "assigned worker task is missing lease_expires_at"
-    if schema == "v1" and datetime.fromtimestamp(
-        response.stat().st_mtime, tz=timezone.utc
-    ) > expiry:
+    if (
+        expiry is not None
+        and schema == "v1"
+        and datetime.fromtimestamp(response.stat().st_mtime, tz=timezone.utc) > expiry
+    ):
         return "response landed after worker lease expiry"
 
     meta = strip_frontmatter(read_text(response))
@@ -3220,6 +3395,10 @@ def settle_review(task_id: str, review_ref: str, *, force: bool = False) -> bool
     # receipt until the registry lock has been released, even if a later queue
     # write raises after the settlement itself has landed.
     deferred_promotion: tuple[str, str, str] | None = None
+    # Advisories are queued only after the settlement itself has landed, for the
+    # same reason the promotion receipt is: nothing that merely reports may hold
+    # the global registry lock.
+    deferred_advisories: list[tuple[str, str, str, str]] = []
     try:
         with locked_registry() as _lock:
             registry = load_registry()
@@ -3241,7 +3420,7 @@ def settle_review(task_id: str, review_ref: str, *, force: bool = False) -> bool
             )
             if response is None:
                 raise ValueError(f"task has no landed response: {task_id}")
-            issue = capability_response_issue(entry, response)
+            issue, capability_echo_absent = capability_pin_echo(entry, response)
             if issue:
                 raise ValueError(
                     f"task response does not match dispatched capability snapshot: {issue}"
@@ -3288,6 +3467,15 @@ def settle_review(task_id: str, review_ref: str, *, force: bool = False) -> bool
 
             now = datetime.now(timezone.utc)
             update_capability_card_drift(entry, now)
+            # The explicit path crosses the same boundary as the sweep, so it
+            # owes the same record: conditions it may observe but not deny on.
+            # The notes go onto the entry now, so the pending write carries
+            # them; announcing them waits until that write has actually landed.
+            namespace = _canonical_mailbox_label()
+            advisory_events: list[tuple[str, str, str, str]] = []
+            record_settlement_advisories(
+                entry, task_id, namespace, [], advisory_events, capability_echo_absent
+            )
             entry["status"] = "complete"
             entry["completed_at"] = now.isoformat()
             entry["reconciled_at"] = now.isoformat()
@@ -3305,10 +3493,12 @@ def settle_review(task_id: str, review_ref: str, *, force: bool = False) -> bool
             entry.pop("review_blocking_ref", None)
             entry.pop("review_signature", None)
             atomic_write(REGISTRY_PATH, json.dumps(registry, indent=2, ensure_ascii=False) + "\n")
-            namespace = _canonical_mailbox_label()
+            deferred_advisories = advisory_events
             deferred_promotion = (namespace, verdict, review_class)
     finally:
         # Runs only after `locked_registry()` has released.
+        for advisory_status, advisory_ref, advisory_summary, _nudge in deferred_advisories:
+            append_chrono_queue(advisory_status, advisory_ref, advisory_summary)
         if deferred_promotion is not None:
             promotion_namespace, promotion_verdict, promotion_class = deferred_promotion
             append_chrono_queue(
@@ -4709,7 +4899,9 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                             "the dispatched snapshot remains authoritative for settlement.",
                         )
                     )
-                capability_issue = capability_response_issue(raw_entry, response)
+                capability_issue, capability_echo_absent = capability_pin_echo(
+                    raw_entry, response
+                )
                 worker_issue = worker_response_issue(task_id, raw_entry, response, schema)
                 contract_issue = capability_issue or worker_issue
                 if contract_issue:
@@ -4808,6 +5000,13 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                 contract_issue_cleared = (
                     capability_issue_cleared or worker_issue_cleared or hash_issue_cleared
                 )
+                # Conditions this boundary may observe but must not deny on:
+                # the attempt did not cause them and its owner cannot clear
+                # them here, so they are recorded and announced instead of
+                # held. See capability_pin_echo and worker_lease_absence.
+                advisory_changed = record_settlement_advisories(
+                    raw_entry, task_id, namespace, messages, events, capability_echo_absent
+                )
                 worker_status = status
                 raw_worker_status = raw_response_status(response)
                 controller_quarantine = (
@@ -4895,6 +5094,7 @@ def reconcile(task_id_filter: str | None, dry_run: bool) -> tuple[int, list[str]
                         or obsolete_present
                         or drift_changed
                         or contract_issue_cleared
+                        or advisory_changed
                         or delivery_changed
                         or outcome_metadata_changed
                     )
