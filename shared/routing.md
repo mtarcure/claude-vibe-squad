@@ -34,7 +34,7 @@ Every specialist row carries a full chain, resolved from the profile registry:
 
 | lane | frontier model (primary) | escalate | best-fit capability |
 |------|--------------------------|----------|---------------------|
-| codex | `gpt-5.6-sol` (high) | `gpt-5.6-sol` Ultra/max | implementation · tests · PoC · experimental probing · code review mechanics · graphics/runtime |
+| codex | `gpt-5.6-sol` (high) | `gpt-5.6-sol` Ultra/max | implementation · tests · PoC · experimental probing · code review mechanics · graphics/runtime. Offensive-security specialists lead with `gpt-daybreak-blue-latest` (`model_specialty: cyber`) and fall back to sol. `gpt-6-astra` is available and unbound: independent measurement puts it at parity with sol on general intelligence and +2 on coding agents at 2.5x the rate, and Codex runs both at the same 272k context |
 | claude | `claude-fable-5` (xhigh) | `claude-fable-5` max | judgment · planning · safety/security reasoning · security defense · research/synthesis/long-context · developmental content · game/level/audio design |
 | gemini | `gemini-3.8-flash-medium` | `gemini-3.8-flash-high` (high) | content/text · design · media/multimodal · large-context analysis · **search grounding (live · OAuth-backed — Google Search grounding, first-class Rule-8 route)** |
 | kimi | `kimi-code/k3` (high, thinking) | `kimi-code/k3-256k` | allowlisted primaries (summarization and blank-advisor parity); otherwise throughput-only |

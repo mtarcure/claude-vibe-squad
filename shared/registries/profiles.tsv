@@ -3,12 +3,15 @@ claude.fable.high	claude	claude-fable-5	high	none	primary
 claude.fable.max	claude	claude-fable-5	max	none	escalation
 claude.fable.xhigh	claude	claude-fable-5	xhigh	none	primary
 claude.haiku.default	claude	claude-haiku-4-5	default	none	optional-routine
-claude.mythos.default	claude	claude-mythos-5	default	glasswing-only	optional-routine
+claude.mythos.default	claude	claude-mythos-5	default	glasswing-only	unreachable-no-access
 claude.opus.default	claude	claude-opus-5	default	native-fallback	native-fallback-only
 claude.opus5.high	claude	claude-opus-5	high	none	primary
 claude.opus5.max	claude	claude-opus-5	max	none	primary
 claude.opus5.xhigh	claude	claude-opus-5	xhigh	none	primary
 claude.sonnet.default	claude	claude-sonnet-5	default	native-fallback-tail	native-fallback-only
+codex.astra.default	codex	gpt-6-astra	default	none	optional-routine
+codex.astra.max	codex	gpt-6-astra	max	none	optional-routine
+codex.daybreak.default	codex	gpt-daybreak-blue-latest	default	none	optional-routine
 codex.sol.high	codex	gpt-5.6-sol	high	none	primary
 codex.sol.ultra	codex	gpt-5.6-sol	max	ultra	escalation
 codex.terra.default	codex	gpt-5.6-terra	default	none	optional-routine
