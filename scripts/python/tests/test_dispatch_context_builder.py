@@ -298,7 +298,7 @@ class DispatchContextBuilderTests(unittest.TestCase):
                     "claude.opus5.xhigh",
                 },
                 "codex": {"codex.sol.high", "codex.sol.ultra"},
-                "gemini": {"gemini.flash.default", "gemini.pro.deep"},
+                "gemini": {"gemini.flash.default", "gemini.flash.high"},
                 # Profiles are inventoried from live runtime-map selections;
                 # 4.5 is available for overrides but Smokey selects 4.6.
                 "grok": {"grok.4.6.default"},

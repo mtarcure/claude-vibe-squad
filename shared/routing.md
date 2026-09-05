@@ -28,7 +28,7 @@ Every specialist row carries a full chain, resolved from the profile registry:
 - `throughput_lane` + `throughput_profile` + `throughput_policy` — the bulk/downshift route, gated (see §5).
 - `failover_policy`, `escalation_policy` — versioned policy IDs (see §5–§6), not per-row prose.
 
-`*_profile` values resolve through the **profile registry** to an exact model + effort + flags — e.g. `codex.sol.high`, `codex.sol.ultra`, `claude.fable.xhigh`, `claude.fable.max`, `gemini.flash.default`, `gemini.pro.deep`, `kimi.k2.7.bulk`. Claude also keeps `claude.opus.default` / `claude.sonnet.default` as **native in-lane fallback only** (`--fallback-model`), not standing lanes.
+`*_profile` values resolve through the **profile registry** to an exact model + effort + flags — e.g. `codex.sol.high`, `codex.sol.ultra`, `claude.fable.xhigh`, `claude.fable.max`, `gemini.flash.default`, `gemini.flash.high`, `kimi.k2.7.bulk`. Claude also keeps `claude.opus.default` / `claude.sonnet.default` as **native in-lane fallback only** (`--fallback-model`), not standing lanes.
 
 ## 3. Lanes, models, and capability fit
 
@@ -36,9 +36,9 @@ Every specialist row carries a full chain, resolved from the profile registry:
 |------|--------------------------|----------|---------------------|
 | codex | `gpt-5.6-sol` (high) | `gpt-5.6-sol` Ultra/max | implementation · tests · PoC · experimental probing · code review mechanics · graphics/runtime |
 | claude | `claude-fable-5` (xhigh) | `claude-fable-5` max | judgment · planning · safety/security reasoning · security defense · research/synthesis/long-context · developmental content · game/level/audio design |
-| gemini | `gemini-3.7-flash-medium` | `gemini-3.1-pro-high` (deep) | content/text · design · media/multimodal · large-context analysis · **search grounding (live · OAuth-backed — Google Search grounding, first-class Rule-8 route)** |
+| gemini | `gemini-3.8-flash-medium` | `gemini-3.8-flash-high` (high) | content/text · design · media/multimodal · large-context analysis · **search grounding (live · OAuth-backed — Google Search grounding, first-class Rule-8 route)** |
 | kimi | `kimi-code/k3` (high, thinking) | `kimi-code/k3-256k` | allowlisted primaries (summarization and blank-advisor parity); otherwise throughput-only |
-| grok | `grok-4.6` (default) | `grok-4.5` | `smokey` advisor; escalate route for `research` and `bounty-researcher`. Native X/Twitter search, subscription-backed. `read_file` ceiling ~25k tokens — use shell or paged ingest for large documents |
+| grok | `grok-4.6` (default) | `grok-4.6` (same model; no higher grok tier is bound) | `smokey` advisor; escalate route for `research` and `bounty-researcher`. Native X/Twitter search, subscription-backed. `read_file` ceiling ~25k tokens — use shell or paged ingest for large documents |
 
 **Live-launcher model binding.** For every lane, the board attests the resolved
 `shared/registries/profiles.tsv` row and passes that row's `model_id` as the native CLI's exact `--model`
@@ -49,7 +49,7 @@ remain aligned for Codex, Claude, Gemini, and Kimi.
 `primary_default kimi deny` plus **two** operator-ratified `primary_exception` rows:
 
 - `summarizer` (`kimi.k3.high`) — low-risk summarization of supplied documents only; Claude review remains required before consequential use.
-- `kestrel` (`kimi.k3.max`) — advisory-only blank-model parity across all four families. MCP work is lead-brokered on Kimi, and Codex is the cross-family reviewer.
+- `kestrel` (`kimi.k3.max`) — advisory-only blank-model parity across all five families (`sol`/codex, `fable`/claude, `vega`/gemini, `kestrel`/kimi, `smokey`/grok). MCP work is lead-brokered on Kimi, and Codex is the cross-family reviewer.
 
 For those roles Kimi is a real primary, not a downshift. Outside the allowlist it remains a **gated throughput
 lane** and the data-extraction bulk backup: `kimi.k2.7.bulk` → `kimi-code/kimi-for-coding-highspeed`, marked
@@ -96,7 +96,7 @@ failover_policy = failover.conservative.v1   (all rows)
 - HARD signals (`dispatch_ack` failure, confirmed process exit, or a typed provider error) are evidence to surface, not a dispatch trigger. Ambiguous / slow / silent / missed-heartbeat / deadline observations also surface and never select or launch a backup.
 - The ordinary board descriptor, receipt, and registry fences retain process and publication evidence; no parallel attempt ledger exists.
 - After the native Claude fallback chain is observed terminal, the operator may direct Chrono to author a new ordinary board packet using the mapped backup. That packet passes the same dispatch, scope, gate, and review checks as any other task.
-- **Opus** is Claude's native fallback only (overload / in-family safety fallback), never a standing lane. Carve-out/heightened work exhausted on the in-family chain **surfaces** rather than laundering cross-family.
+- **Opus** serves two distinct roles, and conflating them is what made this line wrong. `claude.opus.default` (default effort, `native-fallback` flag) is the in-family overload/safety fallback and never a standing lane. `claude.opus5.high` / `.max` / `.xhigh` are `usage: primary` in the registry and are the standing primary route for 13 of 71 specialists, including `architect`, `incident-responder` and `impact-validator`. Carve-out/heightened work exhausted on the in-family chain **surfaces** rather than laundering cross-family.
 
 ## 7. Dispatch contract
 

@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -716,3 +717,67 @@ class AttributionRecoveryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DistillRetryTests(unittest.TestCase):
+    """A distiller that exits 0 with empty stdout is a retryable non-answer.
+
+    Measured 2026-09-02 on `gemini-3.8-flash-medium`: 5 of 10 runs over the same
+    input returned exit 0, empty stdout, and a stderr saying a tool permission
+    was auto-denied because headless mode cannot prompt. `gemini-3.7-flash-medium`
+    and `gemini-3.8-flash-low` each returned valid JSON 5 of 5 and 10 of 10. The
+    model reaching for a tool during a pure text transform is the trigger; a
+    single-shot call turns it into a permanently lost memory.
+    """
+
+    CONTEXT = {"role": "editor", "mode": "project", "namespace": "content"}
+    DENIED = (
+        'jetski: no output produced — a tool required the "mcp" permission that '
+        "headless mode cannot prompt for, so it was auto-denied."
+    )
+    GOOD = '{"title": "A claim", "body": "Why it holds.", "keywords": ["one"]}'
+
+    def _run_returning(self, *results):
+        calls = []
+
+        def fake_run(command, **kwargs):
+            calls.append(command)
+            stdout, stderr = results[min(len(calls) - 1, len(results) - 1)]
+            return subprocess.CompletedProcess(
+                args=command, returncode=0, stdout=stdout, stderr=stderr
+            )
+
+        return calls, fake_run
+
+    def setUp(self) -> None:
+        # This module is hermetic: the distiller is injected, never invoked.
+        # These tests exercise `distill()` itself, so they must still not touch
+        # the host -- `_lane_executable` resolves a real `agy` binary and CI has
+        # none, which is exactly how the first version of this class failed
+        # there while passing on a developer machine that happens to have it.
+        patcher = mock.patch.object(
+            autocapture, "_lane_executable", lambda cli: Path("/nonexistent/agy")
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_an_empty_answer_is_retried_rather_than_losing_the_note(self) -> None:
+        calls, fake_run = self._run_returning(("", self.DENIED), (self.GOOD, ""))
+        with mock.patch.object(subprocess, "run", fake_run):
+            result = autocapture.distill({"body": "material"}, self.CONTEXT)
+        self.assertEqual(len(calls), 2, "an empty first answer must be retried")
+        self.assertEqual(result["title"], "A claim")
+
+    def test_retries_are_bounded_and_the_failure_stays_loud(self) -> None:
+        calls, fake_run = self._run_returning(("", self.DENIED))
+        with mock.patch.object(subprocess, "run", fake_run):
+            with self.assertRaises(DistillationFailed):
+                autocapture.distill({"body": "material"}, self.CONTEXT)
+        self.assertLessEqual(len(calls), autocapture.DISTILL_MAX_ATTEMPTS)
+        self.assertGreater(len(calls), 1)
+
+    def test_a_non_empty_answer_is_never_retried(self) -> None:
+        calls, fake_run = self._run_returning((self.GOOD, ""))
+        with mock.patch.object(subprocess, "run", fake_run):
+            autocapture.distill({"body": "material"}, self.CONTEXT)
+        self.assertEqual(len(calls), 1, "a usable answer must cost one call")

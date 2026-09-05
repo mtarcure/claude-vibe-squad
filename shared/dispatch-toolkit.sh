@@ -474,7 +474,7 @@ EOF
 - `brand-voice` · operator voice consistency check
 - `video-editor` · video trim/edit/captions
 
-**Research tools:** the Gemini escalation profile currently resolves to `gemini-3.1-pro-high` in `shared/registries/profiles.tsv` and carries native Google Search grounding. For other research tools, use the registry-derived status block and verify the current runtime.
+**Research tools:** the Gemini escalation profile currently resolves to `gemini-3.8-flash-high` in `shared/registries/profiles.tsv` and carries native Google Search grounding. For other research tools, use the registry-derived status block and verify the current runtime.
 
 **Routing reminder:** for deeper multi-source synthesis beyond a quick grounded check, hand off to research namespace.
 

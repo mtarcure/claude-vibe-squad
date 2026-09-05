@@ -96,24 +96,9 @@ def promoted(task_id):
         return False, f"stub at {rel}"
     return True, rel
 
-prunable, keep, rescue = [], [], []
-for wt in sorted(worktrees.glob("d-*")):
-    task = owner.get(wt.name)
-    if task is None or registry.get(task, {}).get("status") not in TERMINAL:
-        keep.append(wt)
-        continue
-    ok, why = promoted(task)
-    (prunable if ok else rescue).append((wt, task, why))
-
-print(f"worktrees: {len(prunable)+len(keep)+len(rescue)}  prunable={len(prunable)}  "
-      f"keep-live={len(keep)}  NEEDS-RESCUE={len(rescue)}")
-for wt, task, why in rescue:
-    print(f"  RESCUE  {wt.name}  {task}  ({why})")
-
-if mode == "report":
-    print("\nreport only — rerun with --preserve or --apply")
-    sys.exit(0)
-
+# `residue()` is defined here rather than after the report exit because the
+# CLASSIFICATION needs it: whether a worktree holds anything is a fact about
+# the worktree, and report mode must answer it too.
 def _digest(path):
     h = hashlib.sha256()
     with open(path, "rb") as fh:
@@ -229,6 +214,87 @@ def residue(wt):
             return None
     return out
 
+
+
+def _system_generated(src, wt):
+    """True for residue the SYSTEM wrote, never the worker's work product.
+
+    CLASSIFICATION ONLY -- whether anything here is worth rescuing. `preserve()`
+    still copies every residue file when a rescue happens, so a wrong entry
+    here costs a retained worktree, never a lost file.
+
+    Measured across the 9 standing worktrees: 667 of 673 residue files were
+    these. Counting them made every terminal worktree look like it held work,
+    so prunable stayed permanently 0, the nightly could never clear anything,
+    and the RESCUE list was 9 standing false alarms -- which is where a real
+    one (untracked PoC material, often the only copy) would have been missed.
+
+    Every entry is something the launcher or the interpreter creates, so none
+    can be the only copy of anything:
+      home/               the sandboxed HOME the launcher builds, holding the
+                          interpreter's bytecode cache
+      __pycache__, .pyc   bytecode for the repo's own modules
+      .role-capabilities/ capability-probe output, rewritten per dispatch
+      the launch files the supervisor writes into every worktree
+    """
+    # residue() yields `wt / rel`, so the worktree prefix must come off before
+    # any prefix rule can match. Getting this wrong is silent: the `.pyc` suffix
+    # rule still fired, ~70 of 74 entries were excluded, and the remaining
+    # launch files looked like genuine worker residue.
+    try:
+        rel = str(pathlib.Path(src).relative_to(wt))
+    except ValueError:
+        # Cannot place it inside the worktree: treat as real residue, never
+        # as system-generated. Fail toward keeping the worktree.
+        return False
+    parts = rel.split("/")
+    if parts[0] in ("home", ".role-capabilities"):
+        return True
+    if "__pycache__" in parts or rel.endswith(".pyc"):
+        return True
+    return rel in (
+        ".trusted-launch-request.json",
+        ".trusted-launch-response.json",
+        ".trusted-task-overlay.md",
+        "allowed.txt",
+    )
+
+
+prunable, keep, rescue = [], [], []
+for wt in sorted(worktrees.glob("d-*")):
+    task = owner.get(wt.name)
+    if task is None or registry.get(task, {}).get("status") not in TERMINAL:
+        keep.append(wt)
+        continue
+    ok, why = promoted(task)
+    if ok:
+        prunable.append((wt, task, why))
+        continue
+    # A missing artifact is a fact about the REGISTRY. Whether anything would
+    # be lost is a fact about the WORKTREE, and only the second one decides a
+    # rescue. A cancelled task never had an artifact and a canary never
+    # produced one; judging those by the registry alone flagged them
+    # NEEDS-RESCUE forever, so the nightly could never clear them and the real
+    # rescues drowned in the standing false alarms.
+    found = residue(wt)
+    if found is not None:
+        found = [row for row in found if not _system_generated(row[0], wt)]
+    if found is None:
+        # Fail closed. A census that could not run is not evidence of empty.
+        rescue.append((wt, task, f"{why}; residue census untrusted"))
+    elif found:
+        rescue.append((wt, task, f"{why}; {len(found)} residue file(s)"))
+    else:
+        prunable.append((wt, task, f"{why}; worktree holds no residue"))
+
+print(f"worktrees: {len(prunable)+len(keep)+len(rescue)}  prunable={len(prunable)}  "
+      f"keep-live={len(keep)}  NEEDS-RESCUE={len(rescue)}")
+for wt, task, why in rescue:
+    print(f"  RESCUE  {wt.name}  {task}  ({why})")
+
+if mode == "report":
+    print("\nreport only — rerun with --preserve or --apply")
+    sys.exit(0)
 
 def preserve(wt, task, attempt, out):
     """Copy every residue path out. Returns (ok, count).

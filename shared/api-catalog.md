@@ -588,10 +588,10 @@ reported version 1.1.23 and the help command exited 0.
 - url: N/A (model-side)
 - access: Subscription (likely implicit per model)
 - specialists: research
-- verified: needs-research
-- last_checked: 2026-05-02
-- research_task: confirm grounding on the profile registry's current `gemini-3.1-pro-high` escalation model with a sample grounded query
-- notes: Likely implicit. Critical for content-pane research after Hybrid Path A omits chrono-research-arsenal on gemini.
+- verified: yes
+- last_checked: 2026-09-02
+- research_task: none
+- notes: Implicit and live, no flag or tool declaration required. Board receipt TASK-2026-09-02-1424-452e7ff5e0b358d5 (`research` on `gemini-3.8-flash-high`): a grounded query returned a September 1 2026 news item with real `vertexaisearch` citations, and an undeclared-capability probe in the same run failed closed. Critical for content-pane research after Hybrid Path A omits chrono-research-arsenal on gemini.
 
 ### Jules (Google coding agent)
 - url: https://jules.google

@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Routing
+
+- The gemini lane moved to Gemini 3.8 Flash. `gemini.flash.default` resolves to `gemini-3.8-flash-medium`, and a new `gemini.flash.high` profile pins `gemini-3.8-flash-high`. Nine specialists inherited the primary bump through the profile ID alone; no runtime-map row had to change for it.
+- The gemini escalation tier left `gemini-3.1-pro-high`. Twenty references across eighteen specialists — seven primary, thirteen escalation — now resolve to `gemini.flash.high`. Measured before the rebind: Artificial Analysis Intelligence Index 59 against 48, output 305 against 103 tokens/second, blended price $0.58 against $1.74 per 1M. Both models carry a 1M-token context, so `large-context-analyst` gives up nothing by escalating to Flash. Google Search grounding was confirmed live on `gemini-3.8-flash-high` against the 3.1 Pro baseline, which the `research`, `bounty-researcher` and `content-verifier` routes depend on.
+- Two parity probes went through the ordinary board and both returned PASS. `research` on `gemini-3.8-flash-high` self-reported the pinned model, grounded a September 1 2026 news item with real citations, and failed closed on an undeclared capability; `accessibility-engineer` on `gemini-3.8-flash-medium` did real discipline work, executed a declared `chrono-vault` operation, and reported the absent one as `needs_tool` rather than substituting. `shared/api-catalog.md` moves Google Search grounding from `verified: needs-research` (last checked 2026-05-02) to `verified: yes` on that receipt.
+- Gemini escalation is now the same model at higher effort, which is what the claude (`fable.xhigh` -> `fable.max`) and codex (`sol.high` -> `sol.ultra`) lanes already did. `gemini.pro.deep` stays in the registry pinned to 3.1 Pro, still `usage: escalation`, but no specialist row selects it any more. Whether a profile is bound is derivable from `shared/specialist-runtime-map.tsv` in one pass, so it is not written into the registry where it could go stale.
+
+### Lane capabilities
+
+- `sequential-thinking` is registered on the agy-backed gemini lane and declared in its `mcp_surface`. Gemini was the only lane without it; codex, claude, grok and kimi all had it. The defect was not a missing declaration — 17 of the 18 gemini specialists already asserted `availability: available` with `evidence: lane-inventory`, and the lane inventory never contained the server, so adapters projected a capability the runtime refused. A board probe confirmed `sequentialthinking` executed and returned thought-tracking state.
+- `chrono-recon` is registered on the agy-backed gemini lane. It was already in gemini's declared `mcp_surface` but absent from the CLI's own configuration, the same declared-versus-live gap. The same probe: `dns_enumerate_tool` returned real A, MX, NS and TXT records for `example.com`, and a negative control against an unregistered server was refused verbatim.
+- Not fixed here: `bin/doctor.sh`'s remaining MCP warning is `mcp-context-protector`, which is absent from disk. `scripts/bootstrap-mcps.sh` reports it but does not install it, and it manages only the four chrono servers, not `chrono-recon`.
+
+### Memory
+
+- The autocapture distiller was losing memories at roughly half rate for one afternoon, and the upgrade in this same release caused it. `autocapture` pointed at `gemini.flash.default` — the specialists' profile — so moving that to Gemini 3.8 Flash moved a background text transform with it. Measured over one fixed input on 2026-09-02: `gemini-3.8-flash-medium` produced usable JSON in 5 of 10 runs, `gemini-3.7-flash-medium` in 5 of 5, `gemini-3.8-flash-low` in 10 of 10. The medium failures were exit 0 with EMPTY stdout and a stderr saying a tool permission was auto-denied because headless mode cannot prompt: the stronger reasoning tier reaches for a tool during a job that has none, and the run dies wearing a success code. `_parse_distilled` then reports "distiller returned no JSON object" and the note is gone.
+- The distiller now has its own profile, `gemini.flash.distill` -> `gemini-3.8-flash-low`, so a specialist-facing model change cannot silently move a background job again. This is the coupling that caused the incident, not the model choice.
+- An unparseable answer is retried once (`DISTILL_MAX_ATTEMPTS`). A timeout and a non-zero exit still raise on the first occurrence: those states persist across a retry, and re-running a timeout costs another 120s to learn nothing. Verified by two tests that fail without the retry, plus 10 live runs with zero distillation failures.
+- Context for the standing doctor warning: of the 74 failures in its 7-day window, 44 were the retired-Gemini-CLI auth error fixed at `4928b84b` (last seen 2026-09-01) and 29 were 120s timeouts (last seen 2026-08-29). The window is backward-looking; it was not reporting a live outage.
+
 ### Security
 
 - `vault_get` (chrono-vault MCP) joined the caller's path onto the vault URL without normalising it, so `../../etc/passwd` read outside the vault. Measured before the fix: `../commands/` resolved to `/commands/`. All five traversal shapes now return `invalid vault path`.

@@ -287,6 +287,133 @@ class BlindCensusIsNotAnEmptyCensusTests(PrunePreservesUntrackedTests):
             f"blocked the delete.\n{result.stdout}",
         )
 
+    # --- classification: rescue must describe the WORKTREE, not the registry ---
+    #
+    # `promoted()` asks whether the declared return_artifact sits at its
+    # declared path. That is a question about the registry, and it was the ONLY
+    # input to the prunable/rescue decision -- so a cancelled task (which never
+    # had an artifact) and a canary (which never produced one) were flagged
+    # NEEDS-RESCUE forever and the nightly could never clear them. Measured on
+    # the maintainer's tree: 9 worktrees, 175 MB, prunable=0 keep-live=0
+    # NEEDS-RESCUE=9, every one of them holding zero residue. A 100% false
+    # positive rate, growing by one per cancelled or canary task.
+    #
+    # The cost is not the disk. It is that a REAL rescue -- untracked bounty
+    # PoC material, which is the only copy -- arrives as the tenth line in a
+    # list of nine permanent false alarms.
+
+    def _run_report(self) -> subprocess.CompletedProcess:
+        env = dict(os.environ, VAULT_ROOT=str(self.root))
+        return subprocess.run(
+            ["bash", str(SCRIPT)], cwd=self.root, env=env,
+            capture_output=True, text=True, check=False,
+        )
+
+    def _unpromote(self) -> None:
+        """Terminal task whose declared artifact is not at its declared path."""
+        (self.root / "departments" / "coding" / "outbox"
+         / f"{TASK}-response.md").unlink()
+
+    def test_an_empty_worktree_with_a_missing_artifact_is_prunable(self) -> None:
+        """Nothing inside means nothing to rescue, whatever the registry says."""
+        self._unpromote()
+        result = self._run_report()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("prunable=1", result.stdout, result.stdout)
+        self.assertIn("NEEDS-RESCUE=0", result.stdout, result.stdout)
+
+    def test_residue_still_rescues_when_the_artifact_is_missing(self) -> None:
+        """Regression guard: the fix must not prune a worktree with work in it.
+
+        Without this, 'empty means prunable' could be widened into 'terminal
+        means prunable' and the reaper would delete the only copy of a PoC.
+        """
+        self._unpromote()
+        (self.worktree / "poc.bin").write_bytes(b"ONLY-COPY")
+        result = self._run_report()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("NEEDS-RESCUE=1", result.stdout, result.stdout)
+        self.assertIn("prunable=0", result.stdout, result.stdout)
+
+    def test_an_untrusted_census_is_never_prunable(self) -> None:
+        """Fail closed. A census that could not run is not evidence of empty.
+
+        This is the same defect the residue() census already guards: git
+        reports an unreadable directory as a WARNING with exit 0 and emits no
+        entry for it, so a blind scan and an empty worktree look identical.
+        Reusing residue() for classification inherits that guard; asserting it
+        here stops a later 'simplification' to a bare `git status` check.
+        """
+        self._unpromote()
+        locked = self.worktree / "locked"
+        locked.mkdir()
+        (locked / "poc.py").write_bytes(b"SECRET-POC")
+        os.chmod(locked, 0o000)
+        self.addCleanup(os.chmod, locked, 0o755)
+        result = self._run_report()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("NEEDS-RESCUE=1", result.stdout, result.stdout)
+        self.assertIn("prunable=0", result.stdout, result.stdout)
+
+    def test_system_generated_residue_alone_does_not_block_pruning(self) -> None:
+        """Interpreter cache and launch scaffolding are not worker work product.
+
+        Measured on the maintainer's tree: 667 of 673 residue files across nine
+        worktrees were these, so every terminal worktree looked like it held
+        work and prunable stayed permanently 0.
+        """
+        self._unpromote()
+        (self.worktree / "allowed.txt").write_text("scope\n", encoding="utf-8")
+        (self.worktree / ".trusted-task-overlay.md").write_text("x\n", encoding="utf-8")
+        cache = self.worktree / "scripts" / "python" / "__pycache__"
+        cache.mkdir(parents=True)
+        (cache / "mod.cpython-313.pyc").write_bytes(b"\x00bytecode")
+        home = self.worktree / "home" / "Library" / "Caches"
+        home.mkdir(parents=True)
+        (home / "cached.pyc").write_bytes(b"\x00bytecode")
+        result = self._run_report()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("prunable=1", result.stdout, result.stdout)
+        self.assertIn("NEEDS-RESCUE=0", result.stdout, result.stdout)
+
+    def test_real_residue_beside_system_residue_still_rescues(self) -> None:
+        """The exclusion must not swallow work that sits next to cache.
+
+        Without this, widening the list would silently start deleting PoCs that
+        happen to share a worktree with a __pycache__ directory -- which every
+        worktree has.
+        """
+        self._unpromote()
+        cache = self.worktree / "scripts" / "python" / "__pycache__"
+        cache.mkdir(parents=True)
+        (cache / "mod.cpython-313.pyc").write_bytes(b"\x00bytecode")
+        (self.worktree / "poc.bin").write_bytes(b"ONLY-COPY")
+        result = self._run_report()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("NEEDS-RESCUE=1", result.stdout, result.stdout)
+        self.assertIn("prunable=0", result.stdout, result.stdout)
+
+    def test_preservation_still_copies_system_residue_when_rescuing(self) -> None:
+        """The exclusion is CLASSIFICATION only.
+
+        Once a worktree is being rescued, preservation copies everything --
+        so a wrong entry in the exclusion list costs a retained worktree,
+        never a lost file.
+        """
+        self._unpromote()
+        cache = self.worktree / "scripts" / "python" / "__pycache__"
+        cache.mkdir(parents=True)
+        (cache / "mod.cpython-313.pyc").write_bytes(b"\x00bytecode")
+        (self.worktree / "poc.bin").write_bytes(b"ONLY-COPY")
+        result = self._run_preserve()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self._preserved_bytes("poc.bin"), b"ONLY-COPY")
+        self.assertEqual(
+            self._preserved_bytes("mod.cpython-313.pyc"), b"\x00bytecode",
+            "preservation must copy system residue too; the exclusion only "
+            "decides WHETHER to rescue, never WHAT to copy",
+        )
+
     def test_a_readable_worktree_is_still_prunable(self) -> None:
         """Control: the fix must not retain every worktree.
 

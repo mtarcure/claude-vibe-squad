@@ -131,3 +131,10 @@ For answers to common questions about this code of conduct, see the FAQ at
 [Mozilla CoC]: https://github.com/mozilla/diversity
 [FAQ]: https://www.contributor-covenant.org/faq
 [translations]: https://www.contributor-covenant.org/translations
+
+---
+
+This Code of Conduct is adapted from the [Contributor Covenant][homepage], version 2.1,
+available at [https://www.contributor-covenant.org/version/2/1/code_of_conduct.html][v2.1].
+The Contributor Covenant is licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+This copy has been modified for this project. It is **not** covered by the repository's MIT licence.

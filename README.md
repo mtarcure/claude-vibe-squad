@@ -5,7 +5,7 @@
 **One coordinator. Five model families. Seventy-one specialists, all written in Markdown you can read and edit.**
 
 ![models](https://img.shields.io/badge/models-Codex%20%C2%B7%20Claude%20%C2%B7%20Gemini%20%C2%B7%20Kimi%20%C2%B7%20Grok-informational)
-![license](https://img.shields.io/badge/license-AGPL--3.0-blue)
+![license](https://img.shields.io/badge/license-MIT-blue)
 ![orchestration](https://img.shields.io/badge/orchestration-native%20CLIs%20%C2%B7%20isolated%20worktrees-success)
 ![version](https://img.shields.io/badge/version-v1.1.5-blue)
 
@@ -213,4 +213,4 @@ Start with the [documentation index](docs/README.md), the
 
 Contributions are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md). Keep generated state, mailbox traffic, credentials, private memory, and authorized-target evidence out of commits.
 
-Vibe Squad is licensed under **AGPL-3.0**. See [LICENSE](LICENSE).
+Except where a file or an accompanying third-party notice says otherwise, the original contents of this repository are Copyright (c) 2026 Matthew A. and licensed under the **MIT License**. See [LICENSE](LICENSE) and [THIRD_PARTY.md](THIRD_PARTY.md).

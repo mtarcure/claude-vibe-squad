@@ -119,7 +119,20 @@ ERROR_DOMINANCE = 0.6
 
 # --- Stage 2: model distillation ----------------------------------------
 
-DISTILL_PROFILE = "gemini.flash.default"
+# The distiller is a pure text transform, NOT specialist work, and it gets its
+# own profile so a specialist-facing model change cannot silently move it. It
+# moved once: `gemini.flash.default` went 3.7 -> 3.8 on 2026-09-02 and this job
+# came along with it. Measured over the same input that afternoon --
+# `gemini-3.8-flash-medium` 5/10, `gemini-3.7-flash-medium` 5/5,
+# `gemini-3.8-flash-low` 10/10. The medium failures were exit 0 with EMPTY
+# stdout and a stderr saying a tool permission was auto-denied because headless
+# mode cannot prompt: the stronger reasoning tier reaches for a tool during a
+# job that has none, and the run dies with a success code. The low tier answers
+# the question instead of shopping for tools, which is all this job wants.
+DISTILL_PROFILE = "gemini.flash.distill"
+# An empty answer is a non-answer, not a verdict, so it is retried. Bounded at
+# two because the failure is independent per run, not a persistent state.
+DISTILL_MAX_ATTEMPTS = 2
 PROFILE_REGISTRY = Path("shared/registries/profiles.tsv")
 DISTILL_TIMEOUT_SECONDS = 120
 MAX_DISTILLED_TITLE_CHARS = 160
@@ -782,29 +795,42 @@ def distill(capture_fields: dict[str, str], context: dict[str, str]) -> dict[str
         "--print",
         _distill_prompt(capture_fields, context),
     ]
-    with tempfile.TemporaryDirectory(prefix="chrono-distill-") as workdir:
-        try:
-            completed = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                env=environment,
-                cwd=workdir,
-                timeout=DISTILL_TIMEOUT_SECONDS,
-                check=False,
-            )
-        except subprocess.TimeoutExpired as exc:
+    unparseable: DistillationFailed | None = None
+    for _attempt in range(DISTILL_MAX_ATTEMPTS):
+        with tempfile.TemporaryDirectory(prefix="chrono-distill-") as workdir:
+            try:
+                completed = subprocess.run(
+                    command,
+                    capture_output=True,
+                    text=True,
+                    env=environment,
+                    cwd=workdir,
+                    timeout=DISTILL_TIMEOUT_SECONDS,
+                    check=False,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise DistillationFailed(
+                    f"distiller timed out after {DISTILL_TIMEOUT_SECONDS}s"
+                ) from exc
+            except OSError as exc:
+                raise DistillationFailed(f"distiller could not run: {exc}") from exc
+        if completed.returncode != 0:
+            detail = _clean_one_line(completed.stderr)[:200] or "no stderr"
             raise DistillationFailed(
-                f"distiller timed out after {DISTILL_TIMEOUT_SECONDS}s"
-            ) from exc
-        except OSError as exc:
-            raise DistillationFailed(f"distiller could not run: {exc}") from exc
-    if completed.returncode != 0:
-        detail = _clean_one_line(completed.stderr)[:200] or "no stderr"
-        raise DistillationFailed(
-            f"distiller exited {completed.returncode}: {detail}"
-        )
-    return _normalize_distilled(_parse_distilled(completed.stdout))
+                f"distiller exited {completed.returncode}: {detail}"
+            )
+        # Only an unparseable answer is retried. A timeout and a non-zero exit
+        # are states that persist across a retry, and re-running a timeout
+        # costs another DISTILL_TIMEOUT_SECONDS to learn nothing; both still
+        # raise on the first occurrence. A bad-field answer raises too --
+        # `_normalize_distilled` is judging content, not liveness.
+        try:
+            parsed = _parse_distilled(completed.stdout)
+        except DistillationFailed as exc:
+            unparseable = exc
+            continue
+        return _normalize_distilled(parsed)
+    raise unparseable
 
 
 _OFF_VALUES = {"0", "off", "false", "no"}
