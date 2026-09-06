@@ -3,7 +3,8 @@
 # Claude Code uses ~/.claude/settings.json + chrono plugins, managed separately.
 #
 # Idempotent: if an MCP is already registered, skip. If missing, register.
-# Sources ~/.config/shell/secrets.zsh for API keys.
+# Loads API keys through shared/load-secrets.sh (process env, secrets dir,
+# env file, then legacy ~/.config/shell/secrets.zsh).
 #
 # Usage:
 #   bash scripts/bootstrap-mcps.sh           # check + register
@@ -12,10 +13,14 @@
 
 set -uo pipefail
 
-export PATH="${HOME}/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:${PATH}"
+# PATH and secrets come from the shared helpers after VAULT_ROOT is known.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 VAULT_ROOT="${VAULT_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd -P)}"
+# shellcheck source=../shared/host-path.sh disable=SC1091
+source "${VAULT_ROOT}/shared/host-path.sh"
+# shellcheck source=../shared/load-secrets.sh disable=SC1091
+source "${VAULT_ROOT}/shared/load-secrets.sh"
 
 DRY_RUN=0
 STATUS_ONLY=0
@@ -26,13 +31,6 @@ for arg in "$@"; do
         --help|-h) sed -n '2,12p' "$0"; exit 0 ;;
     esac
 done
-
-# Source operator secrets
-SECRETS="${HOME}/.config/shell/secrets.zsh"
-if [[ -f "${SECRETS}" ]]; then
-    # shellcheck disable=SC1090
-    source "${SECRETS}"
-fi
 
 CHRONO_PY="${CHRONO_PY:-${VAULT_ROOT}/.venv/bin/python}"
 CHRONO_PLUGINS="${CHRONO_PLUGINS:-${VAULT_ROOT}/plugins}"

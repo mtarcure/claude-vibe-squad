@@ -4,10 +4,10 @@
 
 set -euo pipefail
 
-export PATH="${HOME}/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:${PATH}"
-
 # shellcheck source-path=SCRIPTDIR source=../shared/repo-root.sh disable=SC1091
 source "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")/.." && pwd -P)/shared/repo-root.sh"
+# shellcheck source=../shared/host-path.sh disable=SC1091
+source "${VAULT_ROOT}/shared/host-path.sh"
 
 # Tests may point this read-only census at a disposable tree. There is no
 # corresponding apply variable or mutation path.

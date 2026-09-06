@@ -182,7 +182,7 @@ class WorkerCredentialProvisioningTests(unittest.TestCase):
         cls.research_arsenal_source = RESEARCH_ARSENAL.read_text(encoding="utf-8")
 
     def test_research_loader_reads_all_three_managed_names(self) -> None:
-        start = self.supervisor_source.index("def load_research_api_keys():")
+        start = self.supervisor_source.index("def _unified_secret_values(")
         end = self.supervisor_source.index("\n\ndef load_github_mcp_token", start)
         namespace = {
             "os": os,

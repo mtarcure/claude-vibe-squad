@@ -47,6 +47,9 @@ DOCTOR = REPO / "bin" / "doctor.sh"
 HELPERS = (
     Path("bin") / "doctor-log-home.sh",
     Path("shared") / "repo-root.sh",
+    Path("shared") / "host-path.sh",
+    Path("shared") / "load-secrets.sh",
+    Path("shared") / "launch-dependencies.sh",
 )
 VAULTROOT = REPO / "plugins" / "chrono-vault" / "vaultroot.py"
 

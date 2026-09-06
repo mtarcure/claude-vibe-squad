@@ -27,13 +27,14 @@
 #   2  — dry-run mode (no writes; print what would happen)
 
 set -euo pipefail
-export PATH="${HOME}/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:${PATH}"
 
 # SQUAD_CODE_ROOT holds shipped code; ACTIVE_REGISTRY stays on mutable VAULT_ROOT.
 # Builder/supervisor preserve fixture overrides; otherwise the builder uses
 # shipped code so an operated-on vault need not itself be a checkout.
 # shellcheck source-path=SCRIPTDIR source=../shared/repo-root.sh disable=SC1091
 source "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")/.." && pwd -P)/shared/repo-root.sh"
+# shellcheck source=../shared/host-path.sh disable=SC1091
+source "${VAULT_ROOT}/shared/host-path.sh"
 
 SQUAD_CODE_ROOT="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")/.." && pwd -P)"
 ACTIVE_REGISTRY="${VAULT_ROOT}/_state/active-tasks.json"

@@ -19,10 +19,10 @@
 #   bash bin/squad-monitor.sh            # normal cron mode
 
 set -uo pipefail
-export PATH="${HOME}/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:${PATH}"
-
 # shellcheck source-path=SCRIPTDIR source=../shared/repo-root.sh disable=SC1091
 source "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")/.." && pwd -P)/shared/repo-root.sh"
+# shellcheck source=../shared/host-path.sh disable=SC1091
+source "${VAULT_ROOT}/shared/host-path.sh"
 source "${VAULT_ROOT}/shared/lead-windows.sh"
 source "${VAULT_ROOT}/shared/chrono-pane.sh"
 STATE_DIR="${VAULT_ROOT}/_state/monitor"

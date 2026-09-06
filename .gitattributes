@@ -1,0 +1,7 @@
+*.sh text eol=lf
+*.py text eol=lf
+bin/squad-watch text eol=lf
+.githooks/** text eol=lf
+scripts/container-entrypoint.sh text eol=lf
+Dockerfile text eol=lf
+compose.yaml text eol=lf

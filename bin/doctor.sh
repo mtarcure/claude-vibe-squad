@@ -53,12 +53,12 @@
 
 set -uo pipefail
 
-# launchd's spawn shell doesn't include the user-local CLI directories.
-# Prepend it so CLI presence checks work the same as in operator's interactive shell.
-export PATH="${HOME}/.grok/bin:${HOME}/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:${PATH}"
-
 # shellcheck source-path=SCRIPTDIR source=../shared/repo-root.sh disable=SC1091
 source "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")/.." && pwd -P)/shared/repo-root.sh"
+# launchd's spawn shell doesn't include the user-local CLI directories.
+# host-path.sh prepends ~/.local/bin (and Homebrew on Darwin only).
+# shellcheck source=../shared/host-path.sh disable=SC1091
+source "${VAULT_ROOT}/shared/host-path.sh"
 
 
 # Same interpreter bin/mcp-audit.sh uses: mcp_server.py needs the `mcp`
@@ -750,15 +750,14 @@ for lane in claude codex gemini grok kimi; do
             fi
             ;;
         grok)
-            GROK_SECRET_FILE="${HOME}/.config/shell/secrets.zsh"
-            if [[ -r "${GROK_SECRET_FILE}" ]] \
-                && grep -Eq '^[[:space:]]*(export[[:space:]]+)?XAI_API_KEY=' "${GROK_SECRET_FILE}" 2>/dev/null; then
+            if bash -c 'source "$1" && [[ -n "${XAI_API_KEY+x}" ]]' \
+                _ "${VAULT_ROOT}/shared/load-secrets.sh" >/dev/null 2>&1; then
                 LANE_AUTH_OBSERVED+=("grok=api-key-secret-file")
                 note_unknown "grok login state not verifiable; XAI_API_KEY is declared in the secret store" \
-                    "grok: XAI_API_KEY is declared by .config/shell/secrets.zsh (name presence only — its value is never read or logged). Grok exposes no zero-token authentication status, so key validity is UNDETERMINED."
+                    "grok: XAI_API_KEY is declared by the unified secret loader (name presence only — its value is never read or logged). Grok exposes no zero-token authentication status, so key validity is UNDETERMINED."
             else
                 note_warn "grok has no XAI_API_KEY declaration" \
-                    "grok: XAI_API_KEY is not declared in .config/shell/secrets.zsh, so unattended Grok dispatches cannot authenticate."
+                    "grok: XAI_API_KEY is not declared in any secret source (process env, SQUAD_SECRETS_DIR, SQUAD_ENV_FILE, or secrets.zsh), so unattended Grok dispatches cannot authenticate."
             fi
             ;;
         gemini)
@@ -1316,7 +1315,10 @@ fi
 # than only from ~/Library/LaunchAgents. It also catches the inverse -- a
 # registered job whose script no longer exists -- which previously appeared only
 # as a silent "No such file or directory" in a log nobody reads.
-#
+if [[ "$(uname -s 2>/dev/null || true)" != "Darwin" ]]; then
+    note_skip "launchd checks are not applicable on $(uname -s 2>/dev/null || echo non-Darwin)" \
+        "launchd / LaunchAgents / plutil are Darwin-only — NOT APPLICABLE on this host"
+else
 # Matched on the repo-relative TAIL, not on an absolute VAULT_ROOT prefix: under
 # a git worktree VAULT_ROOT is the worktree, so a prefix match silently reports
 # zero and the check quietly stops checking.
@@ -1430,6 +1432,7 @@ else
         note_ok "all ${LAUNCHD_PROBED} launchd job(s) for this repo are loaded and last exited cleanly" \
             "launchctl print answered for all ${LAUNCHD_PROBED} job(s) running this repository's scripts, and none reported a failing last exit code"
     fi
+fi
 fi
 
 # DECISION (2026-08-11) on docs/brain-map.md: it stays PRIVATE, and doctor
@@ -1662,51 +1665,58 @@ fi
 # this file at every login.
 echo "" >> "${DOCTOR_LOG}"
 echo "## Secrets" >> "${DOCTOR_LOG}"
-SECRETS_FILE="${HOME}/.config/shell/secrets.zsh"
+SECRETS_LOADER="${VAULT_ROOT}/shared/load-secrets.sh"
 MCP_BOOTSTRAP="${VAULT_ROOT}/scripts/bootstrap-mcps.sh"
-if [[ -f "${SECRETS_FILE}" ]]; then
-    note_ok "secrets.zsh present" "secrets.zsh present at ${SECRETS_FILE}"
-    SECRETS_EXPECTED=""
-    if [[ -r "${MCP_BOOTSTRAP}" ]]; then
-        SECRETS_EXPECTED="$(grep -oE '^[[:space:]]*"[a-z-]+\|[^|]*\|[A-Z0-9_ ]+"' \
-            "${MCP_BOOTSTRAP}" 2>/dev/null \
-            | awk -F'|' '{print $3}' | tr -d '"' | tr ' ' '\n' \
-            | grep -E '^[A-Z][A-Z0-9_]+$' | sort -u | tr '\n' ' ')"
-    fi
-    if [[ -z "${SECRETS_EXPECTED// /}" ]]; then
+SECRETS_EXPECTED=""
+if [[ -r "${MCP_BOOTSTRAP}" ]]; then
+    SECRETS_EXPECTED="$(grep -oE '^[[:space:]]*"[a-z-]+\|[^|]*\|[A-Z0-9_ ]+"' \
+        "${MCP_BOOTSTRAP}" 2>/dev/null \
+        | awk -F'|' '{print $3}' | tr -d '"' | tr ' ' '\n' \
+        | grep -E '^[A-Z][A-Z0-9_]+$' | sort -u | tr '\n' ' ')"
+fi
+if [[ -z "${SECRETS_EXPECTED// /}" ]]; then
+    if [[ -f "${HOME}/.config/shell/secrets.zsh" ]] \
+        || [[ -f "${SQUAD_ENV_FILE:-/config/.env}" ]] \
+        || [[ -f "${VAULT_ROOT}/.env" ]] \
+        || [[ -d "${SQUAD_SECRETS_DIR:-/run/secrets}" ]]; then
         note_gate_unknown "secrets.zsh contents were NOT checked: no expected key names could be read" \
-            "scripts/bootstrap-mcps.sh did not yield the per-server environment names, so doctor could not tell a configured secrets.zsh from an empty one — the file's presence is NOT evidence that any integration will work"
+            "scripts/bootstrap-mcps.sh did not yield the per-server environment names, so doctor could not tell a configured secret store from an empty one — presence of any one source is NOT evidence that any integration will work"
     else
-        # Names out, values never. `set +u` because the file is the operator's,
-        # not ours, and an unset reference in it must not abort the probe.
-        SECRETS_MISSING="$( (
-            set +u
-            # shellcheck disable=SC1090
-            . "${SECRETS_FILE}" >/dev/null 2>&1
-            for _secret_name in ${SECRETS_EXPECTED}; do
-                eval "_secret_value=\${${_secret_name}:-}"
-                [[ -n "${_secret_value}" ]] || printf '%s ' "${_secret_name}"
-            done
-        ) 2>/dev/null )"
-        SECRETS_EXPECTED_COUNT="$(printf '%s' "${SECRETS_EXPECTED}" | wc -w | tr -d ' ')"
-        SECRETS_MISSING_COUNT="$(printf '%s' "${SECRETS_MISSING}" | wc -w | tr -d ' ')"
-        if [[ "${SECRETS_MISSING_COUNT}" -eq 0 ]]; then
-            note_ok "secrets.zsh defines all ${SECRETS_EXPECTED_COUNT} key names the MCP registry asks for" \
-                "Sourced in a subshell: every one of the ${SECRETS_EXPECTED_COUNT} environment names scripts/bootstrap-mcps.sh declares is defined and non-empty. No value was read or logged."
-        else
-            note_warn "secrets.zsh is missing ${SECRETS_MISSING_COUNT} of ${SECRETS_EXPECTED_COUNT} expected key name(s): ${SECRETS_MISSING% }" \
-                "Sourced in a subshell: ${SECRETS_MISSING_COUNT} of the ${SECRETS_EXPECTED_COUNT} environment names scripts/bootstrap-mcps.sh declares are unset or empty — ${SECRETS_MISSING% }. Every MCP server that declares one of those names will register and then fail to do anything useful; grep scripts/bootstrap-mcps.sh for the name to see which. Only names were read; no value was logged."
-        fi
+        note_warn "secrets.zsh not configured — optional integrations stay off" \
+            "No secret source in the load order and no MCP key-name list to check — optional MCP integrations stay off; the core markdown rail is unaffected. Setup: docs/getting-started.md § 4."
     fi
+elif [[ ! -r "${SECRETS_LOADER}" ]]; then
+    note_gate_unknown "optional secret contents were NOT checked: shared/load-secrets.sh is unreadable" \
+        "${SECRETS_LOADER} is absent or unreadable — optional MCP key names were NOT checked"
 else
-    # Demoted from ISSUE. The core markdown dispatch rail runs on subscription
-    # CLI auth and needs no secrets file; this gates the OPTIONAL integrations
-    # (research arsenal, media studio, recon). A first run on a clean machine
-    # has no secrets file, and exiting 1 there teaches a new user that doctor's
-    # exit code means nothing. The exit code means "this installation cannot do
-    # its job", not "this installation is not finished being set up".
-    note_warn "secrets.zsh not configured — optional integrations stay off" \
-        "secrets.zsh not present at ${HOME}/.config/shell/secrets.zsh — optional MCP integrations (research arsenal, media studio, recon) stay off; the core markdown rail is unaffected. Setup: docs/getting-started.md § 4. (docs/private-config.md is the do-not-commit policy, not the setup guide.)"
+    # Names out, values never. load-secrets.sh applies process env, secrets
+    # dir, env file, then legacy secrets.zsh. The subshell dies after emitting
+    # missing NAMES, so no later probe can inherit a key.
+    SECRETS_MISSING="$( (
+        set +u
+        # shellcheck disable=SC1090
+        . "${SECRETS_LOADER}" >/dev/null 2>&1
+        for _secret_name in ${SECRETS_EXPECTED}; do
+            eval "_secret_value=\${${_secret_name}:-}"
+            [[ -n "${_secret_value}" ]] || printf '%s ' "${_secret_name}"
+        done
+    ) 2>/dev/null )"
+    SECRETS_EXPECTED_COUNT="$(printf '%s' "${SECRETS_EXPECTED}" | wc -w | tr -d ' ')"
+    SECRETS_MISSING_COUNT="$(printf '%s' "${SECRETS_MISSING}" | wc -w | tr -d ' ')"
+    if [[ "${SECRETS_MISSING_COUNT}" -eq 0 ]]; then
+        note_ok "optional secrets define all ${SECRETS_EXPECTED_COUNT} key names the MCP registry asks for" \
+            "Sourced in a subshell via shared/load-secrets.sh: every one of the ${SECRETS_EXPECTED_COUNT} environment names scripts/bootstrap-mcps.sh declares is defined and non-empty. No value was read or logged."
+    elif [[ "${SECRETS_MISSING_COUNT}" -eq "${SECRETS_EXPECTED_COUNT}" ]] \
+        && [[ ! -f "${HOME}/.config/shell/secrets.zsh" ]] \
+        && [[ ! -f "${SQUAD_ENV_FILE:-/config/.env}" ]] \
+        && [[ ! -f "${VAULT_ROOT}/.env" ]] \
+        && [[ ! -d "${SQUAD_SECRETS_DIR:-/run/secrets}" ]]; then
+        note_warn "secrets.zsh not configured — optional integrations stay off" \
+            "No secret source in the load order (process env, SQUAD_SECRETS_DIR, SQUAD_ENV_FILE, ~/.config/shell/secrets.zsh) defined any of the ${SECRETS_EXPECTED_COUNT} MCP key names — optional MCP integrations stay off; the core markdown rail is unaffected. Setup: docs/getting-started.md § 4."
+    else
+        note_warn "secrets.zsh is missing ${SECRETS_MISSING_COUNT} of ${SECRETS_EXPECTED_COUNT} expected key name(s): ${SECRETS_MISSING% }" \
+            "Sourced in a subshell via shared/load-secrets.sh: ${SECRETS_MISSING_COUNT} of the ${SECRETS_EXPECTED_COUNT} environment names scripts/bootstrap-mcps.sh declares are unset or empty — ${SECRETS_MISSING% }. Only names were read; no value was logged."
+    fi
 fi
 
 # --- 4. Private memory vault + repository accessibility ---

@@ -898,7 +898,13 @@ else
 fi
 
 if [[ "$MOAT_READY" != "1" ]]; then
-    block_suite "moat hermetic" "$MOAT_BLOCK_REASON"
+    # The test image has no Node by design. Host-independent CI must not
+    # report BLOCKED (exit 2) for that omission — same pattern as reconcile.
+    if [[ "${SQUAD_CI_HOST_INDEPENDENT:-0}" == "1" ]]; then
+        skip_suite "moat hermetic" "profile:host-independent:${MOAT_BLOCK_REASON}"
+    else
+        block_suite "moat hermetic" "$MOAT_BLOCK_REASON"
+    fi
 else
     run_suite "moat hermetic" run_moat_fast
 fi

@@ -71,7 +71,7 @@ class SetupDocumentationAuthorityTests(unittest.TestCase):
 
     def test_rewritten_runtime_docs_name_every_required_lane_cli(self) -> None:
         required = set(doctor_fixture.launch_dependencies(ROOT))
-        non_lane = {"tmux", "fswatch", "jq", "curl", "uv"}
+        non_lane = {"tmux", "squad-watch", "jq", "curl", "uv"}
         lane_clis = required - non_lane
         self.assertTrue(lane_clis, "launch dependency authority exposed no lane CLIs")
         for relative in (

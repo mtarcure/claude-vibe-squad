@@ -34,10 +34,20 @@ if [[ -z "${NAMESPACE}" ]]; then
     exit 1
 fi
 
-if [[ "$NOTIFY_ONCE_MODE" == 0 ]] && ! command -v fswatch >/dev/null 2>&1; then
-    echo "fswatch not installed — install with: brew install fswatch"
+_WATCHER_BIN_DIR="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")" && pwd -P)"
+SQUAD_WATCH="${SQUAD_WATCH:-}"
+if [[ -z "${SQUAD_WATCH}" ]]; then
+    if [[ -x "${_WATCHER_BIN_DIR}/squad-watch" ]]; then
+        SQUAD_WATCH="${_WATCHER_BIN_DIR}/squad-watch"
+    elif command -v squad-watch >/dev/null 2>&1; then
+        SQUAD_WATCH="squad-watch"
+    fi
+fi
+if [[ "$NOTIFY_ONCE_MODE" == 0 && -z "${SQUAD_WATCH}" ]]; then
+    echo "squad-watch not installed — it lives at bin/squad-watch and selects fswatch, inotifywait, or watchfiles"
     exit 1
 fi
+unset _WATCHER_BIN_DIR
 
 # shellcheck source-path=SCRIPTDIR source=../shared/repo-root.sh disable=SC1091
 source "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")/.." && pwd -P)/shared/repo-root.sh"
@@ -777,7 +787,7 @@ scan_existing_responses() {
 
 scan_existing_responses
 
-fswatch -0 --event=Created --event=Updated --event=Renamed --event=MovedTo \
+"${SQUAD_WATCH}" -0 --event=Created --event=Updated --event=Renamed --event=MovedTo \
         -e '\.tmp$' -e '\.swp$' -e '\.lock$' -e '\.gitkeep$' \
         "${WATCH_PATHS[@]}" \
 | while IFS= read -r -d '' path; do
