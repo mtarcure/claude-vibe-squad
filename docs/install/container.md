@@ -15,6 +15,8 @@ Model lanes stay **native-CLI OAuth**. API keys in `.env` never authenticate
 | `runtime` | `runtime` | `daemon` (uvicorn `:9876`) + `squad` (`bin/squad up`) |
 | `tools` | `tools` | runtime plus `scripts/bootstrap-mcps.sh` wiring |
 
+`tools` builds `runtime` as well: its `volume-init` runs from that image.
+
 ```bash
 cp .env.example .env          # then fill values you actually use
 docker compose --profile test build
@@ -72,7 +74,10 @@ docker compose --profile runtime down
 
 ## Size budgets
 
-Measured 2026-09-06 on Docker Desktop (Windows host), then pinned:
+Measured 2026-09-06 on Docker Desktop (Windows host), then pinned. These
+predate the 2026-09-07 build changes (`.claude/worktrees` excluded from the
+context, whole-tree `chown -R` layer dropped), which only move the numbers
+down — re-measure before tightening a ceiling:
 
 - `vibe-squad:test`: 605 MB (ceiling 650 MB). Over the first-pass 250–400 MB
   guess because the image copies the checkout plus `.git` (suite inventory

@@ -26,21 +26,16 @@ COPY --from=ghcr.io/astral-sh/uv:0.11.7 /uv /usr/local/bin/uv
 RUN useradd --create-home --uid 1000 --shell /bin/bash squad
 WORKDIR /squad
 COPY --chown=squad:squad . /squad
-RUN find /squad \( -name '*.sh' -o -name '*.py' -o -name 'squad-watch' \
-            -o -name 'squad' -o -name 'test' -o -path '*/.githooks/*' \) \
-        -type f -exec sed -i 's/\r$//' {} + \
-    && chmod +x /squad/scripts/container-entrypoint.sh /squad/bin/squad-watch \
-        /squad/bin/squad /squad/bin/test /squad/bin/doctor.sh \
-    && { [ ! -f /squad/.githooks/pre-commit ] || chmod +x /squad/.githooks/pre-commit; } \
-    && chown -R squad:squad /squad
+RUN sed -i 's/\r$//' /squad/scripts/container-prepare.sh \
+    && bash /squad/scripts/container-prepare.sh
 
 USER squad
 ENV HOME=/home/squad \
     VAULT_ROOT=/squad \
-    PATH="/squad/bin:/home/squad/.local/bin:/usr/local/bin:${PATH}" \
+    PATH="/squad/bin:/squad/.venv/bin:/home/squad/.local/bin:/usr/local/bin:${PATH}" \
     UV_LINK_MODE=copy
 
-RUN uv sync
+RUN uv sync --locked
 
 ENV SQUAD_CI_HOST_INDEPENDENT=1
 ENTRYPOINT ["/squad/scripts/container-entrypoint.sh"]
@@ -74,22 +69,17 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
 RUN useradd --create-home --uid 1000 --shell /bin/bash squad
 WORKDIR /squad
 COPY --chown=squad:squad . /squad
-RUN find /squad \( -name '*.sh' -o -name '*.py' -o -name 'squad-watch' \
-            -o -name 'squad' -o -name 'test' -o -path '*/.githooks/*' \) \
-        -type f -exec sed -i 's/\r$//' {} + \
-    && chmod +x /squad/scripts/container-entrypoint.sh /squad/bin/squad-watch \
-        /squad/bin/squad /squad/bin/test /squad/bin/doctor.sh \
-    && { [ ! -f /squad/.githooks/pre-commit ] || chmod +x /squad/.githooks/pre-commit; } \
-    && chown -R squad:squad /squad
+RUN sed -i 's/\r$//' /squad/scripts/container-prepare.sh \
+    && bash /squad/scripts/container-prepare.sh
 
 USER squad
 ENV HOME=/home/squad \
     VAULT_ROOT=/squad \
-    PATH="/squad/bin:/home/squad/.local/bin:/usr/local/bin:${PATH}" \
+    PATH="/squad/bin:/squad/.venv/bin:/home/squad/.local/bin:/usr/local/bin:${PATH}" \
     UV_LINK_MODE=copy \
     SQUAD_DAEMON_MODE=process
 
-RUN uv sync --no-dev
+RUN uv sync --locked --no-dev
 
 # Provider CLIs are not baked: Linux installers and auth dirs vary, and a
 # missing binary must stay a bind-mount rather than a pretend capability

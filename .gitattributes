@@ -5,3 +5,5 @@ bin/squad-watch text eol=lf
 scripts/container-entrypoint.sh text eol=lf
 Dockerfile text eol=lf
 compose.yaml text eol=lf
+bin/squad text eol=lf
+bin/test text eol=lf

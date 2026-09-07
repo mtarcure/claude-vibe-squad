@@ -25,3 +25,4 @@ model-lanes/*/.gemini/settings.json
 **/*secret*.json
 .chrono-vault
 **/kg.db*
+.claude/worktrees

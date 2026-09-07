@@ -10,11 +10,16 @@ on:
       - "compose.yaml"
       - ".dockerignore"
       - "scripts/container-entrypoint.sh"
+      - "scripts/container-prepare.sh"
       - "shared/host-path.sh"
       - "shared/load-secrets.sh"
       - "shared/squad-daemon.sh"
       - "bin/squad-watch"
       - "scripts/python/squad_env_contract.py"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".python-version"
+      - ".gitattributes"
       - ".github/workflows/container-test.yml"
   workflow_dispatch:
 
@@ -32,6 +37,7 @@ jobs:
           scripts.python.tests.test_linux_portability_seams
           scripts.python.tests.test_research_credential_single_source
           scripts.python.tests.test_doctor_launch_dependency_parity
+          scripts.python.tests.test_compose_profile_images
           -v
       - name: Record image size
         run: docker images --format "{{.Repository}}:{{.Tag}}\t{{.Size}}"

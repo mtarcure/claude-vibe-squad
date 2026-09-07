@@ -8,6 +8,14 @@
 
 name: vibe-squad
 
+# Every profile that references vibe-squad:runtime must also build it. Without
+# this anchor on volume-init, `--profile tools` had no builder for that tag and
+# compose tried to PULL it from Docker Hub.
+x-runtime-build: &runtime-build
+  context: .
+  dockerfile: Dockerfile
+  target: runtime
+
 x-env-file: &env-file
   - path: .env
     required: false
@@ -17,6 +25,7 @@ services:
   # an init pass must chown before the non-root services start.
   volume-init:
     profiles: [runtime, tools]
+    build: *runtime-build
     image: vibe-squad:runtime
     user: "0:0"
     volumes:
@@ -44,10 +53,7 @@ services:
 
   daemon:
     profiles: [runtime]
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: runtime
+    build: *runtime-build
     image: vibe-squad:runtime
     env_file: *env-file
     environment:
@@ -82,6 +88,7 @@ services:
 
   squad:
     profiles: [runtime]
+    build: *runtime-build
     image: vibe-squad:runtime
     env_file: *env-file
     environment:
