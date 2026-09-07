@@ -18,33 +18,15 @@ import tempfile
 import unittest
 
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from bash_path import bash_path  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[3]
 LOAD_SECRETS = ROOT / "shared" / "load-secrets.sh"
 HOST_PATH = ROOT / "shared" / "host-path.sh"
 SQUAD_WATCH = ROOT / "bin" / "squad-watch"
 LAUNCH_SQUAD = ROOT / "bin" / "launch-squad.sh"
 SQUAD = ROOT / "bin" / "squad"
-
-
-def _bash() -> str:
-    # Linux / container: the image bash. Windows: Git Bash (WSL bash cannot
-    # exec DrvFs scripts reliably).
-    if os.name != "nt":
-        found = shutil.which("bash")
-        if found:
-            return found
-        raise unittest.SkipTest("bash is required for these seams")
-    for candidate in (
-        Path(r"C:\Users\slice\Apps\Cmder\vendor\git-for-windows\bin\bash.exe"),
-        Path(r"C:\Program Files\Git\bin\bash.exe"),
-    ):
-        if candidate.is_file():
-            return str(candidate)
-    for name in ("bash", "bash.exe"):
-        found = shutil.which(name)
-        if found and ("windows" in found.lower() or found.endswith("bash.exe")):
-            return found
-    raise unittest.SkipTest("Git Bash is required for these seams on Windows")
 
 
 def _posix(path: Path | str) -> str:
@@ -90,7 +72,7 @@ class EnvExampleContractTest(unittest.TestCase):
 class LoadSecretsPrecedenceTest(unittest.TestCase):
     def _run(self, env: dict[str, str], script: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            [_bash(), "-c", script],
+            [bash_path(), "-c", script],
             env=env,
             capture_output=True,
             text=True,
@@ -198,7 +180,7 @@ class SquadWatchBackendTest(unittest.TestCase):
                 "#!/usr/bin/env bash\nprintf 'fswatch:%s\\n' \"$*\"\n",
             )
             result = subprocess.run(
-                [_bash(), _posix(SQUAD_WATCH), "-0", "/tmp"],
+                [bash_path(), _posix(SQUAD_WATCH), "-0", "/tmp"],
                 env=_env(PATH=f"{_posix(fake)}:/usr/bin:/bin"),
                 capture_output=True,
                 text=True,
@@ -212,7 +194,7 @@ class SquadWatchBackendTest(unittest.TestCase):
             fake = Path(tmp) / "bin"
             fake.mkdir()
             result = subprocess.run(
-                [_bash(), _posix(SQUAD_WATCH), "-0", _posix(tmp)],
+                [bash_path(), _posix(SQUAD_WATCH), "-0", _posix(tmp)],
                 env=_env(
                     PATH=f"{_posix(fake)}:/usr/bin:/bin",
                     SQUAD_WATCH_BACKEND="no-such-backend",
@@ -232,7 +214,7 @@ class SquadWatchBackendTest(unittest.TestCase):
                 "#!/usr/bin/env bash\nprintf 'inotify:%s\\n' \"$*\"\n",
             )
             result = subprocess.run(
-                [_bash(), _posix(SQUAD_WATCH), "-0", "/tmp"],
+                [bash_path(), _posix(SQUAD_WATCH), "-0", "/tmp"],
                 env=_env(PATH=f"{_posix(fake)}:/usr/bin:/bin"),
                 capture_output=True,
                 text=True,
@@ -255,7 +237,7 @@ class DaemonLinuxSeamTest(unittest.TestCase):
             )
             env.pop("SQUAD_DAEMON_MODE", None)
             result = subprocess.run(
-                [_bash(), _posix(LAUNCH_SQUAD)],
+                [bash_path(), _posix(LAUNCH_SQUAD)],
                 env=env,
                 capture_output=True,
                 text=True,
@@ -295,7 +277,7 @@ class DaemonLinuxSeamTest(unittest.TestCase):
                 SQUAD_DAEMON_PIDFILE=_posix(Path(tmp) / "daemon.pid"),
             )
             result = subprocess.run(
-                [_bash(), _posix(vault / "bin" / "launch-squad.sh")],
+                [bash_path(), _posix(vault / "bin" / "launch-squad.sh")],
                 env=env,
                 capture_output=True,
                 text=True,
@@ -317,7 +299,7 @@ class DaemonLinuxSeamTest(unittest.TestCase):
             )
             env.pop("SQUAD_DAEMON_MODE", None)
             result = subprocess.run(
-                [_bash(), "-c", f'source "{SQUAD}"; true'],
+                [bash_path(), "-c", f'source "{SQUAD}"; true'],
                 env=env,
                 capture_output=True,
                 text=True,
@@ -335,7 +317,7 @@ class DaemonLinuxSeamTest(unittest.TestCase):
             )
             result = subprocess.run(
                 [
-                    _bash(),
+                    bash_path(),
                     "-c",
                     (
                         f'source "{ROOT / "shared" / "repo-root.sh"}"\n'
@@ -366,7 +348,7 @@ class HostPathDarwinGatingTest(unittest.TestCase):
             (home / ".local" / "bin").mkdir(parents=True)
             result = subprocess.run(
                 [
-                    _bash(),
+                    bash_path(),
                     "-c",
                     f'HOME="{_posix(home)}"; VAULT_ROOT="{_posix(ROOT)}"; '
                     f'PATH="{_posix(fake)}:/usr/bin:/bin"; '

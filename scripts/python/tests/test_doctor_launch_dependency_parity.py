@@ -32,6 +32,7 @@ import unittest
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from bash_path import bash_path  # noqa: E402
 from dispatch_checkout import normal_checkout_root  # noqa: E402
 import doctor_fixture  # noqa: E402
 
@@ -86,7 +87,7 @@ class DoctorLaunchDependencyParityTest(unittest.TestCase):
             environment.pop("CHRONO_VAULT_ROOT", None)
 
             result = subprocess.run(
-                ["/bin/bash", str(root / "bin" / "doctor.sh")],
+                [bash_path(), str(root / "bin" / "doctor.sh")],
                 env=environment,
                 capture_output=True,
                 text=True,
@@ -189,7 +190,7 @@ class DoctorLaunchDependencyParityTest(unittest.TestCase):
             environment.pop("CHRONO_DOCTOR_LOG_DIR", None)
             environment.pop("CHRONO_VAULT_ROOT", None)
             result = subprocess.run(
-                ["/bin/bash", str(root / "bin" / "doctor.sh")],
+                [bash_path(), str(root / "bin" / "doctor.sh")],
                 env=environment,
                 capture_output=True,
                 text=True,
