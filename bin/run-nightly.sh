@@ -21,12 +21,12 @@
 
 set -uo pipefail  # NOT -e — we want phases to continue even if one fails
 
-# launchd's spawn shell needs ~/.local/bin (claude, kimi) + brew paths.
-# Child phase scripts inherit this PATH.
-export PATH="${HOME}/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:${PATH}"
-
 # shellcheck source-path=SCRIPTDIR source=../shared/repo-root.sh disable=SC1091
 source "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")/.." && pwd -P)/shared/repo-root.sh"
+# shellcheck source=../shared/host-path.sh disable=SC1091
+source "${VAULT_ROOT}/shared/host-path.sh"
+# shellcheck source=../shared/load-secrets.sh disable=SC1091
+source "${VAULT_ROOT}/shared/load-secrets.sh"
 # shellcheck source=doctor-log-home.sh disable=SC1091
 source "${VAULT_ROOT}/bin/doctor-log-home.sh" || exit $?
 STATE_DIR="${VAULT_ROOT}/_state"
@@ -41,13 +41,6 @@ DAILY_LOG="${LOG_DIR}/${DATE}.log"
 mkdir -p "${LOG_DIR}" "${STATE_DIR}/morning-briefs" "${CHRONO_DOCTOR_LOG_DIR}" \
          "${STATE_DIR}/cleanup-logs" "${STATE_DIR}/dream-logs"
 
-# Source operator secrets
-if [[ -f "${HOME}/.config/shell/secrets.zsh" ]]; then
-    set +u
-    # shellcheck disable=SC1091
-    source "${HOME}/.config/shell/secrets.zsh"
-    set -u
-fi
 export CHRONO_VAULT_ROOT="${CHRONO_VAULT_ROOT:-${HOME}/Obsidian-Chrono}"
 
 export VAULT_ROOT

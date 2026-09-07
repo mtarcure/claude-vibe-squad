@@ -6,10 +6,11 @@
 # and bin/doctor.sh is what README's Quickstart tells a new user to run
 # immediately BEFORE `squad up`. While the list lived only inside the launcher's
 # loop, doctor never mentioned `fswatch`, `uv` or `curl` once in its 1,390 lines
-# (measured 2026-08-17), so a fresh clone without fswatch got a GREEN pre-flight
-# and then a launch that exited 1 -- the health check passing for the very
-# launch it exists to pre-flight. A copied list would have aged back into that
-# state; a shared one cannot.
+# (measured 2026-08-17), so a fresh clone without the portable watcher got a
+# GREEN pre-flight and then a launch that exited 1 -- the health check passing
+# for the very launch it exists to pre-flight. A copied list would have aged
+# back into that state; a shared one cannot. The watcher token is `squad-watch`
+# (bin/squad-watch), which selects fswatch / inotifywait / watchfiles.
 #
 # `uv` is on this list and was not on the launcher's. README's Quickstart has
 # always required it, and bin/{run-nightly,run-weekly,browser-keep-alive,
@@ -30,8 +31,9 @@
 # greps every *.sh for `set -` and warns here for exactly that reason;
 # shared/repo-root.sh, shared/namespaces.sh, shared/lead-windows.sh and
 # shared/process-identity.sh are sourced libraries in the same position.
-SQUAD_REQUIRED_COMMANDS=(tmux fswatch jq curl uv claude codex agy grok kimi)
+SQUAD_REQUIRED_COMMANDS=(tmux squad-watch jq curl uv claude codex agy grok kimi)
 
 # The one remedy string both callers print, so the list and the fix for it
-# cannot drift apart either.
-SQUAD_REQUIRED_COMMANDS_HINT='install/login the missing CLIs, and install core tools with: brew install jq tmux fswatch uv'
+# cannot drift apart either. Not Homebrew-only: Linux/container uses distro
+# packages + inotify-tools (or the pinned watchfiles extra) for squad-watch.
+SQUAD_REQUIRED_COMMANDS_HINT='install/login the missing CLIs, and install core tools (tmux, jq, curl, uv, plus fswatch or inotify-tools or watchfiles for bin/squad-watch)'

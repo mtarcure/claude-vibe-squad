@@ -3,10 +3,10 @@
 
 set -uo pipefail
 
-export PATH="${HOME}/.grok/bin:${HOME}/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:${PATH}"
-
 # shellcheck source-path=SCRIPTDIR source=../shared/repo-root.sh disable=SC1091
 source "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")/.." && pwd -P)/shared/repo-root.sh"
+# shellcheck source=../shared/host-path.sh disable=SC1091
+source "${VAULT_ROOT}/shared/host-path.sh"
 CHRONO_PY="${CHRONO_PY:-${VAULT_ROOT}/.venv/bin/python}"
 CHRONO_PLUGINS="${CHRONO_PLUGINS:-${VAULT_ROOT}/plugins}"
 PROBE="${VAULT_ROOT}/scripts/python/mcp_probe.py"
@@ -18,11 +18,9 @@ mkdir -p "$(dirname "${LOG}")"
 # Library mode (MCP_AUDIT_LIB_ONLY=1) stops before any side effect so the test
 # suite can exercise the helpers below. It must not inherit the operator's real
 # secrets either, or credential-presence assertions would depend on the host.
-if [[ "${MCP_AUDIT_LIB_ONLY:-0}" != "1" && -f "${HOME}/.config/shell/secrets.zsh" ]]; then
-    set +u
-    # shellcheck disable=SC1090
-    source "${HOME}/.config/shell/secrets.zsh"
-    set -u
+if [[ "${MCP_AUDIT_LIB_ONLY:-0}" != "1" ]]; then
+    # shellcheck source=../shared/load-secrets.sh disable=SC1091
+    source "${VAULT_ROOT}/shared/load-secrets.sh"
 fi
 
 MCPS=(

@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+# Portable mailbox watcher: fswatch (Darwin) / inotifywait (Linux) / watchfiles.
+#
+# Emits NUL-delimited paths on stdout, matching the outbox-watcher contract
+# (`fswatch -0`). Callers do not name a backend.
+#
+# Usage (same shape the watcher already used with fswatch):
+#   squad-watch -0 [--event=...] [-e PATTERN]... PATH...
+#
+# Backend selection (first that is present):
+#   SQUAD_WATCH_BACKEND=fswatch|inotifywait|watchfiles   # optional override
+#   else fswatch, then inotifywait, then python -m watchfiles
+
+set -uo pipefail
+
+NULL_DELIMITED=0
+EXCLUDE_PATTERNS=()
+EVENTS=()
+WATCH_PATHS=()
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -0) NULL_DELIMITED=1; shift ;;
+        -e)
+            EXCLUDE_PATTERNS+=("${2:-}")
+            shift 2
+            ;;
+        --event=*)
+            EVENTS+=("${1#--event=}")
+            shift
+            ;;
+        --event)
+            EVENTS+=("${2:-}")
+            shift 2
+            ;;
+        --)
+            shift
+            WATCH_PATHS+=("$@")
+            break
+            ;;
+        -*)
+            echo "squad-watch: unsupported option: $1" >&2
+            exit 64
+            ;;
+        *)
+            WATCH_PATHS+=("$1")
+            shift
+            ;;
+    esac
+done
+
+if [[ "${#WATCH_PATHS[@]}" -eq 0 ]]; then
+    echo "usage: squad-watch -0 [--event=Created] [-e PATTERN] PATH..." >&2
+    exit 64
+fi
+
+backend="${SQUAD_WATCH_BACKEND:-}"
+if [[ -z "${backend}" ]]; then
+    if command -v fswatch >/dev/null 2>&1; then
+        backend="fswatch"
+    elif command -v inotifywait >/dev/null 2>&1; then
+        backend="inotifywait"
+    elif command -v python3 >/dev/null 2>&1 && python3 -c "import watchfiles" >/dev/null 2>&1; then
+        backend="watchfiles"
+    else
+        echo "squad-watch: no backend (install fswatch, inotify-tools, or the watchfiles Python package)" >&2
+        exit 1
+    fi
+fi
+
+emit_null() {
+    if [[ "${NULL_DELIMITED}" -eq 1 ]]; then
+        printf '%s\0' "$1"
+    else
+        printf '%s\n' "$1"
+    fi
+}
+
+case "${backend}" in
+    fswatch)
+        fswatch_args=()
+        if [[ "${NULL_DELIMITED}" -eq 1 ]]; then
+            fswatch_args+=(-0)
+        fi
+        for ev in "${EVENTS[@]+"${EVENTS[@]}"}"; do
+            [[ -n "${ev}" ]] || continue
+            fswatch_args+=(--event="${ev}")
+        done
+        for pat in "${EXCLUDE_PATTERNS[@]+"${EXCLUDE_PATTERNS[@]}"}"; do
+            [[ -n "${pat}" ]] || continue
+            fswatch_args+=(-e "${pat}")
+        done
+        exec fswatch "${fswatch_args[@]}" "${WATCH_PATHS[@]}"
+        ;;
+    inotifywait)
+        inotify_events=()
+        if [[ "${#EVENTS[@]}" -eq 0 ]]; then
+            inotify_events+=(create modify move)
+        else
+            for ev in "${EVENTS[@]}"; do
+                case "${ev}" in
+                    Created|Create) inotify_events+=(create) ;;
+                    Updated|Modify) inotify_events+=(modify) ;;
+                    Renamed|MovedTo|Move) inotify_events+=(move) ;;
+                    *) inotify_events+=(modify) ;;
+                esac
+            done
+        fi
+        exclude_args=()
+        for pat in "${EXCLUDE_PATTERNS[@]+"${EXCLUDE_PATTERNS[@]}"}"; do
+            [[ -n "${pat}" ]] || continue
+            exclude_args+=(--exclude "${pat}")
+        done
+        event_csv="$(IFS=,; printf '%s' "${inotify_events[*]}")"
+        # -m monitor, -r recursive, --format path+file. Paths may contain
+        # spaces; read line-by-line then emit NUL if requested.
+        inotifywait -m -r --format '%w%f' -e "${event_csv}" \
+            "${exclude_args[@]+"${exclude_args[@]}"}" \
+            "${WATCH_PATHS[@]}" \
+        | while IFS= read -r path; do
+            emit_null "${path}"
+        done
+        ;;
+    watchfiles)
+        export SQUAD_WATCH_PATHS_NUL=""
+        for p in "${WATCH_PATHS[@]}"; do
+            SQUAD_WATCH_PATHS_NUL="${SQUAD_WATCH_PATHS_NUL}${p}"$'\0'
+        done
+        export SQUAD_WATCH_EXCLUDE="$(printf '%s\n' "${EXCLUDE_PATTERNS[@]+"${EXCLUDE_PATTERNS[@]}"}")"
+        export SQUAD_WATCH_NULL="${NULL_DELIMITED}"
+        exec python3 - <<'PY'
+from __future__ import annotations
+
+import os
+import sys
+
+try:
+    from watchfiles import watch
+except ImportError:
+    sys.stderr.write("squad-watch: watchfiles is not installed\n")
+    raise SystemExit(1)
+
+raw = os.environ.get("SQUAD_WATCH_PATHS_NUL", "")
+paths = [p for p in raw.split("\0") if p]
+excludes = [p for p in os.environ.get("SQUAD_WATCH_EXCLUDE", "").splitlines() if p]
+null_delimited = os.environ.get("SQUAD_WATCH_NULL") == "1"
+
+def ignored(path: str) -> bool:
+    name = path.rsplit("/", 1)[-1]
+    for pat in excludes:
+        token = pat.strip("\\")
+        if token and token in name:
+            return True
+    return False
+
+for changes in watch(*paths):
+    for _kind, path in changes:
+        if ignored(path):
+            continue
+        if null_delimited:
+            sys.stdout.buffer.write(path.encode() + b"\0")
+        else:
+            sys.stdout.write(path + "\n")
+        sys.stdout.flush()
+PY
+        ;;
+    *)
+        echo "squad-watch: unknown backend ${backend}" >&2
+        exit 64
+        ;;
+esac

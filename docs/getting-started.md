@@ -1,6 +1,6 @@
 # Getting started
 
-Vibe Squad is currently macOS-first, and setup is manual. The normal experience
+Vibe Squad runs on macOS natively, or on Linux via [the container path](install/container.md). Setup is manual. The normal experience
 is one conversation with Chrono; Codex, Claude, the agy-backed Gemini lane,
 Grok, and Kimi run as fresh native CLI processes behind the board.
 
@@ -11,9 +11,11 @@ check after every step, see [docs/install](install/README.md).
 
 You need:
 
-- `tmux`, `fswatch`, `jq`, and `curl`
+- `tmux`, `squad-watch`, `jq`, and `curl`
 - Python 3.13 and `uv`
 - the `claude`, `codex`, `agy`, `grok`, and `kimi` CLIs
+
+`squad-watch` is `bin/squad-watch` and selects `fswatch` (macOS), `inotifywait` (Linux), or the pinned `watchfiles` package.
 
 ```bash
 brew install jq tmux fswatch
@@ -73,7 +75,7 @@ if [ ! -f "$CHRONO_VAULT_ROOT/.chrono-vault" ]; then
 fi
 ```
 
-Persist `CHRONO_VAULT_ROOT` in your shell configuration. Do not place this
+Persist `CHRONO_VAULT_ROOT` in `.env` (portable) or your shell configuration (Mac-host legacy). Do not place this
 directory inside the clone, and never commit its notes or credentials. See the
 [Chrono Vault guide](../plugins/chrono-vault/README.md) for its data model and
 safety boundary.
@@ -81,7 +83,9 @@ safety boundary.
 ## 4. Configure authentication and optional tools
 
 If you enable the optional Gemini-backed media provider, make its
-`GEMINI_API_KEY` available through your local secret store or shell environment.
+`GEMINI_API_KEY` available through `.env`, `SQUAD_SECRETS_DIR`, or the legacy
+`~/.config/shell/secrets.zsh` store. Load order is owned by
+`shared/load-secrets.sh`.
 The agy lane itself uses OAuth and does not consume that key. Do not add it, or
 any other credential, to the repository.
 

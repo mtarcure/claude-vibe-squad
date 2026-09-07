@@ -4,15 +4,15 @@ The supported install path, in order. Each step has a command you run and a
 **check** that proves it worked. Do not move to the next step until the check
 passes — an installed file is not evidence that a capability works.
 
-Vibe Squad currently targets macOS.
+Vibe Squad targets macOS natively, or Linux via the [container path](container.md). launchd stays Darwin-only and optional.
 
 | # | Step | Guide |
 |---|---|---|
-| 1 | Core tools (`tmux`, `fswatch`, `jq`, `curl`, Python, `uv`) | below |
+| 1 | Core tools (`tmux`, `squad-watch`, `jq`, `curl`, Python, `uv`) | below |
 | 2 | The four provider CLIs, installed and authenticated | [provider-clis.md](provider-clis.md) |
 | 3 | Clone and create the Python environment | below |
 | 4 | The private memory vault | [../getting-started.md](../getting-started.md#3-create-the-private-memory-vault) |
-| 5 | Check and launch | below |
+| 5 | Check and launch | below, or [container.md](container.md) |
 | 6 | Optional: the launchd routines | [daemon.md](daemon.md) |
 | 7 | Optional: utility MCPs | below |
 | 8 | Optional: guarded security MCPs | [security-mcps.md](security-mcps.md) |
@@ -23,9 +23,15 @@ everything else working — see [What "optional" means](#what-optional-means).
 
 ## 1. Core tools
 
+macOS:
+
 ```bash
 brew install jq tmux fswatch uv
 ```
+
+Linux: install `jq`, `tmux`, `curl`, `uv`, and `inotify-tools` (or the pinned
+`watchfiles` extra). `bin/squad-watch` selects `fswatch` / `inotifywait` /
+`watchfiles`. Or skip host packages and use [container.md](container.md).
 
 `curl` ships with macOS. Python 3.13 is covered in step 3, which runs `uv sync` --
 `uv` itself is installed above because that step depends on it.
@@ -33,7 +39,8 @@ brew install jq tmux fswatch uv
 Check:
 
 ```bash
-for t in tmux fswatch jq curl; do command -v "$t" || echo "MISSING: $t"; done
+source shared/launch-dependencies.sh
+for t in "${SQUAD_REQUIRED_COMMANDS[@]}"; do command -v "$t" || echo "MISSING: $t"; done
 ```
 
 ## 2. Provider CLIs
@@ -134,8 +141,8 @@ not a pass.
 
 Concretely:
 
-- No `secrets.zsh` → the optional research/media integrations stay off. Nothing
-  else changes.
+- No secret source (`.env`, `SQUAD_SECRETS_DIR`, or legacy `secrets.zsh`) → the
+  optional research/media integrations stay off. Nothing else changes.
 - No `mcp-context-protector` → those three guarded security MCPs are
   unavailable and say so. No other MCP, specialist, or lane is affected.
 - A provider CLI that is not installed → `scripts/bootstrap-mcps.sh --status`
@@ -148,7 +155,7 @@ Concretely:
   blocks the launch — see [daemon.md](daemon.md).
 
 The four provider CLIs are **not** optional: `bin/squad up` blocks on them.
-Neither are `tmux`, `fswatch`, `jq`, `curl`, Python 3.13, and `uv`. Those are
+Neither are `tmux`, `squad-watch`, `jq`, `curl`, Python 3.13, and `uv`. Those are
 third-party tools doing real work, and requiring them is the point; a background
 launchd job of our own is not in that category, which is why it stopped being a
 precondition.

@@ -13,10 +13,10 @@
 # Exit codes: 0 dispatched · 1 bad usage or render failure · 2 dry run.
 
 set -euo pipefail
-export PATH="${HOME}/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:${PATH}"
-
 # shellcheck source-path=SCRIPTDIR source=../shared/repo-root.sh disable=SC1091
 source "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")/.." && pwd -P)/shared/repo-root.sh"
+# shellcheck source=../shared/host-path.sh disable=SC1091
+source "${VAULT_ROOT}/shared/host-path.sh"
 
 PASS="${SQUAD_DREAM_PASS:-}"
 STATE_REL="${SQUAD_DREAM_STATE_DIR:-_state}"

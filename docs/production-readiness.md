@@ -1,6 +1,6 @@
 # Production Readiness
 
-Supported platform is macOS first.
+Supported platform is macOS natively, or Linux/container for the required path (steps 1–5). Seatbelt and launchd remain Darwin-only.
 
 ## Release Checklist
 

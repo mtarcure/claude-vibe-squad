@@ -5,7 +5,9 @@ Do not commit local secrets, browser state, raw logs, or live task outputs.
 Private/local:
 
 - API keys and OAuth tokens
-- `~/.claude`, `~/.codex`, `~/.gemini`, `~/.kimi` auth state
+- `.env` and `.env.secrets` (never commit; start from `.env.example`)
+- `SQUAD_SECRETS_DIR` files (default `/run/secrets`, one file per name)
+- `~/.claude`, `~/.codex`, `~/.gemini`, `~/.kimi` auth state, plus any CLI auth dirs you bind-mount into a container
 - legacy Chrono repo at `~/chrono`
 - Chrono Vault / Obsidian knowledge vault contents when they include private operator memory
 - Chrome profiles and CDP session state

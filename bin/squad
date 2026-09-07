@@ -27,6 +27,10 @@ set -uo pipefail
 
 # shellcheck source-path=SCRIPTDIR source=../shared/repo-root.sh disable=SC1091
 source "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")/.." && pwd -P)/shared/repo-root.sh"
+# shellcheck source=../shared/host-path.sh disable=SC1091
+source "${VAULT_ROOT}/shared/host-path.sh"
+# shellcheck source=../shared/squad-daemon.sh disable=SC1091
+source "${VAULT_ROOT}/shared/squad-daemon.sh"
 
 cmd="${1:-up}"
 
@@ -66,9 +70,15 @@ stop_daemon() {
         echo "ERROR: SQUAD_DAEMON_VERIFY_DELAY must be a non-negative number." >&2
         return 64
     fi
+    if [[ "${SQUAD_DAEMON_MODE:-}" == "process" ]] \
+        || [[ -n "${SQUAD_DAEMON_COMPOSE_SERVICE:-}" ]] \
+        || [[ -f "${SQUAD_DAEMON_PIDFILE:-}" ]]; then
+        squad_stop_process_daemon
+        return $?
+    fi
     if ! command -v launchctl >/dev/null 2>&1; then
-        echo "ERROR: launchctl is unavailable; cannot confirm the daemon stopped." >&2
-        return 127
+        echo "✓ No launchd daemon to stop (launchctl unavailable)."
+        return 0
     fi
 
     launchd_domain="gui/$(id -u)"
@@ -257,9 +267,11 @@ squad_verify_absent() {
                 remaining=1
                 ;;
         esac
-    else
-        echo "  UNVERIFIED: launchctl is unavailable, so ${DAEMON_LABEL} cannot be shown absent." >&2
+    elif squad_process_daemon_alive; then
+        echo "  STILL UP: process-mode daemon (pid $(squad_daemon_pidfile_pid))." >&2
         remaining=1
+    else
+        echo "  ✓ no launchd daemon on this host (launchctl unavailable; no process-mode pidfile)."
     fi
 
     if [[ "${SQUAD_IDENTITY_READY}" == "1" ]]; then

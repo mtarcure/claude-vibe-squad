@@ -5,7 +5,7 @@
 
 ```text
 ERROR: missing required command(s): claude kimi
-Fix: install/login the missing CLIs, and install core tools with: brew install jq tmux fswatch
+Fix: install/login the missing CLIs, and install core tools (tmux, jq, curl, uv, plus fswatch or inotify-tools or watchfiles for bin/squad-watch)
 ```
 
 All five are required. `shared/launch-dependencies.sh` is the executable

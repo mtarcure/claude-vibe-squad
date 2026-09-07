@@ -1,0 +1,130 @@
+# Vibe Squad compose profiles. One file, three profiles.
+# Operator guide: docs/install/container.md
+#
+#   docker compose --profile test build
+#   docker compose --profile test run --rm test
+#   docker compose --profile runtime up
+#   docker compose --profile tools run --rm tools
+
+name: vibe-squad
+
+x-env-file: &env-file
+  - path: .env
+    required: false
+
+services:
+  # Named volumes are created root:root. The runtime user is 1000:1000, so
+  # an init pass must chown before the non-root services start.
+  volume-init:
+    profiles: [runtime, tools]
+    image: vibe-squad:runtime
+    user: "0:0"
+    volumes:
+      - chrono-vault:/vault
+      - squad-state:/squad/_state
+    command:
+      [
+        "bash",
+        "-c",
+        "mkdir -p /vault /squad/_state && chown -R 1000:1000 /vault /squad/_state",
+      ]
+    restart: "no"
+
+  test:
+    profiles: [test]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: test
+    image: vibe-squad:test
+    env_file: *env-file
+    environment:
+      SQUAD_CI_HOST_INDEPENDENT: "1"
+    # No published ports. Hermetic suite only.
+
+  daemon:
+    profiles: [runtime]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: vibe-squad:runtime
+    env_file: *env-file
+    environment:
+      SQUAD_DAEMON_MODE: process
+      VAULT_ROOT: /squad
+      CHRONO_VAULT_ROOT: /vault
+      VIBESQUAD_DAEMON_TOKEN: ${VIBESQUAD_DAEMON_TOKEN:-}
+    command:
+      [
+        ".venv/bin/uvicorn",
+        "daemon.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "9876",
+      ]
+    ports:
+      - "127.0.0.1:9876:9876"
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
+    volumes:
+      - chrono-vault:/vault
+      - squad-state:/squad/_state
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9876/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+    user: "1000:1000"
+
+  squad:
+    profiles: [runtime]
+    image: vibe-squad:runtime
+    env_file: *env-file
+    environment:
+      SQUAD_DAEMON_MODE: ""
+      VAULT_ROOT: /squad
+      CHRONO_VAULT_ROOT: /vault
+      VIBESQUAD_DAEMON_TOKEN: ${VIBESQUAD_DAEMON_TOKEN:-}
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
+      daemon:
+        condition: service_healthy
+    command: ["bin/squad", "up"]
+    tty: true
+    stdin_open: true
+    volumes:
+      - chrono-vault:/vault
+      - squad-state:/squad/_state
+      # CLI auth (host paths; unused until the operator mounts real dirs):
+      # - ${HOME}/.claude:/home/squad/.claude
+      # - ${HOME}/.codex:/home/squad/.codex
+    user: "1000:1000"
+
+  tools:
+    profiles: [tools]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: tools
+    image: vibe-squad:tools
+    env_file: *env-file
+    environment:
+      VAULT_ROOT: /squad
+      CHRONO_VAULT_ROOT: /vault
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
+    volumes:
+      - chrono-vault:/vault
+      - squad-state:/squad/_state
+    tty: true
+    stdin_open: true
+
+volumes:
+  chrono-vault:
+  squad-state:

@@ -25,6 +25,10 @@ set -uo pipefail
 SESSION="${SQUAD_SESSION:-squad}"
 # shellcheck source-path=SCRIPTDIR source=../shared/repo-root.sh disable=SC1091
 source "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")/.." && pwd -P)/shared/repo-root.sh"
+# shellcheck source=../shared/host-path.sh disable=SC1091
+source "${VAULT_ROOT}/shared/host-path.sh"
+# shellcheck source=../shared/squad-daemon.sh disable=SC1091
+source "${VAULT_ROOT}/shared/squad-daemon.sh"
 source "${VAULT_ROOT}/shared/lead-windows.sh"
 
 # Canonical value: launchd/com.vibesquad.daemon.plist. The lifecycle regression
@@ -95,9 +99,18 @@ ensure_daemon_loaded() {
         echo "ERROR: SQUAD_DAEMON_VERIFY_DELAY must be a non-negative number." >&2
         return 64
     fi
+    if [[ "${SQUAD_DAEMON_MODE:-}" == "process" ]]; then
+        squad_ensure_process_daemon
+        return $?
+    fi
     if ! command -v launchctl >/dev/null 2>&1; then
-        echo "ERROR: launchctl is unavailable; cannot start or verify the daemon." >&2
-        return 127
+        # Linux/container: launchd is not here. Same answer as "no plist
+        # installed" — the daemon is optional, so continue. Process mode
+        # above is the supervisor path that actually starts uvicorn.
+        echo "NOTICE: launchctl is unavailable — continuing without the optional launchd daemon."
+        echo "        Set SQUAD_DAEMON_MODE=process to start uvicorn on ${SQUAD_DAEMON_HOST}:${SQUAD_DAEMON_PORT},"
+        echo "        or let Compose own the daemon service. See docs/install/container.md."
+        return "${DAEMON_ABSENT_RC}"
     fi
 
     launchd_domain="gui/$(id -u)"
@@ -627,8 +640,8 @@ if [[ "$vs_lane_status_poller_rc" -eq 1 ]]; then
     # poller process, and never enters this launcher's memory or env, let alone
     # the panes that inherit it -- API keys have leaked into terminal titles
     # through that path before. NEVER source the whole secrets file here.
-    if zsh -c 'source "$HOME/.config/shell/secrets.zsh" 2>/dev/null; [[ -n "${VIBESQUAD_DAEMON_TOKEN:-}" ]]'; then
-        VIBESQUAD_DAEMON_TOKEN="$(zsh -c 'source "$HOME/.config/shell/secrets.zsh" 2>/dev/null; printf %s "${VIBESQUAD_DAEMON_TOKEN:-}"')" \
+    if bash -c 'source "$1" && [[ -n "${VIBESQUAD_DAEMON_TOKEN:-}" ]]' _ "${VAULT_ROOT}/shared/load-secrets.sh"; then
+        VIBESQUAD_DAEMON_TOKEN="$(bash -c 'source "$1"; printf %s "${VIBESQUAD_DAEMON_TOKEN:-}"' _ "${VAULT_ROOT}/shared/load-secrets.sh")" \
             nohup bash "${VAULT_ROOT}/bin/vs-lane-status.sh" >/dev/null 2>&1 &
     else
         # File mode instead, aimed at a path that is deliberately not there. The
@@ -1121,13 +1134,13 @@ def watcher_seed(command: str) -> bool:
     if executable.lower().startswith("python") and rest == f"{runtime_script} reconcile-sweep":
         return True
 
-    # fswatch is the one shape with no fixed argv length -- the watcher passes
-    # one mailbox path per directory it monitors -- so "some argv element is a
-    # VAULT_ROOT-scoped mailbox leaf" is the only available test and
-    # tokenizing is unavoidable. It is gated behind the `fswatch` executable
-    # name so a specialist's prose argv can never reach it, and every accepted
-    # token is still VAULT_ROOT-anchored.
-    if executable == "fswatch":
+    # squad-watch (and its Darwin backend fswatch) is the one shape with no
+    # fixed argv length -- the watcher passes one mailbox path per directory
+    # it monitors -- so "some argv element is a VAULT_ROOT-scoped mailbox
+    # leaf" is the only available test and tokenizing is unavoidable. Gated
+    # behind those executable names so a specialist's prose argv can never
+    # reach it, and every accepted token is still VAULT_ROOT-anchored.
+    if executable in {"fswatch", "squad-watch", "inotifywait"}:
         try:
             tokens = shlex.split(command)
         except ValueError:

@@ -972,6 +972,37 @@ if sha256_file(resolved_executable, "cli_missing") != authority["executable_sha2
     deny("lane executable content does not match authenticated authority")
 
 
+def _unified_secret_values(*names):
+    """Read named secrets through shared/load-secrets.sh (first set wins)."""
+    vault = os.environ.get("VAULT_ROOT", "")
+    loader = os.path.join(vault, "shared", "load-secrets.sh") if vault else ""
+    printf_bits = "\\t".join("${%s:-}" % name for name in names)
+    script = 'source "$1" 2>/dev/null || true; printf %s "' + printf_bits + '"'
+    try:
+        completed = subprocess.run(
+            (
+                "/bin/bash",
+                "-c",
+                script,
+                "_",
+                loader,
+                " ".join(names),
+            ),
+            check=False,
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            env=dict(os.environ),
+            timeout=10,
+            close_fds=True,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if completed.returncode != 0 or "\n" in completed.stdout:
+        return None
+    return completed.stdout.split("\t")
+
+
 def load_solodit_api_key():
     # The guarded-solodit MCP (Cyfrin Solodit findings search) authenticates
     # with SOLODIT_API_KEY, which lives only in the off-repo secret store — it
@@ -983,29 +1014,10 @@ def load_solodit_api_key():
     home = os.environ.get("HOME", "")
     if not home or "\x00" in home:
         return None
-    try:
-        completed = subprocess.run(
-            (
-                "/bin/zsh",
-                "-f",
-                "-c",
-                'source "$HOME/.config/shell/secrets.zsh" 2>/dev/null; '
-                'print -rn -- "${SOLODIT_API_KEY:-}"',
-            ),
-            check=False,
-            capture_output=True,
-            text=True,
-            stdin=subprocess.DEVNULL,
-            env={
-                "HOME": home,
-                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-            },
-            timeout=10,
-            close_fds=True,
-        )
-    except (OSError, subprocess.SubprocessError):
+    parts = _unified_secret_values("SOLODIT_API_KEY")
+    if parts is None or len(parts) != 1:
         return None
-    value = completed.stdout
+    value = parts[0]
     if (
         completed.returncode != 0
         or not value
@@ -1034,33 +1046,8 @@ def load_research_api_keys():
     home = os.environ.get("HOME", "")
     if not home or "\x00" in home:
         return {}
-    try:
-        completed = subprocess.run(
-            (
-                "/bin/zsh",
-                "-f",
-                "-c",
-                'source "$HOME/.config/shell/secrets.zsh" 2>/dev/null; '
-                'print -rn -- "${XAI_API_KEY:-}\t${PERPLEXITY_API_KEY:-}'
-                '\t${FIRECRAWL_API_KEY:-}"',
-            ),
-            check=False,
-            capture_output=True,
-            text=True,
-            stdin=subprocess.DEVNULL,
-            env={
-                "HOME": home,
-                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-            },
-            timeout=10,
-            close_fds=True,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return {}
-    if completed.returncode != 0 or "\n" in completed.stdout:
-        return {}
-    parts = completed.stdout.split("\t")
-    if len(parts) != len(RESEARCH_API_KEY_NAMES):
+    parts = _unified_secret_values(*RESEARCH_API_KEY_NAMES)
+    if parts is None or len(parts) != len(RESEARCH_API_KEY_NAMES):
         return {}
     keys = {}
     for name, value in zip(RESEARCH_API_KEY_NAMES, parts):
@@ -1103,31 +1090,10 @@ def load_github_mcp_token():
     home = os.environ.get("HOME", "")
     if not home or "\x00" in home:
         return None
-    try:
-        completed = subprocess.run(
-            (
-                "/bin/zsh",
-                "-f",
-                "-c",
-                'source "$HOME/.config/shell/secrets.zsh" 2>/dev/null; '
-                'print -rn -- "${GITHUB_MCP_TOKEN:-${GITHUB_PERSONAL_ACCESS_TOKEN:-}}"',
-            ),
-            check=False,
-            capture_output=True,
-            text=True,
-            stdin=subprocess.DEVNULL,
-            env={
-                "HOME": home,
-                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-            },
-            timeout=10,
-            close_fds=True,
-        )
-    except (OSError, subprocess.SubprocessError):
+    parts = _unified_secret_values("GITHUB_MCP_TOKEN", "GITHUB_PERSONAL_ACCESS_TOKEN")
+    if parts is None or len(parts) != 2:
         return None
-    if completed.returncode != 0 or "\n" in completed.stdout:
-        return None
-    token = completed.stdout
+    token = parts[0] or parts[1]
     if not token or len(token) > 16384 or "\x00" in token:
         return None
     return token

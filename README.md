@@ -43,7 +43,7 @@ The product is the instruction layer, and it is Markdown all the way down. Modes
 
 ## Quickstart
 
-macOS, for now. You need `tmux`, `fswatch`, `jq`, `curl`, Python 3.13, `uv`, and authenticated native CLIs for Claude, Codex, Gemini (`agy`), Kimi, and Grok.
+macOS, or `docker compose --profile runtime up`. You need `tmux`, `squad-watch`, `jq`, `curl`, Python 3.13, `uv`, and authenticated native CLIs for Claude, Codex, Gemini (`agy`), Kimi, and Grok. `squad-watch` is `bin/squad-watch` (on `PATH` once `host-path.sh` loads) and selects `fswatch`, `inotifywait`, or `watchfiles`. Container path: [docs/install/container.md](docs/install/container.md).
 
 Memory lives outside the public repository. Create a private vault once:
 

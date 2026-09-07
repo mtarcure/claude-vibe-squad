@@ -1,0 +1,37 @@
+name: Container Test
+
+# Optional CI: build the small `test` image and run the hermetic suite.
+# Do not install the five provider CLIs on GitHub-hosted runners.
+
+on:
+  pull_request:
+    paths:
+      - "Dockerfile"
+      - "compose.yaml"
+      - ".dockerignore"
+      - "scripts/container-entrypoint.sh"
+      - "shared/host-path.sh"
+      - "shared/load-secrets.sh"
+      - "shared/squad-daemon.sh"
+      - "bin/squad-watch"
+      - "scripts/python/squad_env_contract.py"
+      - ".github/workflows/container-test.yml"
+  workflow_dispatch:
+
+jobs:
+  test-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build test target
+        run: docker compose --profile test build
+      - name: Run portability seam tests
+        run: >
+          docker compose --profile test run --rm test
+          python -m unittest
+          scripts.python.tests.test_linux_portability_seams
+          scripts.python.tests.test_research_credential_single_source
+          scripts.python.tests.test_doctor_launch_dependency_parity
+          -v
+      - name: Record image size
+        run: docker images --format "{{.Repository}}:{{.Tag}}\t{{.Size}}"
