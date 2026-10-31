@@ -161,7 +161,10 @@ CANONICAL_SANDBOX_EXEC = Path("/usr/bin/sandbox-exec")
 # every build: lane runtimes need sysctl-read to start, and that grant lets a
 # confined lane read other same-user processes' argv and environment through
 # KERN_PROCARGS2, which a sysctl-name deny did not block.
-KNOWN_MACOS_BUILDS = frozenset({"25E253", "26A428"})
+# 26B123 (macOS 27.2) passed qualify_macos_build.py for lanes claude, codex, and gemini on
+# 2026-10-31 (sandbox-exec sha256 10cf4a46...). The grok lane was not qualified: its CLI is
+# not installed on that host, and grok is optional for this install.
+KNOWN_MACOS_BUILDS = frozenset({"25E253", "26A428", "26B123"})
 # This canary proves only that the pinned sandbox-exec binary still compiles a
 # profile and launches a harmless binary. Enforcement is proven separately by
 # the deny-default effect probes; keeping the compatibility canary permissive
